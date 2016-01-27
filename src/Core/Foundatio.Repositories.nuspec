@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package >
+  <metadata>
+    <id>Foundatio.Repositories</id>
+    <version>$version$</version>
+    <title>Foundatio Repositories</title>
+    <authors>ejsmith, bniemyjski</authors>
+    <licenseUrl>http://www.apache.org/licenses/LICENSE-2.0</licenseUrl>
+    <projectUrl>https://github.com/exceptionless/Foundatio</projectUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>Pluggable foundation blocks for building distributed apps.</description>
+    <tags>Repositories</tags>
+  </metadata>
+  <files>
+    <file src="bin\Release\Foundatio.pdb" target="lib\net45" />
+    <file src="..\JobRunner\bin\Release\Job.*" target="tools" />
+    <file src="..\JobRunner\bin\Release\CommandLine.*" target="tools\bin" />
+    <file src="..\JobRunner\bin\Release\Foundatio.*" target="tools\bin" />
+    <file src="..\JobRunner\bin\Release\Newtonsoft.Json.*" target="tools\bin" />
+  </files>
+</package>
