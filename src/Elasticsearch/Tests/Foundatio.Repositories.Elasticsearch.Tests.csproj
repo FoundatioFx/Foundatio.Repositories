@@ -126,7 +126,7 @@
     </ProjectReference>
     <ProjectReference Include="..\Foundatio.Repositories.Elasticsearch.csproj">
       <Project>{3bfbd4c1-3f2c-46a4-9400-2cb9803644be}</Project>
-      <Name>Foundatio.Elasticsearch</Name>
+      <Name>Foundatio.Repositories.Elasticsearch</Name>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
