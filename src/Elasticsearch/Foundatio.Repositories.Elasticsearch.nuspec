@@ -6,12 +6,13 @@
     <title>Foundatio Elasticsearch Repositories</title>
     <authors>ejsmith, bniemyjski</authors>
     <licenseUrl>http://www.apache.org/licenses/LICENSE-2.0</licenseUrl>
-    <projectUrl>https://github.com/exceptionless/Foundatio</projectUrl>
+    <projectUrl>https://github.com/exceptionless/Foundatio.Repositories</projectUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <description>Pluggable foundation blocks for building distributed apps.</description>
+    <description>Generic Repository implementations for Elasticsearch.</description>
     <tags>Repositories</tags>
     <dependencies>
-      <dependency id="Foundatio" version="[$version$]" />
+      <dependency id="Foundatio.Repositories" version="[$version$]" />
+      <dependency id="NEST" version="[1.7.1, 2.0)" />
     </dependencies>
   </metadata>
   <files>
