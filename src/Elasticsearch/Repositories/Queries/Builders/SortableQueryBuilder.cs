@@ -11,10 +11,11 @@ namespace Foundatio.Elasticsearch.Repositories.Queries.Builders {
             if (sortableQuery?.SortBy == null || sortableQuery.SortBy.Count <= 0)
                 return;
 
+            // TODO: Simplify once the next elastic alpha is out.
             var opt = options as IQueryOptions;
             foreach (var sort in sortableQuery.SortBy.Where(s => CanSortByField(opt?.AllowedSortFields, s.Field)))
-                descriptor.Sort(s => s.OnField(sort.Field)
-                    .Order(sort.Order == Foundatio.Repositories.Models.SortOrder.Ascending ? SortOrder.Ascending : SortOrder.Descending));
+                descriptor.Sort(s => s.Field(f => f.Field(sort.Field)
+                    .Order(sort.Order == Foundatio.Repositories.Models.SortOrder.Ascending ? SortOrder.Ascending : SortOrder.Descending)));
         }
 
         protected bool CanSortByField(string[] allowedFields, string field) {

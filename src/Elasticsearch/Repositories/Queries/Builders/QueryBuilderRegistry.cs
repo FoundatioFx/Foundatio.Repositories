@@ -26,7 +26,7 @@ namespace Foundatio.Elasticsearch.Repositories.Queries.Builders {
         }
 
         public QueryContainer BuildQuery<T>(object query, object options = null, QueryContainer container = null) where T : class, new() {
-            container &= new FilteredQuery { Filter = BuildFilter<T>(query, options) };
+            container &= new BoolQuery { Filter = new [] { BuildFilter<T>(query, options) } };
 
             foreach (var builder in _builders)
                 builder.BuildQuery<T>(query, options, ref container);
@@ -34,9 +34,9 @@ namespace Foundatio.Elasticsearch.Repositories.Queries.Builders {
             return container;
         }
 
-        public FilterContainer BuildFilter<T>(object query, object options = null, FilterContainer container = null) where T : class, new() {
+        public QueryContainer BuildFilter<T>(object query, object options = null, QueryContainer container = null) where T : class, new() {
             if (container == null)
-                container = new MatchAllFilter();
+                container = new MatchAllQuery();
 
             foreach (var builder in _builders)
                 builder.BuildFilter<T>(query, options, ref container);

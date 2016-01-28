@@ -12,7 +12,7 @@ namespace Foundatio.Elasticsearch.Configuration {
     }
 
     public interface ITemplatedElasticIndex : IElasticIndex {
-        PutTemplateDescriptor CreateTemplate(PutTemplateDescriptor template);
+        PutIndexTemplateDescriptor CreateTemplate(PutIndexTemplateDescriptor template);
     }
 
     public class IndexType {

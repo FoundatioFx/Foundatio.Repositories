@@ -8,7 +8,7 @@ namespace Foundatio.Elasticsearch.Repositories.Queries {
             Indices = new List<String>();
         }
 
-        public FilterContainer ElasticFilter { get; set; }
+        public QueryContainer ElasticFilter { get; set; }
         public List<string> Indices { get; set; }
     }
 }

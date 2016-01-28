@@ -15,26 +15,22 @@ namespace Foundatio.Elasticsearch.Repositories.Queries.Builders {
             };
         }
 
-        public override void BuildFilter<T>(object query, object options, ref FilterContainer container) {
+        public override void BuildFilter<T>(object query, object options, ref QueryContainer container) {
             var searchQuery = query as ISearchQuery;
             if (searchQuery == null)
                 return;
 
             if (!String.IsNullOrEmpty(searchQuery.SystemFilter)) {
-                container &= new QueryFilter {
-                    Query = QueryContainer.From(new QueryStringQuery {
-                        Query = searchQuery.SystemFilter,
-                        DefaultOperator = Operator.And
-                    })
+                container &= new QueryStringQuery {
+                    Query = searchQuery.SystemFilter,
+                    DefaultOperator = Operator.And
                 };
             }
 
             if (!String.IsNullOrEmpty(searchQuery.Filter)) {
-                container &= new QueryFilter {
-                    Query = QueryContainer.From(new QueryStringQuery {
-                        Query = searchQuery.Filter,
-                        DefaultOperator = Operator.And
-                    })
+                container &= new QueryStringQuery {
+                    Query = searchQuery.Filter,
+                    DefaultOperator = Operator.And
                 };
             }
         }

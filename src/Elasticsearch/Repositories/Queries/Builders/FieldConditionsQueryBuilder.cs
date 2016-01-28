@@ -1,9 +1,10 @@
 ﻿using System;
+using System.Collections.Generic;
 using Nest;
 
 namespace Foundatio.Elasticsearch.Repositories.Queries.Builders {
     public class FieldConditionsQueryBuilder : QueryBuilderBase {
-        public override void BuildFilter<T>(object query, object options, ref FilterContainer container) {
+        public override void BuildFilter<T>(object query, object options, ref QueryContainer container) {
             var fieldValuesQuery = query as IFieldConditionsQuery;
             if (fieldValuesQuery?.FieldConditions == null || fieldValuesQuery.FieldConditions.Count <= 0)
                 return;
@@ -11,16 +12,16 @@ namespace Foundatio.Elasticsearch.Repositories.Queries.Builders {
             foreach (var fieldValue in fieldValuesQuery.FieldConditions) {
                 switch (fieldValue.Operator) {
                     case ComparisonOperator.Equals:
-                        container &= new TermFilter { Field = fieldValue.Field, Value = fieldValue.Value };
+                        container &= new TermQuery { Field = fieldValue.Field, Value = fieldValue.Value };
                         break;
                     case ComparisonOperator.NotEquals:
-                        container &= new NotFilter { Filter = FilterContainer.From(new TermFilter { Field = fieldValue.Field, Value = fieldValue.Value }) };
+                        container &= new BoolQuery { MustNot = new QueryContainer[] { new TermQuery { Field = fieldValue.Field, Value = fieldValue.Value } } };
                         break;
                     case ComparisonOperator.IsEmpty:
-                        container &= new MissingFilter { Field = fieldValue.Field };
+                        container &= new MissingQuery { Field = fieldValue.Field };
                         break;
                     case ComparisonOperator.HasValue:
-                        container &= new ExistsFilter { Field = fieldValue.Field };
+                        container &= new ExistsQuery { Field = fieldValue.Field };
                         break;
                 }
             }

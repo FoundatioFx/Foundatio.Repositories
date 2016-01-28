@@ -29,7 +29,7 @@ namespace Foundatio.Elasticsearch.Extensions {
 
                 result.Add(new FacetResult {
                     Field = key,
-                    Terms = new NumberDictionary(bucket.Items.OfType<KeyItem>().ToDictionary(t => t.Key, t => t.DocCount))
+                    Terms = new NumberDictionary(bucket.Items.OfType<KeyedBucket>().ToDictionary(t => t.Key, t => t.DocCount))
                 });
             }
 
@@ -57,18 +57,17 @@ namespace Foundatio.Elasticsearch.Extensions {
                 throw new ArgumentNullException(nameof(objects));
 
             var bulkRequest = new BulkRequest();
-            TypeNameMarker typeNameMarker = type;
-            bulkRequest.Type = typeNameMarker;
             var list = objects.Select(o => new BulkIndexOperation<T>(o) {
                 Parent = getParent?.Invoke(o),
                 Index = getIndex?.Invoke(o),
+                Type = type
             }).Cast<IBulkOperation>().ToList();
             bulkRequest.Operations = list;
 
             return bulkRequest;
         }
 
-        public static ObjectMappingDescriptor<TParent, TChild> RootPath<TParent, TChild>(this ObjectMappingDescriptor<TParent, TChild> t) where TParent : class where TChild : class {
+        public static ObjectTypeDescriptor<TParent, TChild> RootPath<TParent, TChild>(this ObjectTypeDescriptor<TParent, TChild> t) where TParent : class where TChild : class {
             return t.Path("just_name");
         }
     }

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
-using Elasticsearch.Net.ConnectionPool;
+using Elasticsearch.Net;
 using Foundatio.Caching;
 using Foundatio.Elasticsearch.Extensions;
 using Foundatio.Elasticsearch.Jobs;
@@ -30,13 +30,13 @@ namespace Foundatio.Elasticsearch.Configuration {
             _indexMap = indexes.ToIndexTypeNames();
 
             var settings = GetConnectionSettings(serverUris, indexes);
-            var client = new ElasticClient(settings, new KeepAliveHttpConnection(settings));
+            var client = new ElasticClient(settings);
             ConfigureIndexes(client, indexes);
             return client;
         }
 
         protected virtual ConnectionSettings GetConnectionSettings(IEnumerable<Uri> serverUris, IEnumerable<IElasticIndex> indexes) {
-            return new ConnectionSettings(new StaticConnectionPool(serverUris))
+            return new ConnectionSettings(new StaticConnectionPool(serverUris), new KeepAliveHttpConnection())
                 .MapDefaultTypeIndices(t => t.AddRange(indexes.ToTypeIndices()))
                 .MapDefaultTypeNames(t => t.AddRange(indexes.ToIndexTypeNames()));
         }
@@ -48,21 +48,21 @@ namespace Foundatio.Elasticsearch.Configuration {
             foreach (var idx in indexes) {
                 int currentVersion = GetAliasVersion(client, idx.AliasName);
 
-                IIndicesOperationResponse response = null;
+                IResponse response = null;
                 var templatedIndex = idx as ITemplatedElasticIndex;
                 if (templatedIndex != null)
-                    response = client.PutTemplate(idx.VersionedName, template => templatedIndex.CreateTemplate(template).AddAlias(idx.AliasName));
+                    response = client.PutIndexTemplate(idx.VersionedName, template => templatedIndex.CreateTemplate(template).Aliases(a => a.Alias(idx.AliasName)));
                 else if (!client.IndexExists(idx.VersionedName).Exists)
-                    response = client.CreateIndex(idx.VersionedName, descriptor => idx.CreateIndex(descriptor).AddAlias(idx.AliasName));
+                    response = client.CreateIndex(idx.VersionedName, descriptor => idx.CreateIndex(descriptor).Aliases(a => a.Alias(idx.AliasName)));
 
-                Debug.Assert(response == null || response.IsValid, response?.ServerError != null ? response.ServerError.Error : "An error occurred creating the index or template.");
+                Debug.Assert(response == null || response.IsValid, response?.ServerError != null ? response.ServerError.Error.Reason : "An error occurred creating the index or template.");
                 
                 // Add existing indexes to the alias.
-                if (!client.AliasExists(idx.AliasName).Exists) {
+                if (!client.AliasExists(a => a.Name(idx.AliasName)).Exists) {
                     if (templatedIndex != null) {
-                        var indices = client.IndicesStats().Indices.Where(kvp => kvp.Key.StartsWith(idx.VersionedName)).Select(kvp => kvp.Key).ToList();
+                        var indices = client.IndicesStats(Indices.All).Indices.Where(kvp => kvp.Key.StartsWith(idx.VersionedName)).Select(kvp => kvp.Key).ToList();
                         if (indices.Count > 0) {
-                            var descriptor = new AliasDescriptor();
+                            var descriptor = new BulkAliasDescriptor();
                             foreach (string name in indices)
                                 descriptor.Add(add => add.Index(name).Alias(idx.AliasName));
 
@@ -72,7 +72,7 @@ namespace Foundatio.Elasticsearch.Configuration {
                         response = client.Alias(a => a.Add(add => add.Index(idx.VersionedName).Alias(idx.AliasName)));
                     }
 
-                    Debug.Assert(response != null && response.IsValid, response?.ServerError != null ? response.ServerError.Error : "An error occurred creating the alias.");
+                    Debug.Assert(response != null && response.IsValid, response?.ServerError != null ? response.ServerError.Error.Reason : "An error occurred creating the alias.");
                 }
 
                 // already on current version
@@ -111,15 +111,15 @@ namespace Foundatio.Elasticsearch.Configuration {
                 if (templatedIndex != null) {
                     deleteResponse = client.DeleteIndex(idx.VersionedName + "-*");
 
-                    if (client.TemplateExists(idx.VersionedName).Exists) {
-                        var response = client.DeleteTemplate(idx.VersionedName);
-                        Debug.Assert(response.IsValid, response.ServerError != null ? response.ServerError.Error : "An error occurred deleting the index template.");
+                    if (client.IndexTemplateExists(idx.VersionedName).Exists) {
+                        var response = client.DeleteIndexTemplate(idx.VersionedName);
+                        Debug.Assert(response.IsValid, response.ServerError != null ? response.ServerError.Error.Reason : "An error occurred deleting the index template.");
                     }
                 } else {
                     deleteResponse = client.DeleteIndex(idx.VersionedName);
                 }
 
-                Debug.Assert(deleteResponse.IsValid, deleteResponse.ServerError != null ? deleteResponse.ServerError.Error : "An error occurred deleting the indexes.");
+                Debug.Assert(deleteResponse.IsValid, deleteResponse.ServerError != null ? deleteResponse.ServerError.Error.Reason : "An error occurred deleting the indexes.");
             }
         }
 

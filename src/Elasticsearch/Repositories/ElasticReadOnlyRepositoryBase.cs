@@ -74,13 +74,13 @@ namespace Foundatio.Elasticsearch.Repositories {
 
             var response = await Context.ElasticClient.SearchAsync<TResult>(searchDescriptor).AnyContext();
             if (!response.IsValid)
-                throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
+                throw new ApplicationException($"Elasticsearch error code \"{response.ApiCall.HttpStatusCode}\".", response.OriginalException);
 
             if (pagableQuery?.UseSnapshotPaging == true) {
                 var scanResponse = response;
                 response = await Context.ElasticClient.ScrollAsync<TResult>("2m", response.ScrollId).AnyContext();
                 if (!response.IsValid)
-                    throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
+                    throw new ApplicationException($"Elasticsearch error code \"{response.ApiCall.HttpStatusCode}\".", response.OriginalException);
 
                 result = new FindResults<TResult> {
                     Documents = response.Documents.ToList(),
@@ -143,7 +143,7 @@ namespace Foundatio.Elasticsearch.Repositories {
                 throw new ArgumentNullException(nameof(query));
 
             var searchDescriptor = CreateSearchDescriptor(query).Size(1);
-            searchDescriptor.Fields("id");
+            searchDescriptor.Fields(f => f.Field("id"));
 
             return (await Context.ElasticClient.SearchAsync<T>(searchDescriptor).AnyContext()).HitsMetaData.Total > 0;
         }
@@ -156,15 +156,16 @@ namespace Foundatio.Elasticsearch.Repositories {
             if (result != null)
                 return result.Value;
 
-            var countDescriptor = new CountDescriptor<T>().Query(Context.QueryBuilder.BuildQuery<T>(query));
+            var countDescriptor = new CountDescriptor<T>().Query(q => Context.QueryBuilder.BuildQuery<T>(query));
             var indices = GetIndexesByQuery(query);
             if (indices?.Length > 0)
-                countDescriptor.Indices(indices);
+                countDescriptor.Index(indices.Select(i => (IndexName)i).ToArray()); // Todo revert to .index(indicies) once elastic client is out.
+
             countDescriptor.IgnoreUnavailable();
 
             var results = await Context.ElasticClient.CountAsync<T>(countDescriptor).AnyContext();
             if (!results.IsValid)
-                throw new ApplicationException($"ElasticSearch error code \"{results.ConnectionStatus.HttpStatusCode}\".", results.ConnectionStatus.OriginalException);
+                throw new ApplicationException($"ElasticSearch error code \"{results.ApiCall.HttpStatusCode}\".", results.OriginalException);
 
             if (IsCacheEnabled)
                 await SetCachedQueryResultAsync(query, results.Count, "count-").AnyContext();
@@ -173,7 +174,7 @@ namespace Foundatio.Elasticsearch.Repositories {
         }
 
         public async Task<long> CountAsync() {
-            return (await Context.ElasticClient.CountAsync<T>(c => c.Query(q => q.MatchAll()).Indices(GetIndexesByQuery(null))).AnyContext()).Count;
+            return (await Context.ElasticClient.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(GetIndexesByQuery(null)?.Select(i => (IndexName)i).ToArray())).AnyContext()).Count;// Todo revert to .index(indicies) once elastic client is out.
         }
 
         public async Task<T> GetByIdAsync(string id, bool useCache = false, TimeSpan? expiresIn = null) {
@@ -189,7 +190,7 @@ namespace Foundatio.Elasticsearch.Repositories {
 
             string index = GetIndexById(id);
             if (GetParentIdFunc == null) // we don't have the parent id
-                result = (await Context.ElasticClient.GetAsync<T>(id, index).AnyContext()).Source;
+                result = (await Context.ElasticClient.GetAsync<T>(id, s => s.Index(index)).AnyContext()).Source;
             else
                 result = await FindOneAsync(new ElasticQuery().WithId(id)).AnyContext();
 
@@ -365,11 +366,11 @@ namespace Foundatio.Elasticsearch.Repositories {
             if (search == null)
                 search = new SearchDescriptor<T>();
             
-            search.Query(Context.QueryBuilder.BuildQuery<T>(query));
+            search.Query(q => Context.QueryBuilder.BuildQuery<T>(query));
 
             var indices = GetIndexesByQuery(query);
             if (indices?.Length > 0)
-                search.Indices(indices);
+                search.Index(indices.Select(i => (IndexName)i).ToArray());// Todo revert to .index(indicies) once elastic client is out.
             search.IgnoreUnavailable();
             
             Context.QueryBuilder.BuildSearch(query, Options, search);

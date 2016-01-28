@@ -1,16 +1,14 @@
 ﻿using System;
 using System.Net;
-using Elasticsearch.Net.Connection;
-using Elasticsearch.Net.Connection.Configuration;
+using Elasticsearch.Net;
 
 namespace Foundatio.Elasticsearch.Repositories.Configuration {
     public class KeepAliveHttpConnection : HttpConnection {
-        public KeepAliveHttpConnection(IConnectionConfigurationValues settings) : base(settings) { }
+        protected override void AlterServicePoint(ServicePoint requestServicePoint, RequestData requestData) {
+            base.AlterServicePoint(requestServicePoint, requestData);
 
-        protected override HttpWebRequest CreateHttpWebRequest(Uri uri, string method, byte[] data, IRequestConfiguration requestSpecificConfig) {
-            var request = base.CreateHttpWebRequest(uri, method, data, requestSpecificConfig);
-            request.ServicePoint.SetTcpKeepAlive(true, 30 * 1000, 2000);
-            return request;
+            // TODO: Check to see if we need to still do keep alive as elastic is setting this as well.
+            requestServicePoint.SetTcpKeepAlive(true, 30 * 1000, 2000);
         }
     }
 }

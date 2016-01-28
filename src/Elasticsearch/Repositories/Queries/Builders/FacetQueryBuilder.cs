@@ -14,15 +14,15 @@ namespace Foundatio.Elasticsearch.Repositories.Queries.Builders {
             if (opt?.AllowedFacetFields?.Length > 0 && !facetQuery.FacetFields.All(f => opt.AllowedFacetFields.Contains(f.Field)))
                 throw new InvalidOperationException("All facet fields must be allowed.");
 
-            descriptor.Aggregations(agg => GetAggregationDescriptor<T>(facetQuery));
+            descriptor.Aggregations(agg => GetAggregationContainerDescriptor<T>(facetQuery));
         }
 
-        private AggregationDescriptor<T> GetAggregationDescriptor<T>(object query) where T : class {
+        private AggregationContainerDescriptor<T> GetAggregationContainerDescriptor<T>(object query) where T : class {
             var facetQuery = query as IFacetQuery;
             if (facetQuery == null || facetQuery.FacetFields.Count == 0)
                 return null;
 
-            var descriptor = new AggregationDescriptor<T>();
+            var descriptor = new AggregationContainerDescriptor<T>();
             foreach (var t in facetQuery.FacetFields)
                 descriptor = descriptor.Terms(t.Field, s => s.Field(t.Field).Size(t.Size ?? 100));
 

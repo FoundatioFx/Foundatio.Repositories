@@ -17,7 +17,7 @@ using Foundatio.Repositories.Models;
 using Foundatio.Utility;
 
 namespace Foundatio.Elasticsearch.Repositories {
-    public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IRepository<T> where T : class, IIdentity, new() {
+    public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, Foundatio.Repositories.IRepository<T> where T : class, IIdentity, new() {
         protected internal readonly bool HasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
         protected internal readonly bool HasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
 
@@ -45,7 +45,7 @@ namespace Foundatio.Elasticsearch.Repositories {
 
             var result = await Context.ElasticClient.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc).AnyContext();
             if (!result.IsValid)
-                throw new ApplicationException(String.Join("\r\n", result.ItemsWithErrors.Select(i => i.Error)), result.ConnectionStatus.OriginalException);
+                throw new ApplicationException(String.Join("\r\n", result.ItemsWithErrors.Select(i => i.Error)), result.OriginalException);
 
             if (addToCache)
                 await AddToCacheAsync(documents, expiresIn).AnyContext();
@@ -76,8 +76,10 @@ namespace Foundatio.Elasticsearch.Repositories {
                 return;
 
             await OnDocumentsRemovingAsync(documents).AnyContext();
-            foreach (var g in documents.GroupBy(d => GetDocumentIndexFunc?.Invoke(d)))
-                await Context.ElasticClient.DeleteByQueryAsync<T>(q => q.Query(q1 => q1.Ids(g.Select(d => d.Id))).Index(g.Key)).AnyContext();
+            foreach (var g in documents.GroupBy(d => GetDocumentIndexFunc?.Invoke(d))) {
+                // TODO: Convert to a bulk request as elastic 2.0 will require a plugin for all deletebyquery..
+                await Context.ElasticClient.DeleteByQueryAsync<T>(g.Key, q => q.Query(q1 => q1.Ids(i => i.Values(g.Select(d => new Id(d.Id)))))).AnyContext();
+            }
 
             await OnDocumentsRemovedAsync(documents, sendNotification).AnyContext();
         }
@@ -99,9 +101,9 @@ namespace Foundatio.Elasticsearch.Repositories {
 
             var searchDescriptor = CreateSearchDescriptor(query)
                 .Source(s => {
-                    s.Include(f => f.Id);
+                    s.Include(f => f.Field(p => p.Id));
                     if (RemoveAllIncludedFields.Count > 0)
-                        s.Include(RemoveAllIncludedFields.ToArray());
+                        s.Include(f => f.Fields(RemoveAllIncludedFields.ToArray()));
 
                     return s;
                 })
@@ -144,7 +146,7 @@ namespace Foundatio.Elasticsearch.Repositories {
 
             var result = await Context.ElasticClient.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc).AnyContext();
             if (!result.IsValid)
-                throw new ApplicationException(String.Join("\r\n", result.ItemsWithErrors.Select(i => i.Error)), result.ConnectionStatus.OriginalException);
+                throw new ApplicationException(String.Join("\r\n", result.ItemsWithErrors.Select(i => i.Error)), result.OriginalException);
 
             if (addToCache)
                 await AddToCacheAsync(documents, expiresIn).AnyContext();
@@ -156,7 +158,7 @@ namespace Foundatio.Elasticsearch.Repositories {
             long recordsAffected = 0;
 
             var searchDescriptor = CreateSearchDescriptor(query)
-                .Source(s => s.Include(f => f.Id))
+                .Source(s => s.Include(f => f.Field(p => p.Id)))
                 .SearchType(SearchType.Scan)
                 .Scroll("4s")
                 .Size(Context.BulkBatchSize);
@@ -182,7 +184,7 @@ namespace Foundatio.Elasticsearch.Repositories {
                 if (!bulkResult.IsValid) {
                     Logger.Error()
                         .Message("Error occurred while bulk updating")
-                        .Exception(bulkResult.ConnectionStatus.OriginalException ?? bulkResult.RequestInformation.OriginalException)
+                        .Exception(bulkResult.OriginalException)
                         .Property("ItemsWithErrors", bulkResult.ItemsWithErrors)
                         .Property("Error", bulkResult.ServerError)
                         .Property("Query", query)

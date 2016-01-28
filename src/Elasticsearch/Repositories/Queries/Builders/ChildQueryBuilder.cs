@@ -9,12 +9,12 @@ namespace Foundatio.Elasticsearch.Repositories.Queries.Builders {
             _queryBuilder = queryBuilder;
         }
 
-        public override void BuildFilter<T>(object query, object options, ref FilterContainer container) {
+        public override void BuildFilter<T>(object query, object options, ref QueryContainer container) {
             var childQuery = query as IChildQuery;
             if (childQuery?.ChildQuery == null)
                 return;
             
-            container &= new HasChildFilter {
+            container &= new HasChildQuery {
                 Query = _queryBuilder.BuildQuery<T>(childQuery.ChildQuery, options),
                 Type = childQuery.ChildQuery.Type
             };
