@@ -76,10 +76,17 @@ namespace Foundatio.Elasticsearch.Repositories {
                 return;
 
             await OnDocumentsRemovingAsync(documents).AnyContext();
-            foreach (var g in documents.GroupBy(d => GetDocumentIndexFunc?.Invoke(d))) {
-                // TODO: Convert to a bulk request as elastic 2.0 will require a plugin for all deletebyquery..
-                await Context.ElasticClient.DeleteByQueryAsync<T>(g.Key, q => q.Query(q1 => q1.Ids(i => i.Values(g.Select(d => new Id(d.Id)))))).AnyContext();
-            }
+
+            var documentsByIndex = documents.GroupBy(d => GetDocumentIndexFunc?.Invoke(d));
+            var response = await Context.ElasticClient.BulkAsync(bulk => {
+                foreach (var group in documentsByIndex)
+                    bulk.DeleteMany(group.Select(g => g.Id), (b, id) => b.Index(group.Key));
+
+                return bulk;
+            }).AnyContext();
+
+            if (!response.IsValid)
+                throw new ApplicationException(String.Join("\r\n", response.ItemsWithErrors.Select(i => i.Error)), response.OriginalException);
 
             await OnDocumentsRemovedAsync(documents, sendNotification).AnyContext();
         }

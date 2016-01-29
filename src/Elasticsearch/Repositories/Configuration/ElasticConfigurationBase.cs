@@ -35,8 +35,8 @@ namespace Foundatio.Elasticsearch.Configuration {
             return client;
         }
 
-        protected virtual ConnectionSettings GetConnectionSettings(IEnumerable<Uri> serverUris, IEnumerable<IElasticIndex> indexes) {
-            return new ConnectionSettings(new StaticConnectionPool(serverUris), new KeepAliveHttpConnection())
+        protected virtual ConnectionSettings GetConnectionSettings(IEnumerable<Uri> serverUris, IEnumerable<IElasticIndex> indexes, Func<ConnectionSettings, IElasticsearchSerializer> serializerFactory = null) {
+            return new ConnectionSettings(new StaticConnectionPool(serverUris), new KeepAliveHttpConnection(), serializerFactory)
                 .MapDefaultTypeIndices(t => t.AddRange(indexes.ToTypeIndices()))
                 .MapDefaultTypeNames(t => t.AddRange(indexes.ToIndexTypeNames()));
         }
