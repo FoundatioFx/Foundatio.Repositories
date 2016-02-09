@@ -86,6 +86,7 @@
   <ItemGroup>
     <Compile Include="ObjectIdTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Queries\FacetOptionsTests.cs" />
     <Compile Include="Utility\CaptureCollectionFixture.cs" />
     <Compile Include="Utility\CaptureFixture.cs" />
     <Compile Include="Utility\TestOutputWriter.cs" />
