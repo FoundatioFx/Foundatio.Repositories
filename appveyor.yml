@@ -9,6 +9,7 @@ environment:
 install:
   - ps: $env:GIT_HASH = $env:APPVEYOR_REPO_COMMIT.Substring(0, 10)
   - choco install gitlink
+  - ps: .\Build\Start-ElasticSearch.ps1
 
 assembly_info:
   patch: true
@@ -30,13 +31,6 @@ build:
 
 after_build:
   - GitLink .\
-
-before_test:
-  - ps: .\Build\Start-ElasticSearch.ps1
-  
-test:
-  assemblies:
-    - '**\*.Tests.dll'
 
 #on_failure:
 #  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
