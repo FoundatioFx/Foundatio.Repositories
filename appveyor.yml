@@ -33,9 +33,13 @@ after_build:
 
 before_test:
   - ps: .\Build\Start-ElasticSearch.ps1
+  
+test:
+  assemblies:
+    - '**\*.Tests.dll'
 
-on_failure:
-  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
+#on_failure:
+#  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
 
 deploy:
   - provider: Environment
