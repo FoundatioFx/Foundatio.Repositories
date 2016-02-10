@@ -4,7 +4,7 @@ clone_depth: 2
 
 environment:
   JAVA_HOME: C:\Program Files (x86)\Java\jdk1.8.0
-  ES_VERSION: 1.7.3
+  ES_VERSION: 1.7.5
 
 install:
   - ps: $env:GIT_HASH = $env:APPVEYOR_REPO_COMMIT.Substring(0, 10)
@@ -33,7 +33,7 @@ after_build:
 
 before_test:
   - ps: .\Build\Start-ElasticSearch.ps1
-  - ps: .\Build\enable-rdp.ps1
+  #- ps: .\Build\enable-rdp.ps1
 
 deploy:
   - provider: Environment
