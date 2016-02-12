@@ -11,7 +11,7 @@
     <description>Generic Repositories</description>
     <tags>Repositories</tags>
     <dependencies>
-      <dependency id="Foundatio" version="[3.0, 4.0)" />
+      <dependency id="Foundatio" version="[4.0, 5.0)" />
     </dependencies>
   </metadata>
   <files>
