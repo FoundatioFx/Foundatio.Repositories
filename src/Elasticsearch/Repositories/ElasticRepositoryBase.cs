@@ -21,7 +21,7 @@ namespace Foundatio.Elasticsearch.Repositories {
         protected internal readonly bool HasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
         protected internal readonly bool HasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
 
-        protected ElasticRepositoryBase(ElasticRepositoryContext<T> context) : base(context) {
+        protected ElasticRepositoryBase(ElasticRepositoryContext<T> context, ILoggerFactory loggerFactory = null) : base(context, loggerFactory) {
             NotificationsEnabled = Context.MessagePublisher != null;
         }
         
@@ -180,7 +180,7 @@ namespace Foundatio.Elasticsearch.Repositories {
                 }).AnyContext();
 
                 if (!bulkResult.IsValid) {
-                    Logger.Error()
+                    _logger.Error()
                         .Message("Error occurred while bulk updating")
                         .Exception(bulkResult.ConnectionStatus.OriginalException ?? bulkResult.RequestInformation.OriginalException)
                         .Property("ItemsWithErrors", bulkResult.ItemsWithErrors)

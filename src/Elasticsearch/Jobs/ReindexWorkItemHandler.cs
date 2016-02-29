@@ -18,7 +18,7 @@ namespace Foundatio.Elasticsearch.Jobs {
         private readonly IElasticClient _client;
         private readonly ILockProvider _lockProvider;
 
-        public ReindexWorkItemHandler(IElasticClient client, ILockProvider lockProvider) {
+        public ReindexWorkItemHandler(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory = null) : base(loggerFactory) {
             _client = client;
             _lockProvider = lockProvider;
         }
@@ -35,7 +35,7 @@ namespace Foundatio.Elasticsearch.Jobs {
             var workItem = context.GetData<ReindexWorkItem>();
 
             long existingDocCount = (await _client.CountAsync(d => d.Index(workItem.NewIndex)).AnyContext()).Count;
-            Logger.Info().Message("Received reindex work item for new index {0}", workItem.NewIndex).Write();
+            _logger.Info().Message("Received reindex work item for new index {0}", workItem.NewIndex).Write();
             var startTime = DateTime.UtcNow.AddSeconds(-1);
             await context.ReportProgressAsync(0, "Starting reindex...").AnyContext();
             var result = await ReindexAsync(workItem, context, 0, 90, workItem.StartUtc).AnyContext();
@@ -84,7 +84,7 @@ namespace Foundatio.Elasticsearch.Jobs {
                 .Scroll(scroll)).AnyContext();
 
             if (!scanResults.IsValid || scanResults.ScrollId == null) {
-                Logger.Error().Message("Invalid search result: message={0}", scanResults.GetErrorMessage()).Write();
+                _logger.Error().Message("Invalid search result: message={0}", scanResults.GetErrorMessage()).Write();
                 return new ReindexResult();
             }
 
@@ -106,17 +106,17 @@ namespace Foundatio.Elasticsearch.Jobs {
                             .Document(h.Source);
 
                         if (String.IsNullOrEmpty(h.Type))
-                            Logger.Error().Message("Hit type empty. id={0}", h.Id).Write();
+                            _logger.Error().Message("Hit type empty. id={0}", h.Id).Write();
 
                         if (parentMap.ContainsKey(h.Type)) {
                             if (String.IsNullOrEmpty(parentMap[h.Type]))
-                                Logger.Error().Message("Parent map has empty value. id={0} type={1}", h.Id, h.Type).Write();
+                                _logger.Error().Message("Parent map has empty value. id={0} type={1}", h.Id, h.Type).Write();
 
                             var parentId = h.Source.SelectToken(parentMap[h.Type]);
                             if (!String.IsNullOrEmpty(parentId?.ToString()))
                                 idx.Parent(parentId.ToString());
                             else
-                                Logger.Error().Message("Unable to get parent id. id={0} path={1}", h.Id, parentMap[h.Type]).Write();
+                                _logger.Error().Message("Unable to get parent id. id={0} path={1}", h.Id, parentMap[h.Type]).Write();
                         }
 
                         return idx;
@@ -125,23 +125,19 @@ namespace Foundatio.Elasticsearch.Jobs {
 
                 var bulkResponse = await _client.BulkAsync(bulkDescriptor).AnyContext();
                 if (!bulkResponse.IsValid) {
-                    string message = $"Reindex bulk error: old={workItem.OldIndex} new={workItem.NewIndex} completed={completed} message={bulkResponse.GetErrorMessage()}";
-                    Logger.Warn().Message(message).Write();
+                    _logger.Warn().Message("Reindex bulk error: old={0} new={1} completed={2} message={3}", workItem.OldIndex, workItem.NewIndex, completed, bulkResponse.GetErrorMessage()).Write();
                     // try each doc individually so we can see which doc is breaking us
                     foreach (var hit in results.Hits) {
                         var h = hit;
                         var response = await _client.IndexAsync<JObject>(h.Source, d => {
-                            d
-                                .Index(workItem.NewIndex)
-                                .Type(h.Type)
-                                .Id(h.Id);
+                            d.Index(workItem.NewIndex).Type(h.Type).Id(h.Id);
 
                             if (parentMap.ContainsKey(h.Type)) {
                                 var parentId = h.Source.SelectToken(parentMap[h.Type]);
                                 if (!String.IsNullOrEmpty(parentId?.ToString()))
                                     d.Parent(parentId.ToString());
                                 else
-                                    Logger.Error().Message("Unable to get parent id. id={0} path={1}", h.Id, parentMap[h.Type]).Write();
+                                    _logger.Error().Message("Unable to get parent id. id={0} path={1}", h.Id, parentMap[h.Type]).Write();
                             }
 
                             return d;
@@ -149,10 +145,8 @@ namespace Foundatio.Elasticsearch.Jobs {
 
                         if (response.IsValid)
                             continue;
-
-                        message = $"Reindex error: old={workItem.OldIndex} new={workItem.NewIndex} id={hit.Id} completed={completed} message={response.GetErrorMessage()}";
-                        Logger.Error().Message(message).Write();
-
+                        
+                        _logger.Error().Message("Reindex error: old={0} new={1} id={2} completed={3} message={4}", workItem.OldIndex, workItem.NewIndex, hit.Id, completed, response.GetErrorMessage()).Write();
                         var errorDoc = new JObject(new {
                             h.Type,
                             Content = h.Source.ToString(Formatting.Indented)
@@ -163,14 +157,12 @@ namespace Foundatio.Elasticsearch.Jobs {
                             if (!String.IsNullOrEmpty(parentId?.ToString()))
                                 errorDoc["ParentId"] = parentId.ToString();
                             else
-                                Logger.Error().Message("Unable to get parent id. id={0} path={1}", h.Id, parentMap[h.Type]).Write();
+                                _logger.Error().Message("Unable to get parent id. id={0} path={1}", h.Id, parentMap[h.Type]).Write();
                         }
 
                         // put the document into an error index
                         response = await _client.IndexAsync<JObject>(errorDoc, d => {
-                            d
-                                .Index(workItem.NewIndex + "-error")
-                                .Id(h.Id);
+                            d.Index(workItem.NewIndex + "-error").Id(h.Id);
 
                             return d;
                         }).AnyContext();
@@ -178,15 +170,16 @@ namespace Foundatio.Elasticsearch.Jobs {
                         if (response.IsValid)
                             continue;
 
-                        throw new ReindexException(response.ConnectionStatus, message);
+                        throw new ReindexException(response.ConnectionStatus, $"Reindex error: old={workItem.OldIndex} new={workItem.NewIndex} id={hit.Id} completed={completed} message={response.GetErrorMessage()}");
                     }
                 }
 
                 completed += bulkResponse.Items.Count();
-                await context.ReportProgressAsync(CalculateProgress(totalHits, completed, startProgress, endProgress),
-                    $"Total: {totalHits} Completed: {completed}").AnyContext();
 
-                Logger.Info().Message($"Reindex Progress: {CalculateProgress(totalHits, completed, startProgress, endProgress)} Completed: {completed} Total: {totalHits}").Write();
+                int progress = CalculateProgress(totalHits, completed, startProgress, endProgress);
+                await context.ReportProgressAsync(progress, $"Total: {totalHits} Completed: {completed}").AnyContext();
+                _logger.Info().Message("Reindex Progress: {0} Completed: {1} Total: {2}", progress, completed, totalHits).Write();
+
                 results = await _client.ScrollAsync<JObject>(scroll, results.ScrollId).AnyContext();
             }
 

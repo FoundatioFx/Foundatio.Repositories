@@ -20,10 +20,12 @@ namespace Foundatio.Elasticsearch.Repositories {
     public abstract class ElasticReadOnlyRepositoryBase<T> : IElasticReadOnlyRepository<T> where T : class, new() {
         protected internal readonly string EntityType = typeof(T).Name;
         protected internal readonly ElasticRepositoryContext<T> Context;
+        protected readonly ILogger _logger;
         private ScopedCacheClient _scopedCacheClient;
 
-        protected ElasticReadOnlyRepositoryBase(ElasticRepositoryContext<T> context) {
+        protected ElasticReadOnlyRepositoryBase(ElasticRepositoryContext<T> context, ILoggerFactory loggerFactory = null) {
             Context = context;
+            _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
         }
         
         protected virtual object Options { get; } = new QueryOptions(typeof(T));
@@ -268,7 +270,7 @@ namespace Foundatio.Elasticsearch.Repositories {
             var search = CreateSearchDescriptor(query).SearchType(SearchType.Count);
             var res = await Context.ElasticClient.SearchAsync<T>(search);
             if (!res.IsValid) {
-                Logger.Error().Message("Retrieving term stats failed: {0}", res.ServerError.Error).Write();
+                _logger.Error().Message("Retrieving term stats failed: {0}", res.ServerError.Error).Write();
                 throw new ApplicationException("Retrieving term stats failed.");
             }
 
@@ -384,7 +386,7 @@ namespace Foundatio.Elasticsearch.Repositories {
             string cacheKey = cachePrefix != null ? cachePrefix + ":" + cachedQuery.CacheKey : cachedQuery.CacheKey;
             cacheKey = cacheSuffix != null ? cacheKey + ":" + cacheSuffix : cacheKey;
             var result = await Cache.GetAsync<TResult>(cacheKey, default(TResult)).AnyContext();
-            Logger.Trace().Message("Cache {0}: type={1}", result != null ? "hit" : "miss", GetTypeName()).Write();
+            _logger.Trace().Message("Cache {0}: type={1}", result != null ? "hit" : "miss", GetTypeName()).Write();
 
             return result;
         }
