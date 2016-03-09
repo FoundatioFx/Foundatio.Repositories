@@ -51,11 +51,11 @@
       <Private>True</Private>
     </Reference>
     <Reference Include="Foundatio, Version=4.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\..\packages\Foundatio.4.0.790\lib\net451\Foundatio.dll</HintPath>
+      <HintPath>..\..\..\packages\Foundatio.4.0.791\lib\net451\Foundatio.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Foundatio.Logging.Xunit, Version=4.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\..\packages\Foundatio.Logging.Xunit.4.0.790\lib\net451\Foundatio.Logging.Xunit.dll</HintPath>
+      <HintPath>..\..\..\packages\Foundatio.Logging.Xunit.4.0.791\lib\net451\Foundatio.Logging.Xunit.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Nest, Version=1.0.0.0, Culture=neutral, PublicKeyToken=96c599bbe3e70f5d, processorArchitecture=MSIL">
