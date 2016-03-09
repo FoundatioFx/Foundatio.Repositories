@@ -10,6 +10,7 @@ using Foundatio.Lock;
 using Nest;
 using Newtonsoft.Json.Linq;
 using Foundatio.Logging;
+using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
 using Newtonsoft.Json;
 
@@ -33,9 +34,9 @@ namespace Foundatio.Elasticsearch.Jobs {
 
         public override async Task HandleItemAsync(WorkItemContext context) {
             var workItem = context.GetData<ReindexWorkItem>();
-
-            long existingDocCount = (await _client.CountAsync(d => d.Index(workItem.NewIndex)).AnyContext()).Count;
             _logger.Info().Message("Received reindex work item for new index {0}", workItem.NewIndex).Write();
+
+            long existingDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.NewIndex)).AnyContext()).Count;
             var startTime = DateTime.UtcNow.AddSeconds(-1);
             await context.ReportProgressAsync(0, "Starting reindex...").AnyContext();
             var result = await ReindexAsync(workItem, context, 0, 90, workItem.StartUtc).AnyContext();
@@ -50,17 +51,17 @@ namespace Foundatio.Elasticsearch.Jobs {
                 await context.ReportProgressAsync(98, $"Updated alias: {workItem.Alias} Remove: {workItem.OldIndex} Add: {workItem.NewIndex}").AnyContext();
             }
 
-            await _client.RefreshAsync().AnyContext();
+            await _client.RefreshAsync(Indices.All).AnyContext();
             var secondPassResult = await ReindexAsync(workItem, context, 90, 98, startTime).AnyContext();
             await context.ReportProgressAsync(98, $"Total: {secondPassResult.Total} Completed: {secondPassResult.Completed}").AnyContext();
 
             if (workItem.DeleteOld) {
-                await _client.RefreshAsync().AnyContext();
-                long newDocCount = (await _client.CountAsync(d => d.Index(workItem.NewIndex)).AnyContext()).Count - existingDocCount;
-                long oldDocCount = (await _client.CountAsync(d => d.Index(workItem.OldIndex)).AnyContext()).Count;
+                await _client.RefreshAsync(Indices.All).AnyContext();
+                long newDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.NewIndex)).AnyContext()).Count - existingDocCount;
+                long oldDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.OldIndex)).AnyContext()).Count;
                 await context.ReportProgressAsync(98, $"Old Docs: {oldDocCount} New Docs: {newDocCount}").AnyContext();
                 if (newDocCount >= oldDocCount)
-                    await _client.DeleteIndexAsync(d => d.Index(workItem.OldIndex)).AnyContext();
+                    await _client.DeleteIndexAsync(workItem.OldIndex).AnyContext();
                 await context.ReportProgressAsync(98, $"Deleted index: {workItem.OldIndex}").AnyContext();
             }
             await context.ReportProgressAsync(100).AnyContext();
@@ -76,8 +77,8 @@ namespace Foundatio.Elasticsearch.Jobs {
             var scanResults = await _client.SearchAsync<JObject>(s => s
                 .Index(workItem.OldIndex)
                 .AllTypes()
-                .Filter(f => startTime.HasValue
-                    ? f.Range(r => r.OnField(timestampField).Greater(startTime.Value))
+                .Query(f => startTime.HasValue
+                    ? f.DateRange(r => r.Field(timestampField).GreaterThan(startTime.Value))
                     : f.MatchAll())
                 .From(0).Take(pageSize)
                 .SearchType(SearchType.Scan)
@@ -170,7 +171,7 @@ namespace Foundatio.Elasticsearch.Jobs {
                         if (response.IsValid)
                             continue;
 
-                        throw new ReindexException(response.ConnectionStatus, $"Reindex error: old={workItem.OldIndex} new={workItem.NewIndex} id={hit.Id} completed={completed} message={response.GetErrorMessage()}");
+                        throw new ReindexException($"Reindex error: old={workItem.OldIndex} new={workItem.NewIndex} id={hit.Id} completed={completed} message={response.GetErrorMessage()}", response.OriginalException);
                     }
                 }
 

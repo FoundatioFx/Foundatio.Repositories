@@ -55,7 +55,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             employee = await _repositoryWithDateBasedIndex.AddAsync(EmployeeWithDateGenerator.Generate(startDate: DateTimeOffset.Now.SubtractMonths(1)));
             Assert.NotNull(employee?.Id);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             alias = await _client.GetAliasAsync(descriptor => descriptor.Alias(_employeeWithDateIndex.AliasName));
             Assert.True(alias.IsValid);
             Assert.Equal(2, alias.Indices.Count);
@@ -245,7 +245,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             
             var employee19 = await _repository.AddAsync(EmployeeGenerator.Generate(age: 19));
             var employee20 = await _repository.AddAsync(EmployeeGenerator.Generate(age: 20));
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
 
             var result = await _repository.GetByAgeAsync(employee19.Age);
             Assert.Equal(employee19.ToJson(), result.ToJson());
@@ -259,7 +259,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _cache.RemoveAllAsync();
             _configuration.DeleteIndexes(_client);
             _configuration.ConfigureIndexes(_client);
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
         }
     }
 }

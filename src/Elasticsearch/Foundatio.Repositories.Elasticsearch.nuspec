@@ -12,7 +12,7 @@
     <tags>Repositories</tags>
     <dependencies>
       <dependency id="Foundatio.Repositories" version="[$version$]" />
-      <dependency id="NEST" version="[1.7.1, 2.0)" />
+      <dependency id="NEST" version="[2.0, 3.0)" />
     </dependencies>
   </metadata>
   <files>

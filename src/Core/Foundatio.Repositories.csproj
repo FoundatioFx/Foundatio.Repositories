@@ -89,7 +89,9 @@
     <Compile Include="Utility\TaskHelper.cs" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Foundatio.Repositories.nuspec" />
+    <None Include="Foundatio.Repositories.nuspec">
+      <SubType>Designer</SubType>
+    </None>
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup />
