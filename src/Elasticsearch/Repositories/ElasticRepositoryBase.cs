@@ -161,6 +161,7 @@ namespace Foundatio.Elasticsearch.Repositories {
             await OnDocumentsSavedAsync(documents, originalDocuments, sendNotifications).AnyContext();
         }
         
+        // TODO: Update this to use the update by query syntax that's coming in 2.3.
         protected async Task<long> UpdateAllAsync(object query, object update, bool sendNotifications = true) {
             long recordsAffected = 0;
 
