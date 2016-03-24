@@ -39,7 +39,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             var options = Options as IQueryOptions;
             if (documents != null && documents.Count > 0 && options != null && options.HasIdentity) {
-                var keys = documents.Select(d => $"{d.Value.CompanyId}:count").Distinct().ToList();
+                var keys = documents.Select(d => $"count:{d.Value.CompanyId}").Distinct().ToList();
 
                 if (keys.Count > 0)
                     await Cache.RemoveAllAsync(keys);
