@@ -154,7 +154,7 @@ namespace Foundatio.Elasticsearch.Repositories {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
-            var result = IsCacheEnabled ? await GetCachedQueryResultAsync<long?>(query, "count-").AnyContext() : null;
+            var result = IsCacheEnabled ? await GetCachedQueryResultAsync<long?>(query, cacheSuffix: "count").AnyContext() : null;
             if (result != null)
                 return result.Value;
 
@@ -169,7 +169,7 @@ namespace Foundatio.Elasticsearch.Repositories {
                 throw new ApplicationException($"ElasticSearch error code \"{results.ConnectionStatus.HttpStatusCode}\".", results.ConnectionStatus.OriginalException);
 
             if (IsCacheEnabled)
-                await SetCachedQueryResultAsync(query, results.Count, "count-").AnyContext();
+                await SetCachedQueryResultAsync(query, results.Count, cacheSuffix: "count").AnyContext();
 
             return results.Count;
         }

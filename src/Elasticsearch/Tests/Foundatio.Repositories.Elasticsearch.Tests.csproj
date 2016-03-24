@@ -113,6 +113,7 @@
     <Compile Include="Extensions\JsonExtensions.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Repositories\Builders\AgeQueryBuilder.cs" />
+    <Compile Include="Repositories\Builders\CompanyQueryBuilder.cs" />
     <Compile Include="Repositories\Configuration\ElasticConfiguration.cs" />
     <Compile Include="Repositories\Configuration\EmployeeWithDateIndex.cs" />
     <Compile Include="Repositories\Configuration\EmployeeIndex.cs" />
@@ -123,6 +124,7 @@
     <Compile Include="Repositories\Models\EmployeeWithDate.cs" />
     <Compile Include="Repositories\Queries\AgeQuery.cs" />
     <Compile Include="Repositories\AppRepositoryBase.cs" />
+    <Compile Include="Repositories\Queries\CompanyQuery.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config">
