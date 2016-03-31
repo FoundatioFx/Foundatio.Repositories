@@ -22,14 +22,13 @@ namespace Foundatio.Elasticsearch.Extensions {
                 return result;
 
             foreach (var key in res.Aggregations.Keys) {
-                var bucket = res.Aggregations[key] as Bucket;
-
-                if (bucket == null)
+                var terms = res.Aggs.Terms(key);
+                if (terms == null)
                     continue;
 
                 result.Add(new FacetResult {
                     Field = key,
-                    Terms = new NumberDictionary(bucket.Items.OfType<KeyedBucket>().ToDictionary(t => t.Key, t => t.DocCount))
+                    Terms = new NumberDictionary(terms.Buckets.ToDictionary(t => t.Key, t => t.DocCount.GetValueOrDefault()))
                 });
             }
 

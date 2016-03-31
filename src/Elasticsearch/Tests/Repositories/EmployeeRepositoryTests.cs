@@ -262,7 +262,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             var company19 = await _repository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId));
             var company20 = await _repository.AddAsync(EmployeeGenerator.Generate(age: 20));
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
 
             var result = await _repository.GetByCompanyAsync(company19.CompanyId);
             Assert.Equal(company19.ToJson(), result.ToJson());

@@ -18,12 +18,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
         }
 
         public CreateIndexDescriptor CreateIndex(CreateIndexDescriptor idx) {
-            return idx.AddMapping<Employee>(GetEmployeeMap);
+            return idx.Index(VersionedName).Mappings(maps => maps.Map<Employee>(GetEmployeeMap));
         }
 
-        private PutMappingDescriptor<Employee> GetEmployeeMap(PutMappingDescriptor<Employee> map) {
+        private ITypeMapping GetEmployeeMap(TypeMappingDescriptor<Employee> map) {
             return map
-                .Index(VersionedName)
                 .Dynamic()
                 .TimestampField(ts => ts.Enabled().Path(u => u.UpdatedUtc).IgnoreMissing(false))
                 .Properties(p => p

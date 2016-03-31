@@ -21,22 +21,23 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
             throw new NotImplementedException();
         }
 
-        public PutTemplateDescriptor CreateTemplate(PutTemplateDescriptor template) {
+        public PutIndexTemplateDescriptor CreateTemplate(PutIndexTemplateDescriptor template) {
             return template
                 .Template(VersionedName + "-*")
-                .AddMapping<EmployeeWithDate>(map => map
-                    .Dynamic()
-                    .TimestampField(ts => ts.Enabled().Path(u => u.UpdatedUtc).IgnoreMissing(false))
-                    .Properties(p => p
-                        .String(f => f.Name(e => e.Id).IndexName(Fields.EmployeeWithDate.Id).Index(FieldIndexOption.NotAnalyzed))
-                        .String(f => f.Name(e => e.CompanyId).IndexName(Fields.EmployeeWithDate.CompanyId).Index(FieldIndexOption.NotAnalyzed))
-                        .String(f => f.Name(e => e.CompanyName).IndexName(Fields.EmployeeWithDate.CompanyName).Index(FieldIndexOption.NotAnalyzed))
-                        .String(f => f.Name(e => e.Name).IndexName(Fields.EmployeeWithDate.Name).Index(FieldIndexOption.NotAnalyzed))
-                        .Number(f => f.Name(e => e.Age).IndexName(Fields.EmployeeWithDate.Age))
-                        .Date(f => f.Name(e => e.StartDate).IndexName(Fields.EmployeeWithDate.StartDate))
-                        .Date(f => f.Name(e => e.CreatedUtc).IndexName(Fields.EmployeeWithDate.CreatedUtc))
-                        .Date(f => f.Name(e => e.UpdatedUtc).IndexName(Fields.EmployeeWithDate.UpdatedUtc))
-                    ));
+                .Mappings(maps => maps
+                    .Map<EmployeeWithDate>(map => map
+                        .Dynamic()
+                        .TimestampField(ts => ts.Enabled().Path(u => u.UpdatedUtc).IgnoreMissing(false))
+                        .Properties(p => p
+                            .String(f => f.Name(e => e.Id).IndexName(Fields.EmployeeWithDate.Id).Index(FieldIndexOption.NotAnalyzed))
+                            .String(f => f.Name(e => e.CompanyId).IndexName(Fields.EmployeeWithDate.CompanyId).Index(FieldIndexOption.NotAnalyzed))
+                            .String(f => f.Name(e => e.CompanyName).IndexName(Fields.EmployeeWithDate.CompanyName).Index(FieldIndexOption.NotAnalyzed))
+                            .String(f => f.Name(e => e.Name).IndexName(Fields.EmployeeWithDate.Name).Index(FieldIndexOption.NotAnalyzed))
+                            .Number(f => f.Name(e => e.Age).IndexName(Fields.EmployeeWithDate.Age))
+                            .Date(f => f.Name(e => e.StartDate).IndexName(Fields.EmployeeWithDate.StartDate))
+                            .Date(f => f.Name(e => e.CreatedUtc).IndexName(Fields.EmployeeWithDate.CreatedUtc))
+                            .Date(f => f.Name(e => e.UpdatedUtc).IndexName(Fields.EmployeeWithDate.UpdatedUtc))
+                        )));
         }
         
         public class Fields {
