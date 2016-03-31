@@ -3,21 +3,18 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Extensions;
-using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Migrations {
     public class MigrationManager {
-        private readonly IServiceProvider _container;
         private readonly IMigrationRepository _migrationRepository;
 
-        public MigrationManager(IServiceProvider container, IMigrationRepository migrationRepository) {
-            _container = container;
+        public MigrationManager(IMigrationRepository migrationRepository) {
             _migrationRepository = migrationRepository;
         }
 
-        public async Task RunAsync() {
-            var migrations = await GetPendingMigrationsAsync().AnyContext();
-            foreach (var m in migrations) {
+        public async Task RunAsync(IEnumerable<IMigration> migrations) {
+            var pendingMigrations = await GetPendingMigrationsAsync(migrations).AnyContext();
+            foreach (var m in pendingMigrations) {
                 await MarkMigrationStartedAsync(m.Version).AnyContext();
                 await m.RunAsync().AnyContext();
                 await MarkMigrationCompleteAsync(m.Version).AnyContext();
@@ -33,20 +30,11 @@ namespace Foundatio.Repositories.Migrations {
             m.CompletedUtc = DateTime.UtcNow;
             await _migrationRepository.SaveAsync(m).AnyContext();
         }
-
-        private ICollection<IMigration> GetAllMigrations() {
-            var migrationTypes = TypeHelper.GetDerivedTypes<IMigration>(new[] { typeof(IMigration).Assembly });
-            return migrationTypes
-                .Select(migrationType => (IMigration)_container.GetService(migrationType))
-                .OrderBy(m => m.Version)
-                .ToList();
-        }
-
-        private async Task<ICollection<IMigration>> GetPendingMigrationsAsync() {
-            var allMigrations = GetAllMigrations();
+        
+        private async Task<ICollection<IMigration>> GetPendingMigrationsAsync(IEnumerable<IMigration> migrations) {
             var completedMigrations = await _migrationRepository.GetAllAsync(paging: 1000).AnyContext();
             var currentVersion = completedMigrations.Documents.Count > 0 ? completedMigrations.Documents.Max(m => m.Version) : 0;
-            return allMigrations.Where(m => m.Version > currentVersion).ToList();
+            return migrations.OrderBy(m => m.Version).Where(m => m.Version > currentVersion).ToList();
         }
     }
 }

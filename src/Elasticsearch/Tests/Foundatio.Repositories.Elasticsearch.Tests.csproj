@@ -36,7 +36,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Elasticsearch.Net, Version=2.0.0.0, Culture=neutral, PublicKeyToken=96c599bbe3e70f5d, processorArchitecture=MSIL">
-      <HintPath>..\..\..\packages\Elasticsearch.Net.2.0.4\lib\net45\Elasticsearch.Net.dll</HintPath>
+      <HintPath>..\..\..\packages\Elasticsearch.Net.2.1.0\lib\net45\Elasticsearch.Net.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Exceptionless.DateTimeExtensions, Version=3.1.44.0, Culture=neutral, processorArchitecture=MSIL">
@@ -52,19 +52,19 @@
       <Private>True</Private>
     </Reference>
     <Reference Include="Foundatio, Version=4.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\..\packages\Foundatio.4.0.791\lib\net451\Foundatio.dll</HintPath>
+      <HintPath>..\..\..\packages\Foundatio.4.0.869\lib\net451\Foundatio.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Foundatio.Logging.Xunit, Version=4.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\..\packages\Foundatio.Logging.Xunit.4.0.791\lib\net451\Foundatio.Logging.Xunit.dll</HintPath>
+      <HintPath>..\..\..\packages\Foundatio.Logging.Xunit.4.0.869\lib\net451\Foundatio.Logging.Xunit.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Nest, Version=2.0.0.0, Culture=neutral, PublicKeyToken=96c599bbe3e70f5d, processorArchitecture=MSIL">
-      <HintPath>..\..\..\packages\NEST.2.0.4\lib\net45\Nest.dll</HintPath>
+      <HintPath>..\..\..\packages\NEST.2.1.0\lib\net45\Nest.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Newtonsoft.Json, Version=8.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
-      <HintPath>..\..\..\packages\Newtonsoft.Json.8.0.2\lib\net45\Newtonsoft.Json.dll</HintPath>
+      <HintPath>..\..\..\packages\Newtonsoft.Json.8.0.3\lib\net45\Newtonsoft.Json.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Nito.AsyncEx, Version=3.0.1.0, Culture=neutral, processorArchitecture=MSIL">
