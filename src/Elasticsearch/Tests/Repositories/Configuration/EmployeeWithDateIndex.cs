@@ -29,14 +29,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                         .Dynamic()
                         .TimestampField(ts => ts.Enabled().Path(u => u.UpdatedUtc).IgnoreMissing(false))
                         .Properties(p => p
-                            .String(f => f.Name(e => e.Id).IndexName(Fields.EmployeeWithDate.Id).Index(FieldIndexOption.NotAnalyzed))
-                            .String(f => f.Name(e => e.CompanyId).IndexName(Fields.EmployeeWithDate.CompanyId).Index(FieldIndexOption.NotAnalyzed))
-                            .String(f => f.Name(e => e.CompanyName).IndexName(Fields.EmployeeWithDate.CompanyName).Index(FieldIndexOption.NotAnalyzed))
-                            .String(f => f.Name(e => e.Name).IndexName(Fields.EmployeeWithDate.Name).Index(FieldIndexOption.NotAnalyzed))
+                            .String(f => f.Name(e => e.Id).IndexName(Fields.EmployeeWithDate.Id).NotAnalyzed())
+                            .String(f => f.IndexName(Fields.EmployeeWithDate.CompanyId).NotAnalyzed())
+                            .String(f => f.Name(e => e.CompanyId).CopyTo(c => c.Fields(Fields.EmployeeWithDate.CompanyId)).Index(FieldIndexOption.No))
+                            .String(f => f.IndexName(Fields.EmployeeWithDate.CompanyName).NotAnalyzed())
+                            .String(f => f.Name(e => e.CompanyName).CopyTo(c => c.Fields(Fields.EmployeeWithDate.CompanyName)).Index(FieldIndexOption.No))
+                            .String(f => f.Name(e => e.Name).IndexName(Fields.EmployeeWithDate.Name).NotAnalyzed())
                             .Number(f => f.Name(e => e.Age).IndexName(Fields.EmployeeWithDate.Age))
-                            .Date(f => f.Name(e => e.StartDate).IndexName(Fields.EmployeeWithDate.StartDate))
-                            .Date(f => f.Name(e => e.CreatedUtc).IndexName(Fields.EmployeeWithDate.CreatedUtc))
-                            .Date(f => f.Name(e => e.UpdatedUtc).IndexName(Fields.EmployeeWithDate.UpdatedUtc))
+                            .Date(f => f.IndexName(Fields.EmployeeWithDate.StartDate))
+                            .Date(f => f.Name(e => e.StartDate).CopyTo(c => c.Fields(Fields.EmployeeWithDate.StartDate)).Index(NonStringIndexOption.No))
+                            .Date(f => f.IndexName(Fields.EmployeeWithDate.CreatedUtc))
+                            .Date(f => f.Name(e => e.CreatedUtc).CopyTo(c => c.Fields(Fields.EmployeeWithDate.CreatedUtc)).Index(NonStringIndexOption.No))
+                            .Date(f => f.IndexName(Fields.EmployeeWithDate.UpdatedUtc))
+                            .Date(f => f.Name(e => e.UpdatedUtc).CopyTo(c => c.Fields(Fields.EmployeeWithDate.UpdatedUtc)).Index(NonStringIndexOption.No))
                         )));
         }
         
@@ -44,7 +49,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
             public class EmployeeWithDate {
                 public const string Id = "id";
                 public const string CompanyId = "company";
-                public const string CompanyName = "company_name";
+                public const string CompanyName = "company.name";
                 public const string Name = "name";
                 public const string Age = "age";
                 public const string StartDate = "start";
