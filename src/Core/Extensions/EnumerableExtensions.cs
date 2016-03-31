@@ -9,7 +9,7 @@ namespace Foundatio.Repositories.Extensions {
                 return;
 
             foreach (var value in values) {
-                if (value.Id == null)
+                if (String.IsNullOrEmpty(value.Id))
                     value.Id = generateIdFunc(value);
             }
         }

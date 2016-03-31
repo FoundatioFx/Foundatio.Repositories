@@ -31,6 +31,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public EmployeeRepositoryTests() {
             _queryBuilder.RegisterDefaults();
             _queryBuilder.Register(new AgeQueryBuilder());
+            _queryBuilder.Register(new CompanyQueryBuilder());
 
             _configuration = new ElasticConfiguration(_workItemQueue, _cache);
             _client = _configuration.GetClient(new[] { new Uri(ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString) });
@@ -250,9 +251,29 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var result = await _repository.GetByAgeAsync(employee19.Age);
             Assert.Equal(employee19.ToJson(), result.ToJson());
 
-            var results = await _repository.GetAllByAgeAsync(employee19.Age);
+            var results = await _repository.GetAllByAgeAsync(employee20.Age);
             Assert.Equal(1, results.Total);
-            Assert.Equal(employee19.ToJson(), results.Documents.First().ToJson());
+            Assert.Equal(employee20.ToJson(), results.Documents.First().ToJson());
+        }
+
+        [Fact]
+        public async Task GetByCompanyAsync() {
+            await RemoveDataAsync();
+
+            var company19 = await _repository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId));
+            var company20 = await _repository.AddAsync(EmployeeGenerator.Generate(age: 20));
+            await _client.RefreshAsync();
+
+            var result = await _repository.GetByCompanyAsync(company19.CompanyId);
+            Assert.Equal(company19.ToJson(), result.ToJson());
+
+            var results = await _repository.GetAllByCompanyAsync(company20.CompanyId);
+            Assert.Equal(1, results.Total);
+            Assert.Equal(company20.ToJson(), results.Documents.First().ToJson());
+            
+            Assert.Equal(1, await _repository.GetCountByCompanyAsync(company20.CompanyId));
+            await _repository.RemoveAsync(company20, false);
+            Assert.Equal(0, await _repository.GetCountByCompanyAsync(company20.CompanyId));
         }
 
         private async Task RemoveDataAsync() {
