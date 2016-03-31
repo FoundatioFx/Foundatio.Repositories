@@ -11,6 +11,7 @@ using Foundatio.Elasticsearch.Repositories.Configuration;
 using Foundatio.Extensions;
 using Foundatio.Jobs;
 using Foundatio.Lock;
+using Foundatio.Logging;
 using Foundatio.Queues;
 using Nest;
 
@@ -19,10 +20,12 @@ namespace Foundatio.Elasticsearch.Configuration {
         protected readonly IQueue<WorkItemData> _workItemQueue;
         protected readonly ILockProvider _lockProvider;
         protected IDictionary<Type, string> _indexMap;
+        protected readonly ILogger _logger;
 
-        public ElasticConfigurationBase(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient) {
+        public ElasticConfigurationBase(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILoggerFactory loggerFactory = null) {
             _workItemQueue = workItemQueue;
             _lockProvider = new ThrottlingLockProvider(cacheClient, 1, TimeSpan.FromMinutes(1));
+            _logger = loggerFactory.CreateLogger(GetType());
         }
 
         public virtual IElasticClient GetClient(IEnumerable<Uri> serverUris) {
@@ -130,7 +133,7 @@ namespace Foundatio.Elasticsearch.Configuration {
         protected abstract IEnumerable<IElasticIndex> GetIndexes();
 
         protected virtual int GetAliasVersion(IElasticClient client, string alias) {
-            var res = client.GetAlias(a => a.Alias(alias));
+            var res = client.GetAlias(a => a.Name(alias));
             if (!res.Indices.Any())
                 return -1;
 
