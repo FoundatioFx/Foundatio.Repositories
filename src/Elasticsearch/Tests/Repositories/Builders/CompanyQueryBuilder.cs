@@ -1,5 +1,6 @@
 ﻿using System;
 using Foundatio.Elasticsearch.Repositories.Queries.Builders;
+using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Nest;
 
@@ -10,7 +11,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Builders {
             if (companyQuery?.Companies == null || companyQuery.Companies.Count <= 0)
                 return;
             
-            container &= Query<T>.Terms(t => t.Field("company").Terms(companyQuery.Companies.ToArray()));
+            container &= Query<T>.Terms(t => t.Field(EmployeeIndex.Fields.Employee.CompanyId).Terms(companyQuery.Companies.ToArray()));
         }
     }
 }

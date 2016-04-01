@@ -27,20 +27,20 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                 .Mappings(maps => maps
                     .Map<EmployeeWithDate>(map => map
                         .Dynamic()
-                        .TimestampField(ts => ts.Enabled().Path(u => u.UpdatedUtc).IgnoreMissing(false))
                         .Properties(p => p
-                            .String(f => f.Name(e => e.Id).IndexName(Fields.EmployeeWithDate.Id).NotAnalyzed())
-                            .String(f => f.IndexName(Fields.EmployeeWithDate.CompanyId).NotAnalyzed())
+                            .String(f => f.Name(e => e.Id).NotAnalyzed())
+                            .String(f => f.Name(Fields.EmployeeWithDate.CompanyId).NotAnalyzed())
                             .String(f => f.Name(e => e.CompanyId).CopyTo(c => c.Fields(Fields.EmployeeWithDate.CompanyId)).Index(FieldIndexOption.No))
-                            .String(f => f.IndexName(Fields.EmployeeWithDate.CompanyName).NotAnalyzed())
+                            .Object<object>(o => o.Name("company").Properties(c =>
+                                c.String(f => f.Name("name").NotAnalyzed())))
                             .String(f => f.Name(e => e.CompanyName).CopyTo(c => c.Fields(Fields.EmployeeWithDate.CompanyName)).Index(FieldIndexOption.No))
-                            .String(f => f.Name(e => e.Name).IndexName(Fields.EmployeeWithDate.Name).NotAnalyzed())
-                            .Number(f => f.Name(e => e.Age).IndexName(Fields.EmployeeWithDate.Age))
-                            .Date(f => f.IndexName(Fields.EmployeeWithDate.StartDate))
+                            .String(f => f.Name(e => e.Name).NotAnalyzed())
+                            .Number(f => f.Name(e => e.Age))
+                            .Date(f => f.Name(Fields.EmployeeWithDate.StartDate))
                             .Date(f => f.Name(e => e.StartDate).CopyTo(c => c.Fields(Fields.EmployeeWithDate.StartDate)).Index(NonStringIndexOption.No))
-                            .Date(f => f.IndexName(Fields.EmployeeWithDate.CreatedUtc))
+                            .Date(f => f.Name(Fields.EmployeeWithDate.CreatedUtc))
                             .Date(f => f.Name(e => e.CreatedUtc).CopyTo(c => c.Fields(Fields.EmployeeWithDate.CreatedUtc)).Index(NonStringIndexOption.No))
-                            .Date(f => f.IndexName(Fields.EmployeeWithDate.UpdatedUtc))
+                            .Date(f => f.Name(Fields.EmployeeWithDate.UpdatedUtc))
                             .Date(f => f.Name(e => e.UpdatedUtc).CopyTo(c => c.Fields(Fields.EmployeeWithDate.UpdatedUtc)).Index(NonStringIndexOption.No))
                         )));
         }
