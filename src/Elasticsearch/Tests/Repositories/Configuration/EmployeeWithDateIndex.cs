@@ -29,10 +29,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                         .Dynamic()
                         .Properties(p => p
                             .String(f => f.Name(e => e.Id).NotAnalyzed())
-                            .String(f => f.Name(Fields.EmployeeWithDate.CompanyId).NotAnalyzed())
+                            .Object<object>(o => o.Name("company").Properties(c => c
+                                .String(f => f.Name("id").NotAnalyzed())
+                                .String(f => f.Name("name").NotAnalyzed())))
                             .String(f => f.Name(e => e.CompanyId).CopyTo(c => c.Fields(Fields.EmployeeWithDate.CompanyId)).Index(FieldIndexOption.No))
-                            .Object<object>(o => o.Name("company").Properties(c =>
-                                c.String(f => f.Name("name").NotAnalyzed())))
                             .String(f => f.Name(e => e.CompanyName).CopyTo(c => c.Fields(Fields.EmployeeWithDate.CompanyName)).Index(FieldIndexOption.No))
                             .String(f => f.Name(e => e.Name).NotAnalyzed())
                             .Number(f => f.Name(e => e.Age))
