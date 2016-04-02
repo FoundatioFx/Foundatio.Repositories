@@ -241,6 +241,42 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task RemoveDocumentsAsync() {
+            await RemoveDataAsync();
+
+            var documents = new List<Employee> {
+                EmployeeGenerator.Generate(age: 19),
+                EmployeeGenerator.Generate(age: 20)
+            };
+            await _repository.AddAsync(documents);
+
+            await _client.RefreshAsync(Indices.All);
+            Assert.Equal(2, await _repository.CountAsync());
+
+            await _repository.RemoveAsync(documents);
+            await _client.RefreshAsync(Indices.All);
+            Assert.Equal(0, await _repository.CountAsync());
+        }
+
+
+        [Fact]
+        public async Task RemoveAllAsync() {
+            await RemoveDataAsync();
+
+            await _repository.AddAsync(new List<Employee> {
+                EmployeeGenerator.Generate(age: 19),
+                EmployeeGenerator.Generate(age: 20)
+            });
+
+            await _client.RefreshAsync(Indices.All);
+            Assert.Equal(2, await _repository.CountAsync());
+
+            await _repository.RemoveAllAsync();
+            await _client.RefreshAsync(Indices.All);
+            Assert.Equal(0, await _repository.CountAsync());
+        }
+
+        [Fact]
         public async Task GetByAgeAsync() {
             await RemoveDataAsync();
             

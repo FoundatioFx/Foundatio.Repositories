@@ -161,7 +161,7 @@ namespace Foundatio.Elasticsearch.Repositories {
             var countDescriptor = new CountDescriptor<T>().Query(q => Context.QueryBuilder.BuildQuery<T>(query));
             var indices = GetIndexesByQuery(query);
             if (indices?.Length > 0)
-                countDescriptor.Index(indices.Select(i => (IndexName)i).ToArray()); // Todo revert to .index(indicies) once elastic client is out.
+                countDescriptor.Index(indices.Select(i => (IndexName)i).ToArray());
 
             countDescriptor.IgnoreUnavailable();
 
@@ -176,7 +176,16 @@ namespace Foundatio.Elasticsearch.Repositories {
         }
 
         public async Task<long> CountAsync() {
-            return (await Context.ElasticClient.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(GetIndexesByQuery(null)?.Select(i => (IndexName)i).ToArray())).AnyContext()).Count;// Todo revert to .index(indicies) once elastic client is out.
+            var indexes = GetIndexesByQuery(null)?.Select(i => (IndexName)i).ToArray();
+            var response = await Context.ElasticClient.CountAsync<T>(c => {
+                var query = c.Query(q => q.MatchAll());
+                if (indexes?.Length > 0)
+                    query.Index(indexes);
+
+                return query;
+            }).AnyContext();
+
+            return response.Count;
         }
 
         public async Task<T> GetByIdAsync(string id, bool useCache = false, TimeSpan? expiresIn = null) {
@@ -190,11 +199,14 @@ namespace Foundatio.Elasticsearch.Repositories {
             if (result != null)
                 return result;
 
-            string index = GetIndexById(id);
-            if (GetParentIdFunc == null) // we don't have the parent id
-                result = (await Context.ElasticClient.GetAsync<T>(id, s => s.Index(index)).AnyContext()).Source;
-            else
+            if (GetParentIdFunc == null) {
+                // we don't have the parent id
+                string index = GetIndexById(id);
+                var response = index != null ? await Context.ElasticClient.GetAsync<T>(id, s => s.Index(index)).AnyContext() : await Context.ElasticClient.GetAsync<T>(id).AnyContext();
+                result = response.Source;
+            } else {
                 result = await FindOneAsync(new ElasticQuery().WithId(id)).AnyContext();
+            }
 
             if (IsCacheEnabled && result != null && useCache)
                 await Cache.SetAsync(id, result, expiresIn ?? TimeSpan.FromSeconds(RepositoryConstants.DEFAULT_CACHE_EXPIRATION_SECONDS)).AnyContext();
@@ -225,7 +237,13 @@ namespace Foundatio.Elasticsearch.Repositories {
             var multiGet = new MultiGetDescriptor();
 
             if (GetParentIdFunc == null) {
-                itemsToFind.ForEach(id => multiGet.Get<T>(f => f.Id(id).Index(GetIndexById(id))));
+                foreach (var id in itemsToFind) {
+                    var index = GetIndexById(id);
+                    if (index != null)
+                        multiGet.Get<T>(f => f.Id(id).Index(index));
+                    else
+                        multiGet.Get<T>(f => f.Id(id));
+                };
 
                 var multiGetResults = await Context.ElasticClient.MultiGetAsync(multiGet).AnyContext();
                 foreach (var doc in multiGetResults.Documents) {
@@ -367,13 +385,13 @@ namespace Foundatio.Elasticsearch.Repositories {
         protected SearchDescriptor<T> ConfigureSearchDescriptor(SearchDescriptor<T> search, object query) {
             if (search == null)
                 search = new SearchDescriptor<T>();
-            
+
+            search.IgnoreUnavailable();
             search.Query(q => Context.QueryBuilder.BuildQuery<T>(query));
 
             var indices = GetIndexesByQuery(query);
             if (indices?.Length > 0)
-                search.Index(indices.Select(i => (IndexName)i).ToArray());// Todo revert to .index(indicies) once elastic client is out.
-            search.IgnoreUnavailable();
+                search.Index(indices.Select(i => (IndexName)i).ToArray());
             
             Context.QueryBuilder.BuildSearch(query, Options, search);
             return search;
