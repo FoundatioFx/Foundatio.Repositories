@@ -257,8 +257,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.All);
             Assert.Equal(0, await _repository.CountAsync());
         }
-
-
+        
         [Fact]
         public async Task RemoveAllAsync() {
             await RemoveDataAsync();

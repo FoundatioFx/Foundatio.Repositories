@@ -243,7 +243,7 @@ namespace Foundatio.Elasticsearch.Repositories {
                         multiGet.Get<T>(f => f.Id(id).Index(index));
                     else
                         multiGet.Get<T>(f => f.Id(id));
-                };
+                }
 
                 var multiGetResults = await Context.ElasticClient.MultiGetAsync(multiGet).AnyContext();
                 foreach (var doc in multiGetResults.Documents) {
