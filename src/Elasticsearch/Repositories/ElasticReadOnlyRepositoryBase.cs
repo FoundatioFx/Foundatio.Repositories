@@ -220,7 +220,7 @@ namespace Foundatio.Elasticsearch.Repositories {
                     return results;
             }
 
-            var itemsToFind = new List<string>(ids.Except(results.Documents.Select(i => ((IIdentity)i).Id)));
+            var itemsToFind = new List<string>(ids.Distinct().Except(results.Documents.Select(i => ((IIdentity)i).Id)));
             var multiGet = new MultiGetDescriptor();
 
             if (GetParentIdFunc == null) {
