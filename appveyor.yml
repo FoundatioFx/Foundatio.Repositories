@@ -6,8 +6,11 @@ environment:
   JAVA_HOME: C:\Program Files (x86)\Java\jdk1.8.0
   ES_VERSION: 1.7.5
 
-install:
+init:
   - ps: $env:GIT_HASH = $env:APPVEYOR_REPO_COMMIT.Substring(0, 10)
+  - ps: If ("$env:APPVEYOR_REPO_TAG" -ne "true") { $env:VERSION_SUFFIX="-pre" }
+
+install:
   - choco install gitlink
   - ps: .\Build\Start-ElasticSearch.ps1
 
@@ -16,11 +19,11 @@ assembly_info:
   file: AssemblyInfo.*
   assembly_version: "1.0.0.0"
   assembly_file_version: "{version}.0"
-  assembly_informational_version: "{version} $(GIT_HASH)"
+  assembly_informational_version: "{version}$(VERSION_SUFFIX) $(GIT_HASH)"
 
 before_build:
   - nuget restore
-  - ps: .\Build\Replace-FileString -Pattern '\$version\$' -Replacement "$env:appveyor_build_version" -Path src\**\*.nuspec -Overwrite
+  - ps: .\Build\Replace-FileString -Pattern '\$version\$' -Replacement "$($env:appveyor_build_version)$($env:VERSION_SUFFIX)" -Path src\**\*.nuspec -Overwrite
 
 configuration: Release
 
@@ -29,8 +32,8 @@ build:
   verbosity: minimal
   publish_nuget: true
 
-after_build:
-  - GitLink .\
+before_package:
+  - ps: if ((-not $env:APPVEYOR_PULL_REQUEST_NUMBER) -and ($env:APPVEYOR_REPO_BRANCH -eq 'master')) { & "GitLink" .\ }
 
 #on_failure:
 #  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
@@ -40,6 +43,13 @@ deploy:
     name: NuGet
     on:
       branch: master
+  - provider: GitHub
+    auth_token:
+      secure: 0s81q7bweVLTFSOKxnIhan7el6bIFiN8HJ1kYJzOkeFXX7wgGSq9bs/rV53X9qpf
+    draft: true
+    on:
+      branch: master
+      appveyor_repo_tag: true
 
 notifications:
   - provider: Slack
