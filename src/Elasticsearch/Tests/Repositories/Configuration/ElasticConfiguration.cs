@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using Foundatio.Caching;
-using Foundatio.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Jobs;
 using Foundatio.Queues;
 

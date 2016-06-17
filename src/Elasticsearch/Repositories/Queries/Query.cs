@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
 
-namespace Foundatio.Elasticsearch.Repositories.Queries {
+namespace Foundatio.Repositories.Elasticsearch.Queries {
     public class Query : IIdentityQuery, ICachableQuery, IDateRangeQuery,
         IFieldConditionsQuery, IPagableQuery, ISearchQuery, IFacetQuery,
         ISelectedFieldsQuery, ISortableQuery, IParentQuery, IChildQuery {

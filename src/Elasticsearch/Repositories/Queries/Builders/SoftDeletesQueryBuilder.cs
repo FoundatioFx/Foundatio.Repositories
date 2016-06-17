@@ -1,9 +1,9 @@
 ﻿using System;
-using Foundatio.Elasticsearch.Repositories.Queries.Options;
+using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Repositories.Queries;
 using Nest;
 
-namespace Foundatio.Elasticsearch.Repositories.Queries.Builders {
+namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class SoftDeletesQueryBuilder : QueryBuilderBase {
         public override void BuildFilter<T>(object query, object options, ref FilterContainer container) {
             var softDeletesQuery = query as ISoftDeletesQuery;

@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using Foundatio.Elasticsearch.Repositories.Queries;
+using Foundatio.Repositories.Elasticsearch.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Queries {
     public interface IAgeQuery {

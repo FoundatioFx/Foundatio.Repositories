@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace Foundatio.Elasticsearch.Jobs {
+namespace Foundatio.Repositories.Elasticsearch.Jobs {
     public class ReindexWorkItem {
         public ReindexWorkItem() {
             ParentMaps = new List<ParentMap>();

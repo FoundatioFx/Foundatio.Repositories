@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using Foundatio.Elasticsearch.Repositories.Queries;
+using Foundatio.Repositories.Elasticsearch.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Queries {
     public interface ICompanyQuery {

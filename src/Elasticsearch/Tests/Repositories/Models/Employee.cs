@@ -1,5 +1,6 @@
 ﻿using System;
 using Exceptionless;
+using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 
@@ -12,6 +13,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
         public int Age { get; set; }
         public DateTime CreatedUtc { get; set; }
         public DateTime UpdatedUtc { get; set; }
+        public DateTimeOffset StartDate { get; set; }
     }
 
     public static class EmployeeGenerator {
@@ -21,10 +23,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
             Name = "Blake",
             Age = 29,
             CompanyName = "Exceptionless",
-            CompanyId = DefaultCompanyId
+            CompanyId = DefaultCompanyId,
+            StartDate = DateTimeOffset.Now
         };
 
-        public static Employee Generate(string id = null, string name = null, int? age = null, string companyName = null, string companyId = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
+        public static Employee Generate(string id = null, string name = null, int? age = null, string companyName = null, string companyId = null, DateTime? createdUtc = null, DateTime? updatedUtc = null, DateTimeOffset? startDate = null) {
             return new Employee {
                 Id = id,
                 Name = name ?? RandomData.GetAlphaString(),
@@ -32,7 +35,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
                 CompanyName = companyName ?? RandomData.GetAlphaString(),
                 CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
                 CreatedUtc = createdUtc.GetValueOrDefault(),
-                UpdatedUtc = updatedUtc.GetValueOrDefault()
+                UpdatedUtc = updatedUtc.GetValueOrDefault(),
+                StartDate = startDate ?? RandomData.GetDateTimeOffset(DateTimeOffset.Now.StartOfMonth(), DateTimeOffset.Now)
             };
         }
     }

@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Foundatio.Elasticsearch.Repositories.Queries {
+namespace Foundatio.Repositories.Elasticsearch.Queries {
     public interface IChildQuery {
         ITypeQuery ChildQuery { get; set; }
     }

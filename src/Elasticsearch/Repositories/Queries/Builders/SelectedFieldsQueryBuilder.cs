@@ -1,8 +1,8 @@
 using System;
-using Foundatio.Elasticsearch.Repositories.Queries.Options;
+using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Nest;
 
-namespace Foundatio.Elasticsearch.Repositories.Queries.Builders {
+namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class SelectedFieldsQueryBuilder : QueryBuilderBase {
         public override void BuildSearch<T>(object query, object options, ref SearchDescriptor<T> descriptor) {
             var selectedFieldsQuery = query as ISelectedFieldsQuery;

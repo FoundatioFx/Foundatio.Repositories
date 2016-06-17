@@ -1,21 +1,20 @@
 using System;
 using Exceptionless.DateTimeExtensions;
-using Foundatio.Elasticsearch.Repositories;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
-    public class EmployeeWithDateBasedIndexRepository : AppRepositoryBase<EmployeeWithDate> {
+    public class EmployeeWithDateBasedIndexRepository : AppRepositoryBase<Employee> {
         private readonly EmployeeWithDateIndex _index;
-        public EmployeeWithDateBasedIndexRepository(ElasticRepositoryContext<EmployeeWithDate> context, EmployeeWithDateIndex index) : base(context) {
+        public EmployeeWithDateBasedIndexRepository(ElasticRepositoryConfiguration<Employee> configuration, EmployeeWithDateIndex index) : base(configuration) {
             _index = index;
 
             GetDocumentIdFunc = GetDocumentId;
             GetDocumentIndexFunc = employee => GetIndexById(employee.Id);
         }
 
-        private string GetDocumentId(EmployeeWithDate employee) {
+        private string GetDocumentId(Employee employee) {
             // if date falls in the current months index then return a new object id.
             var date = employee.StartDate.ToUniversalTime();
             if (date.IntersectsMonth(DateTime.UtcNow))

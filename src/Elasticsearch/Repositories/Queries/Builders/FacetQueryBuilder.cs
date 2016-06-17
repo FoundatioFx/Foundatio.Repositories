@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Linq;
-using Foundatio.Elasticsearch.Repositories.Queries.Options;
+using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Nest;
 
-namespace Foundatio.Elasticsearch.Repositories.Queries.Builders {
+namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class FacetQueryBuilder : QueryBuilderBase {
         public override void BuildSearch<T>(object query, object options, ref SearchDescriptor<T> descriptor) {
             var facetQuery = query as IFacetQuery;

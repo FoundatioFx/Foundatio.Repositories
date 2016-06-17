@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
@@ -35,7 +37,7 @@ namespace Foundatio.Repositories.Migrations {
         }
 
         private ICollection<IMigration> GetAllMigrations() {
-            var migrationTypes = TypeHelper.GetDerivedTypes<IMigration>(new[] { typeof(IMigration).Assembly });
+            var migrationTypes = GetDerivedTypes<IMigration>(new[] { typeof(IMigration).Assembly });
             return migrationTypes
                 .Select(migrationType => (IMigration)_container.GetService(migrationType))
                 .OrderBy(m => m.Version)
@@ -47,6 +49,23 @@ namespace Foundatio.Repositories.Migrations {
             var completedMigrations = await _migrationRepository.GetAllAsync(paging: 1000).AnyContext();
             var currentVersion = completedMigrations.Documents.Count > 0 ? completedMigrations.Documents.Max(m => m.Version) : 0;
             return allMigrations.Where(m => m.Version > currentVersion).ToList();
+        }
+
+        private static IEnumerable<Type> GetDerivedTypes<TAction>(IEnumerable<Assembly> assemblies = null) {
+            if (assemblies == null)
+                assemblies = AppDomain.CurrentDomain.GetAssemblies();
+
+            var types = new List<Type>();
+            foreach (var assembly in assemblies) {
+                try {
+                    types.AddRange(from type in assembly.GetTypes() where type.IsClass && !type.IsNotPublic && !type.IsAbstract && typeof(TAction).IsAssignableFrom(type) select type);
+                } catch (ReflectionTypeLoadException ex) {
+                    string loaderMessages = String.Join(", ", ex.LoaderExceptions.ToList().Select(le => le.Message));
+                    Trace.TraceInformation("Unable to search types from assembly \"{0}\" for plugins of type \"{1}\": {2}", assembly.FullName, typeof(TAction).Name, loaderMessages);
+                }
+            }
+
+            return types;
         }
     }
 }

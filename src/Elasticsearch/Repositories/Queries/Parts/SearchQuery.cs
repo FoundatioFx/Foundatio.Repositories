@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Foundatio.Elasticsearch.Repositories.Queries {
+namespace Foundatio.Repositories.Elasticsearch.Queries {
     public interface ISearchQuery {
         string SystemFilter { get; set; }
         string Filter { get; set; }

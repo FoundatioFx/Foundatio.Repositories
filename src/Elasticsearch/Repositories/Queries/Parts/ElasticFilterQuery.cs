@@ -1,7 +1,7 @@
 ﻿using System;
 using Nest;
 
-namespace Foundatio.Elasticsearch.Repositories.Queries {
+namespace Foundatio.Repositories.Elasticsearch.Queries {
     public interface IElasticFilterQuery {
         FilterContainer ElasticFilter { get; set; }
     }

@@ -5,9 +5,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Caching;
-using Foundatio.Elasticsearch.Repositories;
-using Foundatio.Elasticsearch.Repositories.Queries.Builders;
-using Foundatio.Elasticsearch.Tests.Extensions;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Jobs;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Tests.Builders;
@@ -24,7 +23,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         private readonly IQueue<WorkItemData> _workItemQueue = new InMemoryQueue<WorkItemData>();
         private readonly ElasticConfiguration _configuration;
         private readonly EmployeeWithDateIndex _employeeWithDateIndex = new EmployeeWithDateIndex();
-        private readonly QueryBuilderRegistry _queryBuilder = new QueryBuilderRegistry();
+        private readonly ElasticQueryBuilder _queryBuilder = new ElasticQueryBuilder();
         private readonly EmployeeRepository _repository;
         private readonly EmployeeWithDateBasedIndexRepository _repositoryWithDateBasedIndex;
 
@@ -35,8 +34,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             _configuration = new ElasticConfiguration(_workItemQueue, _cache);
             _client = _configuration.GetClient(new[] { new Uri(ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString) });
-            _repository = new EmployeeRepository(new ElasticRepositoryContext<Employee>(_cache, _client, _configuration, null, null, _queryBuilder));
-            _repositoryWithDateBasedIndex = new EmployeeWithDateBasedIndexRepository(new ElasticRepositoryContext<EmployeeWithDate>(_cache, _client, _configuration, null, null, _queryBuilder), _employeeWithDateIndex);
+            _repository = new EmployeeRepository(new ElasticRepositoryConfiguration<Employee>(_client, null, _queryBuilder, null, _cache, null));
+            _repositoryWithDateBasedIndex = new EmployeeWithDateBasedIndexRepository(new ElasticRepositoryConfiguration<Employee>(_client, null, _queryBuilder, null, _cache, null), _employeeWithDateIndex);
         }
         
         [Fact]
@@ -50,10 +49,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.False(alias.IsValid);
             Assert.Equal(0, alias.Indices.Count);
 
-            var employee = await _repositoryWithDateBasedIndex.AddAsync(EmployeeWithDateGenerator.Default);
+            var employee = await _repositoryWithDateBasedIndex.AddAsync(EmployeeGenerator.Default);
             Assert.NotNull(employee?.Id);
             
-            employee = await _repositoryWithDateBasedIndex.AddAsync(EmployeeWithDateGenerator.Generate(startDate: DateTimeOffset.Now.SubtractMonths(1)));
+            employee = await _repositoryWithDateBasedIndex.AddAsync(EmployeeGenerator.Generate(startDate: DateTimeOffset.Now.SubtractMonths(1)));
             Assert.NotNull(employee?.Id);
 
             await _client.RefreshAsync();

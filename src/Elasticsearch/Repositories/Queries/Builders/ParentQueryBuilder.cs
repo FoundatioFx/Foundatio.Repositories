@@ -1,11 +1,11 @@
 ﻿using System;
 using Nest;
 
-namespace Foundatio.Elasticsearch.Repositories.Queries.Builders {
+namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class ParentQueryBuilder : QueryBuilderBase {
-        private readonly QueryBuilderRegistry _queryBuilder;
+        private readonly ElasticQueryBuilder _queryBuilder;
 
-        public ParentQueryBuilder(QueryBuilderRegistry queryBuilder) {
+        public ParentQueryBuilder(ElasticQueryBuilder queryBuilder) {
             _queryBuilder = queryBuilder;
         }
 
@@ -15,7 +15,7 @@ namespace Foundatio.Elasticsearch.Repositories.Queries.Builders {
                 return;
             
             container &= new HasParentFilter {
-                Query = _queryBuilder.BuildQuery<T>(parentQuery.ParentQuery, options),
+                Query = _queryBuilder.CreateQuery<T>(parentQuery.ParentQuery, options),
                 Type = parentQuery.ParentQuery.Type
             };
         }

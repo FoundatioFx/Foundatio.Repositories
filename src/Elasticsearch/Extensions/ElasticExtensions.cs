@@ -4,7 +4,7 @@ using System.Text;
 using Elasticsearch.Net.Connection;
 using Nest;
 
-namespace Foundatio.Elasticsearch.Extensions {
+namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticExtensions {
         private static readonly Lazy<PropertyInfo> _connectionSettingsProperty = new Lazy<PropertyInfo>(() => typeof(HttpConnection).GetProperty("ConnectionSettings", BindingFlags.NonPublic | BindingFlags.Instance));
         

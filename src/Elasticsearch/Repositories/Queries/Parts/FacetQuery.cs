@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Foundatio.Repositories.Queries;
 
-namespace Foundatio.Elasticsearch.Repositories.Queries {
+namespace Foundatio.Repositories.Elasticsearch.Queries {
     public interface IFacetQuery {
         List<FacetField> FacetFields { get; }
     }

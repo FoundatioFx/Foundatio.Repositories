@@ -2,16 +2,15 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Foundatio.Elasticsearch.Repositories;
-using Foundatio.Elasticsearch.Repositories.Queries;
-using Foundatio.Elasticsearch.Repositories.Queries.Options;
+using Foundatio.Repositories.Elasticsearch.Queries;
+using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class EmployeeRepository : AppRepositoryBase<Employee> {
-        public EmployeeRepository(ElasticRepositoryContext<Employee> context) : base(context) { }
+        public EmployeeRepository(ElasticRepositoryConfiguration<Employee> configuration) : base(configuration) { }
 
         public Task<Employee> GetByAgeAsync(int age) {
             return FindOneAsync(new AgeQuery().WithAge(age));
@@ -37,8 +36,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             if (!IsCacheEnabled)
                 return;
 
-            var options = Options as IQueryOptions;
-            if (documents != null && documents.Count > 0 && options != null && options.HasIdentity) {
+            if (documents != null && documents.Count > 0 && HasIdentity) {
                 var keys = documents.Select(d => $"count:{d.Value.CompanyId}").Distinct().ToList();
 
                 if (keys.Count > 0)

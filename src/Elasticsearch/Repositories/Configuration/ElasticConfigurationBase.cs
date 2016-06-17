@@ -5,16 +5,15 @@ using System.Linq;
 using System.Threading;
 using Elasticsearch.Net.ConnectionPool;
 using Foundatio.Caching;
-using Foundatio.Elasticsearch.Extensions;
-using Foundatio.Elasticsearch.Jobs;
-using Foundatio.Elasticsearch.Repositories.Configuration;
+using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Extensions;
 using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Queues;
 using Nest;
 
-namespace Foundatio.Elasticsearch.Configuration {
+namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public abstract class ElasticConfigurationBase {
         protected readonly IQueue<WorkItemData> _workItemQueue;
         protected readonly ILockProvider _lockProvider;
@@ -51,9 +50,9 @@ namespace Foundatio.Elasticsearch.Configuration {
                 IIndicesOperationResponse response = null;
                 var templatedIndex = idx as ITemplatedElasticIndex;
                 if (templatedIndex != null)
-                    response = client.PutTemplate(idx.VersionedName, template => templatedIndex.CreateTemplate(template).AddAlias(idx.AliasName));
+                    response = client.PutTemplate(idx.VersionedName, template => templatedIndex.ConfigureTemplate(template).AddAlias(idx.AliasName));
                 else if (!client.IndexExists(idx.VersionedName).Exists)
-                    response = client.CreateIndex(idx.VersionedName, descriptor => idx.CreateIndex(descriptor).AddAlias(idx.AliasName));
+                    response = client.CreateIndex(idx.VersionedName, descriptor => idx.ConfigureIndex(descriptor).AddAlias(idx.AliasName));
 
                 Debug.Assert(response == null || response.IsValid, response?.ServerError != null ? response.ServerError.Error : "An error occurred creating the index or template.");
                 
@@ -84,7 +83,7 @@ namespace Foundatio.Elasticsearch.Configuration {
                     NewIndex = idx.VersionedName,
                     Alias = idx.AliasName,
                     DeleteOld = true,
-                    ParentMaps = idx.GetIndexTypes()
+                    ParentMaps = idx.Types
                             .Select(kvp => new ParentMap {Type = kvp.Value.Name, ParentPath = kvp.Value.ParentPath})
                             .Where(m => !String.IsNullOrEmpty(m.ParentPath))
                             .ToList()

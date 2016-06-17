@@ -3,7 +3,7 @@ using System.Net;
 using Elasticsearch.Net.Connection;
 using Elasticsearch.Net.Connection.Configuration;
 
-namespace Foundatio.Elasticsearch.Repositories.Configuration {
+namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class KeepAliveHttpConnection : HttpConnection {
         public KeepAliveHttpConnection(IConnectionConfigurationValues settings) : base(settings) { }
 

@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Linq;
-using Foundatio.Elasticsearch.Repositories.Queries.Builders;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Nest;
 

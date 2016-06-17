@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Foundatio.Elasticsearch.Extensions {
+namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class DateTimeExtensions {
         public static DateTime EndOfDay(this DateTime date) {
             if (date == DateTime.MaxValue)

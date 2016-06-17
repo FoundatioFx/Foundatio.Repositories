@@ -2,7 +2,7 @@
 using Foundatio.Repositories.Queries;
 using Nest;
 
-namespace Foundatio.Elasticsearch.Repositories.Queries.Builders {
+namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class IdentityQueryBuilder : QueryBuilderBase {
         public override void BuildFilter<T>(object query, object options, ref FilterContainer container) {
             var identityQuery = query as IIdentityQuery;

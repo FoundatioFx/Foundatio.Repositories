@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace Foundatio.Elasticsearch.Repositories.Queries {
+namespace Foundatio.Repositories.Elasticsearch.Queries {
     public class ChildQuery : IDateRangeQuery, IFieldConditionsQuery, ISearchQuery, ITypeQuery {
         public ChildQuery() {
             DateRanges = new List<DateRange>();

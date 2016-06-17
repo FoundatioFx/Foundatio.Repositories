@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using Foundatio.Repositories.Queries;
 
-namespace Foundatio.Elasticsearch.Repositories.Queries {
+namespace Foundatio.Repositories.Elasticsearch.Queries {
     public class ParentQuery : IIdentityQuery, IDateRangeQuery, IFieldConditionsQuery, ISearchQuery, ITypeQuery {
         public ParentQuery() {
             DateRanges = new List<DateRange>();

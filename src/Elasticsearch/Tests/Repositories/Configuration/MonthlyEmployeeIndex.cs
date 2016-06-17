@@ -3,9 +3,9 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
-    public class EmployeeIndex : ElasticIndex {
-        public EmployeeIndex(): base("employees", 1) {
-            AddIndexType<Employee>(new ElasticIndexType<Employee>("employee", this));
+    public class EmployeeWithDateIndex : TemplatedElasticIndex {
+        public EmployeeWithDateIndex() : base("monthly_employees") {
+            AddIndexType<Employee>(new EmployeeType(this));
         }
     }
 }

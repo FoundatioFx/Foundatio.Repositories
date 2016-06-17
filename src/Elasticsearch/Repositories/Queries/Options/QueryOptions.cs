@@ -1,7 +1,7 @@
 ﻿using System;
 using Foundatio.Repositories.Models;
 
-namespace Foundatio.Elasticsearch.Repositories.Queries.Options {
+namespace Foundatio.Repositories.Elasticsearch.Queries.Options {
     public interface IQueryOptions {
         bool SupportsSoftDeletes { get; }
         bool HasIdentity { get; }

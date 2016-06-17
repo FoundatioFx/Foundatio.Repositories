@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
-using Foundatio.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 
-namespace Foundatio.Elasticsearch.Repositories.Queries {
+namespace Foundatio.Repositories.Elasticsearch.Queries {
     public interface IElasticIndicesQuery {
         List<string> Indices { get; set; }
     }
