@@ -6,63 +6,61 @@ using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Jobs;
 using Foundatio.Queues;
-using Foundatio.Repositories.Elasticsearch.Tests.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
+using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Utility;
 using Nest;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
-    public class EmployeeRepositoryTests {
+    public class RepositoryTests {
         private readonly InMemoryCacheClient _cache = new InMemoryCacheClient();
         private readonly IElasticClient _client;
         private readonly IQueue<WorkItemData> _workItemQueue = new InMemoryQueue<WorkItemData>();
         private readonly ElasticConfiguration _configuration;
-        private readonly EmployeeWithDateIndex _employeeWithDateIndex = new EmployeeWithDateIndex();
+        private readonly EmployeeIndex _employeeIndex = new EmployeeIndex();
         private readonly ElasticQueryBuilder _queryBuilder = new ElasticQueryBuilder();
         private readonly EmployeeRepository _repository;
-        private readonly EmployeeWithDateBasedIndexRepository _repositoryWithDateBasedIndex;
 
-        public EmployeeRepositoryTests() {
+        public RepositoryTests() {
             _queryBuilder.RegisterDefaults();
             _queryBuilder.Register(new AgeQueryBuilder());
             _queryBuilder.Register(new CompanyQueryBuilder());
 
             _configuration = new ElasticConfiguration(_workItemQueue, _cache);
             _client = _configuration.GetClient(new[] { new Uri(ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString) });
-            _repository = new EmployeeRepository(new ElasticRepositoryConfiguration<Employee>(_client, null, _queryBuilder, null, _cache, null));
-            _repositoryWithDateBasedIndex = new EmployeeWithDateBasedIndexRepository(new ElasticRepositoryConfiguration<Employee>(_client, null, _queryBuilder, null, _cache, null), _employeeWithDateIndex);
+            _repository = new EmployeeRepository(new ElasticRepositoryConfiguration<Employee>(_client, _employeeIndex.Employee, _queryBuilder, null, _cache));
         }
         
-        [Fact]
-        public async Task GetByDateBasedIndex() {
-            await RemoveDataAsync();
+        //[Fact]
+        //public async Task GetByDateBasedIndex() {
+        //    await RemoveDataAsync();
 
-            var indexes = await _client.GetIndicesPointingToAliasAsync(_employeeWithDateIndex.AliasName);
-            Assert.Equal(0, indexes.Count);
+        //    var indexes = await _client.GetIndicesPointingToAliasAsync(_monthlyEmployeeIndex.AliasName);
+        //    Assert.Equal(0, indexes.Count);
             
-            var alias = await _client.GetAliasAsync(descriptor => descriptor.Alias(_employeeWithDateIndex.AliasName));
-            Assert.False(alias.IsValid);
-            Assert.Equal(0, alias.Indices.Count);
+        //    var alias = await _client.GetAliasAsync(descriptor => descriptor.Alias(_monthlyEmployeeIndex.AliasName));
+        //    Assert.False(alias.IsValid);
+        //    Assert.Equal(0, alias.Indices.Count);
 
-            var employee = await _repositoryWithDateBasedIndex.AddAsync(EmployeeGenerator.Default);
-            Assert.NotNull(employee?.Id);
+        //    var employee = await _monthlyRepository.AddAsync(EmployeeGenerator.Default);
+        //    Assert.NotNull(employee?.Id);
             
-            employee = await _repositoryWithDateBasedIndex.AddAsync(EmployeeGenerator.Generate(startDate: DateTimeOffset.Now.SubtractMonths(1)));
-            Assert.NotNull(employee?.Id);
+        //    employee = await _monthlyRepository.AddAsync(EmployeeGenerator.Generate(startDate: DateTimeOffset.Now.SubtractMonths(1)));
+        //    Assert.NotNull(employee?.Id);
 
-            await _client.RefreshAsync();
-            alias = await _client.GetAliasAsync(descriptor => descriptor.Alias(_employeeWithDateIndex.AliasName));
-            Assert.True(alias.IsValid);
-            Assert.Equal(2, alias.Indices.Count);
+        //    await _client.RefreshAsync();
+        //    alias = await _client.GetAliasAsync(descriptor => descriptor.Alias(_monthlyEmployeeIndex.AliasName));
+        //    Assert.True(alias.IsValid);
+        //    Assert.Equal(2, alias.Indices.Count);
             
-            indexes = await _client.GetIndicesPointingToAliasAsync(_employeeWithDateIndex.AliasName);
-            Assert.Equal(2, indexes.Count);
-        }
+        //    indexes = await _client.GetIndicesPointingToAliasAsync(_monthlyEmployeeIndex.AliasName);
+        //    Assert.Equal(2, indexes.Count);
+        //}
 
         [Fact]
         public async Task AddWithDefaultGeneratedIdAsync() {

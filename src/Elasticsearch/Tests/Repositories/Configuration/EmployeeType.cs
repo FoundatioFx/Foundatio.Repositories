@@ -3,8 +3,8 @@ using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
-    public class EmployeeType : ElasticIndexType<Employee> {
-        public EmployeeType(IElasticIndex index) : base(index: index) { }
+    public class EmployeeType : IndexType<Employee> {
+        public EmployeeType(IIndex index) : base(index: index) { }
 
         public override PutMappingDescriptor<Employee> BuildMapping(PutMappingDescriptor<Employee> map) {
             return map
@@ -16,7 +16,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                     .String(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName).Index(FieldIndexOption.NotAnalyzed))
                     .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.NotAnalyzed))
                     .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
-                    .Date(f => f.Name(e => e.StartDate).IndexName(Fields.OccurrenceDate))
                     .Date(f => f.Name(e => e.CreatedUtc).IndexName(Fields.CreatedUtc))
                     .Date(f => f.Name(e => e.UpdatedUtc).IndexName(Fields.UpdatedUtc))
                 );
@@ -28,7 +27,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
             public const string CompanyName = "company_name";
             public const string Name = "name";
             public const string Age = "age";
-            public const string OccurrenceDate = "occurrence";
             public const string CreatedUtc = "created";
             public const string UpdatedUtc = "updated";
         }

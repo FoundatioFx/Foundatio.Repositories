@@ -5,9 +5,9 @@ using System.Threading.Tasks;
 using Elasticsearch.Net;
 using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Queries;
-using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Extensions;
 using Foundatio.Logging;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Extensions;
@@ -22,12 +22,25 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected readonly bool HasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
         protected readonly bool HasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
         protected readonly bool SupportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(typeof(T));
+        protected readonly IChildIndexType<T> _childIndexType = null;
+        protected readonly ITimeSeriesIndexType<T> _timeSeriesIndexType = null;
+        protected readonly bool HasParent;
+        protected readonly bool HasMultipleIndexes;
 
         protected readonly ILogger _logger;
         private ScopedCacheClient _scopedCacheClient;
 
         protected ElasticReadOnlyRepositoryBase(IElasticRepositoryConfiguration<T> configuration, ILoggerFactory loggerFactory = null) {
             Configuration = configuration;
+            if (configuration.Type is IChildIndexType<T>) {
+                HasParent = true;
+                _childIndexType = configuration.Type as IChildIndexType<T>;
+            }
+            if (configuration.Type is ITimeSeriesIndexType) {
+                HasMultipleIndexes = true;
+                _timeSeriesIndexType = configuration.Type as ITimeSeriesIndexType<T>;
+            }
+
             _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
         }
 
@@ -162,7 +175,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return result.Value;
 
             var countDescriptor = new CountDescriptor<T>().Query(Configuration.QueryBuilder.CreateQuery<T>(query, Configuration));
-            var indices = Configuration.Type.GetIndexesByQuery(query);
+            var indices = GetIndexesByQuery(query);
             if (indices?.Length > 0)
                 countDescriptor.Indices(indices);
             countDescriptor.IgnoreUnavailable();
@@ -178,7 +191,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public async Task<long> CountAsync() {
-            return (await Configuration.Client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Indices(Configuration.Type.GetIndexesByQuery(null))).AnyContext()).Count;
+            return (await Configuration.Client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Indices(GetIndexesByQuery(null))).AnyContext()).Count;
         }
 
         public async Task<T> GetByIdAsync(string id, bool useCache = false, TimeSpan? expiresIn = null) {
@@ -192,8 +205,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (result != null)
                 return result;
 
-            string index = Configuration.Type.GetIndexById(id);
-            if (!Configuration.Type.HasParent) {
+            string index = GetIndexById(id);
+            if (!HasParent) {
                 var res = await Configuration.Client.GetAsync<T>(id, index).AnyContext();
                 result = res.Source;
             } else {
@@ -228,8 +241,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             var itemsToFind = new List<string>(ids.Distinct().Except(results.Documents.Select(i => ((IIdentity)i).Id)));
             var multiGet = new MultiGetDescriptor();
 
-            if (!Configuration.Type.HasParent) {
-                itemsToFind.ForEach(id => multiGet.Get<T>(f => f.Id(id).Index(Configuration.Type.GetIndexById(id))));
+            if (!HasParent) {
+                itemsToFind.ForEach(id => multiGet.Get<T>(f => f.Id(id).Index(GetIndexById(id))));
 
                 var multiGetResults = await Configuration.Client.MultiGetAsync(multiGet).AnyContext();
                 foreach (var doc in multiGetResults.Documents) {
@@ -242,7 +255,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             // fallback to doing a find
-            if (itemsToFind.Count > 0 && (Configuration.Type.HasParent || Configuration.Type.HasMultipleIndexes))
+            if (itemsToFind.Count > 0 && (HasParent || HasMultipleIndexes))
                 results.Documents.AddRange((await FindAsync(new ElasticQuery().WithIds(itemsToFind)).AnyContext()).Documents);
 
             if (IsCacheEnabled && useCache) {
@@ -354,7 +367,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             
             search.Query(Configuration.QueryBuilder.CreateQuery<T>(query, Configuration));
 
-            var indices = Configuration.Type.GetIndexesByQuery(query);
+            var indices = GetIndexesByQuery(query);
             if (indices?.Length > 0)
                 search.Indices(indices);
             search.IgnoreUnavailable();
@@ -363,7 +376,22 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             return search;
         }
-        
+
+        protected string[] GetIndexesByQuery(object query) {
+            return !HasMultipleIndexes ? new[] { Configuration.Index.AliasName } : _timeSeriesIndexType.GetIndexesByQuery(query);
+        }
+
+        protected string GetIndexById(string id) {
+            return !HasMultipleIndexes ? Configuration.Index.AliasName : _timeSeriesIndexType.GetIndexById(id);
+        }
+
+        protected string GetDocumentIndex(T document) {
+            return !HasMultipleIndexes ? Configuration.Index.AliasName : _timeSeriesIndexType.GetDocumentIndex(document);
+        }
+
+        protected Func<T, string> GetParentIdFunc => HasParent ? d => _childIndexType.GetParentId(d) : (Func<T, string>)null;
+        protected Func<T, string> GetDocumentIndexFunc => HasMultipleIndexes ? d => _timeSeriesIndexType.GetDocumentIndex(d) : (Func<T, string>)(d => Configuration.Index.VersionedName);
+
         protected async Task<TResult> GetCachedQueryResultAsync<TResult>(object query, string cachePrefix = null, string cacheSuffix = null) {
             var cachedQuery = query as ICachableQuery;
             if (!IsCacheEnabled || cachedQuery == null || !cachedQuery.ShouldUseCache())

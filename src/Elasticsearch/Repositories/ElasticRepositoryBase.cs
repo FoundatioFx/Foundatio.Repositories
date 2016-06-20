@@ -7,7 +7,6 @@ using Nest;
 using Elasticsearch.Net;
 using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Extensions;
-using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Extensions;
 using Foundatio.Logging;
 using Foundatio.Messaging;
@@ -39,7 +38,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 foreach (var doc in documents)
                     await Configuration.Validator.ValidateAndThrowAsync(doc).AnyContext();
 
-            var result = await Configuration.Client.IndexManyAsync(documents, d => Configuration.Type.GetParentId(d), d => Configuration.Type.GetDocumentIndex(d)).AnyContext();
+            var result = await Configuration.Client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc).AnyContext();
             if (!result.IsValid)
                 throw new ApplicationException(String.Join("\r\n", result.ItemsWithErrors.Select(i => i.Error)), result.ConnectionStatus.OriginalException);
 
@@ -72,7 +71,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return;
 
             await OnDocumentsRemovingAsync(documents).AnyContext();
-            foreach (var g in documents.GroupBy(d => Configuration.Type.GetDocumentIndex(d)))
+            foreach (var g in documents.GroupBy(GetDocumentIndex))
                 await Configuration.Client.DeleteByQueryAsync<T>(q => q.Query(q1 => q1.Ids(g.Select(d => d.Id))).Index(g.Key)).AnyContext();
 
             await OnDocumentsRemovedAsync(documents, sendNotification).AnyContext();
@@ -139,7 +138,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 foreach (var doc in documents)
                     await Configuration.Validator.ValidateAndThrowAsync(doc).AnyContext();
 
-            var result = await Configuration.Client.IndexManyAsync(documents, d => Configuration.Type.GetParentId(d), d => Configuration.Type.GetDocumentIndex(d)).AnyContext();
+            var result = await Configuration.Client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc).AnyContext();
             if (!result.IsValid)
                 throw new ApplicationException(String.Join("\r\n", result.ItemsWithErrors.Select(i => i.Error)), result.ConnectionStatus.OriginalException);
 

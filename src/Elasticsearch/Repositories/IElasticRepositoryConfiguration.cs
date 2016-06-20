@@ -4,8 +4,8 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public interface IElasticRepositoryConfiguration<T>: IRepositoryConfiguration<T> where T : class {
-        IElasticIndexType<T> Type { get; }
-        IElasticIndex Index { get; }
+        IIndexType<T> Type { get; }
+        IIndex Index { get; }
         IElasticClient Client { get; }
         IQueryBuilder QueryBuilder { get; }
     }

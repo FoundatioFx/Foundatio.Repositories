@@ -34,13 +34,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return client;
         }
 
-        protected virtual ConnectionSettings GetConnectionSettings(IEnumerable<Uri> serverUris, IEnumerable<IElasticIndex> indexes) {
+        protected virtual ConnectionSettings GetConnectionSettings(IEnumerable<Uri> serverUris, IEnumerable<IIndex> indexes) {
             return new ConnectionSettings(new StaticConnectionPool(serverUris))
                 .MapDefaultTypeIndices(t => t.AddRange(indexes.ToTypeIndices()))
                 .MapDefaultTypeNames(t => t.AddRange(indexes.ToIndexTypeNames()));
         }
 
-        public virtual void ConfigureIndexes(IElasticClient client, IEnumerable<IElasticIndex> indexes = null) {
+        public virtual void ConfigureIndexes(IElasticClient client, IEnumerable<IIndex> indexes = null) {
             if (indexes == null)
                 indexes = GetIndexes();
 
@@ -48,11 +48,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 int currentVersion = GetAliasVersion(client, idx.AliasName);
 
                 IIndicesOperationResponse response = null;
-                var templatedIndex = idx as ITemplatedElasticIndex;
+                var templatedIndex = idx as ITimeSeriesIndex;
                 if (templatedIndex != null)
-                    response = client.PutTemplate(idx.VersionedName, template => templatedIndex.ConfigureTemplate(template).AddAlias(idx.AliasName));
+                    response = client.PutTemplate(idx.VersionedName, template => templatedIndex.ConfigureTemplate(template));
                 else if (!client.IndexExists(idx.VersionedName).Exists)
-                    response = client.CreateIndex(idx.VersionedName, descriptor => idx.ConfigureIndex(descriptor).AddAlias(idx.AliasName));
+                    response = client.CreateIndex(idx.VersionedName, descriptor => idx.ConfigureIndex(descriptor));
 
                 Debug.Assert(response == null || response.IsValid, response?.ServerError != null ? response.ServerError.Error : "An error occurred creating the index or template.");
                 
@@ -82,12 +82,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                     OldIndex = String.Concat(idx.AliasName, "-v", currentVersion),
                     NewIndex = idx.VersionedName,
                     Alias = idx.AliasName,
-                    DeleteOld = true,
-                    ParentMaps = idx.Types
-                            .Select(kvp => new ParentMap {Type = kvp.Value.Name, ParentPath = kvp.Value.ParentPath})
-                            .Where(m => !String.IsNullOrEmpty(m.ParentPath))
-                            .ToList()
+                    DeleteOld = true
                 };
+
+                foreach (var type in idx.IndexTypes.OfType<IChildIndexType>())
+                    reindexWorkItem.ParentMaps.Add(new ParentMap { Type = type.Name, ParentPath = type.ParentPath });
 
                 bool isReindexing = _lockProvider.IsLockedAsync(String.Concat("reindex:", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex)).Result;
                 // already reindexing
@@ -99,14 +98,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
         }
 
-        public virtual void DeleteIndexes(IElasticClient client, IEnumerable<IElasticIndex> indexes = null) {
+        public virtual void DeleteIndexes(IElasticClient client, IEnumerable<IIndex> indexes = null) {
             if (indexes == null)
                 indexes = GetIndexes();
             
             foreach (var idx in indexes) {
                 IIndicesResponse deleteResponse;
 
-                var templatedIndex = idx as ITemplatedElasticIndex;
+                var templatedIndex = idx as ITimeSeriesIndex;
                 if (templatedIndex != null) {
                     deleteResponse = client.DeleteIndex(idx.VersionedName + "-*");
 
@@ -126,7 +125,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return _indexMap.ContainsKey(entityType) ? _indexMap[entityType] : null;
         }
 
-        protected abstract IEnumerable<IElasticIndex> GetIndexes();
+        protected abstract IEnumerable<IIndex> GetIndexes();
 
         protected virtual int GetAliasVersion(IElasticClient client, string alias) {
             var res = client.GetAlias(a => a.Alias(alias));

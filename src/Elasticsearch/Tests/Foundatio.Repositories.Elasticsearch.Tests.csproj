@@ -110,20 +110,19 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Extensions\JsonExtensions.cs" />
+    <Compile Include="Extensions\ObjectExtensions.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Repositories\Builders\AgeQueryBuilder.cs" />
-    <Compile Include="Repositories\Builders\CompanyQueryBuilder.cs" />
     <Compile Include="Repositories\Configuration\ElasticConfiguration.cs" />
+    <Compile Include="Repositories\Configuration\LogEventType.cs" />
     <Compile Include="Repositories\Configuration\EmployeeType.cs" />
-    <Compile Include="Repositories\Configuration\MonthlyEmployeeIndex.cs" />
+    <Compile Include="Repositories\Configuration\LogEventIndex.cs" />
     <Compile Include="Repositories\Configuration\EmployeeIndex.cs" />
+    <Compile Include="Repositories\LogEventRepository.cs" />
     <Compile Include="Repositories\EmployeeRepository.cs" />
-    <Compile Include="Repositories\EmployeeRepositoryTests.cs" />
-    <Compile Include="Repositories\EmployeeWithDateBasedIndexRepository.cs" />
+    <Compile Include="Repositories\Models\LogEvent.cs" />
+    <Compile Include="RepositoryTests.cs" />
     <Compile Include="Repositories\Models\Employee.cs" />
     <Compile Include="Repositories\Queries\AgeQuery.cs" />
-    <Compile Include="Repositories\AppRepositoryBase.cs" />
     <Compile Include="Repositories\Queries\CompanyQuery.cs" />
   </ItemGroup>
   <ItemGroup>

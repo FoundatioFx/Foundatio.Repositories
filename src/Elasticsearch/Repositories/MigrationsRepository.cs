@@ -13,6 +13,6 @@ namespace Foundatio.Repositories.Elasticsearch {
     }
 
     public class MigrationRespositoryConfiguration : ElasticRepositoryConfiguration<MigrationResult> {
-        public MigrationRespositoryConfiguration(IElasticClient client): base(client, new ElasticIndexType<MigrationResult>("migrations")) {}
+        public MigrationRespositoryConfiguration(IElasticClient client): base(client, new IndexType<MigrationResult>("migrations")) {}
     }
 }

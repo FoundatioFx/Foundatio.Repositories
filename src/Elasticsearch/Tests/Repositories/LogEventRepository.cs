@@ -8,22 +8,14 @@ using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
-    public class EmployeeRepository : ElasticRepositoryBase<Employee> {
-        public EmployeeRepository(ElasticRepositoryConfiguration<Employee> configuration) : base(configuration) { }
+    public class LogEventRepository : ElasticRepositoryBase<LogEvent> {
+        public LogEventRepository(ElasticRepositoryConfiguration<LogEvent> configuration) : base(configuration) { }
 
-        public Task<Employee> GetByAgeAsync(int age) {
-            return FindOneAsync(new AgeQuery().WithAge(age));
-        }
-
-        public Task<FindResults<Employee>> GetAllByAgeAsync(int age) {
-            return FindAsync(new AgeQuery().WithAge(age));
-        }
-
-        public Task<Employee> GetByCompanyAsync(string company) {
+        public Task<LogEvent> GetByCompanyAsync(string company) {
             return FindOneAsync(new CompanyQuery().WithCompany(company));
         }
 
-        public Task<FindResults<Employee>> GetAllByCompanyAsync(string company) {
+        public Task<FindResults<LogEvent>> GetAllByCompanyAsync(string company) {
             return FindAsync(new CompanyQuery().WithCompany(company));
         }
         
@@ -31,7 +23,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return CountAsync(new CompanyQuery().WithCompany(company).WithCacheKey(company));
         }
 
-        protected override async Task InvalidateCacheAsync(ICollection<ModifiedDocument<Employee>> documents) {
+        protected override async Task InvalidateCacheAsync(ICollection<ModifiedDocument<LogEvent>> documents) {
             if (!IsCacheEnabled)
                 return;
 

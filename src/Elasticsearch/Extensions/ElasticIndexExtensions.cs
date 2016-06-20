@@ -8,12 +8,12 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticIndexExtensions {
-        public static IEnumerable<KeyValuePair<Type, string>> ToTypeIndices(this IEnumerable<IElasticIndex> indexes) {
-            return indexes.SelectMany(idx => idx.Types.Select(kvp => new KeyValuePair<Type, string>(kvp.Key, idx.AliasName)));
+        public static IEnumerable<KeyValuePair<Type, string>> ToTypeIndices(this IEnumerable<IIndex> indexes) {
+            return indexes.SelectMany(idx => idx.IndexTypes.Select(kvp => new KeyValuePair<Type, string>(kvp.Key, idx.AliasName)));
         }
 
-        public static IDictionary<Type, string> ToIndexTypeNames(this IEnumerable<IElasticIndex> indexes) {
-            return indexes.SelectMany(idx => idx.Types).ToDictionary(k => k.Key, k => k.Value.Name);
+        public static IDictionary<Type, string> ToIndexTypeNames(this IEnumerable<IIndex> indexes) {
+            return indexes.SelectMany(idx => idx.IndexTypes).ToDictionary(k => k.Key, k => k.Value.Name);
         }
 
         public static ICollection<FacetResult> ToFacetResults<T>(this ISearchResponse<T> res) where T : class {
