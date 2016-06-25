@@ -3,16 +3,20 @@ using System.Collections.Generic;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public class ElasticQueryBuilder : IQueryBuilder {
-        private readonly List<IQueryBuilder> _partBuilders = new List<IQueryBuilder>();
+    public class ElasticQueryBuilder : IElasticQueryBuilder {
+        private readonly List<IElasticQueryBuilder> _partBuilders = new List<IElasticQueryBuilder>();
 
         public ElasticQueryBuilder(bool registerDefaultBuilders = true) {
             if (registerDefaultBuilders)
                 RegisterDefaults();
         }
 
-        public void Register(IQueryBuilder builder) {
+        public void Register(IElasticQueryBuilder builder) {
             _partBuilders.Add(builder);
+        }
+
+        public void Register(params IElasticQueryBuilder[] builders) {
+            _partBuilders.AddRange(builders);
         }
 
         public void RegisterDefaults() {
@@ -49,5 +53,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             foreach (var partBuilder in _partBuilders)
                 partBuilder.BuildSearch(query, options, ref descriptor);
         }
+
+        private static readonly Lazy<ElasticQueryBuilder> _default = new Lazy<ElasticQueryBuilder>(() => new ElasticQueryBuilder());
+        public static ElasticQueryBuilder Default => _default.Value;
     }
 }

@@ -2,7 +2,7 @@
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public class ParentQueryBuilder : QueryBuilderBase {
+    public class ParentQueryBuilder : ElasticQueryBuilderBase {
         private readonly ElasticQueryBuilder _queryBuilder;
 
         public ParentQueryBuilder(ElasticQueryBuilder queryBuilder) {

@@ -2,7 +2,7 @@
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public class SearchQueryBuilder : QueryBuilderBase {
+    public class SearchQueryBuilder : ElasticQueryBuilderBase {
         public override void BuildQuery<T>(object query, object options, ref QueryContainer container) {
             var searchQuery = query as ISearchQuery;
             if (String.IsNullOrEmpty(searchQuery?.SearchQuery))

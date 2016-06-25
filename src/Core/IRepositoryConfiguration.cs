@@ -2,7 +2,7 @@
 using Foundatio.Caching;
 using Foundatio.Messaging;
 
-namespace Foundatio.Repositories.Elasticsearch {
+namespace Foundatio.Repositories {
     public interface IRepositoryConfiguration<T> where T : class {
         ICacheClient Cache { get; }
         IMessagePublisher MessagePublisher { get; }

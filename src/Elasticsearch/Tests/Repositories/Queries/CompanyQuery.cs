@@ -26,7 +26,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Queries {
         public List<string> Companies { get; set; }
     }
 
-    public class CompanyQueryBuilder : QueryBuilderBase {
+    public class CompanyQueryBuilder : ElasticQueryBuilderBase {
         public override void BuildFilter<T>(object query, object options, ref FilterContainer container) {
             var companyQuery = query as ICompanyQuery;
             if (companyQuery?.Companies == null || companyQuery.Companies.Count <= 0)

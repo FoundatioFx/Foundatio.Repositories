@@ -9,7 +9,7 @@ using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class LogEventRepository : ElasticRepositoryBase<LogEvent> {
-        public LogEventRepository(ElasticRepositoryConfiguration<LogEvent> configuration) : base(configuration) { }
+        public LogEventRepository(RepositoryConfiguration<LogEvent> configuration) : base(configuration) { }
 
         public Task<LogEvent> GetByCompanyAsync(string company) {
             return FindOneAsync(new CompanyQuery().WithCompany(company));

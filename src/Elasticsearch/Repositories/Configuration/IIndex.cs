@@ -8,7 +8,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         int Version { get; }
         string AliasName { get; }
         string VersionedName { get; }
-        IDictionary<Type, IIndexType> IndexTypes { get; }
+        ICollection<IIndexType> IndexTypes { get; }
         CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx);
     }
 
@@ -29,22 +29,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public string AliasName { get; }
         public string VersionedName { get; }
 
-        protected void AddIndexType<T>(IIndexType indexType) {
-            IndexTypes.Add(typeof(T), indexType);
-        }
-
-        public IIndexType GetIndexType<T>() {
-            IIndexType indexType;
-            return IndexTypes.TryGetValue(typeof(T), out indexType) ? indexType : null;
-        }
-
-        public IDictionary<Type, IIndexType> IndexTypes { get; } = new Dictionary<Type, IIndexType>();
+        public ICollection<IIndexType> IndexTypes { get; } = new List<IIndexType>();
 
         public virtual CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
             idx.AddAlias(AliasName);
 
             foreach (var t in IndexTypes)
-                t.Value.ConfigureIndex(idx);
+                t.ConfigureIndex(idx);
             
             return idx;
         }
@@ -58,7 +49,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             template.AddAlias(AliasName);
 
             foreach (var t in IndexTypes) {
-                var type = t.Value as ITimeSeriesIndexType;
+                var type = t as ITimeSeriesIndexType;
                 type?.ConfigureTemplate(template);
             }
 
@@ -66,7 +57,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public string GetIndex(DateTime utcDate) {
-            return $"{VersionedName}-{utcDate.ToString("yyyy.MM")}";
+            return $"{VersionedName}-{utcDate:yyyy.MM}";
         }
 
         public string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd) {
@@ -94,7 +85,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             template.AddAlias(AliasName);
 
             foreach (var t in IndexTypes) {
-                var type = t.Value as ITimeSeriesIndexType;
+                var type = t as ITimeSeriesIndexType;
                 type?.ConfigureTemplate(template);
             }
 
@@ -102,7 +93,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public string GetIndex(DateTime utcDate) {
-            return $"{VersionedName}-{utcDate.ToString("yyyy.MM.dd")}";
+            return $"{VersionedName}-{utcDate:yyyy.MM.dd}";
         }
 
         public string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd) {

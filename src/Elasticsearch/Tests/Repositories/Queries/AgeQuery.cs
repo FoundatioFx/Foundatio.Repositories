@@ -32,7 +32,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Queries {
         public List<int> Ages { get; set; }
     }
 
-    public class AgeQueryBuilder : QueryBuilderBase {
+    public class AgeQueryBuilder : ElasticQueryBuilderBase {
         public override void BuildFilter<T>(object query, object options, ref FilterContainer container) {
             var ageQuery = query as IAgeQuery;
             if (ageQuery?.Ages == null || ageQuery.Ages.Count <= 0)

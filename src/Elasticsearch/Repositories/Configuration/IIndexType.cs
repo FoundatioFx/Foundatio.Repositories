@@ -96,11 +96,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return new string[0];
 
             var indexes = new List<string>();
-            if (withIndexesQuery.Indices.Count > 0)
-                indexes.AddRange(withIndexesQuery.Indices);
+            if (withIndexesQuery.Indexes.Count > 0)
+                indexes.AddRange(withIndexesQuery.Indexes);
 
-            if (withIndexesQuery.UtcStart.HasValue || withIndexesQuery.UtcEnd.HasValue)
-                indexes.AddRange(TimeSeriesIndex.GetIndexes(withIndexesQuery.UtcStart, withIndexesQuery.UtcEnd));
+            if (withIndexesQuery.UtcStartIndex.HasValue || withIndexesQuery.UtcEndIndex.HasValue)
+                indexes.AddRange(TimeSeriesIndex.GetIndexes(withIndexesQuery.UtcStartIndex, withIndexesQuery.UtcEndIndex));
 
             return indexes.ToArray();
         }

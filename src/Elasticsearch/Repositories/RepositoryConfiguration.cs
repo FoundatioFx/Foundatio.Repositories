@@ -6,11 +6,11 @@ using Foundatio.Messaging;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch {
-    public class ElasticRepositoryConfiguration<T> : IElasticRepositoryConfiguration<T> where T : class {
-        public ElasticRepositoryConfiguration(IElasticClient client, IIndexType<T> type = null, IQueryBuilder queryBuilder = null, IValidator<T> validator = null, ICacheClient cache = null, IMessagePublisher messagePublisher = null) {
+    public class RepositoryConfiguration<T> : IElasticRepositoryConfiguration<T> where T : class {
+        public RepositoryConfiguration(IElasticClient client, IIndexType<T> type = null, IElasticQueryBuilder queryBuilder = null, IValidator<T> validator = null, ICacheClient cache = null, IMessagePublisher messagePublisher = null) {
             Client = client;
             Type = type ?? new IndexType<T>();
-            QueryBuilder = queryBuilder ?? new ElasticQueryBuilder();
+            QueryBuilder = queryBuilder ?? Queries.Builders.ElasticQueryBuilder.Default;
             Cache = cache;
             Validator = validator;
             MessagePublisher = messagePublisher;
@@ -19,7 +19,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public IElasticClient Client { get; }
         public IIndexType<T> Type { get; }
         public IIndex Index => Type.Index;
-        public IQueryBuilder QueryBuilder { get; }
+        public IElasticQueryBuilder QueryBuilder { get; }
         public ICacheClient Cache { get; }
         public IValidator<T> Validator { get; }
         public IMessagePublisher MessagePublisher { get; }

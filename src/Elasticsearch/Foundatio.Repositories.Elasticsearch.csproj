@@ -100,16 +100,14 @@
     <Compile Include="Extensions\DateTimeExtensions.cs" />
     <Compile Include="Jobs\ReindexWorkItem.cs" />
     <Compile Include="Jobs\ReindexWorkItemHandler.cs" />
-    <Compile Include="Repositories\Configuration\ElasticConfigurationBase.cs" />
+    <Compile Include="Repositories\Configuration\IDatabase.cs" />
     <Compile Include="Repositories\Configuration\IIndex.cs" />
     <Compile Include="Extensions\ElasticExtensions.cs" />
     <Compile Include="Extensions\ElasticIndexExtensions.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Repositories\Configuration\IIndexType.cs" />
     <Compile Include="Repositories\Configuration\KeepAliveHttpConnection.cs" />
-    <Compile Include="Repositories\IElasticReadOnlyRepository.cs" />
     <Compile Include="Repositories\IElasticRepositoryConfiguration.cs" />
-    <Compile Include="Repositories\IRepositoryConfiguration.cs" />
     <Compile Include="Repositories\MigrationsRepository.cs" />
     <Compile Include="Repositories\Queries\Builders\ElasticQueryBuilder.cs" />
     <Compile Include="Repositories\Queries\ChildQuery.cs" />
@@ -126,7 +124,7 @@
     <Compile Include="Repositories\Queries\Parts\FacetQuery.cs" />
     <Compile Include="Repositories\Queries\Builders\FacetQueryBuilder.cs" />
     <Compile Include="Repositories\Queries\Parts\FieldConditionsQuery.cs" />
-    <Compile Include="Repositories\Queries\Builders\IQueryBuilder.cs" />
+    <Compile Include="Repositories\Queries\Builders\IElasticQueryBuilder.cs" />
     <Compile Include="Repositories\Queries\Builders\FieldConditionsQueryBuilder.cs" />
     <Compile Include="Repositories\Queries\Builders\IdentityQueryBuilder.cs" />
     <Compile Include="Repositories\Queries\Builders\PagableQueryBuilder.cs" />
@@ -143,7 +141,7 @@
     <Compile Include="Repositories\Queries\Query.cs" />
     <Compile Include="Repositories\ElasticReadOnlyRepositoryBase.cs" />
     <Compile Include="Repositories\ElasticRepositoryBase.cs" />
-    <Compile Include="Repositories\ElasticRepositoryConfiguration.cs" />
+    <Compile Include="Repositories\RepositoryConfiguration.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />

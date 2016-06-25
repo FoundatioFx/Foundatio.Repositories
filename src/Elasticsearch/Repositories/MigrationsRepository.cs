@@ -1,9 +1,5 @@
 ﻿using System;
-using FluentValidation;
-using Foundatio.Caching;
-using Foundatio.Messaging;
 using Foundatio.Repositories.Elasticsearch.Configuration;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Migrations;
 using Nest;
 
@@ -12,7 +8,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public MigrationsRepository(IElasticClient client) : base(new MigrationRespositoryConfiguration(client)) {}
     }
 
-    public class MigrationRespositoryConfiguration : ElasticRepositoryConfiguration<MigrationResult> {
+    public class MigrationRespositoryConfiguration : RepositoryConfiguration<MigrationResult> {
         public MigrationRespositoryConfiguration(IElasticClient client): base(client, new IndexType<MigrationResult>("migrations")) {}
     }
 }

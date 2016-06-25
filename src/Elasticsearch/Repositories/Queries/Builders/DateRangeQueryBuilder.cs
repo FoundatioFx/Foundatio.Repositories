@@ -3,7 +3,7 @@ using System.Linq;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public class DateRangeQueryBuilder : QueryBuilderBase {
+    public class DateRangeQueryBuilder : ElasticQueryBuilderBase {
         public override void BuildFilter<T>(object query, object options, ref FilterContainer container) {
             var dateRangeQuery = query as IDateRangeQuery;
             if (dateRangeQuery?.DateRanges == null || dateRangeQuery.DateRanges.Count <= 0)

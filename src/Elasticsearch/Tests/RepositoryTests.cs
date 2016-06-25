@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Configuration;
 using System.Linq;
 using System.Threading.Tasks;
-using Exceptionless.DateTimeExtensions;
 using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Jobs;
@@ -19,21 +18,17 @@ using Xunit;
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class RepositoryTests {
         private readonly InMemoryCacheClient _cache = new InMemoryCacheClient();
-        private readonly IElasticClient _client;
         private readonly IQueue<WorkItemData> _workItemQueue = new InMemoryQueue<WorkItemData>();
-        private readonly ElasticConfiguration _configuration;
+        private readonly MyAppDatabase _database;
         private readonly EmployeeIndex _employeeIndex = new EmployeeIndex();
-        private readonly ElasticQueryBuilder _queryBuilder = new ElasticQueryBuilder();
         private readonly EmployeeRepository _repository;
 
         public RepositoryTests() {
-            _queryBuilder.RegisterDefaults();
-            _queryBuilder.Register(new AgeQueryBuilder());
-            _queryBuilder.Register(new CompanyQueryBuilder());
+            ElasticQueryBuilder.Default.Register(new AgeQueryBuilder(), new CompanyQueryBuilder());
 
-            _configuration = new ElasticConfiguration(_workItemQueue, _cache);
-            _client = _configuration.GetClient(new[] { new Uri(ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString) });
-            _repository = new EmployeeRepository(new ElasticRepositoryConfiguration<Employee>(_client, _employeeIndex.Employee, _queryBuilder, null, _cache));
+            var connectionString = ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString;
+            _database = new MyAppDatabase(new Uri(connectionString), _workItemQueue, _cache);
+            _repository = new EmployeeRepository(new RepositoryConfiguration<Employee>(_database.Client, _employeeIndex.Employee, cache: _cache));
         }
         
         //[Fact]
@@ -243,7 +238,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             
             var employee19 = await _repository.AddAsync(EmployeeGenerator.Generate(age: 19));
             var employee20 = await _repository.AddAsync(EmployeeGenerator.Generate(age: 20));
-            await _client.RefreshAsync();
+            await _database.Client.RefreshAsync();
 
             var result = await _repository.GetByAgeAsync(employee19.Age);
             Assert.Equal(employee19.ToJson(), result.ToJson());
@@ -259,7 +254,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             var company19 = await _repository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId));
             var company20 = await _repository.AddAsync(EmployeeGenerator.Generate(age: 20));
-            await _client.RefreshAsync();
+            await _database.Client.RefreshAsync();
 
             var result = await _repository.GetByCompanyAsync(company19.CompanyId);
             Assert.Equal(company19.ToJson(), result.ToJson());
@@ -275,9 +270,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         private async Task RemoveDataAsync() {
             await _cache.RemoveAllAsync();
-            _configuration.DeleteIndexes(_client);
-            _configuration.ConfigureIndexes(_client);
-            await _client.RefreshAsync();
+            _database.DeleteIndexes();
+            _database.ConfigureIndexes();
+            await _database.Client.RefreshAsync();
         }
     }
 }

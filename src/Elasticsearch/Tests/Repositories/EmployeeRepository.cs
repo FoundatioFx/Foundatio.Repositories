@@ -9,7 +9,7 @@ using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class EmployeeRepository : ElasticRepositoryBase<Employee> {
-        public EmployeeRepository(ElasticRepositoryConfiguration<Employee> configuration) : base(configuration) { }
+        public EmployeeRepository(RepositoryConfiguration<Employee> configuration) : base(configuration) { }
 
         public Task<Employee> GetByAgeAsync(int age) {
             return FindOneAsync(new AgeQuery().WithAge(age));

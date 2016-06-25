@@ -7,6 +7,6 @@ namespace Foundatio.Repositories.Elasticsearch {
         IIndexType<T> Type { get; }
         IIndex Index { get; }
         IElasticClient Client { get; }
-        IQueryBuilder QueryBuilder { get; }
+        IElasticQueryBuilder QueryBuilder { get; }
     }
 }

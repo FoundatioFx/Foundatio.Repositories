@@ -2,7 +2,7 @@
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public class FieldConditionsQueryBuilder : QueryBuilderBase {
+    public class FieldConditionsQueryBuilder : ElasticQueryBuilderBase {
         public override void BuildFilter<T>(object query, object options, ref FilterContainer container) {
             var fieldValuesQuery = query as IFieldConditionsQuery;
             if (fieldValuesQuery?.FieldConditions == null || fieldValuesQuery.FieldConditions.Count <= 0)
