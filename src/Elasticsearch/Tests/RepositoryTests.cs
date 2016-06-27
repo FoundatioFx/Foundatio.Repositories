@@ -12,7 +12,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Utility;
-using Nest;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
@@ -20,7 +19,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         private readonly InMemoryCacheClient _cache = new InMemoryCacheClient();
         private readonly IQueue<WorkItemData> _workItemQueue = new InMemoryQueue<WorkItemData>();
         private readonly MyAppDatabase _database;
-        private readonly EmployeeIndex _employeeIndex = new EmployeeIndex();
         private readonly EmployeeRepository _repository;
 
         public RepositoryTests() {
@@ -28,7 +26,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             var connectionString = ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString;
             _database = new MyAppDatabase(new Uri(connectionString), _workItemQueue, _cache);
-            _repository = new EmployeeRepository(new RepositoryConfiguration<Employee>(_database.Client, _employeeIndex.Employee, cache: _cache));
+            _repository = new EmployeeRepository(new RepositoryConfiguration<Employee>(_database.Client, _database.Employee.Employee, cache: _cache));
         }
         
         //[Fact]

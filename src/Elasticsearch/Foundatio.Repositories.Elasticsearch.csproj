@@ -98,6 +98,9 @@
       <Link>Utility\TaskHelper.cs</Link>
     </Compile>
     <Compile Include="Extensions\DateTimeExtensions.cs" />
+    <Compile Include="Jobs\CleanupIndexesJob.cs" />
+    <Compile Include="Jobs\CleanupSnapshotJob.cs" />
+    <Compile Include="Jobs\SnapshotJob.cs" />
     <Compile Include="Jobs\ReindexWorkItem.cs" />
     <Compile Include="Jobs\ReindexWorkItemHandler.cs" />
     <Compile Include="Repositories\Configuration\IDatabase.cs" />
@@ -128,7 +131,7 @@
     <Compile Include="Repositories\Queries\Builders\FieldConditionsQueryBuilder.cs" />
     <Compile Include="Repositories\Queries\Builders\IdentityQueryBuilder.cs" />
     <Compile Include="Repositories\Queries\Builders\PagableQueryBuilder.cs" />
-    <Compile Include="Repositories\Queries\Parts\ElasticIndicesQuery.cs" />
+    <Compile Include="Repositories\Queries\Parts\ElasticIndexesQuery.cs" />
     <Compile Include="Repositories\Queries\Parts\ParentQuery.cs" />
     <Compile Include="Repositories\Queries\Builders\ParentQueryBuilder.cs" />
     <Compile Include="Repositories\Queries\Parts\SearchQuery.cs" />
@@ -142,6 +145,7 @@
     <Compile Include="Repositories\ElasticReadOnlyRepositoryBase.cs" />
     <Compile Include="Repositories\ElasticRepositoryBase.cs" />
     <Compile Include="Repositories\RepositoryConfiguration.cs" />
+    <Compile Include="Utility\Run.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />
