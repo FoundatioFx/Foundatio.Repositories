@@ -13,6 +13,7 @@ using Foundatio.Messaging;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Utility;
+// ReSharper disable SuspiciousTypeConversion.Global
 
 namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IRepository<T> where T : class, IIdentity, new() {
@@ -71,8 +72,17 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return;
 
             await OnDocumentsRemovingAsync(documents).AnyContext();
-            foreach (var g in documents.GroupBy(GetDocumentIndex))
-                await Configuration.Client.DeleteByQueryAsync<T>(q => q.Query(q1 => q1.Ids(g.Select(d => d.Id))).Index(g.Key)).AnyContext();
+            
+            var documentsByIndex = documents.GroupBy(d => GetDocumentIndexFunc?.Invoke(d));
+            var response = await Configuration.Client.BulkAsync(bulk => {
+                foreach (var group in documentsByIndex)
+                    bulk.DeleteMany(group.Select(g => g.Id), (b, id) => b.Index(group.Key));
+
+                return bulk;
+            }).AnyContext();
+
+            if (!response.IsValid)
+                throw new ApplicationException(String.Join("\r\n", response.ItemsWithErrors.Select(i => i.Error)), response.ConnectionStatus.OriginalException);
 
             await OnDocumentsRemovedAsync(documents, sendNotification).AnyContext();
         }
@@ -185,6 +195,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                         .Property("Query", query)
                         .Property("Update", update)
                         .Write();
+
                     return 0;
                 }
 
@@ -350,7 +361,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 await Cache.SetAsync(document.Id, document, expiresIn ?? TimeSpan.FromSeconds(RepositoryConstants.DEFAULT_CACHE_EXPIRATION_SECONDS)).AnyContext();
         }
 
-        protected bool NotificationsEnabled { get; set; } = true;
+        protected bool NotificationsEnabled { get; set; }
 
         public bool BatchNotifications { get; set; }
 

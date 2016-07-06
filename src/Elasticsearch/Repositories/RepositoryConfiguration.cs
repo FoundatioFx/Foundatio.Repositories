@@ -9,8 +9,8 @@ namespace Foundatio.Repositories.Elasticsearch {
     public class RepositoryConfiguration<T> : IElasticRepositoryConfiguration<T> where T : class {
         public RepositoryConfiguration(IElasticClient client, IIndexType<T> type = null, IElasticQueryBuilder queryBuilder = null, IValidator<T> validator = null, ICacheClient cache = null, IMessagePublisher messagePublisher = null) {
             Client = client;
-            Type = type ?? new IndexType<T>();
-            QueryBuilder = queryBuilder ?? Queries.Builders.ElasticQueryBuilder.Default;
+            Type = type ?? new Index<T>(client).Type;
+            QueryBuilder = queryBuilder ?? ElasticQueryBuilder.Default;
             Cache = cache;
             Validator = validator;
             MessagePublisher = messagePublisher;

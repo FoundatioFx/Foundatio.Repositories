@@ -3,18 +3,17 @@ using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Jobs;
 using Foundatio.Queues;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
     public class MyAppDatabase : Database {
         public MyAppDatabase(Uri serverUri, IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient) : base(serverUri, workItemQueue, cacheClient) {
-            Employee = new EmployeeIndex();
-            DailyLogEvent = new DailyLogEventIndex();
-            MonthlyLogEvent = new MonthlyLogEventIndex();
+            Employee = new EmployeeIndex(Client);
+            DailyLogEvent = new DailyLogEventIndex(Client);
+            MonthlyLogEvent = new MonthlyLogEventIndex(Client);
 
-            Indexes.Add(Employee);
-            Indexes.Add(DailyLogEvent);
-            Indexes.Add(MonthlyLogEvent);
+            AddIndex(Employee);
+            AddIndex(DailyLogEvent);
+            AddIndex(MonthlyLogEvent);
         }
 
         public EmployeeIndex Employee { get; }

@@ -3,16 +3,18 @@ using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.Jobs;
 using Foundatio.Lock;
+using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Extensions;
+using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs {
     public class ReindexWorkItemHandler : WorkItemHandlerBase {
-        private readonly IDatabase _database;
+        private readonly ElasticReindexer _reindexer;
         private readonly ILockProvider _lockProvider;
 
-        public ReindexWorkItemHandler(IDatabase database, ILockProvider lockProvider) {
-            _database = database;
+        public ReindexWorkItemHandler(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory = null) {
+            _reindexer = new ElasticReindexer(client, loggerFactory.CreateLogger<ReindexWorkItemHandler>());
             _lockProvider = lockProvider;
             AutoRenewLockOnProgress = true;
         }
@@ -27,7 +29,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
 
         public override async Task HandleItemAsync(WorkItemContext context) {
             var workItem = context.GetData<ReindexWorkItem>();
-            await _database.ReindexAsync(workItem, context.ReportProgressAsync).AnyContext();
+            await _reindexer.ReindexAsync(workItem, context.ReportProgressAsync).AnyContext();
         }
     }
 }

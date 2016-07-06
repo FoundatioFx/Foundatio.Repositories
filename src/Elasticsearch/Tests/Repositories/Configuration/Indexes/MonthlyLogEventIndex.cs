@@ -1,11 +1,12 @@
 ﻿using System;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
     public class MonthlyLogEventIndex : MonthlyIndex {
-        public MonthlyLogEventIndex() : base(name: "monthly-logevents", version: 1) {
+        public MonthlyLogEventIndex(IElasticClient client) : base(client, name: "monthly-logevents", version: 1) {
             LogEvent = new LogEventType(this);
-            IndexTypes.Add(LogEvent);
+            AddType(LogEvent);
         }
 
         public LogEventType LogEvent { get; }

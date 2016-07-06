@@ -15,6 +15,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         CreateIndexDescriptor Configure(CreateIndexDescriptor idx);
     }
 
+    public interface ITemplatedIndexType {
+        PutTemplateDescriptor ConfigureTemplate(PutTemplateDescriptor idx);
+    }
+
     public interface IChildIndexType : IIndexType {
         string ParentPath { get; }
     }
@@ -23,8 +27,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         string GetParentId(T document);
     }
 
-    public interface ITimeSeriesIndexType : IIndexType {
-        PutTemplateDescriptor ConfigureTemplate(PutTemplateDescriptor idx);
+    public interface ITimeSeriesIndexType : IIndexType, ITemplatedIndexType {
         string GetIndexById(string id);
         string[] GetIndexesByQuery(object query);
     }
@@ -40,9 +43,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class IndexType<T> : IIndexType<T> where T : class {
         private readonly string _typeName = typeof(T).Name.ToLower();
 
-        public IndexType(string name = null, IIndex index = null) {
+        public IndexType(IIndex index, string name = null) {
+            if (index == null)
+                throw new ArgumentNullException(nameof(index));
+
             Name = name ?? _typeName;
-            Index = index ?? new Index(Name);
+            Index = index;
         }
 
         public string Name { get; }
@@ -68,7 +74,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class TimeSeriesIndexType<T> : IndexType<T>, ITimeSeriesIndexType<T> where T : class {
         protected readonly Func<T, DateTime> _getDocumentDateUtc;
 
-        public TimeSeriesIndexType(string name = null, IIndex index = null, Func<T, DateTime> getDocumentDateUtc = null) : base(name, index ?? new MonthlyIndex(name)) {
+        public TimeSeriesIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null) : base(index, name) {
             _getDocumentDateUtc = getDocumentDateUtc;
             if (_getDocumentDateUtc == null && typeof(T).IsAssignableFrom(typeof(IHaveCreatedDate)))
                 _getDocumentDateUtc = d => ((IHaveCreatedDate)d).CreatedUtc;
@@ -121,17 +127,17 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
     }
 
     public class MonthlyIndexType<T> : TimeSeriesIndexType<T> where T : class {
-        public MonthlyIndexType(string name = null, IIndex index = null, Func<T, DateTime> getDocumentDateUtc = null) : base(name, index, getDocumentDateUtc) {}
+        public MonthlyIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null) : base(index, name, getDocumentDateUtc) {}
     }
 
     public class DailyIndexType<T> : TimeSeriesIndexType<T> where T : class {
-        public DailyIndexType(string name = null, IIndex index = null, Func<T, DateTime> getDocumentDateUtc = null) : base(name, index, getDocumentDateUtc) { }
+        public DailyIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null) : base(index, name, getDocumentDateUtc) { }
     }
 
     public class ChildIndexType<T> : IndexType<T>, IChildIndexType<T> where T : class {
         protected readonly Func<T, string> _getParentId;
 
-        public ChildIndexType(string parentPath, Func<T, string> getParentId, string name = null, IIndex index = null): base(name, index) {
+        public ChildIndexType(string parentPath, Func<T, string> getParentId, string name = null, IIndex index = null): base(index, name) {
             ParentPath = parentPath;
             _getParentId = getParentId;
         }

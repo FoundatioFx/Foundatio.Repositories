@@ -4,9 +4,9 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
     public class EmployeeIndex : Index {
-        public EmployeeIndex(IElasticClient client): base(name: "employees", client: client, version: 1) {
+        public EmployeeIndex(IElasticClient client): base(name: "employees", client: client) {
             Employee = new EmployeeType(this);
-            IndexTypes.Add(Employee);
+            AddType(Employee);
         }
 
         public EmployeeType Employee { get; }

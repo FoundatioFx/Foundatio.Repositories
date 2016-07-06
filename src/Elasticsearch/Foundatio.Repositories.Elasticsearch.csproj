@@ -97,12 +97,12 @@
     <Compile Include="..\Core\Utility\TaskHelper.cs">
       <Link>Utility\TaskHelper.cs</Link>
     </Compile>
-    <Compile Include="Extensions\DateTimeExtensions.cs" />
     <Compile Include="Jobs\CleanupIndexesJob.cs" />
     <Compile Include="Jobs\CleanupSnapshotJob.cs" />
     <Compile Include="Jobs\SnapshotJob.cs" />
     <Compile Include="Jobs\ReindexWorkItem.cs" />
     <Compile Include="Jobs\ReindexWorkItemHandler.cs" />
+    <Compile Include="Repositories\Configuration\DailyIndex.cs" />
     <Compile Include="Repositories\Configuration\ElasticReindexer.cs" />
     <Compile Include="Repositories\Configuration\IDatabase.cs" />
     <Compile Include="Repositories\Configuration\IIndex.cs" />
@@ -110,7 +110,10 @@
     <Compile Include="Extensions\ElasticIndexExtensions.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Repositories\Configuration\IIndexType.cs" />
-    <Compile Include="Repositories\Configuration\KeepAliveHttpConnection.cs" />
+    <Compile Include="Repositories\Configuration\Index.cs" />
+    <Compile Include="Repositories\Configuration\IndexBase.cs" />
+    <Compile Include="Repositories\Configuration\MonthlyIndex.cs" />
+    <Compile Include="Repositories\Configuration\VersionedIndex.cs" />
     <Compile Include="Repositories\IElasticRepositoryConfiguration.cs" />
     <Compile Include="Repositories\MigrationsRepository.cs" />
     <Compile Include="Repositories\Queries\Builders\ElasticQueryBuilder.cs" />

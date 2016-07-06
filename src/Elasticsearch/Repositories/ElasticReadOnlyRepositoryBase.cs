@@ -380,19 +380,19 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected string[] GetIndexesByQuery(object query) {
-            return !_hasMultipleIndexes ? new[] { Configuration.Index.AliasName } : _timeSeriesIndexType.GetIndexesByQuery(query);
+            return !_hasMultipleIndexes ? new[] { Configuration.Index.Name } : _timeSeriesIndexType.GetIndexesByQuery(query);
         }
 
         protected string GetIndexById(string id) {
-            return !_hasMultipleIndexes ? Configuration.Index.AliasName : _timeSeriesIndexType.GetIndexById(id);
+            return !_hasMultipleIndexes ? Configuration.Index.Name : _timeSeriesIndexType.GetIndexById(id);
         }
 
         protected string GetDocumentIndex(T document) {
-            return !_hasMultipleIndexes ? Configuration.Index.AliasName : _timeSeriesIndexType.GetDocumentIndex(document);
+            return !_hasMultipleIndexes ? Configuration.Index.Name : _timeSeriesIndexType.GetDocumentIndex(document);
         }
 
         protected Func<T, string> GetParentIdFunc => _hasParent ? d => _childIndexType.GetParentId(d) : (Func<T, string>)null;
-        protected Func<T, string> GetDocumentIndexFunc => _hasMultipleIndexes ? d => _timeSeriesIndexType.GetDocumentIndex(d) : (Func<T, string>)(d => Configuration.Index.VersionedName);
+        protected Func<T, string> GetDocumentIndexFunc => _hasMultipleIndexes ? d => _timeSeriesIndexType.GetDocumentIndex(d) : (Func<T, string>)(d => Configuration.Index.Name);
 
         protected async Task<TResult> GetCachedQueryResultAsync<TResult>(object query, string cachePrefix = null, string cacheSuffix = null) {
             var cachedQuery = query as ICachableQuery;
