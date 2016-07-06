@@ -103,6 +103,7 @@
     <Compile Include="Jobs\SnapshotJob.cs" />
     <Compile Include="Jobs\ReindexWorkItem.cs" />
     <Compile Include="Jobs\ReindexWorkItemHandler.cs" />
+    <Compile Include="Repositories\Configuration\ElasticReindexer.cs" />
     <Compile Include="Repositories\Configuration\IDatabase.cs" />
     <Compile Include="Repositories\Configuration\IIndex.cs" />
     <Compile Include="Extensions\ElasticExtensions.cs" />

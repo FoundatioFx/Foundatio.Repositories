@@ -35,7 +35,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             if (!IsCacheEnabled)
                 return;
 
-            if (documents != null && documents.Count > 0 && HasIdentity) {
+            if (documents != null && documents.Count > 0 && _hasIdentity) {
                 var keys = documents.Select(d => $"count:{d.Value.CompanyId}").Distinct().ToList();
 
                 if (keys.Count > 0)

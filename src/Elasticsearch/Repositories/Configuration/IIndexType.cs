@@ -12,7 +12,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         int DefaultCacheExpirationSeconds { get; set; }
         int BulkBatchSize { get; set; }
         ISet<string> AllowedFacetFields { get; }
-        CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx);
+        CreateIndexDescriptor Configure(CreateIndexDescriptor idx);
     }
 
     public interface IChildIndexType : IIndexType {
@@ -53,7 +53,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return ObjectId.GenerateNewId().ToString();
         }
 
-        public CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+        public CreateIndexDescriptor Configure(CreateIndexDescriptor idx) {
             return idx.AddMapping<T>(BuildMapping);
         }
 

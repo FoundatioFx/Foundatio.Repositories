@@ -18,26 +18,28 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableRepository<T> where T : class, new() {
-        protected readonly bool HasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
-        protected readonly bool HasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
-        protected readonly bool HasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
-        protected readonly bool SupportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(typeof(T));
+        protected readonly bool _hasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
+        protected readonly bool _hasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
+        protected readonly bool _hasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
+        protected readonly bool _supportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(typeof(T));
         protected readonly IChildIndexType<T> _childIndexType = null;
         protected readonly ITimeSeriesIndexType<T> _timeSeriesIndexType = null;
-        protected readonly bool HasParent;
-        protected readonly bool HasMultipleIndexes;
+        protected readonly bool _hasParent;
+        protected readonly bool _hasMultipleIndexes;
 
         protected readonly ILogger _logger;
         private ScopedCacheClient _scopedCacheClient;
 
         protected ElasticReadOnlyRepositoryBase(IElasticRepositoryConfiguration<T> configuration, ILoggerFactory loggerFactory = null) {
             Configuration = configuration;
+
             if (configuration.Type is IChildIndexType<T>) {
-                HasParent = true;
+                _hasParent = true;
                 _childIndexType = configuration.Type as IChildIndexType<T>;
             }
+
             if (configuration.Type is ITimeSeriesIndexType) {
-                HasMultipleIndexes = true;
+                _hasMultipleIndexes = true;
                 _timeSeriesIndexType = configuration.Type as ITimeSeriesIndexType<T>;
             }
 
@@ -206,7 +208,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return result;
 
             string index = GetIndexById(id);
-            if (!HasParent) {
+            if (!_hasParent) {
                 var res = await Configuration.Client.GetAsync<T>(id, index).AnyContext();
                 result = res.Source;
             } else {
@@ -225,7 +227,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (ids == null || ids.Count == 0)
                 return results;
 
-            if (!HasIdentity)
+            if (!_hasIdentity)
                 throw new NotSupportedException("Model type must implement IIdentity.");
 
             if (IsCacheEnabled && useCache) {
@@ -241,7 +243,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var itemsToFind = new List<string>(ids.Distinct().Except(results.Documents.Select(i => ((IIdentity)i).Id)));
             var multiGet = new MultiGetDescriptor();
 
-            if (!HasParent) {
+            if (!_hasParent) {
                 itemsToFind.ForEach(id => multiGet.Get<T>(f => f.Id(id).Index(GetIndexById(id))));
 
                 var multiGetResults = await Configuration.Client.MultiGetAsync(multiGet).AnyContext();
@@ -255,7 +257,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             // fallback to doing a find
-            if (itemsToFind.Count > 0 && (HasParent || HasMultipleIndexes))
+            if (itemsToFind.Count > 0 && (_hasParent || _hasMultipleIndexes))
                 results.Documents.AddRange((await FindAsync(new ElasticQuery().WithIds(itemsToFind)).AnyContext()).Documents);
 
             if (IsCacheEnabled && useCache) {
@@ -336,7 +338,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (!IsCacheEnabled)
                 return;
 
-            if (documents != null && documents.Count > 0 && HasIdentity) {
+            if (documents != null && documents.Count > 0 && _hasIdentity) {
                 var keys = documents
                     .Select(d => d.Value)
                     .Cast<IIdentity>()
@@ -378,19 +380,19 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected string[] GetIndexesByQuery(object query) {
-            return !HasMultipleIndexes ? new[] { Configuration.Index.AliasName } : _timeSeriesIndexType.GetIndexesByQuery(query);
+            return !_hasMultipleIndexes ? new[] { Configuration.Index.AliasName } : _timeSeriesIndexType.GetIndexesByQuery(query);
         }
 
         protected string GetIndexById(string id) {
-            return !HasMultipleIndexes ? Configuration.Index.AliasName : _timeSeriesIndexType.GetIndexById(id);
+            return !_hasMultipleIndexes ? Configuration.Index.AliasName : _timeSeriesIndexType.GetIndexById(id);
         }
 
         protected string GetDocumentIndex(T document) {
-            return !HasMultipleIndexes ? Configuration.Index.AliasName : _timeSeriesIndexType.GetDocumentIndex(document);
+            return !_hasMultipleIndexes ? Configuration.Index.AliasName : _timeSeriesIndexType.GetDocumentIndex(document);
         }
 
-        protected Func<T, string> GetParentIdFunc => HasParent ? d => _childIndexType.GetParentId(d) : (Func<T, string>)null;
-        protected Func<T, string> GetDocumentIndexFunc => HasMultipleIndexes ? d => _timeSeriesIndexType.GetDocumentIndex(d) : (Func<T, string>)(d => Configuration.Index.VersionedName);
+        protected Func<T, string> GetParentIdFunc => _hasParent ? d => _childIndexType.GetParentId(d) : (Func<T, string>)null;
+        protected Func<T, string> GetDocumentIndexFunc => _hasMultipleIndexes ? d => _timeSeriesIndexType.GetDocumentIndex(d) : (Func<T, string>)(d => Configuration.Index.VersionedName);
 
         protected async Task<TResult> GetCachedQueryResultAsync<TResult>(object query, string cachePrefix = null, string cacheSuffix = null) {
             var cachedQuery = query as ICachableQuery;

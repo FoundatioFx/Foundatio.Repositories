@@ -268,8 +268,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         private async Task RemoveDataAsync() {
             await _cache.RemoveAllAsync();
-            _database.DeleteIndexes();
-            _database.ConfigureIndexes();
+            _database.Delete();
+            _database.Configure();
             await _database.Client.RefreshAsync();
         }
     }

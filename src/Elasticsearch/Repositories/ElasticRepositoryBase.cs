@@ -212,9 +212,9 @@ namespace Foundatio.Repositories.Elasticsearch {
         private async Task OnDocumentsAddingAsync(ICollection<T> documents) {
             documents.EnsureIds(Configuration.Type.GetDocumentId);
 
-            if (HasDates)
+            if (_hasDates)
                 documents.OfType<IHaveDates>().SetDates();
-            else if (HasCreatedDate)
+            else if (_hasCreatedDate)
                 documents.OfType<IHaveCreatedDate>().SetCreatedDates();
 
             if (DocumentsAdding != null)
@@ -239,7 +239,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public AsyncEvent<ModifiedDocumentsEventArgs<T>> DocumentsSaving { get; } = new AsyncEvent<ModifiedDocumentsEventArgs<T>>();
 
         private async Task OnDocumentsSavingAsync(ICollection<T> documents, ICollection<T> originalDocuments) {
-            if (HasDates)
+            if (_hasDates)
                 documents.Cast<IHaveDates>().SetDates();
 
             var modifiedDocs = originalDocuments.FullOuterJoin(
@@ -372,7 +372,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 await PublishChangeTypeMessageAsync(changeType, null, delay).AnyContext();
             } else if (BatchNotifications && documents.Count > 1) {
                 // TODO: This needs to support batch notifications
-                if (!SupportsSoftDeletes || changeType != ChangeType.Saved) {
+                if (!_supportsSoftDeletes || changeType != ChangeType.Saved) {
                     foreach (var doc in documents.Select(d => d.Value)) {
                         await PublishChangeTypeMessageAsync(changeType, doc, delay).AnyContext();
                     }
@@ -384,7 +384,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     await PublishChangeTypeMessageAsync(allDeleted ? ChangeType.Removed : changeType, doc, delay).AnyContext();
                 }
             } else {
-                if (!SupportsSoftDeletes) {
+                if (!_supportsSoftDeletes) {
                     foreach (var d in documents)
                         await PublishChangeTypeMessageAsync(changeType, d.Value, delay).AnyContext();
                     return;
