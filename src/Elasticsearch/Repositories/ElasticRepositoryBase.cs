@@ -76,13 +76,14 @@ namespace Foundatio.Repositories.Elasticsearch {
             var documentsByIndex = documents.GroupBy(d => GetDocumentIndexFunc?.Invoke(d));
             var response = await Configuration.Client.BulkAsync(bulk => {
                 foreach (var group in documentsByIndex)
-                    bulk.DeleteMany(group.Select(g => g.Id), (b, id) => b.Index(group.Key));
+                    bulk.DeleteMany<T>(group.Select(g => g.Id), (b, id) => b.Index(group.Key));
 
                 return bulk;
             }).AnyContext();
+            _logger.Trace(response.GetRequest());
 
             if (!response.IsValid)
-                throw new ApplicationException(String.Join("\r\n", response.ItemsWithErrors.Select(i => i.Error)), response.ConnectionStatus.OriginalException);
+                throw new ApplicationException(String.Join("\r\n", response.ItemsWithErrors.Select(i => i.Error)) + "\r\n" + response.GetRequest(), response.ConnectionStatus.OriginalException);
 
             await OnDocumentsRemovedAsync(documents, sendNotification).AnyContext();
         }

@@ -1,9 +1,13 @@
 ﻿using System;
+using Foundatio.Logging.Xunit;
 using Foundatio.Repositories.Queries;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Tests.Queries {
-    public class FacetOptionsTests {
+    public class FacetOptionsTests : TestWithLoggingBase {
+        public FacetOptionsTests(ITestOutputHelper output) : base(output) { }
+
         [Fact]
         public void FacetOptions_ParseSimple() {
             var options = FacetOptions.Parse("test");

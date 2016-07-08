@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Jobs;
+using Foundatio.Logging.Xunit;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
@@ -13,20 +14,22 @@ using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Utility;
 using Xunit;
+using Xunit.Abstractions;
+using LogLevel = Foundatio.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
-    public class RepositoryTests {
+    public class RepositoryTests : TestWithLoggingBase {
         private readonly InMemoryCacheClient _cache = new InMemoryCacheClient();
         private readonly IQueue<WorkItemData> _workItemQueue = new InMemoryQueue<WorkItemData>();
         private readonly MyAppDatabase _database;
         private readonly EmployeeRepository _repository;
 
-        public RepositoryTests() {
+        public RepositoryTests(ITestOutputHelper output): base(output) {
             ElasticQueryBuilder.Default.Register(new AgeQueryBuilder(), new CompanyQueryBuilder());
-
+            
             var connectionString = ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString;
             _database = new MyAppDatabase(new Uri(connectionString), _workItemQueue, _cache);
-            _repository = new EmployeeRepository(new RepositoryConfiguration<Employee>(_database.Client, _database.Employee.Employee, cache: _cache));
+            _repository = new EmployeeRepository(new RepositoryConfiguration<Employee>(_database.Client, _database.Employee.Employee, cache: _cache), Log);
         }
         
         //[Fact]
@@ -248,22 +251,25 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task GetByCompanyAsync() {
+            Log.MinimumLevel = LogLevel.Trace;
             await RemoveDataAsync();
 
-            var company19 = await _repository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId));
-            var company20 = await _repository.AddAsync(EmployeeGenerator.Generate(age: 20));
+            var employee1 = await _repository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId));
+            var employee2 = await _repository.AddAsync(EmployeeGenerator.Generate(age: 20));
             await _database.Client.RefreshAsync();
 
-            var result = await _repository.GetByCompanyAsync(company19.CompanyId);
-            Assert.Equal(company19.ToJson(), result.ToJson());
+            var result = await _repository.GetByCompanyAsync(employee1.CompanyId);
+            Assert.Equal(employee1.ToJson(), result.ToJson());
 
-            var results = await _repository.GetAllByCompanyAsync(company20.CompanyId);
+            var results = await _repository.GetAllByCompanyAsync(employee1.CompanyId);
             Assert.Equal(1, results.Total);
-            Assert.Equal(company20.ToJson(), results.Documents.First().ToJson());
+            Assert.Equal(employee1.ToJson(), results.Documents.First().ToJson());
             
-            Assert.Equal(1, await _repository.GetCountByCompanyAsync(company20.CompanyId));
-            await _repository.RemoveAsync(company20, false);
-            Assert.Equal(0, await _repository.GetCountByCompanyAsync(company20.CompanyId));
+            Assert.Equal(1, await _repository.GetCountByCompanyAsync(employee1.CompanyId));
+            await _repository.RemoveAsync(employee1, false);
+            await _database.Client.RefreshAsync();
+            Assert.Equal(1, await _repository.CountAsync());
+            Assert.Equal(0, await _repository.GetCountByCompanyAsync(employee1.CompanyId));
         }
 
         private async Task RemoveDataAsync() {

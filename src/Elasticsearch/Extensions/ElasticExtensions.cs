@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Reflection;
 using System.Text;
+using Elasticsearch.Net;
 using Elasticsearch.Net.Connection;
 using Nest;
 
@@ -39,6 +40,10 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 sb.AppendLine("Unknown error.");
 
             return sb.ToString();
+        }
+
+        public static string GetRequest(this IResponseWithRequestInformation response) {
+            return $"{response.RequestInformation.RequestMethod.ToUpper()} {response.RequestInformation.RequestUrl}\r\n{Encoding.UTF8.GetString(response.RequestInformation.Request)}\r\n";
         }
     }
 }
