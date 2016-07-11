@@ -2,17 +2,14 @@
 using System.Collections.Generic;
 using System.Configuration;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.Caching;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Jobs;
 using Foundatio.Logging.Xunit;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
-using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Utility;
 using Xunit;
 using Xunit.Abstractions;
@@ -26,11 +23,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         private readonly EmployeeRepository _repository;
 
         public RepositoryTests(ITestOutputHelper output): base(output) {
-            ElasticQueryBuilder.Default.Register(new AgeQueryBuilder(), new CompanyQueryBuilder());
-            
             var connectionString = ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString;
             _database = new MyAppDatabase(new Uri(connectionString), _workItemQueue, _cache);
-            _repository = new EmployeeRepository(new RepositoryConfiguration<Employee>(_database.Client, _database.Employee.Employee, cache: _cache), Log);
+            _repository = new EmployeeRepository(new RepositoryConfiguration<Employee>(_database.Client, _database.Employees.Employee, cache: _cache), Log);
         }
         
         //[Fact]

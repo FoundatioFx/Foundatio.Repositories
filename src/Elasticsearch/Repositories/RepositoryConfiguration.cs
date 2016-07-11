@@ -24,16 +24,15 @@ namespace Foundatio.Repositories.Elasticsearch {
                 HasMultipleIndexes = true;
                 TimeSeriesType = Type as ITimeSeriesIndexType<T>;
             }
-
         }
 
         public IElasticClient Client { get; }
-        public IIndexType<T> Type { get; }
-        public IIndex Index => Type.Index;
         public IElasticQueryBuilder QueryBuilder { get; }
         public ICacheClient Cache { get; }
         public IValidator<T> Validator { get; }
         public IMessagePublisher MessagePublisher { get; }
+        public IIndex Index => Type.Index;
+        public IIndexType<T> Type { get; }
         public bool HasParent { get; }
         public IChildIndexType<T> ChildType { get; }
         public bool HasMultipleIndexes { get; }
