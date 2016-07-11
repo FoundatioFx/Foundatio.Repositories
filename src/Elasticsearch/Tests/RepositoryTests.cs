@@ -115,6 +115,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             DateTime updatedUtc = employee.UpdatedUtc;
 
             employee.Name = Guid.NewGuid().ToString();
+            await Task.Delay(100);
             employee = await _repository.SaveAsync(employee);
             Assert.Equal(createdUtc, employee.CreatedUtc);
             Assert.True(updatedUtc < employee.UpdatedUtc, $"Previous UpdatedUtc: {updatedUtc} Current UpdatedUtc: {employee.UpdatedUtc}");
