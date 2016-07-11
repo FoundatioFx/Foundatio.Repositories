@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
@@ -9,6 +10,13 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         public ElasticQueryBuilder(bool registerDefaultBuilders = true) {
             if (registerDefaultBuilders)
                 RegisterDefaults();
+        }
+
+        public void Register<T>() where T: IElasticQueryBuilder, new() {
+            if (_partBuilders.Any(b => b.GetType() == typeof(T)))
+                return;
+
+            _partBuilders.Add(default(T));
         }
 
         public void Register(IElasticQueryBuilder builder) {

@@ -10,7 +10,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
     public class MyAppDatabase : Database {
         public MyAppDatabase(Uri serverUri, IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient) : base(serverUri, workItemQueue, cacheClient) {
             // register our custom app query builders
-            ElasticQueryBuilder.Default.Register(new AgeQueryBuilder(), new CompanyQueryBuilder());
+            ElasticQueryBuilder.Default.Register<AgeQueryBuilder>();
+            ElasticQueryBuilder.Default.Register<CompanyQueryBuilder>();
 
             Employees = new EmployeeIndex(Client);
             DailyLogEvents = new DailyLogEventIndex(Client);
