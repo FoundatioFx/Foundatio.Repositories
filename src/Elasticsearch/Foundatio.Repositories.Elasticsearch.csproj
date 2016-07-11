@@ -129,7 +129,7 @@
     <Compile Include="Repositories\Queries\Parts\ElasticFilterQuery.cs" />
     <Compile Include="Repositories\Queries\Builders\ElasticFilterQueryBuilder.cs" />
     <Compile Include="Repositories\Queries\Parts\FacetQuery.cs" />
-    <Compile Include="Repositories\Queries\Builders\FacetQueryBuilder.cs" />
+    <Compile Include="Repositories\Queries\Builders\AggregationsQueryBuilder.cs" />
     <Compile Include="Repositories\Queries\Parts\FieldConditionsQuery.cs" />
     <Compile Include="Repositories\Queries\Builders\IElasticQueryBuilder.cs" />
     <Compile Include="Repositories\Queries\Builders\FieldConditionsQueryBuilder.cs" />

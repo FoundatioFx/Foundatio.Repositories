@@ -9,9 +9,22 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public abstract class ElasticQueryBuilderBase : IElasticQueryBuilder {
-        public virtual void BuildQuery<T>(object query, object options, ref QueryContainer container) where T : class, new() { }
+        public virtual void BuildQuery<T>(object query, object options, ref QueryContainer container) where T : class, new() {
+            FilterContainer filter = null;
+            BuildFilter<T>(query, options, ref filter);
+
+            container &= new FilteredQuery { Filter = filter };
+        }
+
         public virtual void BuildFilter<T>(object query, object options, ref FilterContainer container) where T : class, new() { }
-        public virtual void BuildSearch<T>(object query, object options, ref SearchDescriptor<T> descriptor) where T : class, new() { }
+
+        public virtual void BuildSearch<T>(object query, object options, ref SearchDescriptor<T> descriptor) where T : class, new() {
+            FilterContainer filter = null;
+            BuildFilter<T>(query, options, ref filter);
+
+            if (filter != null)
+                descriptor.Filter(filter);
+        }
     }
 
     public static class QueryBuilderExtensions {

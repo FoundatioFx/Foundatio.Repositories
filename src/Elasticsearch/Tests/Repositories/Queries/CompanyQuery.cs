@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Nest;
@@ -13,17 +12,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Queries {
 
     public static class CompanyQueryExtensions {
         public static T WithCompany<T>(this T query, string companyId) where T : ICompanyQuery {
-            query.Companies?.Add(companyId);
+            query.Companies.Add(companyId);
             return query;
         }
-    }
-
-    public class CompanyQuery : ElasticQuery, ICompanyQuery {
-        public CompanyQuery() {
-            Companies = new List<string>();
-        }
-
-        public List<string> Companies { get; set; }
     }
 
     public class CompanyQueryBuilder : ElasticQueryBuilderBase {

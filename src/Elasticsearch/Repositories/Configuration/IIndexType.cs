@@ -11,7 +11,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         IIndex Index { get; }
         int DefaultCacheExpirationSeconds { get; set; }
         int BulkBatchSize { get; set; }
-        ISet<string> AllowedFacetFields { get; }
+        ISet<string> AllowedAggregationFields { get; }
         CreateIndexDescriptor Configure(CreateIndexDescriptor idx);
     }
 
@@ -53,7 +53,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public string Name { get; }
         public IIndex Index { get; }
-        public ISet<string> AllowedFacetFields { get; } = new HashSet<string>();
+        public ISet<string> AllowedAggregationFields { get; } = new HashSet<string>();
 
         public virtual string GetDocumentId(T document) {
             return ObjectId.GenerateNewId().ToString();

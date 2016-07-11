@@ -39,14 +39,41 @@ namespace Foundatio.Repositories.Elasticsearch {
                 foreach (var doc in documents)
                     await Configuration.Validator.ValidateAndThrowAsync(doc).AnyContext();
 
-            var result = await Configuration.Client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc).AnyContext();
-            if (!result.IsValid)
-                throw new ApplicationException(String.Join("\r\n", result.ItemsWithErrors.Select(i => i.Error)), result.ConnectionStatus.OriginalException);
+            await IndexDocuments(documents);
 
             if (addToCache)
                 await AddToCacheAsync(documents, expiresIn).AnyContext();
 
             await OnDocumentsAddedAsync(documents, sendNotification).AnyContext();
+        }
+
+        private async Task IndexDocuments(ICollection<T> documents) {
+            IResponseWithRequestInformation result = null;
+            if (documents.Count == 1) {
+                var document = documents.Single();
+                result = await Configuration.Client.IndexAsync(document, i => {
+                    if (GetParentIdFunc != null)
+                        i.Parent(GetParentIdFunc(document));
+
+                    if (GetDocumentIndexFunc != null)
+                        i.Index(GetDocumentIndexFunc(document));
+
+                    return i;
+                }).AnyContext();
+            } else {
+                result =
+                    await Configuration.Client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc).AnyContext();
+            }
+            _logger.Trace(() => result.GetRequest());
+            if (!result.RequestInformation.Success) {
+                if (result is IBulkResponse)
+                    throw new ApplicationException(
+                        String.Join("\r\n", ((IBulkResponse)result).ItemsWithErrors.Select(i => i.Error)),
+                        ((IBulkResponse)result).ConnectionStatus.OriginalException);
+
+                throw new ApplicationException(String.Join("\r\n", ((IIndexResponse)result).ServerError.Error,
+                    ((IIndexResponse)result).ConnectionStatus.OriginalException));
+            }
         }
 
         public async Task RemoveAsync(string id, bool sendNotification = true) {
@@ -80,7 +107,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 return bulk;
             }).AnyContext();
-            _logger.Trace(response.GetRequest());
+            _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid)
                 throw new ApplicationException(String.Join("\r\n", response.ItemsWithErrors.Select(i => i.Error)) + "\r\n" + response.GetRequest(), response.ConnectionStatus.OriginalException);
@@ -114,12 +141,16 @@ namespace Foundatio.Repositories.Elasticsearch {
                 .Size(Configuration.Type.BulkBatchSize);
 
             // TODO: Should use snapshot
-            var documents = (await Configuration.Client.SearchAsync<T>(searchDescriptor).AnyContext()).Documents.ToList();
+            var result = await Configuration.Client.SearchAsync<T>(searchDescriptor).AnyContext();
+            _logger.Trace(() => result.GetRequest());
+            var documents = result.Documents.ToList();
             while (documents.Count > 0) {
                 recordsAffected += documents.Count;
                 await RemoveAsync(documents, sendNotifications).AnyContext();
 
-                documents = (await Configuration.Client.SearchAsync<T>(searchDescriptor).AnyContext()).Documents.ToList();
+                result = await Configuration.Client.SearchAsync<T>(searchDescriptor).AnyContext();
+                _logger.Trace(() => result.GetRequest());
+                documents = result.Documents.ToList();
             }
 
             return recordsAffected;
@@ -149,9 +180,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 foreach (var doc in documents)
                     await Configuration.Validator.ValidateAndThrowAsync(doc).AnyContext();
 
-            var result = await Configuration.Client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc).AnyContext();
-            if (!result.IsValid)
-                throw new ApplicationException(String.Join("\r\n", result.ItemsWithErrors.Select(i => i.Error)), result.ConnectionStatus.OriginalException);
+            await IndexDocuments(documents).AnyContext();
 
             if (addToCache)
                 await AddToCacheAsync(documents, expiresIn).AnyContext();
@@ -176,6 +205,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return 0;
 
             var results = await Configuration.Client.ScrollAsync<T>("4s", scanResults.ScrollId).AnyContext();
+            _logger.Trace(() => results.GetRequest());
             while (results.Hits.Any()) {
                 var bulkResult = await Configuration.Client.BulkAsync(b => {
                     string script = update as string;
@@ -186,6 +216,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     return b;
                 }).AnyContext();
+                _logger.Trace(() => bulkResult.GetRequest());
 
                 if (!bulkResult.IsValid) {
                     _logger.Error()
@@ -206,6 +237,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 recordsAffected += results.Documents.Count();
                 results = await Configuration.Client.ScrollAsync<T>("4s", results.ScrollId).AnyContext();
+                _logger.Trace(() => results.GetRequest());
             }
 
             if (recordsAffected <= 0)
@@ -224,9 +256,9 @@ namespace Foundatio.Repositories.Elasticsearch {
         private async Task OnDocumentsAddingAsync(ICollection<T> documents) {
             documents.EnsureIds(Configuration.Type.GetDocumentId);
 
-            if (_hasDates)
+            if (HasDates)
                 documents.OfType<IHaveDates>().SetDates();
-            else if (_hasCreatedDate)
+            else if (HasCreatedDate)
                 documents.OfType<IHaveCreatedDate>().SetCreatedDates();
 
             if (DocumentsAdding != null)
@@ -251,7 +283,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public AsyncEvent<ModifiedDocumentsEventArgs<T>> DocumentsSaving { get; } = new AsyncEvent<ModifiedDocumentsEventArgs<T>>();
 
         private async Task OnDocumentsSavingAsync(ICollection<T> documents, ICollection<T> originalDocuments) {
-            if (_hasDates)
+            if (HasDates)
                 documents.Cast<IHaveDates>().SetDates();
 
             var modifiedDocs = originalDocuments.FullOuterJoin(
@@ -384,7 +416,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 await PublishChangeTypeMessageAsync(changeType, null, delay).AnyContext();
             } else if (BatchNotifications && documents.Count > 1) {
                 // TODO: This needs to support batch notifications
-                if (!_supportsSoftDeletes || changeType != ChangeType.Saved) {
+                if (!SupportsSoftDeletes || changeType != ChangeType.Saved) {
                     foreach (var doc in documents.Select(d => d.Value)) {
                         await PublishChangeTypeMessageAsync(changeType, doc, delay).AnyContext();
                     }
@@ -396,7 +428,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     await PublishChangeTypeMessageAsync(allDeleted ? ChangeType.Removed : changeType, doc, delay).AnyContext();
                 }
             } else {
-                if (!_supportsSoftDeletes) {
+                if (!SupportsSoftDeletes) {
                     foreach (var d in documents)
                         await PublishChangeTypeMessageAsync(changeType, d.Value, delay).AnyContext();
                     return;

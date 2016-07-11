@@ -121,6 +121,7 @@
     <Compile Include="Repositories\LogEventRepository.cs" />
     <Compile Include="Repositories\EmployeeRepository.cs" />
     <Compile Include="Repositories\Models\LogEvent.cs" />
+    <Compile Include="Repositories\Queries\MyAppQuery.cs" />
     <Compile Include="RepositoryTests.cs" />
     <Compile Include="Repositories\Models\Employee.cs" />
     <Compile Include="Repositories\Queries\AgeQuery.cs" />

@@ -31,6 +31,10 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="Exceptionless.DateTimeExtensions, Version=3.2.52.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Exceptionless.DateTimeExtensions.3.2.52\lib\net45\Exceptionless.DateTimeExtensions.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="FluentValidation, Version=6.2.1.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\..\packages\FluentValidation.6.2.1.0\lib\Net45\FluentValidation.dll</HintPath>
       <Private>True</Private>
@@ -71,14 +75,15 @@
     <Compile Include="Migration\MigrationBase.cs" />
     <Compile Include="Migration\MigrationManager.cs" />
     <Compile Include="Migration\MigrationResult.cs" />
+    <Compile Include="Models\IVersioned.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Models\ChangeType.cs" />
     <Compile Include="Models\DocumentChangeEventArgs.cs" />
     <Compile Include="Models\EntityChanged.cs" />
-    <Compile Include="Models\FacetResult.cs" />
+    <Compile Include="Models\AggregationResult.cs" />
     <Compile Include="Models\FindResults.cs" />
     <Compile Include="Models\NumberDictionary.cs" />
-    <Compile Include="Queries\FacetOptions.cs" />
+    <Compile Include="Queries\AggregationOptions.cs" />
     <Compile Include="Queries\IdentityQuery.cs" />
     <Compile Include="Models\IHaveDates.cs" />
     <Compile Include="Models\IIdentity.cs" />

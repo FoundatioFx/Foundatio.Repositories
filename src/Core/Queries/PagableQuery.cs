@@ -1,4 +1,5 @@
 ﻿using System;
+using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Queries {
@@ -6,6 +7,7 @@ namespace Foundatio.Repositories.Queries {
         int? Limit { get; set; }
         int? Page { get; set; }
         bool UseSnapshotPaging { get; set; }
+        TimeSpan SnapshotLifetime { get; set; }
     }
 
     public static class PagableQueryExtensions {
@@ -36,6 +38,13 @@ namespace Foundatio.Repositories.Queries {
                 skip = 0;
 
             return skip;
+        }
+
+        public static string GetLifetime<T>(this T query) where T : IPagableQuery {
+            if (query == null)
+                return "2m";
+
+            return query.SnapshotLifetime > TimeSpan.Zero ? query.SnapshotLifetime.ToWords(true, 1) : "2m";
         }
 
         public static T WithLimit<T>(this T options, int? limit) where T : IPagableQuery {

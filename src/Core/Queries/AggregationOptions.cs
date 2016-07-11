@@ -65,20 +65,20 @@ namespace Foundatio.Repositories.Queries {
         }
     }
 
-    public class FacetOptions {
-        public static readonly FacetOptions Empty = new FacetOptions();
+    public class AggregationOptions {
+        public static readonly AggregationOptions Empty = new AggregationOptions();
 
-        public FacetOptions() {
+        public AggregationOptions() {
             Fields = new List<FacetField>();
         }
 
         public List<FacetField> Fields { get; }
 
-        public static FacetOptions Parse(string facets) {
+        public static AggregationOptions Parse(string facets) {
             if (String.IsNullOrEmpty(facets))
-                return FacetOptions.Empty;
+                return AggregationOptions.Empty;
 
-            var facetOptions = new FacetOptions();
+            var facetOptions = new AggregationOptions();
             var parsedFields = FacetToken.Tokenize(facets);
 
             foreach (var field in parsedFields) {
@@ -95,14 +95,14 @@ namespace Foundatio.Repositories.Queries {
                 facetOptions.Fields.Add(new FacetField {
                     Field = name,
                     Size = size,
-                    Nested = field.Nested.Length == 0 ? null : FacetOptions.Parse(field.Nested),
+                    Nested = field.Nested.Length == 0 ? null : AggregationOptions.Parse(field.Nested),
                 });
             }
 
             return facetOptions;
         }
 
-        public static implicit operator FacetOptions(string value) {
+        public static implicit operator AggregationOptions(string value) {
             return Parse(value);
         }
     }
@@ -111,6 +111,6 @@ namespace Foundatio.Repositories.Queries {
         public string Field { get; set; }
         public int? Size { get; set; }
 
-        public FacetOptions Nested { get; set; }
+        public AggregationOptions Nested { get; set; }
     }
 }

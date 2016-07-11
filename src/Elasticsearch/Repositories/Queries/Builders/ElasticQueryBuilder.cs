@@ -23,7 +23,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             _partBuilders.Add(new PagableQueryBuilder());
             _partBuilders.Add(new SelectedFieldsQueryBuilder());
             _partBuilders.Add(new SortableQueryBuilder());
-            _partBuilders.Add(new FacetQueryBuilder());
+            _partBuilders.Add(new AggregationsQueryBuilder());
             _partBuilders.Add(new ParentQueryBuilder(this));
             _partBuilders.Add(new ChildQueryBuilder(this));
             _partBuilders.Add(new IdentityQueryBuilder());
@@ -48,7 +48,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             foreach (var partBuilder in _partBuilders)
                 partBuilder.BuildFilter<T>(query, options, ref container);
         }
-
+        
         public void BuildSearch<T>(object query, object options, ref SearchDescriptor<T> descriptor) where T : class, new() {
             foreach (var partBuilder in _partBuilders)
                 partBuilder.BuildSearch(query, options, ref descriptor);

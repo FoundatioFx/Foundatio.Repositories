@@ -1,9 +1,12 @@
 ﻿using System;
+using System.Linq;
 using System.Reflection;
 using System.Text;
 using Elasticsearch.Net;
 using Elasticsearch.Net.Connection;
 using Nest;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticExtensions {
@@ -43,7 +46,15 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         }
 
         public static string GetRequest(this IResponseWithRequestInformation response) {
-            return $"{response.RequestInformation.RequestMethod.ToUpper()} {response.RequestInformation.RequestUrl}\r\n{Encoding.UTF8.GetString(response.RequestInformation.Request)}\r\n";
+            string json;
+            if (response.RequestInformation.RequestUrl.EndsWith("_bulk")) {
+                string[] bulkCommands = Encoding.UTF8.GetString(response.RequestInformation.Request).Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+                json = String.Join("\r\n", bulkCommands.Select(c => JObject.Parse(c).ToString(Formatting.Indented)));
+            } else {
+                json = JObject.Parse(Encoding.UTF8.GetString(response.RequestInformation.Request)).ToString(Formatting.Indented);
+            }
+            
+            return $"{response.RequestInformation.RequestMethod.ToUpper()} {response.RequestInformation.RequestUrl}\r\n{json}\r\n";
         }
     }
 }

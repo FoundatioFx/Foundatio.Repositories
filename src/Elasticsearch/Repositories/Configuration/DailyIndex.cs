@@ -86,7 +86,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ApplicationException("An error occurred deleting the index template: " + response?.ServerError.Error);
         }
 
-        public override async Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
+        public override Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
+            return Task.CompletedTask;
             // TODO: Get all versioned indexes and reindex them starting with newest 1st
         }
 

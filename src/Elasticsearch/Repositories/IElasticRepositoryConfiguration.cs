@@ -8,5 +8,9 @@ namespace Foundatio.Repositories.Elasticsearch {
         IIndex Index { get; }
         IElasticClient Client { get; }
         IElasticQueryBuilder QueryBuilder { get; }
+        bool HasParent { get; }
+        IChildIndexType<T> ChildType { get; }
+        bool HasMultipleIndexes { get; }
+        ITimeSeriesIndexType<T> TimeSeriesType { get; }
     }
 }

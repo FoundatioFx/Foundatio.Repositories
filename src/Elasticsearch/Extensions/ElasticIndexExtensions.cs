@@ -2,13 +2,88 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Foundatio.Extensions;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Queries;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticIndexExtensions {
-        public static ICollection<FacetResult> ToFacetResults<T>(this ISearchResponse<T> res) where T : class {
-            var result = new List<FacetResult>();
+        public static FindResults<T> ToFindResults<T>(this ISearchResponse<T> res, bool isVersioned, int? limit = null) where T : class, new() {
+            var result = new FindResults<T> {
+                Total = res.Total,
+                Aggregations = res.ToAggregationResult(),
+                ScrollId = res.ScrollId,
+                HasMore = limit.HasValue && res.Documents.Count() > limit.Value
+            };
+
+            result.Documents.AddRange(res.Hits.Take(limit ?? Int32.MaxValue).Select(h => h.ToDocument(isVersioned)));
+
+            return result;
+        }
+
+        public static T ToDocument<T>(this IHit<T> hit, bool isVersioned) where T : class {
+            if (!isVersioned)
+                return hit.Source;
+
+            var doc = hit.Source;
+            var versionedDoc = doc as IVersioned;
+            if (versionedDoc != null)
+                versionedDoc.Version = hit.Version != null ? Int64.Parse(hit.Version) : versionedDoc.Version;
+
+            return doc;
+        }
+
+        public static T ToDocument<T>(this IGetResponse<T> hit, bool isVersioned) where T : class {
+            if (!isVersioned)
+                return hit.Source;
+
+            var doc = hit.Source;
+            var versionedDoc = doc as IVersioned;
+            if (versionedDoc != null)
+                versionedDoc.Version = hit.Version != null ? Int64.Parse(hit.Version) : versionedDoc.Version;
+
+            return doc;
+        }
+
+        public static T ToDocument<T>(this IMultiGetHit<T> hit, bool isVersioned) where T : class {
+            if (!isVersioned)
+                return hit.Source;
+
+            var doc = hit.Source;
+            var versionedDoc = doc as IVersioned;
+            if (versionedDoc != null)
+                versionedDoc.Version = hit.Version != null ? Int64.Parse(hit.Version) : versionedDoc.Version;
+
+            return doc;
+        }
+
+        private static AggregationResult ToAggregationResult(this Bucket bucket, string field) {
+            return new AggregationResult {
+                Field = field,
+                Terms = new AggregationDictionary<AggregationResult>(bucket.Items.OfType<KeyItem>().ToDictionary(t => t.Key, t => {
+                    var termRes = new AggregationResult<AggregationResult> {
+                        Total = t.DocCount
+                    };
+
+                    if (t.Aggregations?.Count > 0) {
+                        termRes.Aggregations = new List<AggregationResult>();
+                        foreach (var key in t.Aggregations.Keys) {
+                            var nestedBucket = t.Aggregations[key] as Bucket;
+                            if (nestedBucket == null)
+                                continue;
+
+                            termRes.Aggregations.Add(nestedBucket.ToAggregationResult(key));
+                        }
+                    }
+
+                    return termRes;
+                })),
+            };
+        }
+
+        public static ICollection<AggregationResult> ToAggregationResult<T>(this ISearchResponse<T> res) where T : class {
+            var result = new List<AggregationResult>();
             if (res.Aggregations == null || res.Aggregations.Count == 0)
                 return result;
 
@@ -18,10 +93,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 if (bucket == null)
                     continue;
 
-                result.Add(new FacetResult {
-                    Field = key,
-                    Terms = new NumberDictionary(bucket.Items.OfType<KeyItem>().ToDictionary(t => t.Key, t => t.DocCount))
-                });
+                result.Add(bucket.ToAggregationResult(key));
             }
 
             return result;

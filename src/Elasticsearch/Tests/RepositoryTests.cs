@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Configuration;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
@@ -107,6 +108,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task SetCreatedAndModifiedTimesAsync() {
+            Log.MinimumLevel = LogLevel.Trace;
             await RemoveDataAsync();
 
             DateTime nowUtc = DateTime.UtcNow;

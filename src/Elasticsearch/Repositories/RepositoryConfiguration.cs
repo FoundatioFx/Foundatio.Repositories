@@ -14,6 +14,17 @@ namespace Foundatio.Repositories.Elasticsearch {
             Cache = cache;
             Validator = validator;
             MessagePublisher = messagePublisher;
+
+            if (Type is IChildIndexType<T>) {
+                HasParent = true;
+                ChildType = Type as IChildIndexType<T>;
+            }
+
+            if (Type is ITimeSeriesIndexType) {
+                HasMultipleIndexes = true;
+                TimeSeriesType = Type as ITimeSeriesIndexType<T>;
+            }
+
         }
 
         public IElasticClient Client { get; }
@@ -23,5 +34,9 @@ namespace Foundatio.Repositories.Elasticsearch {
         public ICacheClient Cache { get; }
         public IValidator<T> Validator { get; }
         public IMessagePublisher MessagePublisher { get; }
+        public bool HasParent { get; }
+        public IChildIndexType<T> ChildType { get; }
+        public bool HasMultipleIndexes { get; }
+        public ITimeSeriesIndexType<T> TimeSeriesType { get;}
     }
 }
