@@ -5,7 +5,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Options {
     public interface IQueryOptions {
         bool SupportsSoftDeletes { get; }
         bool HasIdentity { get; }
-        string[] AllowedFacetFields { get; }
+        string[] AllowedAggregationFields { get; }
         string[] AllowedSortFields { get; }
         string[] DefaultExcludes { get; }
     }
@@ -18,7 +18,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Options {
 
         public bool SupportsSoftDeletes { get; protected set; }
         public bool HasIdentity { get; protected set; }
-        public string[] AllowedFacetFields { get; set; }
+        public string[] AllowedAggregationFields { get; set; }
         public string[] AllowedSortFields { get; set; }
         public string[] DefaultExcludes { get; set; }
     }

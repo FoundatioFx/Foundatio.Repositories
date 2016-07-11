@@ -13,7 +13,7 @@ namespace Foundatio.Repositories.Models {
     }
 
     public class AggregationDictionary<T> : Dictionary<string, AggregationResult<T>> where T : class {
-        public AggregationDictionary() : base() { }
+        public AggregationDictionary() { }
 
         public AggregationDictionary(IDictionary<string, AggregationResult<T>> items) {
             this.AddRange(items);

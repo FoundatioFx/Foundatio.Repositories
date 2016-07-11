@@ -4,7 +4,7 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries {
-    public class Query : IIdentityQuery, ICachableQuery, IDateRangeQuery,
+    public class Query : ISystemFilterQuery, IIdentityQuery, ICachableQuery, IDateRangeQuery,
         IFieldConditionsQuery, IPagableQuery, ISearchQuery, IAggregationQuery,
         ISelectedFieldsQuery, ISortableQuery, IParentQuery, IChildQuery {
         public Query() {
@@ -13,7 +13,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
             FieldConditions = new List<FieldCondition>();
             SelectedFields = new List<string>();
             SortBy = new List<FieldSort>();
-            AggregationFields = new List<FacetField>();
+            AggregationFields = new List<AggregationField>();
         }
 
         public List<string> Ids { get; }
@@ -26,14 +26,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         public int? Page { get; set; }
         public bool UseSnapshotPaging { get; set; }
         public TimeSpan SnapshotLifetime { get; set; }
-        public string SystemFilter { get; set; }
+        public object SystemFilter { get; set; }
         public string Filter { get; set; }
         public string SearchQuery { get; set; }
         public SearchOperator DefaultSearchQueryOperator { get; set; }
         public List<string> SelectedFields { get; }
         public List<FieldSort> SortBy { get; }
         public bool SortByScore { get; set; }
-        public List<FacetField> AggregationFields { get; }
+        public List<AggregationField> AggregationFields { get; }
         public ITypeQuery ParentQuery { get; set; }
         public ITypeQuery ChildQuery { get; set; }
     }

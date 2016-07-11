@@ -17,16 +17,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Queries {
         }
     }
 
-    public class CompanyQueryBuilder : ElasticQueryBuilderBase {
-        public override void BuildFilter<T>(object query, object options, ref FilterContainer container) {
-            var companyQuery = query as ICompanyQuery;
+    public class CompanyQueryBuilder : IElasticQueryBuilder {
+        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            var companyQuery = ctx.GetQueryAs<ICompanyQuery>();
             if (companyQuery?.Companies == null || companyQuery.Companies.Count <= 0)
                 return;
 
             if (companyQuery.Companies.Count == 1)
-                container &= Filter<T>.Term(EmployeeType.Fields.CompanyId, companyQuery.Companies.First());
+                ctx.Filter &= Filter<T>.Term(EmployeeType.Fields.CompanyId, companyQuery.Companies.First());
             else
-                container &= Filter<T>.Terms(EmployeeType.Fields.CompanyId, companyQuery.Companies.Select(a => a.ToString()));
+                ctx.Filter &= Filter<T>.Terms(EmployeeType.Fields.CompanyId, companyQuery.Companies.Select(a => a.ToString()));
         }
     }
 }

@@ -2,13 +2,13 @@
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public class ElasticFilterQueryBuilder : ElasticQueryBuilderBase {
-        public override void BuildFilter<T>(object query, object options, ref FilterContainer container) {
-            var elasticQuery = query as IElasticFilterQuery;
+    public class ElasticFilterQueryBuilder : IElasticQueryBuilder {
+        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            var elasticQuery = ctx.GetQueryAs<IElasticFilterQuery>();
             if (elasticQuery?.ElasticFilter == null)
                 return;
 
-            container &= elasticQuery.ElasticFilter;
+            ctx.Filter &= elasticQuery.ElasticFilter;
         }
     }
 }

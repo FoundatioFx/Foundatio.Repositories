@@ -3,13 +3,13 @@ using Foundatio.Repositories.Queries;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public class IdentityQueryBuilder : ElasticQueryBuilderBase {
-        public override void BuildFilter<T>(object query, object options, ref FilterContainer container) {
-            var identityQuery = query as IIdentityQuery;
+    public class IdentityQueryBuilder : IElasticQueryBuilder {
+        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            var identityQuery = ctx.GetQueryAs<IIdentityQuery>();
             if (identityQuery?.Ids == null || identityQuery.Ids.Count <= 0)
                 return;
 
-            container &= new IdsFilter { Values = identityQuery.Ids };
+            ctx.Filter &= new IdsFilter { Values = identityQuery.Ids };
         }
     }
 }

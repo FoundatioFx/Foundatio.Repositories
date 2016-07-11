@@ -117,6 +117,7 @@
     <Compile Include="Repositories\IElasticRepositoryConfiguration.cs" />
     <Compile Include="Repositories\MigrationsRepository.cs" />
     <Compile Include="Repositories\Queries\Builders\ElasticQueryBuilder.cs" />
+    <Compile Include="Repositories\Queries\Builders\SystemFilterQueryBuilder.cs" />
     <Compile Include="Repositories\Queries\ChildQuery.cs" />
     <Compile Include="Repositories\Queries\ElasticQuery.cs" />
     <Compile Include="Repositories\Queries\Options\QueryOptions.cs" />
@@ -128,7 +129,7 @@
     <Compile Include="Repositories\Queries\Builders\DateRangeQueryBuilder.cs" />
     <Compile Include="Repositories\Queries\Parts\ElasticFilterQuery.cs" />
     <Compile Include="Repositories\Queries\Builders\ElasticFilterQueryBuilder.cs" />
-    <Compile Include="Repositories\Queries\Parts\FacetQuery.cs" />
+    <Compile Include="Repositories\Queries\Parts\AggregationQuery.cs" />
     <Compile Include="Repositories\Queries\Builders\AggregationsQueryBuilder.cs" />
     <Compile Include="Repositories\Queries\Parts\FieldConditionsQuery.cs" />
     <Compile Include="Repositories\Queries\Builders\IElasticQueryBuilder.cs" />

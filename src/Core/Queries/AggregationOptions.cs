@@ -3,12 +3,12 @@ using System.Collections.Generic;
 using System.Text;
 
 namespace Foundatio.Repositories.Queries {
-    internal class FacetToken {
+    internal class AggregationToken {
         public string String { get; set; }
         public string Nested { get; set; }
 
-        public static List<FacetToken> Tokenize(string input) {
-            var tokens = new List<FacetToken>();
+        public static List<AggregationToken> Tokenize(string input) {
+            var tokens = new List<AggregationToken>();
 
             if (input.Trim().Length == 0)
                 return tokens;
@@ -36,7 +36,7 @@ namespace Foundatio.Repositories.Queries {
                         if (nestedLevel > 0) {
                             nestedToken.Append(c);
                         } else {
-                            tokens.Add(new FacetToken {
+                            tokens.Add(new AggregationToken {
                                 String = token.ToString().Trim(),
                                 Nested = nestedToken.ToString(),
                             });
@@ -56,7 +56,7 @@ namespace Foundatio.Repositories.Queries {
                 }
             }
 
-            tokens.Add(new FacetToken {
+            tokens.Add(new AggregationToken {
                 String = token.ToString().Trim(),
                 Nested = nestedToken.ToString(),
             });
@@ -69,17 +69,17 @@ namespace Foundatio.Repositories.Queries {
         public static readonly AggregationOptions Empty = new AggregationOptions();
 
         public AggregationOptions() {
-            Fields = new List<FacetField>();
+            Fields = new List<AggregationField>();
         }
 
-        public List<FacetField> Fields { get; }
+        public List<AggregationField> Fields { get; }
 
         public static AggregationOptions Parse(string facets) {
             if (String.IsNullOrEmpty(facets))
                 return AggregationOptions.Empty;
 
             var facetOptions = new AggregationOptions();
-            var parsedFields = FacetToken.Tokenize(facets);
+            var parsedFields = AggregationToken.Tokenize(facets);
 
             foreach (var field in parsedFields) {
                 string name = field.String;
@@ -92,7 +92,7 @@ namespace Foundatio.Repositories.Queries {
                         size = partSize;
                 }
 
-                facetOptions.Fields.Add(new FacetField {
+                facetOptions.Fields.Add(new AggregationField {
                     Field = name,
                     Size = size,
                     Nested = field.Nested.Length == 0 ? null : AggregationOptions.Parse(field.Nested),
@@ -107,7 +107,7 @@ namespace Foundatio.Repositories.Queries {
         }
     }
 
-    public class FacetField {
+    public class AggregationField {
         public string Field { get; set; }
         public int? Size { get; set; }
 

@@ -5,15 +5,15 @@ using Foundatio.Repositories.Queries;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public class SortableQueryBuilder : ElasticQueryBuilderBase {
-        public override void BuildSearch<T>(object query, object options, ref SearchDescriptor<T> descriptor) {
-            var sortableQuery = query as ISortableQuery;
+    public class SortableQueryBuilder : IElasticQueryBuilder {
+        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            var sortableQuery = ctx.GetQueryAs<ISortableQuery>();
             if (sortableQuery?.SortBy == null || sortableQuery.SortBy.Count <= 0)
                 return;
 
-            var opt = options as IQueryOptions;
+            var opt = ctx.GetOptionsAs<IQueryOptions>();
             foreach (var sort in sortableQuery.SortBy.Where(s => CanSortByField(opt?.AllowedSortFields, s.Field)))
-                descriptor.Sort(s => s.OnField(sort.Field)
+                ctx.Search.Sort(s => s.OnField(sort.Field)
                     .Order(sort.Order == Foundatio.Repositories.Models.SortOrder.Ascending ? SortOrder.Ascending : SortOrder.Descending));
         }
 

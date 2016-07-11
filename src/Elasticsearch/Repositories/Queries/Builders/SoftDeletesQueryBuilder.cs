@@ -4,17 +4,17 @@ using Foundatio.Repositories.Queries;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public class SoftDeletesQueryBuilder : ElasticQueryBuilderBase {
-        public override void BuildFilter<T>(object query, object options, ref FilterContainer container) {
-            var softDeletesQuery = query as ISoftDeletesQuery;
+    public class SoftDeletesQueryBuilder : IElasticQueryBuilder {
+        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            var softDeletesQuery = ctx.GetQueryAs<ISoftDeletesQuery>();
             if (softDeletesQuery == null)
                 return;
 
-            var opt = options as IQueryOptions;
+            var opt = ctx.GetOptionsAs<IQueryOptions>();
             if (opt == null || !opt.SupportsSoftDeletes)
                 return;
             
-            container &= new TermFilter { Field = "deleted", Value = softDeletesQuery.IncludeSoftDeletes };
+            ctx.Filter &= new TermFilter { Field = "deleted", Value = softDeletesQuery.IncludeSoftDeletes };
         }
     }
 }

@@ -2,7 +2,6 @@
 
 namespace Foundatio.Repositories.Elasticsearch.Queries {
     public interface ISearchQuery {
-        string SystemFilter { get; set; }
         string Filter { get; set; }
         string SearchQuery { get; set; }
         SearchOperator DefaultSearchQueryOperator { get; set; }
@@ -14,11 +13,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
     }
 
     public static class SearchQueryExtensions {
-        public static T WithSystemFilter<T>(this T query, string filter) where T : ISearchQuery {
-            query.SystemFilter = filter;
-            return query;
-        }
-
         public static T WithFilter<T>(this T query, string filter) where T : ISearchQuery {
             query.Filter = filter;
             return query;

@@ -4,17 +4,17 @@ using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public class AggregationsQueryBuilder : ElasticQueryBuilderBase {
-        public override void BuildSearch<T>(object query, object options, ref SearchDescriptor<T> descriptor) {
-            var aggregationQuery = query as IAggregationQuery;
+    public class AggregationsQueryBuilder : IElasticQueryBuilder {
+        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            var aggregationQuery = ctx.GetQueryAs<IAggregationQuery>();
             if (aggregationQuery?.AggregationFields == null || aggregationQuery.AggregationFields.Count <= 0)
                 return;
 
-            var opt = options as IQueryOptions;
-            if (opt?.AllowedFacetFields?.Length > 0 && !aggregationQuery.AggregationFields.All(f => opt.AllowedFacetFields.Contains(f.Field)))
+            var opt = ctx.GetOptionsAs<IQueryOptions>();
+            if (opt?.AllowedAggregationFields?.Length > 0 && !aggregationQuery.AggregationFields.All(f => opt.AllowedAggregationFields.Contains(f.Field)))
                 throw new InvalidOperationException("All facet fields must be allowed.");
 
-            descriptor.Aggregations(agg => GetAggregationDescriptor<T>(aggregationQuery));
+            ctx.Search.Aggregations(agg => GetAggregationDescriptor<T>(aggregationQuery));
         }
 
         private AggregationDescriptor<T> GetAggregationDescriptor<T>(object query) where T : class {

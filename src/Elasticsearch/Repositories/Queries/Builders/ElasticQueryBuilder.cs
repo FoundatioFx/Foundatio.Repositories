@@ -50,24 +50,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             Register<FieldConditionsQueryBuilder>();
         }
 
-        public void BuildQuery<T>(object query, object options, ref QueryContainer container) where T : class, new() {
-            FilterContainer filter = null;
-            BuildFilter<T>(query, options, ref filter);
-
-            container &= new FilteredQuery { Filter = filter };
-
-            foreach (var partBuilder in _partBuilders)
-                partBuilder.BuildQuery<T>(query, options, ref container);
-        }
-
-        public void BuildFilter<T>(object query, object options, ref FilterContainer container) where T : class, new() {
-            foreach (var partBuilder in _partBuilders)
-                partBuilder.BuildFilter<T>(query, options, ref container);
-        }
-
-        public void BuildSearch<T>(object query, object options, ref SearchDescriptor<T> descriptor) where T : class, new() {
-            foreach (var partBuilder in _partBuilders)
-                partBuilder.BuildSearch(query, options, ref descriptor);
+        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            foreach (var builder in _partBuilders)
+                builder.Build(ctx);
         }
 
         private static readonly Lazy<ElasticQueryBuilder> _default = new Lazy<ElasticQueryBuilder>(() => new ElasticQueryBuilder());

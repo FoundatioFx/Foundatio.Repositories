@@ -23,16 +23,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Queries {
         }
     }
 
-    public class AgeQueryBuilder : ElasticQueryBuilderBase {
-        public override void BuildFilter<T>(object query, object options, ref FilterContainer container) {
-            var ageQuery = query as IAgeQuery;
+    public class AgeQueryBuilder : IElasticQueryBuilder {
+        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            var ageQuery = ctx.GetQueryAs<IAgeQuery>();
             if (ageQuery?.Ages == null || ageQuery.Ages.Count <= 0)
                 return;
 
             if (ageQuery.Ages.Count == 1)
-                container &= Filter<T>.Term(EmployeeType.Fields.Age, ageQuery.Ages.First());
+                ctx.Filter &= Filter<T>.Term(EmployeeType.Fields.Age, ageQuery.Ages.First());
             else
-                container &= Filter<T>.Terms(EmployeeType.Fields.Age, ageQuery.Ages.Select(a => a.ToString()));
+                ctx.Filter &= Filter<T>.Terms(EmployeeType.Fields.Age, ageQuery.Ages.Select(a => a.ToString()));
         }
     }
 }

@@ -8,6 +8,7 @@ using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Extensions;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
@@ -263,12 +264,22 @@ namespace Foundatio.Repositories.Elasticsearch {
             return FindAsync(search);
         }
 
-        public Task<FindResults<T>> SearchAsync(string systemFilter, string userFilter = null, string query = null, SortingOptions sorting = null, PagingOptions paging = null, AggregationOptions aggregations = null) {
+        public Task<CountResult> CountAsync(object systemFilter, string userFilter = null, string query = null, AggregationOptions aggregations = null) {
             var search = new ElasticQuery()
                 .WithSystemFilter(systemFilter)
                 .WithFilter(userFilter)
                 .WithSearchQuery(query, false)
-                .WithFacets(aggregations)
+                .WithAggregation(aggregations);
+
+            return CountAsync(search);
+        }
+
+        public Task<FindResults<T>> SearchAsync(object systemFilter, string userFilter = null, string query = null, SortingOptions sorting = null, PagingOptions paging = null, AggregationOptions aggregations = null) {
+            var search = new ElasticQuery()
+                .WithSystemFilter(systemFilter)
+                .WithFilter(userFilter)
+                .WithSearchQuery(query, false)
+                .WithAggregation(aggregations)
                 .WithSort(sorting)
                 .WithPaging(paging);
 
@@ -296,12 +307,12 @@ namespace Foundatio.Repositories.Elasticsearch {
             return res.ToAggregationResult();
         }
 
-        public Task<ICollection<AggregationResult>> GetAggregationsAsync(string systemFilter, AggregationOptions aggregations, string userFilter = null, string query = null) {
+        public Task<ICollection<AggregationResult>> GetAggregationsAsync(object systemFilter, AggregationOptions aggregations, string userFilter = null, string query = null) {
             var search = new ElasticQuery()
                 .WithSystemFilter(systemFilter)
                 .WithFilter(userFilter)
                 .WithSearchQuery(query, false)
-                .WithFacets(aggregations);
+                .WithAggregation(aggregations);
 
             return GetAggregationsAsync(search);
         }

@@ -3,47 +3,59 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IElasticQueryBuilder {
-        void BuildQuery<T>(object query, object options, ref QueryContainer container) where T : class, new();
-        void BuildFilter<T>(object query, object options, ref FilterContainer container) where T : class, new();
-        void BuildSearch<T>(object query, object options, ref SearchDescriptor<T> descriptor) where T : class, new();
+        void Build<T>(QueryBuilderContext<T> ctx) where T : class, new();
     }
 
-    public abstract class ElasticQueryBuilderBase : IElasticQueryBuilder {
-        public virtual void BuildQuery<T>(object query, object options, ref QueryContainer container) where T : class, new() {
-            FilterContainer filter = null;
-            BuildFilter<T>(query, options, ref filter);
-
-            container &= new FilteredQuery { Filter = filter };
+    public class QueryBuilderContext<T> where T : class, new() {
+        public QueryBuilderContext(object query, object options, SearchDescriptor<T> search = null) {
+            Q = query;
+            Options = options;
+            Search = search ?? new SearchDescriptor<T>();
         }
 
-        public virtual void BuildFilter<T>(object query, object options, ref FilterContainer container) where T : class, new() { }
+        public object Q { get; }
+        public object Options { get; }
+        public QueryContainer Query { get; set; }
+        public FilterContainer Filter { get; set; }
+        public SearchDescriptor<T> Search { get; }
 
-        public virtual void BuildSearch<T>(object query, object options, ref SearchDescriptor<T> descriptor) where T : class, new() {
-            FilterContainer filter = null;
-            BuildFilter<T>(query, options, ref filter);
+        public TQuery GetQueryAs<TQuery>() where TQuery : class {
+            return Q as TQuery;
+        }
 
-            if (filter != null)
-                descriptor.Filter(filter);
+        public TOptions GetOptionsAs<TOptions>() where TOptions : class {
+            return Options as TOptions;
         }
     }
 
-    public static class QueryBuilderExtensions {
-        public static QueryContainer CreateQuery<T>(this IElasticQueryBuilder builder, object query, object options) where T : class, new() {
-            QueryContainer container = null;
-            builder.BuildQuery<T>(query, options, ref container);
-            return container;
+    public static class ElasticQueryBuilderExtensions {
+
+        public static QueryContainer BuildQuery<T>(this IElasticQueryBuilder builder, object query, object options) where T : class, new() {
+            var ctx = new QueryBuilderContext<T>(query, options);
+            builder.Build(ctx);
+
+            return ctx.Query;
         }
 
-        public static FilterContainer CreateFilter<T>(this IElasticQueryBuilder builder, object query, object options) where T : class, new() {
-            FilterContainer container = null;
-            builder.BuildFilter<T>(query, options, ref container);
-            return container;
+        public static FilterContainer BuildFilter<T>(this IElasticQueryBuilder builder, object query, object options) where T : class, new() {
+            var ctx = new QueryBuilderContext<T>(query, options);
+            builder.Build(ctx);
+
+            return ctx.Filter;
         }
 
-        public static SearchDescriptor<T> CreateSearch<T>(this IElasticQueryBuilder builder, object query, object options) where T : class, new() {
-            SearchDescriptor<T> search = null;
-            builder.BuildSearch<T>(query, options, ref search);
-            return search;
+        public static void BuildSearch<T>(this IElasticQueryBuilder builder, object query, object options, ref SearchDescriptor<T> search) where T : class, new() {
+            if (search == null)
+                search = new SearchDescriptor<T>();
+
+            var ctx = new QueryBuilderContext<T>(query, options, search);
+            builder.Build(ctx);
+
+            if (ctx.Query != null)
+                search.Query(ctx.Query);
+
+            if (ctx.Filter != null)
+                search.Query(ctx.Query &= new FilteredQuery { Filter = ctx.Filter });
         }
     }
 }

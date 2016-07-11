@@ -2,20 +2,20 @@
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public class ParentQueryBuilder : ElasticQueryBuilderBase {
+    public class ParentQueryBuilder : IElasticQueryBuilder {
         private readonly ElasticQueryBuilder _queryBuilder;
 
         public ParentQueryBuilder(ElasticQueryBuilder queryBuilder) {
             _queryBuilder = queryBuilder;
         }
 
-        public override void BuildFilter<T>(object query, object options, ref FilterContainer container) {
-            var parentQuery = query as IParentQuery;
+        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            var parentQuery = ctx.GetQueryAs<IParentQuery>();
             if (parentQuery?.ParentQuery == null)
                 return;
             
-            container &= new HasParentFilter {
-                Query = _queryBuilder.CreateQuery<T>(parentQuery.ParentQuery, options),
+            ctx.Filter &= new HasParentFilter {
+                Query = _queryBuilder.BuildQuery<T>(parentQuery.ParentQuery, ctx.Options),
                 Type = parentQuery.ParentQuery.Type
             };
         }

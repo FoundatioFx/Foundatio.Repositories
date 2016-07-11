@@ -5,11 +5,11 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Tests.Queries {
-    public class FacetOptionsTests : TestWithLoggingBase {
-        public FacetOptionsTests(ITestOutputHelper output) : base(output) { }
+    public class AggregationOptionsTests : TestWithLoggingBase {
+        public AggregationOptionsTests(ITestOutputHelper output) : base(output) { }
 
         [Fact]
-        public void FacetOptions_ParseSimple() {
+        public void AggregationOptions_ParseSimple() {
             var options = AggregationOptions.Parse("test");
             Assert.NotNull(options);
             Assert.Equal(1, options.Fields.Count);
@@ -17,7 +17,7 @@ namespace Foundatio.Repositories.Tests.Queries {
         }
 
         [Fact]
-        public void FacetOptions_ParseSimpleWithSize() {
+        public void AggregationOptions_ParseSimpleWithSize() {
             var options = AggregationOptions.Parse("test:43");
             Assert.NotNull(options);
             Assert.Equal(1, options.Fields.Count);
@@ -26,7 +26,7 @@ namespace Foundatio.Repositories.Tests.Queries {
         }
 
         [Fact]
-        public void FacetOptions_ParseSimple2Fields() {
+        public void AggregationOptions_ParseSimple2Fields() {
             var options = AggregationOptions.Parse("test,test2");
             Assert.NotNull(options);
             Assert.Equal(2, options.Fields.Count);
@@ -35,7 +35,7 @@ namespace Foundatio.Repositories.Tests.Queries {
         }
 
         [Fact]
-        public void FacetOptions_ShouldTrim() {
+        public void AggregationOptions_ShouldTrim() {
             var options = AggregationOptions.Parse("  test ,       test2 ");
             Assert.NotNull(options);
             Assert.Equal(2, options.Fields.Count);
@@ -44,7 +44,7 @@ namespace Foundatio.Repositories.Tests.Queries {
         }
 
         [Fact]
-        public void FacetOptions_ParseSimple2FieldsWithSize() {
+        public void AggregationOptions_ParseSimple2FieldsWithSize() {
             var options = AggregationOptions.Parse("test:1,test2:2");
             Assert.NotNull(options);
             Assert.Equal(2, options.Fields.Count);
@@ -55,7 +55,7 @@ namespace Foundatio.Repositories.Tests.Queries {
         }
 
         [Fact]
-        public void FacetOptions_ParseSingleNested() {
+        public void AggregationOptions_ParseSingleNested() {
             var options = AggregationOptions.Parse("test(test2)");
             Assert.NotNull(options);
             Assert.Equal(1, options.Fields.Count);
@@ -66,7 +66,7 @@ namespace Foundatio.Repositories.Tests.Queries {
         }
 
         [Fact]
-        public void FacetOptions_ParseSingleNested2() {
+        public void AggregationOptions_ParseSingleNested2() {
             var options = AggregationOptions.Parse("geo_country(geo_level1,test2),test3");
 
             Assert.NotNull(options);
@@ -86,7 +86,7 @@ namespace Foundatio.Repositories.Tests.Queries {
         }
 
         [Fact]
-        public void FacetOptions_ParseSuperDeepNestedWithSize() {
+        public void AggregationOptions_ParseSuperDeepNestedWithSize() {
             var options = AggregationOptions.Parse("test1:1(test1-1:11(test1-1-1:111,test1-1-2:112),test1-2:12),test2:2");
 
             Assert.NotNull(options);
