@@ -187,8 +187,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (IsCacheEnabled && useCache)
                 result = await Cache.GetAsync<T>(id, null).AnyContext();
 
-            if (result != null)
+            if (result != null) {
+                _logger.Trace(() => $"Cache hit: type={Configuration.Type.Name} key={id}");
                 return result;
+            }
 
             string index = GetIndexById(id);
             if (!Configuration.HasParent) {

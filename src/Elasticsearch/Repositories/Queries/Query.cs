@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
 

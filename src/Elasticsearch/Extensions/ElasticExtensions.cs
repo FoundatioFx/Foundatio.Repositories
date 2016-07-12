@@ -46,11 +46,11 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         }
 
         public static string GetRequest(this IResponseWithRequestInformation response) {
-            string json;
-            if (response.RequestInformation.RequestUrl.EndsWith("_bulk")) {
+            string json = String.Empty;
+            if (response.RequestInformation.RequestUrl.EndsWith("_bulk") && response.RequestInformation?.Request != null && response.RequestInformation.Request.Length > 0) {
                 string[] bulkCommands = Encoding.UTF8.GetString(response.RequestInformation.Request).Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
                 json = String.Join("\r\n", bulkCommands.Select(c => JObject.Parse(c).ToString(Formatting.Indented)));
-            } else {
+            } else if (response.RequestInformation?.Request != null && response.RequestInformation.Request.Length > 0) {
                 json = JObject.Parse(Encoding.UTF8.GetString(response.RequestInformation.Request)).ToString(Formatting.Indented);
             }
             

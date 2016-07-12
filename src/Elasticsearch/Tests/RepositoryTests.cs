@@ -13,7 +13,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Utility;
 using Xunit;
 using Xunit.Abstractions;
-using LogLevel = Foundatio.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class RepositoryTests : TestWithLoggingBase {
@@ -23,6 +22,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         private readonly EmployeeRepository _repository;
 
         public RepositoryTests(ITestOutputHelper output): base(output) {
+            Log.MinimumLevel = Logging.LogLevel.Trace;
+
             var connectionString = ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString;
             _database = new MyAppDatabase(new Uri(connectionString), _workItemQueue, _cache);
             _repository = new EmployeeRepository(new RepositoryConfiguration<Employee>(_database.Client, _database.Employees.Employee, cache: _cache), Log);
@@ -103,7 +104,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task SetCreatedAndModifiedTimesAsync() {
-            Log.MinimumLevel = LogLevel.Trace;
             await RemoveDataAsync();
 
             DateTime nowUtc = DateTime.UtcNow;
@@ -249,7 +249,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task GetByCompanyAsync() {
-            Log.MinimumLevel = LogLevel.Trace;
             await RemoveDataAsync();
 
             var employee1 = await _repository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId));
