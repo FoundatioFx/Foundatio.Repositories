@@ -19,6 +19,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         private readonly ILockProvider _lockProvider;
         private readonly ILogger _logger;
         private static readonly CultureInfo _enUS = new CultureInfo("en-US");
+        private readonly ICollection<RepositoryMaxAge> _repositories = new List<RepositoryMaxAge>();
 
         public CleanupSnapshotJob(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory) {
             _client = client;
@@ -26,17 +27,16 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             _logger = loggerFactory.CreateLogger(GetType());
         }
 
-        protected ICollection<RepositoryMaxAge> Repositories { get; } = new List<RepositoryMaxAge>();
-
-        protected class RepositoryMaxAge {
-            public string Name { get; set; }
-            public TimeSpan MaxAge { get; set; }
+        protected void AddRepository(string name, TimeSpan maxAge) {
+            _repositories.Add(new RepositoryMaxAge { Name = name, MaxAge = maxAge });
         }
 
         public async Task<JobResult> RunAsync(CancellationToken cancellationToken = default(CancellationToken)) {
             _logger.Info("Starting snapshot cleanup...");
+            if (_repositories.Count == 0)
+                _repositories.Add(new RepositoryMaxAge { Name = "data", MaxAge = TimeSpan.FromDays(3) });
 
-            foreach (var repo in Repositories.Count > 0 ? Repositories : new[] { new RepositoryMaxAge { Name = "data", MaxAge = TimeSpan.FromDays(3) } })
+            foreach (var repo in _repositories)
                 await DeleteOldSnapshotsAsync(repo.Name, repo.MaxAge).AnyContext();
 
             _logger.Info("Finished snapshot cleanup.");
@@ -53,27 +53,36 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                     r.RequestTimeout(5 * 60 * 1000))).AnyContext();
 
             sw.Stop();
-            var snapshots = result.Snapshots.Select(s => new { Date = GetSnapshotDate(repo, s.Name), s.Name }).ToList();
+            var snapshots = new List<SnapshotDate>();
+            if (result.IsValid && result.Snapshots != null)
+                snapshots = result.Snapshots?.Select(r => new SnapshotDate { Name = r.Name, Date = GetSnapshotDate(repo, r.Name) }).ToList();
 
             if (result.IsValid)
                 _logger.Info($"Retrieved list of {snapshots.Count} snapshots from {repo} in {sw.Elapsed.ToWords(true)}");
             else
                 _logger.Error($"Failed to retrieve list of snapshots from {repo}: {result.GetErrorMessage()}");
 
+            if (snapshots.Count == 0)
+                return;
+
             DateTime now = DateTime.UtcNow;
-            var snapshotsToDelete = snapshots.Where(s => s.Date < now.Subtract(maxAge)).ToList();
-            _logger.Info($"Selected {snapshotsToDelete.Count} snapshots for deletion from {repo}");
+            var snapshotsToDelete = snapshots.Where(r => r.Date < now.Subtract(maxAge)).ToList();
+
+            if (snapshotsToDelete.Count == 0)
+                return;
+
+            // log that we are seeing snapshots that should have been deleted already
+            var oldSnapshots = snapshots.Where(s => s.Date < now.Subtract(maxAge).AddDays(-1)).ToList();
+            if (oldSnapshots.Count > 0)
+                _logger.Error($"Found old snapshots that should've been deleted: {String.Join(", ", oldSnapshots)}");
+
+            _logger.Info($"Selected {snapshotsToDelete.Count} snapshots for deletion");
+
             foreach (var snapshot in snapshotsToDelete) {
                 _logger.Info($"Acquiring snapshot lock to delete {snapshot.Name} from {repo}");
                 await _lockProvider.TryUsingAsync("es-snapshot", async t => {
                     _logger.Info($"Got snapshot lock to delete {snapshot.Name} from {repo}");
-                    sw.Restart();
-                    var deleteResult = await _client.DeleteSnapshotAsync(repo, snapshot.Name).AnyContext();
-                    sw.Stop();
-                    if (deleteResult.IsValid)
-                        _logger.Info($"Deleted snapshot {snapshot.Name} of age {now.Subtract(snapshot.Date).ToWords(true)} from {repo} in {sw.Elapsed.ToWords(true)}");
-                    else
-                        _logger.Error($"Failed to delete snapshot {snapshot.Name} from {repo}: {deleteResult.GetErrorMessage()}");
+                    await _client.DeleteSnapshotAsync(repo, snapshot.Name).AnyContext();
                 }, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(30)).AnyContext();
             }
         }
@@ -84,6 +93,16 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 return result;
 
             return DateTime.MaxValue;
+        }
+
+        private class RepositoryMaxAge {
+            public string Name { get; set; }
+            public TimeSpan MaxAge { get; set; }
+        }
+
+        private class SnapshotDate {
+            public string Name { get; set; }
+            public DateTime Date { get; set; }
         }
     }
 }
