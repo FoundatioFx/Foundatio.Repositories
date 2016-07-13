@@ -6,6 +6,7 @@ using Elasticsearch.Net;
 using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Logging;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Extensions;
@@ -21,17 +22,22 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected static readonly bool HasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
         protected static readonly bool SupportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(typeof(T));
         protected static readonly bool HasVersion = typeof(IVersioned).IsAssignableFrom(typeof(T));
+        protected static readonly string EntityTypeName = typeof(T).Name;
 
         protected readonly ILogger _logger;
+        protected readonly IElasticClient _client;
+        protected readonly IElasticQueryBuilder _queryBuilder = ElasticQueryBuilder.Default;
+
         private ScopedCacheClient _scopedCacheClient;
 
-        protected ElasticReadOnlyRepositoryBase(IElasticRepositoryConfiguration<T> configuration, ILoggerFactory loggerFactory = null) {
-            Configuration = configuration;
-            _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
+        protected ElasticReadOnlyRepositoryBase(IElasticClient client) : this(client, null, null) {}
+
+        protected ElasticReadOnlyRepositoryBase(IElasticClient client, ICacheClient cache, ILogger logger) {
+            _client = client;
+            SetCache(cache);
+            _logger = logger ?? NullLogger.Instance;
         }
 
-        protected IElasticRepositoryConfiguration<T> Configuration { get; }
-         
         protected Task<FindResults<T>> FindAsync(object query) {
             return FindAsAsync<T>(query);
         }
@@ -46,7 +52,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             Func<FindResults<TResult>, Task<FindResults<TResult>>> getNextPageFunc = async r => {
                 if (!String.IsNullOrEmpty(r.ScrollId)) {
-                    var scrollResponse = await Configuration.Client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), r.ScrollId).AnyContext();
+                    var scrollResponse = await _client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), r.ScrollId).AnyContext();
                     _logger.Trace(() => scrollResponse.GetRequest());
                     return scrollResponse.ToFindResults(HasVersion, pagableQuery != null && pagableQuery.UseSnapshotPaging ? Int32.MaxValue : pagableQuery?.Limit);
                 }
@@ -73,7 +79,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (pagableQuery?.UseSnapshotPaging == true)
                 searchDescriptor.SearchType(SearchType.Scan).Scroll(pagableQuery.GetLifetime());
 
-            var response = await Configuration.Client.SearchAsync<TResult>(searchDescriptor).AnyContext();
+            var response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
             if (!response.IsValid) {
                 _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
@@ -81,7 +87,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             if (pagableQuery?.UseSnapshotPaging == true) {
-                var scrollResponse = await Configuration.Client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), response.ScrollId).AnyContext();
+                var scrollResponse = await _client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), response.ScrollId).AnyContext();
                 _logger.Trace(() => scrollResponse.GetRequest());
                 if (!scrollResponse.IsValid) {
                     _logger.Error().Message($"Elasticsearch error code \"{scrollResponse.ConnectionStatus.HttpStatusCode}\"").Property("request", scrollResponse.GetRequest()).Write();
@@ -117,7 +123,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return result;
 
             var searchDescriptor = CreateSearchDescriptor(query).Size(1);
-            var response = await Configuration.Client.SearchAsync<T>(searchDescriptor).AnyContext();
+            var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
             result = response.Documents.FirstOrDefault();
 
@@ -140,7 +146,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var searchDescriptor = CreateSearchDescriptor(query).Size(1);
             searchDescriptor.Fields("id");
-            var response = await Configuration.Client.SearchAsync<T>(searchDescriptor).AnyContext();
+            var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
             return response.HitsMetaData.Total > 0;
@@ -157,7 +163,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var searchDescriptor = CreateSearchDescriptor(query);
             searchDescriptor.SearchType(SearchType.Count);
 
-            var response = await Configuration.Client.SearchAsync<T>(searchDescriptor).AnyContext();
+            var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
@@ -173,7 +179,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public async Task<long> CountAsync() {
-            var response = await Configuration.Client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Indices(GetIndexesByQuery(null))).AnyContext();
+            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Indices(GetIndexesByQuery(null))).AnyContext();
             _logger.Trace(() => response.GetRequest());
             return response.Count;
         }
@@ -187,13 +193,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                 result = await Cache.GetAsync<T>(id, null).AnyContext();
 
             if (result != null) {
-                _logger.Trace(() => $"Cache hit: type={Configuration.Type.Name} key={id}");
+                _logger.Trace(() => $"Cache hit: type={ElasticType.Name} key={id}");
                 return result;
             }
 
             string index = GetIndexById(id);
-            if (!Configuration.HasParent) {
-                var res = await Configuration.Client.GetAsync<T>(id, index).AnyContext();
+            if (!HasParent) {
+                var res = await _client.GetAsync<T>(id, index).AnyContext();
                 _logger.Trace(() => res.GetRequest());
 
                 result = res.Source;
@@ -229,10 +235,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             var itemsToFind = new List<string>(ids.Distinct().Except(results.Documents.Select(i => ((IIdentity)i).Id)));
             var multiGet = new MultiGetDescriptor();
 
-            if (!Configuration.HasParent) {
+            if (!HasParent) {
                 itemsToFind.ForEach(id => multiGet.Get<T>(f => f.Id(id).Index(GetIndexById(id))));
 
-                var multiGetResults = await Configuration.Client.MultiGetAsync(multiGet).AnyContext();
+                var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
                 _logger.Trace(() => multiGetResults.GetRequest());
 
                 foreach (var doc in multiGetResults.Documents) {
@@ -245,12 +251,12 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             // fallback to doing a find
-            if (itemsToFind.Count > 0 && (Configuration.HasParent || Configuration.HasMultipleIndexes))
+            if (itemsToFind.Count > 0 && (HasParent || HasMultipleIndexes))
                 results.Documents.AddRange((await FindAsync(new ElasticQuery().WithIds(itemsToFind)).AnyContext()).Documents);
 
             if (IsCacheEnabled && useCache) {
                 foreach (var item in results.Documents)
-                    await Cache.SetAsync(((IIdentity)item).Id, item, expiresIn.HasValue ? DateTime.UtcNow.Add(expiresIn.Value) : DateTime.UtcNow.AddSeconds(Configuration.Type.DefaultCacheExpirationSeconds)).AnyContext();
+                    await Cache.SetAsync(((IIdentity)item).Id, item, expiresIn.HasValue ? DateTime.UtcNow.Add(expiresIn.Value) : DateTime.UtcNow.AddSeconds(ElasticType.DefaultCacheExpirationSeconds)).AnyContext();
             }
 
             results.Total = results.Documents.Count;
@@ -293,11 +299,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (aggregationQuery == null || aggregationQuery.AggregationFields.Count == 0)
                 throw new ArgumentException("Query must contain aggregation fields.", nameof(query));
 
-            if (Configuration.Type.AllowedAggregationFields.Count > 0 && !aggregationQuery.AggregationFields.All(f => Configuration.Type.AllowedAggregationFields.Contains(f.Field)))
+            if (ElasticType.AllowedAggregationFields.Count > 0 && !aggregationQuery.AggregationFields.All(f => ElasticType.AllowedAggregationFields.Contains(f.Field)))
                 throw new ArgumentException("All aggregation fields must be allowed.", nameof(query));
 
             var search = CreateSearchDescriptor(query).SearchType(SearchType.Count);
-            var res = await Configuration.Client.SearchAsync<T>(search);
+            var res = await _client.SearchAsync<T>(search);
             _logger.Trace(() => res.GetRequest());
 
             if (!res.IsValid) {
@@ -319,21 +325,16 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
         
         public bool IsCacheEnabled { get; private set; } = true;
-        protected ScopedCacheClient Cache {
-            get {
-                if (_scopedCacheClient != null)
-                    return _scopedCacheClient;
+        protected ScopedCacheClient Cache => _scopedCacheClient ?? new ScopedCacheClient(new NullCacheClient());
 
-                IsCacheEnabled = Configuration.Cache != null;
-                _scopedCacheClient = new ScopedCacheClient(Configuration.Cache, Configuration.Type.Name);
-
-                return _scopedCacheClient;
-            }
+        private void SetCache(ICacheClient cache) {
+            IsCacheEnabled = cache != null;
+            _scopedCacheClient = new ScopedCacheClient(cache ?? new NullCacheClient(), EntityTypeName);
         }
 
         protected void DisableCache() {
             IsCacheEnabled = false;
-            _scopedCacheClient = new ScopedCacheClient(new NullCacheClient(), Configuration.Type.Name);
+            _scopedCacheClient = new ScopedCacheClient(new NullCacheClient(), EntityTypeName);
         }
         
         protected virtual async Task InvalidateCacheAsync(ICollection<ModifiedDocument<T>> documents) {
@@ -379,25 +380,25 @@ namespace Foundatio.Repositories.Elasticsearch {
                 search.Indices(indices);
             search.IgnoreUnavailable();
 
-            Configuration.QueryBuilder.BuildSearch(query, Configuration, ref search);
+            _queryBuilder.BuildSearch(query, this, ref search);
 
             return search;
         }
 
         protected string[] GetIndexesByQuery(object query) {
-            return !Configuration.HasMultipleIndexes ? new[] { Configuration.Index.Name } : Configuration.TimeSeriesType.GetIndexesByQuery(query);
+            return !HasMultipleIndexes ? new[] { ElasticIndex.Name } : TimeSeriesType.GetIndexesByQuery(query);
         }
 
         protected string GetIndexById(string id) {
-            return !Configuration.HasMultipleIndexes ? Configuration.Index.Name : Configuration.TimeSeriesType.GetIndexById(id);
+            return !HasMultipleIndexes ? ElasticIndex.Name : TimeSeriesType.GetIndexById(id);
         }
 
         protected string GetDocumentIndex(T document) {
-            return !Configuration.HasMultipleIndexes ? Configuration.Index.Name : Configuration.TimeSeriesType.GetDocumentIndex(document);
+            return !HasMultipleIndexes ? ElasticIndex.Name : TimeSeriesType.GetDocumentIndex(document);
         }
 
-        protected Func<T, string> GetParentIdFunc => Configuration.HasParent ? d => Configuration.ChildType.GetParentId(d) : (Func<T, string>)null;
-        protected Func<T, string> GetDocumentIndexFunc => Configuration.HasMultipleIndexes ? d => Configuration.TimeSeriesType.GetDocumentIndex(d) : (Func<T, string>)(d => Configuration.Index.Name);
+        protected Func<T, string> GetParentIdFunc => HasParent ? d => ChildType.GetParentId(d) : (Func<T, string>)null;
+        protected Func<T, string> GetDocumentIndexFunc => HasMultipleIndexes ? d => TimeSeriesType.GetDocumentIndex(d) : (Func<T, string>)(d => ElasticIndex.Name);
 
         protected async Task<TResult> GetCachedQueryResultAsync<TResult>(object query, string cachePrefix = null, string cacheSuffix = null) {
             var cachedQuery = query as ICachableQuery;
@@ -407,7 +408,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             string cacheKey = cachePrefix != null ? cachePrefix + ":" + cachedQuery.CacheKey : cachedQuery.CacheKey;
             cacheKey = cacheSuffix != null ? cacheKey + ":" + cacheSuffix : cacheKey;
             var result = await Cache.GetAsync<TResult>(cacheKey, default(TResult)).AnyContext();
-            _logger.Trace(() => $"Cache {(result != null ? "hit" : "miss")}: type={Configuration.Type.Name} key={cacheKey}");
+            _logger.Trace(() => $"Cache {(result != null ? "hit" : "miss")}: type={ElasticType.Name} key={cacheKey}");
 
             return result;
         }
@@ -420,7 +421,47 @@ namespace Foundatio.Repositories.Elasticsearch {
             string cacheKey = cachePrefix != null ? cachePrefix + ":" + cachedQuery.CacheKey : cachedQuery.CacheKey;
             cacheKey = cacheSuffix != null ? cacheKey + ":" + cacheSuffix : cacheKey;
             await Cache.SetAsync(cacheKey, result, cachedQuery.GetCacheExpirationDateUtc()).AnyContext();
-            _logger.Trace(() => $"Set cache: type={Configuration.Type.Name} key={cacheKey}");
+            _logger.Trace(() => $"Set cache: type={ElasticType.Name} key={cacheKey}");
         }
+
+        #region Elastic Type Configuration
+
+        protected IIndex ElasticIndex => ElasticType.Index;
+
+        private IIndexType<T> _elasticType;
+        protected IIndexType<T> ElasticType
+        {
+            get
+            {
+                return _elasticType;
+            }
+            set
+            {
+                _elasticType = value;
+
+                if (_elasticType is IChildIndexType<T>) {
+                    HasParent = true;
+                    ChildType = _elasticType as IChildIndexType<T>;
+                } else {
+                    HasParent = false;
+                    ChildType = null;
+                }
+
+                if (_elasticType is ITimeSeriesIndexType) {
+                    HasMultipleIndexes = true;
+                    TimeSeriesType = _elasticType as ITimeSeriesIndexType<T>;
+                } else {
+                    HasMultipleIndexes = false;
+                    TimeSeriesType = null;
+                }
+            }
+        }
+
+        protected bool HasParent { get; private set; }
+        protected IChildIndexType<T> ChildType { get; private set; }
+        protected bool HasMultipleIndexes { get; private set; }
+        protected ITimeSeriesIndexType<T> TimeSeriesType { get; private set; }
+
+        #endregion
     }
 }

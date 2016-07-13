@@ -75,7 +75,7 @@
     <Compile Include="Migration\IMigrationRepository.cs" />
     <Compile Include="Migration\MigrationBase.cs" />
     <Compile Include="Migration\MigrationManager.cs" />
-    <Compile Include="Migration\MigrationResult.cs" />
+    <Compile Include="Migration\Migration.cs" />
     <Compile Include="Models\IVersioned.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Models\ChangeType.cs" />

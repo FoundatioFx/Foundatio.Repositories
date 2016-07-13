@@ -1,10 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Configuration;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Caching;
 using Foundatio.Jobs;
+using Foundatio.Logging;
 using Foundatio.Logging.Xunit;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
@@ -22,11 +22,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         private readonly EmployeeRepository _repository;
     
         public RepositoryTests(ITestOutputHelper output): base(output) {
-            Log.MinimumLevel = Logging.LogLevel.Trace;
+            Log.MinimumLevel = LogLevel.Trace;
 
-            var connectionString = ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString;
-            _elasticConfiguration = new MyAppElasticConfiguration(new Uri(connectionString), _workItemQueue, _cache);
-            _repository = new EmployeeRepository(new RepositoryConfiguration<Employee>(_elasticConfiguration.Client, _elasticConfiguration.Employees.Employee, cache: _cache), Log);
+            _elasticConfiguration = new MyAppElasticConfiguration(_workItemQueue, _cache, Log.CreateLogger<MyAppElasticConfiguration>());
+            _repository = new EmployeeRepository(_elasticConfiguration, _cache, Log.CreateLogger<EmployeeRepository>());
         }
         
         //[Fact]

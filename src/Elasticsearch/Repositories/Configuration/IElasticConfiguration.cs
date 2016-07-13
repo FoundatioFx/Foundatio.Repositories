@@ -26,15 +26,19 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private readonly List<IIndex> _indexes = new List<IIndex>();
         private readonly Lazy<IReadOnlyCollection<IIndex>> _frozenIndexes;
 
-        public ElasticConfiguration(Uri serverUri, IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, ILogger logger = null)
-            : this(new[] { serverUri }, workItemQueue, cacheClient) {
+        public ElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILogger logger)
+            : this((IElasticClient)null, workItemQueue, cacheClient, logger) {
         }
 
-        public ElasticConfiguration(IEnumerable<Uri> serverUris, IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, ILogger logger = null)
-            : this(new ElasticClient(new ConnectionSettings(new StaticConnectionPool(serverUris)).EnableTcpKeepAlive(30 * 1000, 2000)), workItemQueue, cacheClient) {
+        public ElasticConfiguration(Uri serverUri, IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILogger logger)
+            : this(new[] { serverUri }, workItemQueue, cacheClient, logger) {
         }
 
-        public ElasticConfiguration(IElasticClient client, IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, ILogger logger = null) {
+        public ElasticConfiguration(IEnumerable<Uri> serverUris, IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILogger logger)
+            : this(new ElasticClient(new ConnectionSettings(new StaticConnectionPool(serverUris)).EnableTcpKeepAlive(30 * 1000, 2000)), workItemQueue, cacheClient, logger) {
+        }
+
+        public ElasticConfiguration(IElasticClient client, IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILogger logger) {
             Client = client;
             _workItemQueue = workItemQueue;
             _logger = logger;
@@ -44,7 +48,15 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _frozenIndexes = new Lazy<IReadOnlyCollection<IIndex>>(() => _indexes.AsReadOnly());
         }
 
-        public IElasticClient Client { get; }
+        protected void SetClient(Uri serverUri) {
+            SetClient(new[] { serverUri });
+        }
+
+        protected void SetClient(IEnumerable<Uri> serverUris) {
+            Client = new ElasticClient(new ConnectionSettings(new StaticConnectionPool(serverUris)).EnableTcpKeepAlive(30 * 1000, 2000));
+        }
+
+        public IElasticClient Client { get; protected set; }
         public IReadOnlyCollection<IIndex> Indexes => _frozenIndexes.Value;
 
         public void AddIndex(IIndex index) {

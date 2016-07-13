@@ -114,7 +114,6 @@
     <Compile Include="Repositories\Configuration\IndexBase.cs" />
     <Compile Include="Repositories\Configuration\MonthlyIndex.cs" />
     <Compile Include="Repositories\Configuration\VersionedIndex.cs" />
-    <Compile Include="Repositories\IElasticRepositoryConfiguration.cs" />
     <Compile Include="Repositories\MigrationsRepository.cs" />
     <Compile Include="Repositories\Queries\Builders\ElasticQueryBuilder.cs" />
     <Compile Include="Repositories\Queries\Builders\SystemFilterQueryBuilder.cs" />
@@ -141,7 +140,6 @@
     <Compile Include="Repositories\Queries\Query.cs" />
     <Compile Include="Repositories\ElasticReadOnlyRepositoryBase.cs" />
     <Compile Include="Repositories\ElasticRepositoryBase.cs" />
-    <Compile Include="Repositories\RepositoryConfiguration.cs" />
     <Compile Include="Utility\Run.cs" />
   </ItemGroup>
   <ItemGroup>

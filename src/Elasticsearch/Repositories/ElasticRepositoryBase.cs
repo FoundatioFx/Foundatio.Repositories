@@ -16,8 +16,14 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IRepository<T> where T : class, IIdentity, new() {
-        protected ElasticRepositoryBase(IElasticRepositoryConfiguration<T> configuration, ILoggerFactory loggerFactory = null) : base(configuration, loggerFactory) {
-            NotificationsEnabled = Configuration.MessagePublisher != null;
+        protected readonly IValidator<T> _validator;
+        protected readonly IMessagePublisher _messagePublisher;
+        protected ElasticRepositoryBase(IElasticClient client) : this(client, null, null, null, null) { }
+
+        protected ElasticRepositoryBase(IElasticClient client, IValidator<T> validator, ICacheClient cache, IMessagePublisher messagePublisher, ILogger logger) : base(client, cache, logger) {
+            _validator = validator;
+            _messagePublisher = messagePublisher;
+            NotificationsEnabled = _messagePublisher != null;
         }
         
         public async Task<T> AddAsync(T document, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotification = true) {
@@ -34,9 +40,9 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             await OnDocumentsAddingAsync(documents).AnyContext();
 
-            if (Configuration.Validator != null)
+            if (_validator != null)
                 foreach (var doc in documents)
-                    await Configuration.Validator.ValidateAndThrowAsync(doc).AnyContext();
+                    await _validator.ValidateAndThrowAsync(doc).AnyContext();
 
             await IndexDocuments(documents);
 
@@ -71,7 +77,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             await OnDocumentsRemovingAsync(documents).AnyContext();
             
             var documentsByIndex = documents.GroupBy(d => GetDocumentIndexFunc?.Invoke(d));
-            var response = await Configuration.Client.BulkAsync(bulk => {
+            var response = await _client.BulkAsync(bulk => {
                 foreach (var group in documentsByIndex)
                     bulk.DeleteMany<T>(group.Select(g => g.Id), (b, id) => b.Index(group.Key));
 
@@ -108,17 +114,17 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     return s;
                 })
-                .Size(Configuration.Type.BulkBatchSize);
+                .Size(ElasticType.BulkBatchSize);
 
             // TODO: Should use snapshot
-            var result = await Configuration.Client.SearchAsync<T>(searchDescriptor).AnyContext();
+            var result = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.Trace(() => result.GetRequest());
             var documents = result.Documents.ToList();
             while (documents.Count > 0) {
                 recordsAffected += documents.Count;
                 await RemoveAsync(documents, sendNotifications).AnyContext();
 
-                result = await Configuration.Client.SearchAsync<T>(searchDescriptor).AnyContext();
+                result = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
                 _logger.Trace(() => result.GetRequest());
                 documents = result.Documents.ToList();
             }
@@ -146,9 +152,9 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             await OnDocumentsSavingAsync(documents, originalDocuments).AnyContext();
 
-            if (Configuration.Validator != null)
+            if (_validator != null)
                 foreach (var doc in documents)
-                    await Configuration.Validator.ValidateAndThrowAsync(doc).AnyContext();
+                    await _validator.ValidateAndThrowAsync(doc).AnyContext();
 
             await IndexDocuments(documents).AnyContext();
 
@@ -166,18 +172,18 @@ namespace Foundatio.Repositories.Elasticsearch {
                 .Source(s => s.Include(f => f.Id))
                 .SearchType(SearchType.Scan)
                 .Scroll("4s")
-                .Size(Configuration.Type.BulkBatchSize);
+                .Size(ElasticType.BulkBatchSize);
 
-            var scanResults = await Configuration.Client.SearchAsync<T>(searchDescriptor).AnyContext();
+            var scanResults = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
            
             // Check to see if no scroll id was returned. This will occur when the index doesn't exist.
             if (!scanResults.IsValid || String.IsNullOrEmpty(scanResults.ScrollId))
                 return 0;
 
-            var results = await Configuration.Client.ScrollAsync<T>("4s", scanResults.ScrollId).AnyContext();
+            var results = await _client.ScrollAsync<T>("4s", scanResults.ScrollId).AnyContext();
             _logger.Trace(() => results.GetRequest());
             while (results.Hits.Any()) {
-                var bulkResult = await Configuration.Client.BulkAsync(b => {
+                var bulkResult = await _client.BulkAsync(b => {
                     string script = update as string;
                     if (script != null)
                         results.Hits.ForEach(h => b.Update<T>(u => u.Id(h.Id).Index(h.Index).Script(script)));
@@ -206,7 +212,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                         await Cache.RemoveAsync(d.Id).AnyContext();
 
                 recordsAffected += results.Documents.Count();
-                results = await Configuration.Client.ScrollAsync<T>("4s", results.ScrollId).AnyContext();
+                results = await _client.ScrollAsync<T>("4s", results.ScrollId).AnyContext();
                 _logger.Trace(() => results.GetRequest());
             }
 
@@ -224,7 +230,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public AsyncEvent<DocumentsEventArgs<T>> DocumentsAdding { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
 
         private async Task OnDocumentsAddingAsync(ICollection<T> documents) {
-            documents.EnsureIds(Configuration.Type.GetDocumentId);
+            documents.EnsureIds(ElasticType.GetDocumentId);
 
             if (HasDates)
                 documents.OfType<IHaveDates>().SetDates();
@@ -360,7 +366,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             IResponseWithRequestInformation result = null;
             if (documents.Count == 1) {
                 var document = documents.Single();
-                result = await Configuration.Client.IndexAsync(document, i => {
+                result = await _client.IndexAsync(document, i => {
                     if (GetParentIdFunc != null)
                         i.Parent(GetParentIdFunc(document));
 
@@ -371,7 +377,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }).AnyContext();
             } else {
                 result =
-                    await Configuration.Client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc).AnyContext();
+                    await _client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc).AnyContext();
             }
             _logger.Trace(() => result.GetRequest());
             if (!result.RequestInformation.Success) {
@@ -455,16 +461,16 @@ namespace Foundatio.Repositories.Elasticsearch {
             return PublishMessageAsync(new EntityChanged {
                 ChangeType = changeType,
                 Id = document?.Id,
-                Type = Configuration.Type.Name,
+                Type = ElasticType.Name,
                 Data = new DataDictionary(data ?? new Dictionary<string, object>())
             }, delay);
         }
         
         protected async Task PublishMessageAsync<TMessageType>(TMessageType message, TimeSpan? delay = null) where TMessageType : class {
-            if (Configuration.MessagePublisher == null)
+            if (_messagePublisher == null)
                 return;
 
-            await Configuration.MessagePublisher.PublishAsync(message, delay).AnyContext();
+            await _messagePublisher.PublishAsync(message, delay).AnyContext();
         }
     }
 }

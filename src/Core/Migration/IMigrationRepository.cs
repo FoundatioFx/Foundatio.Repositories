@@ -1,4 +1,4 @@
 ﻿namespace Foundatio.Repositories.Migrations {
-    public interface IMigrationRepository : IRepository<MigrationResult> {
+    public interface IMigrationRepository : IRepository<Migration> {
     }
 }

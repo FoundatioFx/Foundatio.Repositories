@@ -2,8 +2,10 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Foundatio.Caching;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Queries;
+using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
@@ -11,7 +13,9 @@ using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class EmployeeRepository : ElasticRepositoryBase<Employee> {
-        public EmployeeRepository(RepositoryConfiguration<Employee> configuration, ILoggerFactory loggerFactory = null) : base(configuration, loggerFactory) { }
+        public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration, ICacheClient cache, ILogger<EmployeeRepository> logger) : base(elasticConfiguration.Client, null, cache, null, logger) {
+            ElasticType = elasticConfiguration.Employees.Employee;
+        }
 
         public Task<Employee> GetByAgeAsync(int age) {
             return FindOneAsync(new MyAppQuery().WithAge(age));

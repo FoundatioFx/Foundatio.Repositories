@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Configuration;
 using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Jobs;
@@ -9,7 +10,10 @@ using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
     public class MyAppElasticConfiguration : ElasticConfiguration {
-        public MyAppElasticConfiguration(Uri serverUri, IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILogger logger) : base(serverUri, workItemQueue, cacheClient, logger) {
+        public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILogger<MyAppElasticConfiguration> logger) : base(workItemQueue, cacheClient, logger) {
+            var connectionString = ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString;
+            SetClient(new Uri(connectionString));
+
             // register our custom app query builders
             ElasticQueryBuilder.Default.Register<AgeQueryBuilder>();
             ElasticQueryBuilder.Default.Register<CompanyQueryBuilder>();
