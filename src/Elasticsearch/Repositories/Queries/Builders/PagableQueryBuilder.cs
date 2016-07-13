@@ -1,6 +1,5 @@
 ﻿using System;
 using Foundatio.Repositories.Queries;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class PagableQueryBuilder : IElasticQueryBuilder {

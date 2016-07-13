@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using Elasticsearch.Net;
 using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Queries;
-using Foundatio.Extensions;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
@@ -368,7 +367,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected SearchDescriptor<T> CreateSearchDescriptor(object query) {
-            return ConfigureSearchDescriptor(new SearchDescriptor<T>(), query);
+            return ConfigureSearchDescriptor(null, query);
         }
 
         protected SearchDescriptor<T> ConfigureSearchDescriptor(SearchDescriptor<T> search, object query) {

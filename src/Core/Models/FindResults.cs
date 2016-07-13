@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Foundatio.Extensions;
 using Foundatio.Repositories.Extensions;
 
 namespace Foundatio.Repositories.Models {

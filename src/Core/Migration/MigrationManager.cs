@@ -5,7 +5,6 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Extensions;
-using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Migrations {
     public class MigrationManager {

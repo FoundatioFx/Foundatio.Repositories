@@ -7,7 +7,6 @@ using Nest;
 using Elasticsearch.Net;
 using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Extensions;
-using Foundatio.Extensions;
 using Foundatio.Logging;
 using Foundatio.Messaging;
 using Foundatio.Repositories.Extensions;
@@ -45,35 +44,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 await AddToCacheAsync(documents, expiresIn).AnyContext();
 
             await OnDocumentsAddedAsync(documents, sendNotification).AnyContext();
-        }
-
-        private async Task IndexDocuments(ICollection<T> documents) {
-            IResponseWithRequestInformation result = null;
-            if (documents.Count == 1) {
-                var document = documents.Single();
-                result = await Configuration.Client.IndexAsync(document, i => {
-                    if (GetParentIdFunc != null)
-                        i.Parent(GetParentIdFunc(document));
-
-                    if (GetDocumentIndexFunc != null)
-                        i.Index(GetDocumentIndexFunc(document));
-
-                    return i;
-                }).AnyContext();
-            } else {
-                result =
-                    await Configuration.Client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc).AnyContext();
-            }
-            _logger.Trace(() => result.GetRequest());
-            if (!result.RequestInformation.Success) {
-                if (result is IBulkResponse)
-                    throw new ApplicationException(
-                        String.Join("\r\n", ((IBulkResponse)result).ItemsWithErrors.Select(i => i.Error)),
-                        ((IBulkResponse)result).ConnectionStatus.OriginalException);
-
-                throw new ApplicationException(String.Join("\r\n", ((IIndexResponse)result).ServerError.Error,
-                    ((IIndexResponse)result).ConnectionStatus.OriginalException));
-            }
         }
 
         public async Task RemoveAsync(string id, bool sendNotification = true) {
@@ -385,6 +355,35 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         #endregion
+
+        private async Task IndexDocuments(ICollection<T> documents) {
+            IResponseWithRequestInformation result = null;
+            if (documents.Count == 1) {
+                var document = documents.Single();
+                result = await Configuration.Client.IndexAsync(document, i => {
+                    if (GetParentIdFunc != null)
+                        i.Parent(GetParentIdFunc(document));
+
+                    if (GetDocumentIndexFunc != null)
+                        i.Index(GetDocumentIndexFunc(document));
+
+                    return i;
+                }).AnyContext();
+            } else {
+                result =
+                    await Configuration.Client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc).AnyContext();
+            }
+            _logger.Trace(() => result.GetRequest());
+            if (!result.RequestInformation.Success) {
+                if (result is IBulkResponse)
+                    throw new ApplicationException(
+                        String.Join("\r\n", ((IBulkResponse)result).ItemsWithErrors.Select(i => i.Error)),
+                        ((IBulkResponse)result).ConnectionStatus.OriginalException);
+
+                throw new ApplicationException(String.Join("\r\n", ((IIndexResponse)result).ServerError.Error,
+                    ((IIndexResponse)result).ConnectionStatus.OriginalException));
+            }
+        }
 
         protected virtual async Task AddToCacheAsync(ICollection<T> documents, TimeSpan? expiresIn = null) {
             if (!IsCacheEnabled || Cache == null)

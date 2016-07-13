@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Security;
 using System.Text;
 using System.Threading;
-using Foundatio.Extensions;
+using Foundatio.Repositories.Extensions;
 
 namespace Foundatio.Repositories.Utility {
     public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertible {

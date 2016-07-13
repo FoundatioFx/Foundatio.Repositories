@@ -53,7 +53,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             if (ctx.Query != null)
                 search.Query(ctx.Query);
-
+            
             if (ctx.Filter != null)
                 search.Query(ctx.Query &= new FilteredQuery { Filter = ctx.Filter });
         }

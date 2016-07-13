@@ -1,5 +1,4 @@
 ﻿using System;
-using Foundatio.Repositories;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries {
     public interface ICachableQuery {

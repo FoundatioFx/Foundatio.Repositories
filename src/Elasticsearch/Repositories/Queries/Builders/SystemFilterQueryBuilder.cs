@@ -1,7 +1,6 @@
 ﻿using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Repositories.Queries;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Repositories.Queries.Builders {
     public class SystemFilterQueryBuilder : IElasticQueryBuilder {
