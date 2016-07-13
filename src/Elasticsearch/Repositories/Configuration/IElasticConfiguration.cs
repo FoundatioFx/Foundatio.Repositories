@@ -11,7 +11,7 @@ using Foundatio.Repositories.Extensions;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
-    public interface IDatabase {
+    public interface IElasticConfiguration {
         IElasticClient Client { get; }
         IReadOnlyCollection<IIndex> Indexes { get; }
         void Configure(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true);
@@ -19,22 +19,22 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func < int, string, Task> progressCallbackAsync = null);
     }
 
-    public class Database: IDatabase {
+    public class ElasticConfiguration: IElasticConfiguration {
         protected readonly ILockProvider _lockProvider = null;
         protected readonly IQueue<WorkItemData> _workItemQueue;
         protected readonly ILogger _logger;
         private readonly List<IIndex> _indexes = new List<IIndex>();
         private readonly Lazy<IReadOnlyCollection<IIndex>> _frozenIndexes;
 
-        public Database(Uri serverUri, IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, ILogger logger = null)
+        public ElasticConfiguration(Uri serverUri, IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, ILogger logger = null)
             : this(new[] { serverUri }, workItemQueue, cacheClient) {
         }
 
-        public Database(IEnumerable<Uri> serverUris, IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, ILogger logger = null)
+        public ElasticConfiguration(IEnumerable<Uri> serverUris, IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, ILogger logger = null)
             : this(new ElasticClient(new ConnectionSettings(new StaticConnectionPool(serverUris)).EnableTcpKeepAlive(30 * 1000, 2000)), workItemQueue, cacheClient) {
         }
 
-        public Database(IElasticClient client, IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, ILogger logger = null) {
+        public ElasticConfiguration(IElasticClient client, IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, ILogger logger = null) {
             Client = client;
             _workItemQueue = workItemQueue;
             _logger = logger;

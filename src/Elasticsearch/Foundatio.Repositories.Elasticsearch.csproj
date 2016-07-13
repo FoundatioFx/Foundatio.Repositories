@@ -104,7 +104,7 @@
     <Compile Include="Jobs\ReindexWorkItemHandler.cs" />
     <Compile Include="Repositories\Configuration\DailyIndex.cs" />
     <Compile Include="Repositories\Configuration\ElasticReindexer.cs" />
-    <Compile Include="Repositories\Configuration\IDatabase.cs" />
+    <Compile Include="Repositories\Configuration\IElasticConfiguration.cs" />
     <Compile Include="Repositories\Configuration\IIndex.cs" />
     <Compile Include="Extensions\ElasticExtensions.cs" />
     <Compile Include="Extensions\ElasticIndexExtensions.cs" />

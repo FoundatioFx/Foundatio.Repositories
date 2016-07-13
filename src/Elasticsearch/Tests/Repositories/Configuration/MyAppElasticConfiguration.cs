@@ -2,13 +2,14 @@
 using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Jobs;
+using Foundatio.Logging;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
-    public class MyAppDatabase : Database {
-        public MyAppDatabase(Uri serverUri, IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient) : base(serverUri, workItemQueue, cacheClient) {
+    public class MyAppElasticConfiguration : ElasticConfiguration {
+        public MyAppElasticConfiguration(Uri serverUri, IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILogger logger) : base(serverUri, workItemQueue, cacheClient, logger) {
             // register our custom app query builders
             ElasticQueryBuilder.Default.Register<AgeQueryBuilder>();
             ElasticQueryBuilder.Default.Register<CompanyQueryBuilder>();

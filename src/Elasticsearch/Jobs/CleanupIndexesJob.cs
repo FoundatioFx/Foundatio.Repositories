@@ -78,7 +78,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             if (oldIndexes.Count > 0)
                 _logger.Error($"Found old indexes that should've been deleted: {String.Join(", ", oldIndexes)}");
 
-            _logger.Info($"Selected {indexesToDelete.Count} snapshots for deletion");
+            _logger.Info($"Selected {indexesToDelete.Count} indexes for deletion");
 
             foreach (var oldIndex in indexesToDelete)
                 await _client.DeleteIndexAsync(oldIndex.Index, d => d).AnyContext();
