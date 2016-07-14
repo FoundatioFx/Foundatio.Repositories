@@ -18,6 +18,7 @@ namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IRepository<T> where T : class, IIdentity, new() {
         protected readonly IValidator<T> _validator;
         protected readonly IMessagePublisher _messagePublisher;
+
         protected ElasticRepositoryBase(IElasticClient client) : this(client, null, null, null, null) { }
 
         protected ElasticRepositoryBase(IElasticClient client, IValidator<T> validator, ICacheClient cache, IMessagePublisher messagePublisher, ILogger logger) : base(client, cache, logger) {
@@ -50,6 +51,99 @@ namespace Foundatio.Repositories.Elasticsearch {
                 await AddToCacheAsync(documents, expiresIn).AnyContext();
 
             await OnDocumentsAddedAsync(documents, sendNotification).AnyContext();
+        }
+
+        public async Task<T> SaveAsync(T document, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotifications = true) {
+            if (document == null)
+                throw new ArgumentNullException(nameof(document));
+
+            await SaveAsync(new[] { document }, addToCache, expiresIn, sendNotifications).AnyContext();
+            return document;
+        }
+
+        public async Task SaveAsync(ICollection<T> documents, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotifications = true) {
+            if (documents == null || documents.Count == 0)
+                return;
+
+            if (documents.Any(d => String.IsNullOrEmpty(d.Id)))
+                throw new ApplicationException("Id must be set when calling Save.");
+
+            string[] ids = documents.Where(d => !String.IsNullOrEmpty(d.Id)).Select(d => d.Id).ToArray();
+            var originalDocuments = ids.Length > 0 ? (await GetByIdsAsync(ids).AnyContext()).Documents : new List<T>();
+
+            await OnDocumentsSavingAsync(documents, originalDocuments).AnyContext();
+
+            if (_validator != null)
+                foreach (var doc in documents)
+                    await _validator.ValidateAndThrowAsync(doc).AnyContext();
+
+            await IndexDocuments(documents).AnyContext();
+
+            if (addToCache)
+                await AddToCacheAsync(documents, expiresIn).AnyContext();
+
+            await OnDocumentsSavedAsync(documents, originalDocuments, sendNotifications).AnyContext();
+        }
+
+        // TODO: Refactor to a single method that does a bulk operation and then RemoveAll and UpdateAll use that
+        protected async Task<long> UpdateAllAsync(object query, object update, bool sendNotifications = true) {
+            long recordsAffected = 0;
+
+            var searchDescriptor = CreateSearchDescriptor(query)
+                .Source(s => s.Include(f => f.Id))
+                .SearchType(SearchType.Scan)
+                .Scroll("4s")
+                .Size(ElasticType.BulkBatchSize);
+
+            var scanResults = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
+
+            // Check to see if no scroll id was returned. This will occur when the index doesn't exist.
+            if (!scanResults.IsValid || String.IsNullOrEmpty(scanResults.ScrollId))
+                return 0;
+
+            var results = await _client.ScrollAsync<T>("4s", scanResults.ScrollId).AnyContext();
+            _logger.Trace(() => results.GetRequest());
+            while (results.Hits.Any()) {
+                var bulkResult = await _client.BulkAsync(b => {
+                    string script = update as string;
+                    if (script != null)
+                        results.Hits.ForEach(h => b.Update<T>(u => u.Id(h.Id).Index(h.Index).Script(script)));
+                    else
+                        results.Hits.ForEach(h => b.Update<T, object>(u => u.Id(h.Id).Index(h.Index).Doc(update)));
+
+                    return b;
+                }).AnyContext();
+                _logger.Trace(() => bulkResult.GetRequest());
+
+                if (!bulkResult.IsValid) {
+                    _logger.Error()
+                        .Message("Error occurred while bulk updating")
+                        .Exception(bulkResult.ConnectionStatus.OriginalException ?? bulkResult.RequestInformation.OriginalException)
+                        .Property("ItemsWithErrors", bulkResult.ItemsWithErrors)
+                        .Property("Error", bulkResult.ServerError)
+                        .Property("Query", query)
+                        .Property("Update", update)
+                        .Write();
+
+                    return 0;
+                }
+
+                if (IsCacheEnabled)
+                    foreach (var d in results.Hits)
+                        await Cache.RemoveAsync(d.Id).AnyContext();
+
+                recordsAffected += results.Documents.Count();
+                results = await _client.ScrollAsync<T>("4s", results.ScrollId).AnyContext();
+                _logger.Trace(() => results.GetRequest());
+            }
+
+            if (recordsAffected <= 0)
+                return 0;
+
+            if (sendNotifications)
+                await SendNotificationsAsync(ChangeType.Saved).AnyContext();
+
+            return recordsAffected;
         }
 
         public async Task RemoveAsync(string id, bool sendNotification = true) {
@@ -98,6 +192,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             await RemoveAllAsync(new object(), false).AnyContext();
         }
 
+        // TODO: Remove this for something better
         protected List<string> RemoveAllIncludedFields { get; } = new List<string>();
 
         protected async Task<long> RemoveAllAsync(object query, bool sendNotifications = true) {
@@ -128,99 +223,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 _logger.Trace(() => result.GetRequest());
                 documents = result.Documents.ToList();
             }
-
-            return recordsAffected;
-        }
-
-        public async Task<T> SaveAsync(T document, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotifications = true) {
-            if (document == null)
-                throw new ArgumentNullException(nameof(document));
-
-            await SaveAsync(new[] { document }, addToCache, expiresIn, sendNotifications).AnyContext();
-            return document;
-        }
-
-        public async Task SaveAsync(ICollection<T> documents, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotifications = true) {
-            if (documents == null || documents.Count == 0)
-                return;
-
-            if (documents.Any(d => String.IsNullOrEmpty(d.Id)))
-                throw new ApplicationException("Id must be set when calling Save.");
-
-            string[] ids = documents.Where(d => !String.IsNullOrEmpty(d.Id)).Select(d => d.Id).ToArray();
-            var originalDocuments = ids.Length > 0 ? (await GetByIdsAsync(ids).AnyContext()).Documents : new List<T>();
-
-            await OnDocumentsSavingAsync(documents, originalDocuments).AnyContext();
-
-            if (_validator != null)
-                foreach (var doc in documents)
-                    await _validator.ValidateAndThrowAsync(doc).AnyContext();
-
-            await IndexDocuments(documents).AnyContext();
-
-            if (addToCache)
-                await AddToCacheAsync(documents, expiresIn).AnyContext();
-
-            await OnDocumentsSavedAsync(documents, originalDocuments, sendNotifications).AnyContext();
-        }
-        
-        // TODO: Refactor to a single method that does a bulk operation and then RemoveAll and UpdateAll use that
-        protected async Task<long> UpdateAllAsync(object query, object update, bool sendNotifications = true) {
-            long recordsAffected = 0;
-
-            var searchDescriptor = CreateSearchDescriptor(query)
-                .Source(s => s.Include(f => f.Id))
-                .SearchType(SearchType.Scan)
-                .Scroll("4s")
-                .Size(ElasticType.BulkBatchSize);
-
-            var scanResults = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-           
-            // Check to see if no scroll id was returned. This will occur when the index doesn't exist.
-            if (!scanResults.IsValid || String.IsNullOrEmpty(scanResults.ScrollId))
-                return 0;
-
-            var results = await _client.ScrollAsync<T>("4s", scanResults.ScrollId).AnyContext();
-            _logger.Trace(() => results.GetRequest());
-            while (results.Hits.Any()) {
-                var bulkResult = await _client.BulkAsync(b => {
-                    string script = update as string;
-                    if (script != null)
-                        results.Hits.ForEach(h => b.Update<T>(u => u.Id(h.Id).Index(h.Index).Script(script)));
-                    else
-                        results.Hits.ForEach(h => b.Update<T, object>(u => u.Id(h.Id).Index(h.Index).Doc(update)));
-
-                    return b;
-                }).AnyContext();
-                _logger.Trace(() => bulkResult.GetRequest());
-
-                if (!bulkResult.IsValid) {
-                    _logger.Error()
-                        .Message("Error occurred while bulk updating")
-                        .Exception(bulkResult.ConnectionStatus.OriginalException ?? bulkResult.RequestInformation.OriginalException)
-                        .Property("ItemsWithErrors", bulkResult.ItemsWithErrors)
-                        .Property("Error", bulkResult.ServerError)
-                        .Property("Query", query)
-                        .Property("Update", update)
-                        .Write();
-
-                    return 0;
-                }
-
-                if (IsCacheEnabled)
-                    foreach (var d in results.Hits)
-                        await Cache.RemoveAsync(d.Id).AnyContext();
-
-                recordsAffected += results.Documents.Count();
-                results = await _client.ScrollAsync<T>("4s", results.ScrollId).AnyContext();
-                _logger.Trace(() => results.GetRequest());
-            }
-
-            if (recordsAffected <= 0)
-                return 0;
-
-            if (sendNotifications)
-                await SendNotificationsAsync(ChangeType.Saved).AnyContext();
 
             return recordsAffected;
         }

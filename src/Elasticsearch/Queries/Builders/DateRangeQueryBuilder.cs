@@ -28,13 +28,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
     }
 
-    public static class DateRangeQueryExtensions {
-        public static T WithDateRange<T>(this T query, DateTime? start, DateTime? end, string field) where T : IDateRangeQuery {
-            query.DateRanges?.Add(new DateRange { StartDate = start, EndDate = end, Field = field });
-            return query;
-        }
-    }
-
     public class DateRangeQueryBuilder : IElasticQueryBuilder {
         public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var dateRangeQuery = ctx.GetQueryAs<IDateRangeQuery>();
@@ -48,6 +41,13 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                     LowerThanOrEqualTo = dateRange.GetEndDate().ToString("O")
                 };
             }
+        }
+    }
+
+    public static class DateRangeQueryExtensions {
+        public static T WithDateRange<T>(this T query, DateTime? start, DateTime? end, string field) where T : IDateRangeQuery {
+            query.DateRanges?.Add(new DateRange { StartDate = start, EndDate = end, Field = field });
+            return query;
         }
     }
 }

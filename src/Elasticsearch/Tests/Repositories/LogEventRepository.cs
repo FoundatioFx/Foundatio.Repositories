@@ -12,8 +12,8 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
-    public class LogEventRepository : ElasticRepositoryBase<LogEvent> {
-        public LogEventRepository(MyAppElasticConfiguration elasticConfiguration, ICacheClient cache, ILogger<LogEventRepository> logger) : base(elasticConfiguration.Client, null, cache, null, logger) {
+    public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent> {
+        public DailyLogEventRepository(MyAppElasticConfiguration elasticConfiguration, ICacheClient cache, ILogger<DailyLogEventRepository> logger) : base(elasticConfiguration.Client, null, cache, null, logger) {
             ElasticType = elasticConfiguration.DailyLogEvents.LogEvent;
         }
 
@@ -24,7 +24,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public Task<FindResults<LogEvent>> GetAllByCompanyAsync(string company) {
             return FindAsync(new MyAppQuery().WithCompany(company));
         }
-        
+
         public Task<CountResult> GetCountByCompanyAsync(string company) {
             return CountAsync(new MyAppQuery().WithCompany(company).WithCacheKey(company));
         }
@@ -41,6 +41,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             }
 
             await base.InvalidateCacheAsync(documents);
+        }
+    }
+
+    public class MonthlyLogEventRepository : DailyLogEventRepository {
+        public MonthlyLogEventRepository(MyAppElasticConfiguration elasticConfiguration, ICacheClient cache, ILogger<DailyLogEventRepository> logger) : base(elasticConfiguration, cache, logger) {
+            ElasticType = elasticConfiguration.MonthlyLogEvents.LogEvent;
         }
     }
 }

@@ -6,6 +6,25 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         ITypeQuery ChildQuery { get; set; }
     }
 
+    public class ChildQueryBuilder : IElasticQueryBuilder {
+        private readonly ElasticQueryBuilder _queryBuilder;
+
+        public ChildQueryBuilder(ElasticQueryBuilder queryBuilder) {
+            _queryBuilder = queryBuilder;
+        }
+
+        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            var childQuery = ctx.GetQueryAs<IChildQuery>();
+            if (childQuery?.ChildQuery == null)
+                return;
+            
+            ctx.Filter &= new HasChildFilter {
+                Query = _queryBuilder.BuildQuery<T>(childQuery.ChildQuery, ctx.Options),
+                Type = childQuery.ChildQuery.Type
+            };
+        }
+    }
+
     public static class ChildQueryExtensions {
         public static TQuery WithChildQuery<TQuery, TChildQuery>(this TQuery query, Func<TChildQuery, TChildQuery> childQueryFunc) where TQuery : IChildQuery where TChildQuery : class, ITypeQuery, new() {
             if (childQueryFunc == null)
@@ -45,25 +64,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             query.ChildQuery = childQueryFunc(childQuery);
 
             return query;
-        }
-    }
-
-    public class ChildQueryBuilder : IElasticQueryBuilder {
-        private readonly ElasticQueryBuilder _queryBuilder;
-
-        public ChildQueryBuilder(ElasticQueryBuilder queryBuilder) {
-            _queryBuilder = queryBuilder;
-        }
-
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var childQuery = ctx.GetQueryAs<IChildQuery>();
-            if (childQuery?.ChildQuery == null)
-                return;
-            
-            ctx.Filter &= new HasChildFilter {
-                Query = _queryBuilder.BuildQuery<T>(childQuery.ChildQuery, ctx.Options),
-                Type = childQuery.ChildQuery.Type
-            };
         }
     }
 }

@@ -9,6 +9,7 @@ using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
@@ -133,55 +134,16 @@ namespace Foundatio.Repositories.Elasticsearch {
             return result;
         }
 
-        public async Task<bool> ExistsAsync(string id) {
-            if (String.IsNullOrEmpty(id))
-                return false;
+        public Task<FindResults<T>> SearchAsync(object systemFilter, string userFilter = null, string query = null, SortingOptions sorting = null, PagingOptions paging = null, AggregationOptions aggregations = null) {
+            var search = new ElasticQuery()
+                .WithSystemFilter(systemFilter)
+                .WithFilter(userFilter)
+                .WithSearchQuery(query, false)
+                .WithAggregation(aggregations)
+                .WithSort(sorting)
+                .WithPaging(paging);
 
-            return await ExistsAsync(new Query().WithId(id)).AnyContext();
-        }
-
-        protected async Task<bool> ExistsAsync(object query) {
-            if (query == null)
-                throw new ArgumentNullException(nameof(query));
-
-            var searchDescriptor = CreateSearchDescriptor(query).Size(1);
-            searchDescriptor.Fields("id");
-            var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-            _logger.Trace(() => response.GetRequest());
-
-            return response.HitsMetaData.Total > 0;
-        }
-
-        protected async Task<CountResult> CountAsync(object query) {
-            if (query == null)
-                throw new ArgumentNullException(nameof(query));
-
-            var result = await GetCachedQueryResultAsync<CountResult>(query, "count").AnyContext();
-            if (result != null)
-                return result;
-            
-            var searchDescriptor = CreateSearchDescriptor(query);
-            searchDescriptor.SearchType(SearchType.Count);
-
-            var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-            _logger.Trace(() => response.GetRequest());
-
-            if (!response.IsValid) {
-                _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
-                throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
-            }
-
-            result = new CountResult(response.Total, response.ToAggregationResult());
-
-            await SetCachedQueryResultAsync(query, result, "count").AnyContext();
-
-            return result;
-        }
-
-        public async Task<long> CountAsync() {
-            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Indices(GetIndexesByQuery(null))).AnyContext();
-            _logger.Trace(() => response.GetRequest());
-            return response.Count;
+            return FindAsync(search);
         }
 
         public async Task<T> GetByIdAsync(string id, bool useCache = false, TimeSpan? expiresIn = null) {
@@ -271,6 +233,57 @@ namespace Foundatio.Repositories.Elasticsearch {
             return FindAsync(search);
         }
 
+        public async Task<bool> ExistsAsync(string id) {
+            if (String.IsNullOrEmpty(id))
+                return false;
+
+            return await ExistsAsync(new Query().WithId(id)).AnyContext();
+        }
+
+        protected async Task<bool> ExistsAsync(object query) {
+            if (query == null)
+                throw new ArgumentNullException(nameof(query));
+
+            var searchDescriptor = CreateSearchDescriptor(query).Size(1);
+            searchDescriptor.Fields("id");
+            var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
+            _logger.Trace(() => response.GetRequest());
+
+            return response.HitsMetaData.Total > 0;
+        }
+
+        protected async Task<CountResult> CountAsync(object query) {
+            if (query == null)
+                throw new ArgumentNullException(nameof(query));
+
+            var result = await GetCachedQueryResultAsync<CountResult>(query, "count").AnyContext();
+            if (result != null)
+                return result;
+
+            var searchDescriptor = CreateSearchDescriptor(query);
+            searchDescriptor.SearchType(SearchType.Count);
+
+            var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
+            _logger.Trace(() => response.GetRequest());
+
+            if (!response.IsValid) {
+                _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
+                throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
+            }
+
+            result = new CountResult(response.Total, response.ToAggregationResult());
+
+            await SetCachedQueryResultAsync(query, result, "count").AnyContext();
+
+            return result;
+        }
+
+        public async Task<long> CountAsync() {
+            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Indices(GetIndexesByQuery(null))).AnyContext();
+            _logger.Trace(() => response.GetRequest());
+            return response.Count;
+        }
+
         public Task<CountResult> CountAsync(object systemFilter, string userFilter = null, string query = null, AggregationOptions aggregations = null) {
             var search = new ElasticQuery()
                 .WithSystemFilter(systemFilter)
@@ -279,18 +292,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 .WithAggregation(aggregations);
 
             return CountAsync(search);
-        }
-
-        public Task<FindResults<T>> SearchAsync(object systemFilter, string userFilter = null, string query = null, SortingOptions sorting = null, PagingOptions paging = null, AggregationOptions aggregations = null) {
-            var search = new ElasticQuery()
-                .WithSystemFilter(systemFilter)
-                .WithFilter(userFilter)
-                .WithSearchQuery(query, false)
-                .WithAggregation(aggregations)
-                .WithSort(sorting)
-                .WithPaging(paging);
-
-            return FindAsync(search);
         }
 
         public async Task<ICollection<AggregationResult>> GetAggregationsAsync(object query) {
@@ -380,9 +381,14 @@ namespace Foundatio.Repositories.Elasticsearch {
                 search.Indices(indices);
             search.IgnoreUnavailable();
 
-            _queryBuilder.BuildSearch(query, this, ref search);
+            // TODO: Figure out a better solution for query options
+            _queryBuilder.BuildSearch(query, GetQueryOptions(), ref search);
 
             return search;
+        }
+
+        private object GetQueryOptions() {
+            return new QueryOptions(typeof(T)) { AllowedAggregationFields = ElasticType.AllowedAggregationFields.ToArray() };
         }
 
         protected string[] GetIndexesByQuery(object query) {

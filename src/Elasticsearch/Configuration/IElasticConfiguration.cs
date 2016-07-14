@@ -14,8 +14,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface IElasticConfiguration {
         IElasticClient Client { get; }
         IReadOnlyCollection<IIndex> Indexes { get; }
-        void Configure(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true);
-        void Delete(IEnumerable<IIndex> indexes = null);
+        void ConfigureIndexes(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true);
+        void DeleteIndexes(IEnumerable<IIndex> indexes = null);
         Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func < int, string, Task> progressCallbackAsync = null);
     }
 
@@ -25,6 +25,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         protected readonly ILogger _logger;
         private readonly List<IIndex> _indexes = new List<IIndex>();
         private readonly Lazy<IReadOnlyCollection<IIndex>> _frozenIndexes;
+
+        public ElasticConfiguration() : this(null, null, null) {}
 
         public ElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILogger logger)
             : this((IElasticClient)null, workItemQueue, cacheClient, logger) {
@@ -66,7 +68,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _indexes.Add(index);
         }
 
-        public void Configure(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true) {
+        public void ConfigureIndexes(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true) {
             if (indexes == null)
                 indexes = Indexes;
 
@@ -132,7 +134,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
         }
 
-        public void Delete(IEnumerable<IIndex> indexes = null) {
+        public void DeleteIndexes(IEnumerable<IIndex> indexes = null) {
             if (indexes == null)
                 indexes = Indexes;
 

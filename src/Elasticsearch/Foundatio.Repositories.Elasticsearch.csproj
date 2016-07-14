@@ -33,8 +33,8 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="ElasticMacros, Version=1.0.39.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Exceptionless.ElasticMacros.1.0.39\lib\net46\ElasticMacros.dll</HintPath>
+    <Reference Include="ElasticMacros, Version=1.0.40.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Exceptionless.ElasticMacros.1.0.40\lib\net46\ElasticMacros.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Elasticsearch.Net, Version=1.0.0.0, Culture=neutral, PublicKeyToken=96c599bbe3e70f5d, processorArchitecture=MSIL">
@@ -45,8 +45,8 @@
       <HintPath>..\..\packages\Exceptionless.DateTimeExtensions.3.2.53\lib\net45\Exceptionless.DateTimeExtensions.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Exceptionless.LuceneQueryParser, Version=1.0.39.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Exceptionless.LuceneQueryParser.1.0.39\lib\net46\Exceptionless.LuceneQueryParser.dll</HintPath>
+    <Reference Include="Exceptionless.LuceneQueryParser, Version=1.0.40.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Exceptionless.LuceneQueryParser.1.0.40\lib\net46\Exceptionless.LuceneQueryParser.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="FluentValidation, Version=6.2.1.0, Culture=neutral, processorArchitecture=MSIL">
@@ -97,47 +97,49 @@
     <Compile Include="..\Core\Utility\TaskHelper.cs">
       <Link>Utility\TaskHelper.cs</Link>
     </Compile>
+    <Compile Include="Configuration\ChildIndexType.cs" />
+    <Compile Include="Configuration\TimeSeriesIndexType.cs" />
     <Compile Include="Jobs\CleanupIndexesJob.cs" />
     <Compile Include="Jobs\CleanupSnapshotJob.cs" />
     <Compile Include="Jobs\SnapshotJob.cs" />
     <Compile Include="Jobs\ReindexWorkItem.cs" />
     <Compile Include="Jobs\ReindexWorkItemHandler.cs" />
-    <Compile Include="Repositories\Configuration\DailyIndex.cs" />
-    <Compile Include="Repositories\Configuration\ElasticReindexer.cs" />
-    <Compile Include="Repositories\Configuration\IElasticConfiguration.cs" />
-    <Compile Include="Repositories\Configuration\IIndex.cs" />
+    <Compile Include="Configuration\DailyIndex.cs" />
+    <Compile Include="Repositories\ElasticReindexer.cs" />
+    <Compile Include="Configuration\IElasticConfiguration.cs" />
+    <Compile Include="Configuration\IIndex.cs" />
     <Compile Include="Extensions\ElasticExtensions.cs" />
     <Compile Include="Extensions\ElasticIndexExtensions.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Repositories\Configuration\IIndexType.cs" />
-    <Compile Include="Repositories\Configuration\Index.cs" />
-    <Compile Include="Repositories\Configuration\IndexBase.cs" />
-    <Compile Include="Repositories\Configuration\MonthlyIndex.cs" />
-    <Compile Include="Repositories\Configuration\VersionedIndex.cs" />
+    <Compile Include="Configuration\IIndexType.cs" />
+    <Compile Include="Configuration\Index.cs" />
+    <Compile Include="Configuration\IndexBase.cs" />
+    <Compile Include="Configuration\MonthlyIndex.cs" />
+    <Compile Include="Configuration\VersionedIndex.cs" />
     <Compile Include="Repositories\MigrationsRepository.cs" />
-    <Compile Include="Repositories\Queries\Builders\ElasticQueryBuilder.cs" />
-    <Compile Include="Repositories\Queries\Builders\SystemFilterQueryBuilder.cs" />
-    <Compile Include="Repositories\Queries\ChildQuery.cs" />
-    <Compile Include="Repositories\Queries\ElasticQuery.cs" />
-    <Compile Include="Repositories\Queries\Options\QueryOptions.cs" />
-    <Compile Include="Repositories\Queries\ParentQuery.cs" />
-    <Compile Include="Repositories\Queries\QueryParts\CachableQuery.cs" />
-    <Compile Include="Repositories\Queries\Builders\ChildQueryBuilder.cs" />
-    <Compile Include="Repositories\Queries\Builders\DateRangeQueryBuilder.cs" />
-    <Compile Include="Repositories\Queries\Builders\ElasticFilterQueryBuilder.cs" />
-    <Compile Include="Repositories\Queries\Builders\AggregationsQueryBuilder.cs" />
-    <Compile Include="Repositories\Queries\Builders\IElasticQueryBuilder.cs" />
-    <Compile Include="Repositories\Queries\Builders\FieldConditionsQueryBuilder.cs" />
-    <Compile Include="Repositories\Queries\Builders\IdentityQueryBuilder.cs" />
-    <Compile Include="Repositories\Queries\Builders\PagableQueryBuilder.cs" />
-    <Compile Include="Repositories\Queries\QueryParts\ElasticIndexesQuery.cs" />
-    <Compile Include="Repositories\Queries\Builders\ParentQueryBuilder.cs" />
-    <Compile Include="Repositories\Queries\Builders\SearchQueryBuilder.cs" />
-    <Compile Include="Repositories\Queries\Builders\SelectedFieldsQueryBuilder.cs" />
-    <Compile Include="Repositories\Queries\Builders\SoftDeletesQueryBuilder.cs" />
-    <Compile Include="Repositories\Queries\Builders\SortableQueryBuilder.cs" />
-    <Compile Include="Repositories\Queries\QueryParts\TypeQuery.cs" />
-    <Compile Include="Repositories\Queries\Query.cs" />
+    <Compile Include="Queries\Builders\ElasticQueryBuilder.cs" />
+    <Compile Include="Queries\Builders\SystemFilterQueryBuilder.cs" />
+    <Compile Include="Queries\ChildQuery.cs" />
+    <Compile Include="Queries\ElasticQuery.cs" />
+    <Compile Include="Queries\Options\QueryOptions.cs" />
+    <Compile Include="Queries\ParentQuery.cs" />
+    <Compile Include="Queries\QueryParts\CachableQuery.cs" />
+    <Compile Include="Queries\Builders\ChildQueryBuilder.cs" />
+    <Compile Include="Queries\Builders\DateRangeQueryBuilder.cs" />
+    <Compile Include="Queries\Builders\ElasticFilterQueryBuilder.cs" />
+    <Compile Include="Queries\Builders\AggregationsQueryBuilder.cs" />
+    <Compile Include="Queries\Builders\IElasticQueryBuilder.cs" />
+    <Compile Include="Queries\Builders\FieldConditionsQueryBuilder.cs" />
+    <Compile Include="Queries\Builders\IdentityQueryBuilder.cs" />
+    <Compile Include="Queries\Builders\PagableQueryBuilder.cs" />
+    <Compile Include="Queries\QueryParts\ElasticIndexesQuery.cs" />
+    <Compile Include="Queries\Builders\ParentQueryBuilder.cs" />
+    <Compile Include="Queries\Builders\SearchQueryBuilder.cs" />
+    <Compile Include="Queries\Builders\SelectedFieldsQueryBuilder.cs" />
+    <Compile Include="Queries\Builders\SoftDeletesQueryBuilder.cs" />
+    <Compile Include="Queries\Builders\SortableQueryBuilder.cs" />
+    <Compile Include="Queries\QueryParts\TypeQuery.cs" />
+    <Compile Include="Queries\Query.cs" />
     <Compile Include="Repositories\ElasticReadOnlyRepositoryBase.cs" />
     <Compile Include="Repositories\ElasticRepositoryBase.cs" />
     <Compile Include="Utility\Run.cs" />

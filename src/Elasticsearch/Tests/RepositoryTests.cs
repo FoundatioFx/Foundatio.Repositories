@@ -20,7 +20,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         private readonly IQueue<WorkItemData> _workItemQueue = new InMemoryQueue<WorkItemData>();
         private readonly MyAppElasticConfiguration _elasticConfiguration;
         private readonly EmployeeRepository _repository;
-    
+        
         public RepositoryTests(ITestOutputHelper output): base(output) {
             Log.MinimumLevel = LogLevel.Trace;
 
@@ -270,8 +270,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         private async Task RemoveDataAsync() {
             await _cache.RemoveAllAsync();
-            _elasticConfiguration.Delete();
-            _elasticConfiguration.Configure();
+            _elasticConfiguration.DeleteIndexes();
+            _elasticConfiguration.ConfigureIndexes();
             await _elasticConfiguration.Client.RefreshAsync();
         }
     }

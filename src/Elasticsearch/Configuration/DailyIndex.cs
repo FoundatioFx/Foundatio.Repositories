@@ -10,6 +10,10 @@ using Nest;
 using Exceptionless.DateTimeExtensions;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
+    public class DailyIndexType<T> : TimeSeriesIndexType<T> where T : class {
+        public DailyIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null) : base(index, name, getDocumentDateUtc) { }
+    }
+
     public class DailyIndex : IndexBase, ITimeSeriesIndex {
         protected static readonly CultureInfo EnUs = new CultureInfo("en-US");
         private readonly List<IndexAliasAge> _aliases = new List<IndexAliasAge>();

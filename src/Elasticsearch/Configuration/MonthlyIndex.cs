@@ -5,6 +5,10 @@ using Exceptionless.DateTimeExtensions;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
+    public class MonthlyIndexType<T> : TimeSeriesIndexType<T> where T : class {
+        public MonthlyIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null) : base(index, name, getDocumentDateUtc) { }
+    }
+
     public class MonthlyIndex: DailyIndex {
         public MonthlyIndex(IElasticClient client, string name, int version = 1): base(client, name, version) {}
 
