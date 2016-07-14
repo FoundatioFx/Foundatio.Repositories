@@ -20,7 +20,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public TimeSeriesIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null) : base(index, name) {
             _getDocumentDateUtc = getDocumentDateUtc;
-            if (_getDocumentDateUtc == null && typeof(T).IsAssignableFrom(typeof(IHaveCreatedDate)))
+            
+            if (_getDocumentDateUtc == null && typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T)))
                 _getDocumentDateUtc = d => ((IHaveCreatedDate)d).CreatedUtc;
         }
 

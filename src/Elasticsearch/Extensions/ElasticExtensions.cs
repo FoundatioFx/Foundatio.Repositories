@@ -46,6 +46,9 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         }
 
         public static string GetRequest(this IResponseWithRequestInformation response) {
+            if (response?.RequestInformation == null)
+                return String.Empty;
+
             string json = String.Empty;
             if (response.RequestInformation.RequestUrl.EndsWith("_bulk") && response.RequestInformation?.Request != null && response.RequestInformation.Request.Length > 0) {
                 string[] bulkCommands = Encoding.UTF8.GetString(response.RequestInformation.Request).Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);

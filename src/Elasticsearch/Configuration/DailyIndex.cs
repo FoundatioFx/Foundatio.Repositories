@@ -37,6 +37,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public override void Configure() {
             var response = _client.PutTemplate(Name, template => ConfigureTemplate(template));
+            _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid)
                 throw new ApplicationException("An error occurred creating the template: " + response?.ServerError.Error);
@@ -77,6 +78,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public override void Delete() {
             // delete all indexes by prefix
             var response = _client.DeleteIndex(VersionedNamePrefix + "-*");
+            _logger.Trace(() => response.GetRequest());
             if (!response.IsValid)
                 throw new ApplicationException("An error occurred deleting the indexes: " + response.ServerError?.Error);
 
@@ -86,6 +88,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (_client.TemplateExists(Name).Exists)
                 deleteResponse = _client.DeleteTemplate(Name);
 
+            _logger.Trace(() => deleteResponse.GetRequest());
             if (deleteResponse != null && !deleteResponse.IsValid)
                 throw new ApplicationException("An error occurred deleting the index template: " + response?.ServerError.Error);
         }
@@ -106,6 +109,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 d => d.RequestConfiguration(r =>
                     r.RequestTimeout(5 * 60 * 1000)));
 
+            _logger.Trace(() => result.GetRequest());
             sw.Stop();
             var indices = result.Records.Where(i => i.Index.StartsWith(VersionedNamePrefix)).Select(r => new IndexWithDate { DateUtc = GetIndexDate(r.Index), Index = r.Index }).ToList();
 
@@ -134,6 +138,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                     a.Remove(r => r.Index(index.Index).Alias(alias.Name));
 
                 var result = _client.Alias(a);
+                _logger.Trace(() => result.GetRequest());
                 if (result.IsValid)
                     _logger.Info($"Removed indexes ({String.Join(",", oldIndexes)}) from alias {alias.Name}");
                 else
@@ -152,6 +157,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             foreach (var index in indexes.Where(s => s.DateUtc < now.Subtract(MaxIndexAge.Value))) {
                 sw.Restart();
                 var deleteResult = _client.DeleteIndex(index.Index, d => d);
+                _logger.Trace(() => deleteResult.GetRequest());
                 sw.Stop();
                 if (deleteResult.IsValid)
                     _logger.Info($"Deleted index {index.Index} of age {now.Subtract(index.DateUtc).ToWords(true)} in {sw.Elapsed.ToWords(true)}");

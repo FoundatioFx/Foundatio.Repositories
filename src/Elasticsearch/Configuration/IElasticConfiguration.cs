@@ -28,22 +28,22 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public ElasticConfiguration() : this(null, null, null) {}
 
-        public ElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILogger logger)
-            : this((IElasticClient)null, workItemQueue, cacheClient, logger) {
+        public ElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILoggerFactory loggerFactory)
+            : this((IElasticClient)null, workItemQueue, cacheClient, loggerFactory) {
         }
 
-        public ElasticConfiguration(Uri serverUri, IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILogger logger)
-            : this(new[] { serverUri }, workItemQueue, cacheClient, logger) {
+        public ElasticConfiguration(Uri serverUri, IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILoggerFactory loggerFactory)
+            : this(new[] { serverUri }, workItemQueue, cacheClient, loggerFactory) {
         }
 
-        public ElasticConfiguration(IEnumerable<Uri> serverUris, IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILogger logger)
-            : this(new ElasticClient(new ConnectionSettings(new StaticConnectionPool(serverUris)).EnableTcpKeepAlive(30 * 1000, 2000)), workItemQueue, cacheClient, logger) {
+        public ElasticConfiguration(IEnumerable<Uri> serverUris, IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILoggerFactory loggerFactory)
+            : this(new ElasticClient(new ConnectionSettings(new StaticConnectionPool(serverUris)).EnableTcpKeepAlive(30 * 1000, 2000)), workItemQueue, cacheClient, loggerFactory) {
         }
 
-        public ElasticConfiguration(IElasticClient client, IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILogger logger) {
+        public ElasticConfiguration(IElasticClient client, IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILoggerFactory loggerFactory) {
             Client = client;
             _workItemQueue = workItemQueue;
-            _logger = logger;
+            _logger = loggerFactory.CreateLogger(GetType());
             if (cacheClient != null)
                 _lockProvider = new ThrottlingLockProvider(cacheClient, 1, TimeSpan.FromMinutes(1));
 

@@ -10,7 +10,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
     public class MyAppElasticConfiguration : ElasticConfiguration {
-        public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILogger<MyAppElasticConfiguration> logger) : base(workItemQueue, cacheClient, logger) {
+        public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILoggerFactory loggerFactory) : base(workItemQueue, cacheClient, loggerFactory) {
             var connectionString = ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString;
             SetClient(new Uri(connectionString));
 
@@ -18,9 +18,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
             ElasticQueryBuilder.Default.Register<AgeQueryBuilder>();
             ElasticQueryBuilder.Default.Register<CompanyQueryBuilder>();
 
-            Employees = new EmployeeIndex(Client);
-            DailyLogEvents = new DailyLogEventIndex(Client);
-            MonthlyLogEvents = new MonthlyLogEventIndex(Client);
+            Employees = new EmployeeIndex(Client, loggerFactory);
+            DailyLogEvents = new DailyLogEventIndex(Client, loggerFactory);
+            MonthlyLogEvents = new MonthlyLogEventIndex(Client, loggerFactory);
 
             AddIndex(Employees);
             AddIndex(DailyLogEvents);

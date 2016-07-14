@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Logging;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Nest;
 
@@ -35,8 +36,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public virtual void Delete() {
             IIndicesResponse response = null;
 
-            if (_client.IndexExists(Name).Exists)
+            if (_client.IndexExists(Name).Exists) {
                 response = _client.DeleteIndex(Name);
+                _logger.Trace(() => response.GetRequest());
+            }
 
             if (response != null && !response.IsValid)
                 throw new ApplicationException("An error occurred deleting the index: " + response?.ServerError.Error);
