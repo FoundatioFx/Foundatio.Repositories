@@ -35,6 +35,60 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task CanUseVersionedIndex() {
+            var version1EmployeeIndex = new VersionedEmployeeIndex(_client, 1, Log);
+            var version1EmployeeRepository = new EmployeeRepository(_client, version1EmployeeIndex.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+            var version2EmployeeIndex = new VersionedEmployeeIndex(_client, 2, Log);
+            var version2EmployeeRepository = new EmployeeRepository(_client, version1EmployeeIndex.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+
+            _client.DeleteIndex(i => i.Index("employees"));
+            version1EmployeeIndex.Delete();
+            version2EmployeeIndex.Delete();
+
+            version1EmployeeIndex.Configure();
+
+            var indexes = _client.GetIndicesPointingToAlias(version1EmployeeIndex.Name);
+            Assert.Equal(1, indexes.Count);
+
+            var alias = _client.GetAlias(descriptor => descriptor.Alias(version1EmployeeIndex.Name));
+            Assert.True(alias.IsValid);
+            Assert.Equal(1, alias.Indices.Count);
+            Assert.Equal(version1EmployeeIndex.VersionedName, alias.Indices.First().Key);
+
+            var employee = await version1EmployeeRepository.AddAsync(EmployeeGenerator.Default);
+            Assert.NotNull(employee?.Id);
+            _client.Refresh();
+
+            var employeeCountResult = _client.Count(d => d.Index(version1EmployeeIndex.Name));
+            Assert.True(employeeCountResult.IsValid);
+            Assert.Equal(1, employeeCountResult.Count);
+
+            Assert.Equal(1, version1EmployeeIndex.GetVersion());
+            version2EmployeeIndex.Configure();
+            await version2EmployeeIndex.ReindexAsync();
+            _client.Refresh();
+
+            Assert.Equal(2, version2EmployeeIndex.GetVersion());
+
+            alias = _client.GetAlias(descriptor => descriptor.Alias(version2EmployeeIndex.Name));
+            Assert.True(alias.IsValid);
+            Assert.Equal(1, alias.Indices.Count);
+            Assert.Equal(version2EmployeeIndex.VersionedName, alias.Indices.First().Key);
+
+            employeeCountResult = _client.Count(d => d.Index(version2EmployeeIndex.Name));
+            Assert.True(employeeCountResult.IsValid);
+            Assert.Equal(1, employeeCountResult.Count);
+
+            employee = await version2EmployeeRepository.AddAsync(EmployeeGenerator.Default);
+            Assert.NotNull(employee?.Id);
+            _client.Refresh();
+
+            employeeCountResult = _client.Count(d => d.Index(version2EmployeeIndex.Name));
+            Assert.True(employeeCountResult.IsValid);
+            Assert.Equal(2, employeeCountResult.Count);
+        }
+
+        [Fact]
         public async Task GetByDateBasedIndex() {
             await RemoveDataAsync();
 

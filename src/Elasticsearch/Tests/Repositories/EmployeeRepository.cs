@@ -10,11 +10,16 @@ using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Models;
+using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class EmployeeRepository : ElasticRepositoryBase<Employee> {
         public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration, ICacheClient cache, ILogger<EmployeeRepository> logger) : base(elasticConfiguration.Client, null, cache, null, logger) {
             ElasticType = elasticConfiguration.Employees.Employee;
+        }
+
+        public EmployeeRepository(IElasticClient client, EmployeeType employeeType, ICacheClient cache, ILogger<EmployeeRepository> logger) : base(client, null, cache, null, logger) {
+            ElasticType = employeeType;
         }
 
         public Task<Employee> GetByAgeAsync(int age) {

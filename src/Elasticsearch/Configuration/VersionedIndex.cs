@@ -24,7 +24,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 _logger.Trace(() => response.GetRequest());
             }
 
-            if (response == null || response.IsValid)
+            if (response != null && !response.IsValid)
                 throw new ApplicationException("An error occurred creating the index: " + response?.ServerError.Error);
         }
 
