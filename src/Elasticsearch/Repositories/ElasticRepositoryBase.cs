@@ -78,24 +78,28 @@ namespace Foundatio.Elasticsearch.Repositories {
             await OnDocumentsRemovingAsync(documents).AnyContext();
             
             var documentsByIndex = documents.GroupBy(d => GetDocumentIndexFunc?.Invoke(d)).ToList();
-            foreach (var group in documentsByIndex.Where(g => String.IsNullOrEmpty(g.Key))) {
-                var response = await Context.ElasticClient.DeleteByQueryAsync<T>(q => q.Query(q1 => q1.Ids(group.Select(d => d.Id))).Index(group.Key)).AnyContext();
-                if (!response.IsValid)
-                    throw new ApplicationException(String.Join("\r\n", response.ServerError?.Error, response.ConnectionStatus.OriginalException));
-            }
+            foreach (var g in documentsByIndex)
+                await Context.ElasticClient.DeleteByQueryAsync<T>(q => q.Query(q1 => q1.Ids(g.Select(d => d.Id))).Index(g.Key)).AnyContext();
 
-            var indexedDocuments = documentsByIndex.Where(g => !String.IsNullOrEmpty(g.Key)).ToList();
-            if (indexedDocuments.Count > 0) {
-                var response = await Context.ElasticClient.BulkAsync(bulk => {
-                    foreach (var group in indexedDocuments)
-                        bulk.DeleteMany(group.Select(g => g.Id), (b, id) => b.Index(group.Key));
+            // TODO: Add tests and ensure we can bulk delete.
+            //foreach (var group in documentsByIndex.Where(g => String.IsNullOrEmpty(g.Key))) {
+            //    var response = await Context.ElasticClient.DeleteByQueryAsync<T>(q => q.Query(q1 => q1.Ids(group.Select(d => d.Id))).Index(group.Key)).AnyContext();
+            //    if (!response.IsValid)
+            //        throw new ApplicationException(String.Join("\r\n", response.ServerError?.Error, response.ConnectionStatus.OriginalException));
+            //}
 
-                    return bulk;
-                }).AnyContext();
+            //var indexedDocuments = documentsByIndex.Where(g => !String.IsNullOrEmpty(g.Key)).ToList();
+            //if (indexedDocuments.Count > 0) {
+            //    var response = await Context.ElasticClient.BulkAsync(bulk => {
+            //        foreach (var group in indexedDocuments)
+            //            bulk.DeleteMany(group.Select(g => g.Id), (b, id) => b.Index(group.Key));
 
-                if (!response.IsValid)
-                    throw new ApplicationException(String.Join("\r\n", response.ItemsWithErrors.Select(i => i.Error)), response.ConnectionStatus.OriginalException);
-            }
+            //        return bulk;
+            //    }).AnyContext();
+
+            //    if (!response.IsValid)
+            //        throw new ApplicationException(String.Join("\r\n", response.ItemsWithErrors.Select(i => i.Error)), response.ConnectionStatus.OriginalException);
+            //}
 
             await OnDocumentsRemovedAsync(documents, sendNotification).AnyContext();
         }
