@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using Foundatio.Extensions;
+using Foundatio.Repositories.Extensions;
 
 namespace Foundatio.Repositories.Models {
     public class NumberDictionary : Dictionary<string, long> {

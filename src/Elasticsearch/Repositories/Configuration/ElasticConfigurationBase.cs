@@ -8,10 +8,10 @@ using Foundatio.Caching;
 using Foundatio.Elasticsearch.Extensions;
 using Foundatio.Elasticsearch.Jobs;
 using Foundatio.Elasticsearch.Repositories.Configuration;
-using Foundatio.Extensions;
 using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Queues;
+using Foundatio.Repositories.Extensions;
 using Nest;
 
 namespace Foundatio.Elasticsearch.Configuration {
