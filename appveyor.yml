@@ -7,8 +7,9 @@ environment:
   ES_VERSION: 1.7.5
 
 init:
-  - ps: $env:GIT_HASH = $env:APPVEYOR_REPO_COMMIT.Substring(0, 10)
-  - ps: If ("$env:APPVEYOR_REPO_TAG" -ne "true") { $env:VERSION_SUFFIX="-pre" }
+  - git config --global core.autocrlf true
+  - ps: $env:GIT_HASH=$env:APPVEYOR_REPO_COMMIT.Substring(0, 10)
+  - ps: If ("$env:APPVEYOR_REPO_BRANCH" -ne "master") { $env:VERSION_SUFFIX="-pre" }
 
 install:
   - choco install gitlink
@@ -38,11 +39,13 @@ before_package:
 #on_failure:
 #  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
 
+artifacts:
+  - path: artifacts\*.nupkg
+    name: ReleaseArtifacts
+
 deploy:
   - provider: Environment
     name: NuGet
-    on:
-      branch: master
   - provider: GitHub
     auth_token:
       secure: 0s81q7bweVLTFSOKxnIhan7el6bIFiN8HJ1kYJzOkeFXX7wgGSq9bs/rV53X9qpf
