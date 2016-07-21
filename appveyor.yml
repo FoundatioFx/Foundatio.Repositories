@@ -7,7 +7,8 @@ environment:
   ES_VERSION: 1.7.5
 
 init:
-  - ps: $env:GIT_HASH = $env:APPVEYOR_REPO_COMMIT.Substring(0, 10)
+  - git config --global core.autocrlf true
+  - ps: $env:GIT_HASH=$env:APPVEYOR_REPO_COMMIT.Substring(0, 10)
   - ps: If ("$env:APPVEYOR_REPO_BRANCH" -ne "master") { $env:VERSION_SUFFIX="-pre" }
 
 install:
@@ -37,6 +38,10 @@ before_package:
 
 #on_failure:
 #  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
+
+artifacts:
+  - path: artifacts\*.nupkg
+    name: ReleaseArtifacts
 
 deploy:
   - provider: Environment
