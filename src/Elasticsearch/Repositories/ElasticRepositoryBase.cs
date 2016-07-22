@@ -67,7 +67,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (documents == null || documents.Count == 0)
                 return;
             
-            string[] ids = documents.Where(d => String.IsNullOrEmpty(d.Id)).Select(d => d.Id).ToArray();
+            string[] ids = documents.Where(d => !String.IsNullOrEmpty(d.Id)).Select(d => d.Id).ToArray();
             if (ids.Length < documents.Count)
                 throw new ApplicationException("Id must be set when calling Save.");
 
