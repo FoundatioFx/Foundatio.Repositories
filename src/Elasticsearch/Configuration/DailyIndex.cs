@@ -36,7 +36,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public override void Configure() {
-            var response = _client.PutTemplate(Name, template => ConfigureTemplate(template));
+            var response = _client.PutTemplate(Name, ConfigureTemplate);
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid)

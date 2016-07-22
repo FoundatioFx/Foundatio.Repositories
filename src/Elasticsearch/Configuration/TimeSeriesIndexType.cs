@@ -21,11 +21,22 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public TimeSeriesIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null) : base(index, name) {
             _getDocumentDateUtc = getDocumentDateUtc;
             
-            if (_getDocumentDateUtc == null && typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T)))
+            if (_getDocumentDateUtc != null)
+                return;
+
+            var type = typeof(T);
+            if (typeof(IHaveCreatedDate).IsAssignableFrom(type))
                 _getDocumentDateUtc = d => ((IHaveCreatedDate)d).CreatedUtc;
+            else if (typeof(IIdentity).IsAssignableFrom(type))
+                _getDocumentDateUtc = d => ObjectId.Parse(((IIdentity)d).Id).CreationTime;
+            else
+                throw new ArgumentNullException(nameof(getDocumentDateUtc));
         }
 
         public override string GetDocumentId(T document) {
+            if (document == null)
+                throw new ArgumentNullException(nameof(document));
+
             if (_getDocumentDateUtc == null)
                 return ObjectId.GenerateNewId().ToString();
 
@@ -34,11 +45,25 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public virtual string GetDocumentIndex(T document) {
+            if (document == null)
+                throw new ArgumentNullException(nameof(document));
+
             if (_getDocumentDateUtc == null)
-                return TimeSeriesIndex.GetIndex(DateTime.UtcNow);
+                throw new ArgumentException("Unable to get document index", nameof(document));
 
             var date = _getDocumentDateUtc(document);
             return TimeSeriesIndex.GetIndex(date);
+        }
+        
+        public virtual string GetIndexById(string id) {
+            if (String.IsNullOrEmpty(id))
+                throw new ArgumentNullException(nameof(id));
+
+            ObjectId objectId;
+            if (!ObjectId.TryParse(id, out objectId))
+                throw new ArgumentException("Unable to parse ObjectId", nameof(id));
+
+            return TimeSeriesIndex.GetIndex(objectId.CreationTime);
         }
 
         public virtual string[] GetIndexesByQuery(object query) {
@@ -54,14 +79,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 indexes.AddRange(TimeSeriesIndex.GetIndexes(withIndexesQuery.UtcStartIndex, withIndexesQuery.UtcEndIndex));
 
             return indexes.ToArray();
-        }
-
-        public virtual string GetIndexById(string id) {
-            ObjectId objectId;
-            if (!ObjectId.TryParse(id, out objectId))
-                return TimeSeriesIndex.GetIndex(DateTime.UtcNow);
-
-            return TimeSeriesIndex.GetIndex(objectId.CreationTime);
         }
 
         protected ITimeSeriesIndex TimeSeriesIndex => (ITimeSeriesIndex)Index;

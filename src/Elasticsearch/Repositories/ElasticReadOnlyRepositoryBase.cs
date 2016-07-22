@@ -392,15 +392,15 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected string[] GetIndexesByQuery(object query) {
-            return !HasMultipleIndexes ? new[] { ElasticIndex.Name } : TimeSeriesType.GetIndexesByQuery(query);
+            return HasMultipleIndexes ? TimeSeriesType.GetIndexesByQuery(query) : new[] { ElasticIndex.Name };
         }
 
         protected string GetIndexById(string id) {
-            return !HasMultipleIndexes ? ElasticIndex.Name : TimeSeriesType.GetIndexById(id);
+            return HasMultipleIndexes ? TimeSeriesType.GetIndexById(id) : ElasticIndex.Name;
         }
 
         protected string GetDocumentIndex(T document) {
-            return !HasMultipleIndexes ? ElasticIndex.Name : TimeSeriesType.GetDocumentIndex(document);
+            return HasMultipleIndexes ? TimeSeriesType.GetDocumentIndex(document) : ElasticIndex.Name;
         }
 
         protected Func<T, string> GetParentIdFunc => HasParent ? d => ChildType.GetParentId(d) : (Func<T, string>)null;

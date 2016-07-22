@@ -26,7 +26,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         private readonly IElasticClient _client;
 
         public RepositoryTests(ITestOutputHelper output): base(output) {
-            Log.MinimumLevel = LogLevel.Trace;
+            //Log.MinimumLevel = LogLevel.Trace;
 
             _elasticConfiguration = new MyAppElasticConfiguration(_workItemQueue, _cache, Log);
             _client = _elasticConfiguration.Client;
@@ -36,6 +36,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task CanUseVersionedIndex() {
+            await RemoveDataAsync();
+
             var version1EmployeeIndex = new VersionedEmployeeIndex(_client, 1, Log);
             var version1EmployeeRepository = new EmployeeRepository(_client, version1EmployeeIndex.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
             var version2EmployeeIndex = new VersionedEmployeeIndex(_client, 2, Log);
@@ -112,6 +114,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             indexes = await _client.GetIndicesPointingToAliasAsync(_elasticConfiguration.DailyLogEvents.Name);
             Assert.Equal(2, indexes.Count);
+
+            await _dailyRepository.RemoveAllAsync();
+            await _client.RefreshAsync();
+
+            Assert.Equal(0, await _dailyRepository.CountAsync());
         }
 
         [Fact]
@@ -198,6 +205,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task CanGetByIds() {
+            await RemoveDataAsync();
+
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate());
             Assert.NotNull(employee.Id);
 

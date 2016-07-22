@@ -12,24 +12,6 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticExtensions {
         private static readonly Lazy<PropertyInfo> _connectionSettingsProperty = new Lazy<PropertyInfo>(() => typeof(HttpConnection).GetProperty("ConnectionSettings", BindingFlags.NonPublic | BindingFlags.Instance));
         
-        public static void EnableTrace(this IElasticClient client) {
-            var conn = client.Connection as HttpConnection;
-            if (conn == null)
-                return;
-
-            var settings = _connectionSettingsProperty.Value.GetValue(conn) as ConnectionSettings;
-            settings?.EnableTrace();
-        }
-        
-        public static void DisableTrace(this IElasticClient client) {
-            var conn = client.Connection as HttpConnection;
-            if (conn == null)
-                return;
-
-            var settings = _connectionSettingsProperty.Value.GetValue(conn) as ConnectionSettings;
-            settings?.EnableTrace(false);
-        }
-
         public static string GetErrorMessage(this IResponse response) {
             var sb = new StringBuilder();
 

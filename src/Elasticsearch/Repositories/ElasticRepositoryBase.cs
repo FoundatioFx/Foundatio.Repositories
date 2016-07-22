@@ -12,7 +12,6 @@ using Foundatio.Messaging;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Utility;
-// ReSharper disable SuspiciousTypeConversion.Global
 
 namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IRepository<T> where T : class, IIdentity, new() {
@@ -25,6 +24,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             _validator = validator;
             _messagePublisher = messagePublisher;
             NotificationsEnabled = _messagePublisher != null;
+
+            //if (HasCreatedDate)
+             //  RemoveAllIncludedFields.Add("CreatedUtc"); // TODO: What do we do if this field is serialized differently?
         }
         
         public async Task<T> AddAsync(T document, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotification = true) {
@@ -64,12 +66,13 @@ namespace Foundatio.Repositories.Elasticsearch {
         public async Task SaveAsync(ICollection<T> documents, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotifications = true) {
             if (documents == null || documents.Count == 0)
                 return;
-
-            if (documents.Any(d => String.IsNullOrEmpty(d.Id)))
+            
+            string[] ids = documents.Where(d => String.IsNullOrEmpty(d.Id)).Select(d => d.Id).ToArray();
+            if (ids.Length < documents.Count)
                 throw new ApplicationException("Id must be set when calling Save.");
 
-            string[] ids = documents.Where(d => !String.IsNullOrEmpty(d.Id)).Select(d => d.Id).ToArray();
             var originalDocuments = ids.Length > 0 ? (await GetByIdsAsync(ids).AnyContext()).Documents : new List<T>();
+            // TODO: What should we do if original document count differs from document count?
 
             await OnDocumentsSavingAsync(documents, originalDocuments).AnyContext();
 
@@ -438,6 +441,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (!SupportsSoftDeletes) {
                     foreach (var d in documents)
                         await PublishChangeTypeMessageAsync(changeType, d.Value, delay).AnyContext();
+
                     return;
                 }
 
