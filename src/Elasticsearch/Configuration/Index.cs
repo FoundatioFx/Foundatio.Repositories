@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Threading;
 using Foundatio.Logging;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
@@ -10,10 +12,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             IIndicesOperationResponse response = null;
 
             if (!_client.IndexExists(Name).Exists)
-                response = _client.CreateIndex(Name, descriptor => ConfigureDescriptor(descriptor));
+                response = _client.CreateIndex(Name, ConfigureDescriptor);
 
+            _logger.Trace(() => response.GetRequest());
             if (response != null && !response.IsValid)
-                throw new ApplicationException("An error occurred creating the index or template: " + response?.ServerError.Error);
+                throw new ApplicationException("An error occurred creating the index or template: " + response.ServerError.Error);
+
+            while (!_client.IndexExists(Name).Exists)
+                Thread.Sleep(100);
         }
 
         public virtual CreateIndexDescriptor ConfigureDescriptor(CreateIndexDescriptor idx) {

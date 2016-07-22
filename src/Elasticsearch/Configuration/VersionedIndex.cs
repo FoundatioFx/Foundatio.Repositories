@@ -20,7 +20,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             IIndicesOperationResponse response = null;
 
             if (!_client.IndexExists(VersionedName).Exists) {
-                response = _client.CreateIndex(VersionedName, descriptor => ConfigureDescriptor(descriptor));
+                if (!_client.AliasExists(Name).Exists)
+                    response = _client.CreateIndex(VersionedName, descriptor => ConfigureDescriptor(descriptor).AddAlias(Name));
+                else
+                    response = _client.CreateIndex(VersionedName, ConfigureDescriptor);
+                
                 _logger.Trace(() => response.GetRequest());
             }
 
@@ -29,8 +33,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public virtual CreateIndexDescriptor ConfigureDescriptor(CreateIndexDescriptor idx) {
-            idx.AddAlias(Name);
-
             foreach (var t in IndexTypes)
                 t.Configure(idx);
 

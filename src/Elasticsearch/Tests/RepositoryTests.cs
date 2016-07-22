@@ -67,6 +67,24 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             Assert.Equal(1, version1EmployeeIndex.GetVersion());
             version2EmployeeIndex.Configure();
+
+            // Make sure we can write to the index still. Should go to the old index until after the reindex is complete.
+            await version2EmployeeRepository.AddAsync(EmployeeGenerator.Generate());
+            _client.Refresh();
+            employeeCountResult = _client.Count(d => d.Index(version1EmployeeIndex.VersionedName));
+            Assert.True(employeeCountResult.IsValid);
+            Assert.Equal(2, employeeCountResult.Count);
+
+            employeeCountResult = _client.Count(d => d.Index(version2EmployeeIndex.VersionedName));
+            Assert.True(employeeCountResult.IsValid);
+            Assert.Equal(0, employeeCountResult.Count);
+
+            // alias should still point to the old version until reindex
+            alias = _client.GetAlias(descriptor => descriptor.Alias(version2EmployeeIndex.Name));
+            Assert.True(alias.IsValid);
+            Assert.Equal(1, alias.Indices.Count);
+            Assert.Equal(version1EmployeeIndex.VersionedName, alias.Indices.First().Key);
+
             await version2EmployeeIndex.ReindexAsync();
             _client.Refresh();
 
@@ -77,17 +95,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, alias.Indices.Count);
             Assert.Equal(version2EmployeeIndex.VersionedName, alias.Indices.First().Key);
 
-            employeeCountResult = _client.Count(d => d.Index(version2EmployeeIndex.Name));
+            employeeCountResult = _client.Count(d => d.Index(version2EmployeeIndex.VersionedName));
             Assert.True(employeeCountResult.IsValid);
-            Assert.Equal(1, employeeCountResult.Count);
+            Assert.Equal(2, employeeCountResult.Count);
 
+            Assert.False(_client.IndexExists(d => d.Index(version1EmployeeIndex.VersionedName)).Exists);
+ 
             employee = await version2EmployeeRepository.AddAsync(EmployeeGenerator.Default);
             Assert.NotNull(employee?.Id);
             _client.Refresh();
 
             employeeCountResult = _client.Count(d => d.Index(version2EmployeeIndex.Name));
             Assert.True(employeeCountResult.IsValid);
-            Assert.Equal(2, employeeCountResult.Count);
+            Assert.Equal(3, employeeCountResult.Count);
         }
 
         [Fact]
