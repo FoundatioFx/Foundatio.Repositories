@@ -103,6 +103,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             } else {
                 result = response.ToFindResults(HasVersion);
             }
+            
+            result.Page = pagableQuery?.Page ?? 1;
 
             if (!allowCaching)
                 return result;
@@ -126,8 +128,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             var searchDescriptor = CreateSearchDescriptor(query).Size(1);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
-            result = response.Documents.FirstOrDefault();
 
+            if (!response.IsValid) {
+                _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
+                throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
+            }
+
+            result = response.Documents.FirstOrDefault();
             if (IsCacheEnabled)
                 await SetCachedQueryResultAsync(query, result).AnyContext();
 
@@ -178,6 +185,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         public async Task<FindResults<T>> GetByIdsAsync(ICollection<string> ids, bool useCache = false, TimeSpan? expiresIn = null) {
             var results = new FindResults<T>();
+
+            ids = ids?.Distinct().Where(i => !String.IsNullOrEmpty(i)).ToList();
             if (ids == null || ids.Count == 0)
                 return results;
 
@@ -185,7 +194,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new NotSupportedException("Model type must implement IIdentity.");
 
             if (IsCacheEnabled && useCache) {
-                var cacheHits = await Cache.GetAllAsync<T>(ids.Distinct()).AnyContext();
+                var cacheHits = await Cache.GetAllAsync<T>(ids).AnyContext();
                 results.Documents.AddRange(cacheHits.Where(kvp => kvp.Value.HasValue).Select(kvp => kvp.Value.Value));
                 results.Total = results.Documents.Count;
 
@@ -194,7 +203,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     return results;
             }
 
-            var itemsToFind = new List<string>(ids.Distinct().Except(results.Documents.Select(i => ((IIdentity)i).Id)));
+            var itemsToFind = new List<string>(ids.Except(results.Documents.Select(i => ((IIdentity)i).Id)));
             var multiGet = new MultiGetDescriptor();
 
             if (!HasParent) {
@@ -249,6 +258,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
+            if (!response.IsValid) {
+                _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
+                throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
+            }
+
             return response.HitsMetaData.Total > 0;
         }
 
@@ -281,6 +295,12 @@ namespace Foundatio.Repositories.Elasticsearch {
         public async Task<long> CountAsync() {
             var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Indices(GetIndexesByQuery(null))).AnyContext();
             _logger.Trace(() => response.GetRequest());
+
+            if (!response.IsValid) {
+                _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
+                throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
+            }
+
             return response.Count;
         }
 
@@ -304,15 +324,15 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ArgumentException("All aggregation fields must be allowed.", nameof(query));
 
             var search = CreateSearchDescriptor(query).SearchType(SearchType.Count);
-            var res = await _client.SearchAsync<T>(search);
-            _logger.Trace(() => res.GetRequest());
+            var response = await _client.SearchAsync<T>(search);
+            _logger.Trace(() => response.GetRequest());
 
-            if (!res.IsValid) {
-                _logger.Error().Message("Retrieving aggregations failed: {0}", res.ServerError.Error).Write();
+            if (!response.IsValid) {
+                _logger.Error().Message("Retrieving aggregations failed: {0}", response.ServerError.Error).Write();
                 throw new ApplicationException("Retrieving aggregations failed.");
             }
 
-            return res.ToAggregationResult();
+            return response.ToAggregationResult();
         }
 
         public Task<ICollection<AggregationResult>> GetAggregationsAsync(object systemFilter, AggregationOptions aggregations, string userFilter = null, string query = null) {
@@ -355,6 +375,9 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
         
         public Task InvalidateCacheAsync(T document) {
+            if (document == null)
+                throw new ArgumentNullException(nameof(document));
+
             if (!IsCacheEnabled)
                 return TaskHelper.Completed();
 
@@ -362,6 +385,9 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public Task InvalidateCacheAsync(ICollection<T> documents) {
+            if (documents == null || documents.Any(d => d == null))
+                throw new ArgumentNullException(nameof(documents));
+
             if (!IsCacheEnabled)
                 return TaskHelper.Completed();
 
@@ -435,14 +461,10 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected IIndex ElasticIndex => ElasticType.Index;
 
         private IIndexType<T> _elasticType;
-        protected IIndexType<T> ElasticType
-        {
-            get
-            {
-                return _elasticType;
-            }
-            set
-            {
+
+        protected IIndexType<T> ElasticType {
+            get { return _elasticType; }
+            set {
                 _elasticType = value;
 
                 if (_elasticType is IChildIndexType<T>) {

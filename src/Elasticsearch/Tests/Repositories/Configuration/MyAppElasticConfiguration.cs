@@ -18,15 +18,18 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
             ElasticQueryBuilder.Default.Register<AgeQueryBuilder>();
             ElasticQueryBuilder.Default.Register<CompanyQueryBuilder>();
 
+            Identities = new IdentityIndex(Client, loggerFactory);
             Employees = new EmployeeIndex(Client, loggerFactory);
             DailyLogEvents = new DailyLogEventIndex(Client, loggerFactory);
             MonthlyLogEvents = new MonthlyLogEventIndex(Client, loggerFactory);
 
+            AddIndex(Identities);
             AddIndex(Employees);
             AddIndex(DailyLogEvents);
             AddIndex(MonthlyLogEvents);
         }
 
+        public IdentityIndex Identities { get; }
         public EmployeeIndex Employees { get; }
         public DailyLogEventIndex DailyLogEvents { get; }
         public MonthlyLogEventIndex MonthlyLogEvents { get; }

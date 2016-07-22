@@ -111,16 +111,22 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="ElasticRepositoryTestBase.cs" />
     <Compile Include="Extensions\ObjectExtensions.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="ReadOnlyRepositoryTests.cs" />
+    <Compile Include="Repositories\Configuration\Indexes\IdentityIndex.cs" />
     <Compile Include="Repositories\Configuration\MyAppElasticConfiguration.cs" />
+    <Compile Include="Repositories\Configuration\Types\IdentityType.cs" />
     <Compile Include="Repositories\Configuration\Types\LogEventType.cs" />
     <Compile Include="Repositories\Configuration\Types\EmployeeType.cs" />
     <Compile Include="Repositories\Configuration\Indexes\DailyLogEventIndex.cs" />
     <Compile Include="Repositories\Configuration\Indexes\MonthlyLogEventIndex.cs" />
     <Compile Include="Repositories\Configuration\Indexes\EmployeeIndex.cs" />
+    <Compile Include="Repositories\IdentityRepository.cs" />
     <Compile Include="Repositories\LogEventRepository.cs" />
     <Compile Include="Repositories\EmployeeRepository.cs" />
+    <Compile Include="Repositories\Models\Identity.cs" />
     <Compile Include="Repositories\Models\LogEvent.cs" />
     <Compile Include="Repositories\Queries\MyAppQuery.cs" />
     <Compile Include="RepositoryTests.cs" />

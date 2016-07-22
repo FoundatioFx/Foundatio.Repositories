@@ -21,15 +21,24 @@ namespace Foundatio.Repositories.Models {
         Func<FindResults<T>, Task<FindResults<T>>> IGetNextPage<T>.GetNextPageFunc { get; set; }
 
         public async Task<bool> NextPageAsync() {
-            Documents.Clear();
+            if (!HasMore)
+                return false;
 
+            Aggregations.Clear();
+            Documents.Clear();
+            
             if (((IGetNextPage<T>)this).GetNextPageFunc == null) {
+                HasMore = false;
                 Page = -1;
                 return false;
             }
 
             var results = await ((IGetNextPage<T>)this).GetNextPageFunc(this).AnyContext();
+            Aggregations.AddRange(results.Aggregations);
             Documents.AddRange(results.Documents);
+            HasMore = results.HasMore;
+            Page = results.Page;
+            Total = results.Total;
 
             return Documents.Count > 0;
         }
@@ -57,3 +66,4 @@ namespace Foundatio.Repositories.Models {
         }
     }
 }
+

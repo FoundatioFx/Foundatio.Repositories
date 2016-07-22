@@ -385,10 +385,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
             _logger.Trace(() => result.GetRequest());
             if (!result.RequestInformation.Success) {
-                if (result is IBulkResponse)
+                if (result is IBulkResponse) {
                     throw new ApplicationException(
                         String.Join("\r\n", ((IBulkResponse)result).ItemsWithErrors.Select(i => i.Error)),
                         ((IBulkResponse)result).ConnectionStatus.OriginalException);
+                }
 
                 throw new ApplicationException(String.Join("\r\n", ((IIndexResponse)result).ServerError.Error,
                     ((IIndexResponse)result).ConnectionStatus.OriginalException));

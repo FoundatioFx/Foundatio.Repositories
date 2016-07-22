@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using Foundatio.Repositories.Elasticsearch.Repositories.Queries.Builders;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class ElasticQueryBuilder : IElasticQueryBuilder {
@@ -35,7 +36,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
         public void RegisterDefaults() {
             Register<PagableQueryBuilder>();
-            Register<PagableQueryBuilder>();
             Register<SelectedFieldsQueryBuilder>();
             Register<SortableQueryBuilder>();
             Register<AggregationsQueryBuilder>();
@@ -45,6 +45,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             Register<SoftDeletesQueryBuilder>();
             Register<DateRangeQueryBuilder>();
             Register<SearchQueryBuilder>();
+            Register<SystemFilterQueryBuilder>(() => new SystemFilterQueryBuilder(this));
             Register<ElasticFilterQueryBuilder>();
             Register<FieldConditionsQueryBuilder>();
         }
