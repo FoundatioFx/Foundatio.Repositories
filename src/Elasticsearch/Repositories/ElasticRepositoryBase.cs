@@ -25,8 +25,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             _messagePublisher = messagePublisher;
             NotificationsEnabled = _messagePublisher != null;
 
-            //if (HasCreatedDate)
-             //  RemoveAllIncludedFields.Add("CreatedUtc"); // TODO: What do we do if this field is serialized differently?
+            if (HasCreatedDate)
+               RemoveAllIncludedFields.Add("createdUtc"); // TODO: What do we do if this field is serialized differently?
         }
         
         public async Task<T> AddAsync(T document, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotification = true) {
@@ -368,7 +368,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         #endregion
 
         private async Task IndexDocuments(ICollection<T> documents) {
-            IResponseWithRequestInformation result = null;
+            IResponseWithRequestInformation result;
             if (documents.Count == 1) {
                 var document = documents.Single();
                 result = await _client.IndexAsync(document, i => {
@@ -381,8 +381,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     return i;
                 }).AnyContext();
             } else {
-                result =
-                    await _client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc).AnyContext();
+                result = await _client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc).AnyContext();
             }
             _logger.Trace(() => result.GetRequest());
             if (!result.RequestInformation.Success) {
