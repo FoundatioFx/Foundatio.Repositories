@@ -38,7 +38,10 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public async Task AddAsync(ICollection<T> documents, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotification = true) {
-            if (documents == null || documents.Count == 0)
+            if (documents == null || documents.Any(d => d == null))
+                throw new ArgumentNullException(nameof(documents));
+
+            if (documents.Count == 0)
                 return;
 
             await OnDocumentsAddingAsync(documents).AnyContext();
@@ -64,7 +67,10 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public async Task SaveAsync(ICollection<T> documents, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotifications = true) {
-            if (documents == null || documents.Count == 0)
+            if (documents == null || documents.Any(d => d == null))
+                throw new ArgumentNullException(nameof(documents));
+
+            if (documents.Count == 0)
                 return;
             
             string[] ids = documents.Where(d => !String.IsNullOrEmpty(d.Id)).Select(d => d.Id).ToArray();
@@ -168,7 +174,10 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public async Task RemoveAsync(ICollection<T> documents, bool sendNotification = true) {
-            if (documents == null || documents.Count == 0)
+            if (documents == null || documents.Any(d => d == null))
+                throw new ArgumentNullException(nameof(documents));
+
+            if (documents.Count == 0)
                 return;
 
             await OnDocumentsRemovingAsync(documents).AnyContext();

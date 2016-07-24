@@ -9,9 +9,7 @@ using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
-using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
-using Foundatio.Utility;
 using Nito.AsyncEx;
 using Xunit;
 using Xunit.Abstractions;
@@ -67,8 +65,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 disposables.Clear();
             }
         }
-
-
+        
         [Fact]
         public async Task AddDuplicate() {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default);
@@ -100,7 +97,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task AddCollection() {
             var identity = IdentityGenerator.Generate();
-            await _identityRepository.AddAsync(new List<Identity> { identity, null }, addToCache: true);
+            await _identityRepository.AddAsync(new List<Identity> { identity }, addToCache: true);
             Assert.NotNull(identity.Id);
 
             Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, useCache: true));
@@ -190,53 +187,168 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task SaveCollection() {
-            throw new NotImplementedException();
+            var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate(ObjectId.GenerateNewId().ToString()) };
+            await _identityRepository.SaveAsync(identities);
+
+            var results = await _identityRepository.GetByIdsAsync(identities.Select(i => i.Id).ToList());
+            Assert.Equal(2, results.Documents.Count);
         }
 
         [Fact]
         public async Task SaveCollectionWithCaching() {
-            throw new NotImplementedException();
+            var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
+            await _identityRepository.AddAsync(identities, addToCache: true);
+            Assert.Equal(_cache.Count, 2);
+            Assert.Equal(_cache.Hits, 0);
+            Assert.Equal(_cache.Misses, 0);
+
+            await _identityRepository.InvalidateCacheAsync(identities);
+            Assert.Equal(_cache.Count, 0);
+            Assert.Equal(_cache.Hits, 0);
+            Assert.Equal(_cache.Misses, 0);
+
+            await _identityRepository.SaveAsync(identities, addToCache: true);
+            Assert.Equal(_cache.Count, 2);
+            Assert.Equal(_cache.Hits, 0);
+            Assert.Equal(_cache.Misses, 0);
+
+            var results = await _identityRepository.GetByIdsAsync(identities.Select(i => i.Id).ToList(), useCache: true);
+            Assert.Equal(2, results.Documents.Count);
+            Assert.Equal(_cache.Count, 2);
+            Assert.Equal(_cache.Hits, 2);
+            Assert.Equal(_cache.Misses, 0);
         }
 
         [Fact]
         public async Task Remove() {
-            throw new NotImplementedException();
+            var log = await _dailyRepository.AddAsync(LogEventGenerator.Default);
+            Assert.NotNull(log?.Id);
+
+            var disposables = new List<IDisposable>(2);
+            var countdownEvent = new AsyncCountdownEvent(2);
+
+            try {
+                disposables.Add(_dailyRepository.DocumentsRemoving.AddSyncHandler((o, args) => {
+                    Assert.Equal(log, args.Documents.First());
+                    countdownEvent.Signal();
+                }));
+                disposables.Add(_dailyRepository.DocumentsRemoved.AddSyncHandler((o, args) => {
+                    Assert.Equal(log, args.Documents.First());
+                    countdownEvent.Signal();
+                }));
+
+                await _dailyRepository.RemoveAsync(log);
+
+                await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
+                Assert.Equal(0, countdownEvent.CurrentCount);
+
+            } finally {
+                foreach (var disposable in disposables)
+                    disposable.Dispose();
+
+                disposables.Clear();
+            }
         }
 
         [Fact]
         public async Task RemoveWithCaching() {
-            throw new NotImplementedException();
+            var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
+            await _identityRepository.AddAsync(identities, addToCache: true);
+            Assert.Equal(_cache.Count, 2);
+            Assert.Equal(_cache.Hits, 0);
+            Assert.Equal(_cache.Misses, 0);
+
+            await _identityRepository.RemoveAsync(identities.First());
+            Assert.Equal(_cache.Count, 1);
+            Assert.Equal(_cache.Hits, 0);
+            Assert.Equal(_cache.Misses, 0);
+            
+            await _identityRepository.RemoveAsync(identities);
+            Assert.Equal(_cache.Count, 0);
+            Assert.Equal(_cache.Hits, 0);
+            Assert.Equal(_cache.Misses, 0);
+
+            await _client.RefreshAsync();
+            Assert.Equal(0, await _identityRepository.CountAsync());
         }
 
         [Fact]
         public async Task RemoveCollection() {
-            throw new NotImplementedException();
+            var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
+            await _identityRepository.AddAsync(identities);
+            await _identityRepository.RemoveAsync(identities);
+
+            await _client.RefreshAsync();
+            Assert.Equal(0, await _identityRepository.CountAsync());
         }
 
         [Fact]
         public async Task RemoveCollectionWithCaching() {
-            throw new NotImplementedException();
+            var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
+            await _identityRepository.AddAsync(identities, addToCache: true);
+            Assert.Equal(_cache.Count, 2);
+            Assert.Equal(_cache.Hits, 0);
+            Assert.Equal(_cache.Misses, 0);
+            
+            await _identityRepository.RemoveAsync(identities);
+            Assert.Equal(_cache.Count, 0);
+            Assert.Equal(_cache.Hits, 0);
+            Assert.Equal(_cache.Misses, 0);
+
+            await _client.RefreshAsync();
+            Assert.Equal(0, await _identityRepository.CountAsync());
         }
 
         [Fact]
         public async Task RemoveAll() {
-            throw new NotImplementedException();
+            var identities = new List<Identity> { IdentityGenerator.Default };
+            await _identityRepository.AddAsync(identities);
+            await _client.RefreshAsync();
+
+
+            var disposables = new List<IDisposable>(2);
+            var countdownEvent = new AsyncCountdownEvent(2);
+
+            try {
+                disposables.Add(_dailyRepository.DocumentsRemoving.AddSyncHandler((o, args) => {
+                    countdownEvent.Signal();
+                }));
+                disposables.Add(_dailyRepository.DocumentsRemoved.AddSyncHandler((o, args) => {
+                    countdownEvent.Signal();
+                }));
+
+                await _identityRepository.RemoveAllAsync();
+
+                await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
+                Assert.Equal(0, countdownEvent.CurrentCount);
+
+            } finally {
+                foreach (var disposable in disposables)
+                    disposable.Dispose();
+
+                disposables.Clear();
+            }
+
+            await _client.RefreshAsync();
+            Assert.Equal(0, await _identityRepository.CountAsync());
         }
 
         [Fact]
         public async Task RemoveAllWithCaching() {
-            throw new NotImplementedException();
+            var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
+            await _identityRepository.AddAsync(identities, addToCache: true);
+            Assert.Equal(_cache.Count, 2);
+            Assert.Equal(_cache.Hits, 0);
+            Assert.Equal(_cache.Misses, 0);
+
+            await _client.RefreshAsync();
+            await _identityRepository.RemoveAllAsync();
+            Assert.Equal(_cache.Count, 0);
+            Assert.Equal(_cache.Hits, 0);
+            Assert.Equal(_cache.Misses, 0);
+
+            await _client.RefreshAsync();
+            Assert.Equal(0, await _identityRepository.CountAsync());
         }
-        
-        // TODO: Timeseries tests
-        // TODO: Verify handlers.
-        //AsyncEvent<DocumentsEventArgs<T>> DocumentsAdding { get; }
-        //AsyncEvent<DocumentsEventArgs<T>> DocumentsAdded { get; }
-        //AsyncEvent<ModifiedDocumentsEventArgs<T>> DocumentsSaving { get; }
-        //AsyncEvent<ModifiedDocumentsEventArgs<T>> DocumentsSaved { get; }
-        //AsyncEvent<DocumentsEventArgs<T>> DocumentsRemoving { get; }
-        //AsyncEvent<DocumentsEventArgs<T>> DocumentsRemoved { get; }
-        //AsyncEvent<DocumentsChangeEventArgs<T>> DocumentsChanging { get; }
-        //AsyncEvent<DocumentsChangeEventArgs<T>> DocumentsChanged { get; }
     }
 }
