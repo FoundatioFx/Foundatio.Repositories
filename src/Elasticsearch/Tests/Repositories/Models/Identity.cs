@@ -7,7 +7,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
         public string Id { get; set; }
 
         protected bool Equals(Identity other) {
-            return string.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase);
+            return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase);
         }
         
         public override bool Equals(object obj) {
