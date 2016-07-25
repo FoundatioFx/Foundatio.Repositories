@@ -236,6 +236,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 documents = result.Documents.ToList();
             }
 
+            _logger.Trace("{0} records removed", recordsAffected);
             return recordsAffected;
         }
 

@@ -304,21 +304,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var identities = new List<Identity> { IdentityGenerator.Default };
             await _identityRepository.AddAsync(identities);
             await _client.RefreshAsync();
-
-
+            
             var disposables = new List<IDisposable>(2);
             var countdownEvent = new AsyncCountdownEvent(2);
 
             try {
-                disposables.Add(_dailyRepository.DocumentsRemoving.AddSyncHandler((o, args) => {
+                disposables.Add(_identityRepository.DocumentsRemoving.AddSyncHandler((o, args) => {
                     countdownEvent.Signal();
                 }));
-                disposables.Add(_dailyRepository.DocumentsRemoved.AddSyncHandler((o, args) => {
+                disposables.Add(_identityRepository.DocumentsRemoved.AddSyncHandler((o, args) => {
                     countdownEvent.Signal();
                 }));
 
                 await _identityRepository.RemoveAllAsync();
-
                 await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
                 Assert.Equal(0, countdownEvent.CurrentCount);
 
