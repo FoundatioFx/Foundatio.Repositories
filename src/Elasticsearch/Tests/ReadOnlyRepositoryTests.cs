@@ -118,40 +118,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync();
             Assert.Equal(2, await _dailyRepository.CountAsync());
         }
-
-        [Fact]
-        public async Task CountByQuery() {
-            Assert.Equal(0, await _identityRepository.CountAsync());
-
-            var identity = IdentityGenerator.Default;
-            var result = await _identityRepository.AddAsync(identity);
-            Assert.Equal(identity, result);
-
-            await _client.RefreshAsync();
-            Assert.Equal(0, await _identityRepository.CountAsync(new ElasticQuery().WithId("test")));
-            Assert.Equal(1, await _identityRepository.CountAsync(new ElasticQuery().WithId(identity.Id)));
-        }
-
-        [Fact]
-        public async Task CountByQueryWithTimeSeries() {
-            Assert.Equal(0, await _dailyRepository.CountAsync());
-
-            var utcNow = SystemClock.UtcNow;
-            var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow.AddDays(-1)));
-            Assert.NotNull(yesterdayLog?.Id);
-
-            var nowLog = await _dailyRepository.AddAsync(LogEventGenerator.Default);
-            Assert.NotNull(nowLog?.Id);
-
-            await _client.RefreshAsync();
-            Assert.Equal(0, await _dailyRepository.CountAsync(new ElasticQuery().WithId("test")));
-            Assert.Equal(1, await _dailyRepository.CountAsync(new ElasticQuery().WithId(nowLog.Id)));
-            Assert.Equal(1, await _dailyRepository.CountAsync(new ElasticQuery().WithId(nowLog.Id).WithDateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "created")));
-            Assert.Equal(0, await _dailyRepository.CountAsync(new ElasticQuery().WithId(nowLog.Id).WithDateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), "created")));
-            Assert.Equal(1, await _dailyRepository.CountAsync(new ElasticQuery().WithDateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), "created")));
-            Assert.Equal(1, await _dailyRepository.CountAsync(new ElasticQuery().WithDateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "created")));
-        }
-
+        
         [Fact]
         public async Task GetById() {
             var identity = await _identityRepository.AddAsync(IdentityGenerator.Default);
@@ -377,7 +344,5 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.True(await _dailyRepository.ExistsAsync(yesterdayLog.Id));
             Assert.True(await _dailyRepository.ExistsAsync(nowLog.Id));
         }
-
-        // TODO: Aggregations
     }
 }

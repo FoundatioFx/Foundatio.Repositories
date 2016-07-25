@@ -136,6 +136,7 @@
     <Compile Include="Repositories\Queries\AgeQuery.cs" />
     <Compile Include="Repositories\Queries\CompanyQuery.cs" />
     <Compile Include="RepositoryTests.cs" />
+    <Compile Include="SearchableRepositoryTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config">
