@@ -115,6 +115,7 @@
     <Compile Include="Extensions\ObjectExtensions.cs" />
     <Compile Include="Extensions\TaskExtensions.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="QueryTests.cs" />
     <Compile Include="ReadOnlyRepositoryTests.cs" />
     <Compile Include="Repositories\Configuration\Indexes\IdentityIndex.cs" />
     <Compile Include="Repositories\Configuration\MyAppElasticConfiguration.cs" />

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Foundatio.Repositories.Models;
+using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Extensions {
     public static class EnumerableExtensions {
@@ -21,10 +22,10 @@ namespace Foundatio.Repositories.Extensions {
                 return;
 
             foreach (var value in values) {
-                if (value.CreatedUtc == DateTime.MinValue || value.CreatedUtc > DateTime.UtcNow)
-                    value.CreatedUtc = DateTime.UtcNow;
+                if (value.CreatedUtc == DateTime.MinValue || value.CreatedUtc > SystemClock.UtcNow)
+                    value.CreatedUtc = SystemClock.UtcNow;
 
-                value.UpdatedUtc = DateTime.UtcNow;
+                value.UpdatedUtc = SystemClock.UtcNow;
             }
         }
 
@@ -33,8 +34,8 @@ namespace Foundatio.Repositories.Extensions {
                 return;
 
             foreach (var value in values) {
-                if (value.CreatedUtc == DateTime.MinValue || value.CreatedUtc > DateTime.UtcNow)
-                    value.CreatedUtc = DateTime.UtcNow;
+                if (value.CreatedUtc == DateTime.MinValue || value.CreatedUtc > SystemClock.UtcNow)
+                    value.CreatedUtc = SystemClock.UtcNow;
             }
         }
 

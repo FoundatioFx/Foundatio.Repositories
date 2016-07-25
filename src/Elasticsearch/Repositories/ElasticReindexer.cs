@@ -7,6 +7,7 @@ using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Utility;
 using Nest;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -27,7 +28,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             long existingDocCount = (await _client.CountAsync(d => d.Index(workItem.NewIndex)).AnyContext()).Count;
             _logger.Info("Received reindex work item for new index {0}", workItem.NewIndex);
-            var startTime = DateTime.UtcNow.AddSeconds(-1);
+            var startTime = SystemClock.UtcNow.AddSeconds(-1);
             await progressCallbackAsync(0, "Starting reindex...").AnyContext();
             var result = await InternalReindexAsync(workItem, progressCallbackAsync, 0, 90, workItem.StartUtc).AnyContext();
             await progressCallbackAsync(90, $"Total: {result.Total} Completed: {result.Completed}").AnyContext();

@@ -9,9 +9,10 @@ using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
-using Foundatio.Repositories.Elasticsearch.Utility;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Utility;
 using Nest;
+using Run = Foundatio.Repositories.Elasticsearch.Utility.Run;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs {
     public class SnapshotJob : IJob {
@@ -26,7 +27,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         }
 
         public async Task<JobResult> RunAsync(CancellationToken cancellationToken = default(CancellationToken)) {
-            string snapshotName = DateTime.UtcNow.ToString("'" + Name + "-'yyyy-MM-dd-HH-mm");
+            string snapshotName = SystemClock.UtcNow.ToString("'" + Name + "-'yyyy-MM-dd-HH-mm");
             _logger.Info($"Starting {Name} snapshot {snapshotName}...");
 
             await _lockProvider.TryUsingAsync("es-snapshot", async t => {

@@ -1,4 +1,5 @@
 ﻿using System;
+using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries {
     public interface ICachableQuery {
@@ -24,16 +25,16 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         }
 
         public static DateTime GetCacheExpirationDateUtc<T>(this T query) where T : ICachableQuery {
-            if (query.ExpiresAt.HasValue && query.ExpiresAt.Value < DateTime.UtcNow)
+            if (query.ExpiresAt.HasValue && query.ExpiresAt.Value < SystemClock.UtcNow)
                 throw new ArgumentException("ExpiresAt can't be in the past.");
 
             if (query.ExpiresAt.HasValue)
                 return query.ExpiresAt.Value;
 
             if (query.ExpiresIn.HasValue)
-                return DateTime.UtcNow.Add(query.ExpiresIn.Value);
+                return SystemClock.UtcNow.Add(query.ExpiresIn.Value);
 
-            return DateTime.UtcNow.AddSeconds(RepositoryConstants.DEFAULT_CACHE_EXPIRATION_SECONDS);
+            return SystemClock.UtcNow.AddSeconds(RepositoryConstants.DEFAULT_CACHE_EXPIRATION_SECONDS);
         }
 
         public static bool ShouldUseCache<T>(this T query) where T : ICachableQuery => !String.IsNullOrEmpty(query.CacheKey);

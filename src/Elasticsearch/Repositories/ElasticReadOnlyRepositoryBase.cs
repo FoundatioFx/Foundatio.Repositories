@@ -14,6 +14,7 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
 using Foundatio.Repositories.Utility;
+using Foundatio.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch {
@@ -227,7 +228,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (IsCacheEnabled && useCache) {
                 foreach (var item in results.Documents)
-                    await Cache.SetAsync(((IIdentity)item).Id, item, expiresIn.HasValue ? DateTime.UtcNow.Add(expiresIn.Value) : DateTime.UtcNow.AddSeconds(ElasticType.DefaultCacheExpirationSeconds)).AnyContext();
+                    await Cache.SetAsync(((IIdentity)item).Id, item, expiresIn.HasValue ? SystemClock.UtcNow.Add(expiresIn.Value) : SystemClock.UtcNow.AddSeconds(ElasticType.DefaultCacheExpirationSeconds)).AnyContext();
             }
 
             results.Total = results.Documents.Count;

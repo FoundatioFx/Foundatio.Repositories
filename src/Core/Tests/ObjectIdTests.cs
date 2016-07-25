@@ -1,13 +1,14 @@
 ﻿using System;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Utility;
+using Foundatio.Utility;
 using Xunit;
 
 namespace Foundatio.Repositories.Tests {
     class ObjectIdTests {
         [Fact]
         public void CanParseDate() {
-            var time = DateTime.UtcNow.Round(TimeSpan.FromSeconds(1));
+            var time = SystemClock.UtcNow.Round(TimeSpan.FromSeconds(1));
             var id = ObjectId.GenerateNewId(time);
             Assert.Equal(time, id.CreationTime);
 
@@ -18,7 +19,7 @@ namespace Foundatio.Repositories.Tests {
 
         [Fact]
         public void CanParseOldDate() {
-            var time = DateTime.UtcNow.SubtractMonths(1).Round(TimeSpan.FromSeconds(1));
+            var time = SystemClock.UtcNow.SubtractMonths(1).Round(TimeSpan.FromSeconds(1));
             var id = ObjectId.GenerateNewId(time);
             Assert.Equal(time, id.CreationTime);
 

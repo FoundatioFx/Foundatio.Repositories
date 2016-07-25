@@ -8,29 +8,34 @@ using Foundatio.Logging;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
+using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Utility;
+using Foundatio.Utility;
 using Nito.AsyncEx;
 using Xunit;
 using Xunit.Abstractions;
-using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class RepositoryTests : ElasticRepositoryTestBase {
-        private readonly IdentityRepository _identityRepository;
+        private readonly EmployeeRepository _employeeRepository;
         private readonly DailyLogEventRepository _dailyRepository;
+        private readonly IdentityRepository _identityRepository;
         private readonly IQueue<WorkItemData> _workItemQueue = new InMemoryQueue<WorkItemData>();
 
         public RepositoryTests(ITestOutputHelper output) : base(output) {
-            _identityRepository = new IdentityRepository(_configuration as MyAppElasticConfiguration, _cache, Log.CreateLogger<IdentityRepository>());
-            _dailyRepository = new DailyLogEventRepository(_configuration as MyAppElasticConfiguration, _cache, Log.CreateLogger<DailyLogEventRepository>());
-
+            _dailyRepository = new DailyLogEventRepository(MyAppConfiguration, _cache, Log.CreateLogger<DailyLogEventRepository>());
+            _employeeRepository = new EmployeeRepository(MyAppConfiguration, _cache, Log.CreateLogger<EmployeeRepository>());
+            _identityRepository = new IdentityRepository(MyAppConfiguration, _cache, Log.CreateLogger<IdentityRepository>());
+            
             RemoveDataAsync().GetAwaiter().GetResult();
         }
 
         protected override ElasticConfiguration GetElasticConfiguration() {
             return new MyAppElasticConfiguration(_workItemQueue, _cache, Log);
         }
+
+        private MyAppElasticConfiguration MyAppConfiguration => _configuration as MyAppElasticConfiguration;
 
         [Fact]
         public async Task Add() {
@@ -150,7 +155,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                 await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
                 Assert.Equal(0, countdownEvent.CurrentCount);
-
             } finally {
                 foreach (var disposable in disposables)
                     disposable.Dispose();
@@ -182,6 +186,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(identity?.Id);
             Assert.Equal(_cache.Count, 1);
             Assert.Equal(_cache.Hits, 0);
+            Assert.Equal(_cache.Misses, 0);
+            
+            Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, useCache: true));
+            Assert.Equal(_cache.Count, 1);
+            Assert.Equal(_cache.Hits, 1);
             Assert.Equal(_cache.Misses, 0);
         }
 
@@ -217,6 +226,37 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(_cache.Count, 2);
             Assert.Equal(_cache.Hits, 2);
             Assert.Equal(_cache.Misses, 0);
+        }
+        
+        [Fact]
+        public async Task SetCreatedAndModifiedTimesAsync() {
+            DateTime nowUtc = SystemClock.UtcNow;
+            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+            Assert.True(employee.CreatedUtc >= nowUtc);
+            Assert.True(employee.UpdatedUtc >= nowUtc);
+
+            DateTime createdUtc = employee.CreatedUtc;
+            DateTime updatedUtc = employee.UpdatedUtc;
+
+            employee.Name = Guid.NewGuid().ToString();
+            SystemClock.UtcNowFunc = () => DateTime.UtcNow.AddMilliseconds(100);
+            employee = await _employeeRepository.SaveAsync(employee);
+            Assert.Equal(createdUtc, employee.CreatedUtc);
+            Assert.True(updatedUtc < employee.UpdatedUtc, $"Previous UpdatedUtc: {updatedUtc} Current UpdatedUtc: {employee.UpdatedUtc}");
+        }
+
+        [Fact]
+        public async Task CannotSetFutureCreatedAndModifiedTimesAsync() {
+            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(createdUtc: DateTime.MaxValue, updatedUtc: DateTime.MaxValue));
+            Assert.True(employee.CreatedUtc != DateTime.MaxValue);
+            Assert.True(employee.UpdatedUtc != DateTime.MaxValue);
+
+            employee.CreatedUtc = DateTime.MaxValue;
+            employee.UpdatedUtc = DateTime.MaxValue;
+
+            employee = await _employeeRepository.SaveAsync(employee);
+            Assert.True(employee.CreatedUtc != DateTime.MaxValue);
+            Assert.True(employee.UpdatedUtc != DateTime.MaxValue);
         }
 
         [Fact]

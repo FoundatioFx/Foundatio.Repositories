@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Migrations {
     public class MigrationManager {
@@ -26,12 +27,12 @@ namespace Foundatio.Repositories.Migrations {
         }
 
         private async Task MarkMigrationStartedAsync(int version) {
-            await _migrationRepository.AddAsync(new Migration { Version = version, StartedUtc = DateTime.UtcNow }).AnyContext();
+            await _migrationRepository.AddAsync(new Migration { Version = version, StartedUtc = SystemClock.UtcNow }).AnyContext();
         }
 
         private async Task MarkMigrationCompleteAsync(int version) {
             var m = await _migrationRepository.GetByIdAsync("migration-" + version).AnyContext();
-            m.CompletedUtc = DateTime.UtcNow;
+            m.CompletedUtc = SystemClock.UtcNow;
             await _migrationRepository.SaveAsync(m).AnyContext();
         }
 

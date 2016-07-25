@@ -2,6 +2,7 @@
 using System.Threading;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
@@ -19,7 +20,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ApplicationException("An error occurred creating the index or template: " + response.ServerError.Error);
 
             while (!_client.IndexExists(Name).Exists)
-                Thread.Sleep(100);
+                SystemClock.Sleep(100);
         }
 
         public virtual CreateIndexDescriptor ConfigureDescriptor(CreateIndexDescriptor idx) {

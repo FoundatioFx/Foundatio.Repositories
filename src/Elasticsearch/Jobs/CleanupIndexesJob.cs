@@ -10,6 +10,7 @@ using Foundatio.Jobs;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs {
@@ -67,7 +68,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             if (indexes.Count == 0)
                 return;
 
-            DateTime now = DateTime.UtcNow;
+            DateTime now = SystemClock.UtcNow;
             var indexesToDelete = indexes.Where(r => r.Date < now.Subtract(r.MaxAge)).ToList();
 
             if (indexesToDelete.Count == 0)

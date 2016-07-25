@@ -3,6 +3,7 @@ using Exceptionless;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
+using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
     public class LogEvent : IIdentity, IHaveCreatedDate {
@@ -54,7 +55,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
         public static LogEvent Default => new LogEvent {
             Message = "Hello world",
             CompanyId = DefaultCompanyId,
-            CreatedUtc = DateTime.Now
+            CreatedUtc = SystemClock.UtcNow
         };
 
         public static LogEvent Generate(string id = null, string companyId = null, string message = null, DateTime? createdUtc = null) {
@@ -62,7 +63,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
                 Id = id,
                 Message = message ?? RandomData.GetAlphaString(),
                 CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
-                CreatedUtc = createdUtc ?? RandomData.GetDateTime(DateTime.Now.StartOfMonth(), DateTime.Now)
+                CreatedUtc = createdUtc ?? RandomData.GetDateTime(SystemClock.UtcNow.StartOfMonth(), SystemClock.UtcNow)
             };
         }
     }

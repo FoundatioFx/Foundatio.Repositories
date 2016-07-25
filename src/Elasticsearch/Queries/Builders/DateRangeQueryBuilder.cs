@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using Foundatio.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
@@ -15,7 +16,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
         public bool UseStartDate => StartDate.HasValue && StartDate.Value > DateTime.MinValue;
 
-        public bool UseEndDate => EndDate.HasValue && EndDate.Value < DateTime.UtcNow.AddHours(1);
+        public bool UseEndDate => EndDate.HasValue && EndDate.Value < SystemClock.UtcNow.AddHours(1);
 
         public bool UseDateRange => Field != null && (UseStartDate || UseEndDate);
 
@@ -24,7 +25,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
 
         public DateTime GetEndDate() {
-            return UseEndDate ? EndDate.GetValueOrDefault() : DateTime.UtcNow.AddHours(1);
+            return UseEndDate ? EndDate.GetValueOrDefault() : SystemClock.UtcNow.AddHours(1);
         }
     }
 

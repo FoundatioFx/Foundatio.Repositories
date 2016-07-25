@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Logging;
+using Foundatio.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
@@ -19,10 +20,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public override string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd) {
             if (!utcStart.HasValue)
-                utcStart = DateTime.UtcNow;
+                utcStart = SystemClock.UtcNow;
 
             if (!utcEnd.HasValue || utcEnd.Value < utcStart)
-                utcEnd = DateTime.UtcNow;
+                utcEnd = SystemClock.UtcNow;
 
             var utcEndOfDay = utcEnd.Value.EndOfDay();
 

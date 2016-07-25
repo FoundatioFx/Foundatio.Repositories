@@ -8,6 +8,7 @@ using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Nest;
 using Exceptionless.DateTimeExtensions;
+using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class DailyIndexType<T> : TimeSeriesIndexType<T> where T : class {
@@ -61,10 +62,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public virtual string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd) {
             if (!utcStart.HasValue)
-                utcStart = DateTime.UtcNow;
+                utcStart = SystemClock.UtcNow;
 
             if (!utcEnd.HasValue || utcEnd.Value < utcStart)
-                utcEnd = DateTime.UtcNow;
+                utcEnd = SystemClock.UtcNow;
 
             var utcEndOfDay = utcEnd.Value.EndOfDay();
 
@@ -127,7 +128,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             var indexes = GetIndexList();
 
-            DateTime now = DateTime.UtcNow;
+            DateTime now = SystemClock.UtcNow;
             foreach (var alias in Aliases) {
                 var oldIndexes = indexes.Where(i => i.DateUtc < now.Subtract(alias.MaxAge)).ToList();
                 if (oldIndexes.Count == 0)
@@ -153,7 +154,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var sw = Stopwatch.StartNew();
             var indexes = GetIndexList();
 
-            DateTime now = DateTime.UtcNow;
+            DateTime now = SystemClock.UtcNow;
             foreach (var index in indexes.Where(s => s.DateUtc < now.Subtract(MaxIndexAge.Value))) {
                 sw.Restart();
                 var deleteResult = _client.DeleteIndex(index.Index, d => d);

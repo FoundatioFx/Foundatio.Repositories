@@ -11,6 +11,7 @@ using Foundatio.Lock;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs {
@@ -65,7 +66,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             if (snapshots.Count == 0)
                 return;
 
-            DateTime now = DateTime.UtcNow;
+            DateTime now = SystemClock.UtcNow;
             var snapshotsToDelete = snapshots.Where(r => r.Date < now.Subtract(maxAge)).ToList();
 
             if (snapshotsToDelete.Count == 0)
