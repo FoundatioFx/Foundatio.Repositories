@@ -6,8 +6,8 @@ namespace Foundatio.Repositories.Queries {
     public interface IPagableQuery {
         int? Limit { get; set; }
         int? Page { get; set; }
-        bool UseSnapshotPaging { get; set; }
-        TimeSpan SnapshotLifetime { get; set; }
+        bool? UseSnapshotPaging { get; set; }
+        TimeSpan? SnapshotLifetime { get; set; }
     }
 
     public static class PagableQueryExtensions {
@@ -44,7 +44,11 @@ namespace Foundatio.Repositories.Queries {
             if (query == null)
                 return "2m";
 
-            return query.SnapshotLifetime > TimeSpan.Zero ? query.SnapshotLifetime.ToWords(true, 1) : "2m";
+            return query.SnapshotLifetime.HasValue ? query.SnapshotLifetime.Value.ToWords(true, 1) : "2m";
+        }
+
+        public static bool ShouldUseSnapshotPaging<T>(this T query) where T : IPagableQuery {
+            return query.UseSnapshotPaging.HasValue && query.UseSnapshotPaging.Value;
         }
 
         public static T WithLimit<T>(this T options, int? limit) where T : IPagableQuery {

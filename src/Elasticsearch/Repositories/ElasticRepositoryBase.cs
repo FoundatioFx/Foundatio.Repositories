@@ -9,8 +9,11 @@ using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Logging;
 using Foundatio.Messaging;
+using Foundatio.Repositories.Elasticsearch.Queries;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Queries;
 using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch {
@@ -201,40 +204,27 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (IsCacheEnabled)
                 await Cache.RemoveAllAsync().AnyContext();
 
-            await RemoveAllAsync(new object(), false).AnyContext();
+            await RemoveAllAsync(new Query(), false).AnyContext();
         }
 
-        // TODO: Remove this for something better
-        protected List<string> RemoveAllIncludedFields { get; } = new List<string>();
+        protected List<string> FieldsRequiredForRemove { get; } = new List<string>();
 
-        protected async Task<long> RemoveAllAsync(object query, bool sendNotifications = true) {
+        protected async Task<long> RemoveAllAsync<TQuery>(TQuery query, bool sendNotifications = true) where TQuery: IPagableQuery, ISelectedFieldsQuery {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
             long recordsAffected = 0;
 
-            var searchDescriptor = CreateSearchDescriptor(query)
-                .Source(s => {
-                    s.Include(f => f.Id);
-                    if (RemoveAllIncludedFields.Count > 0)
-                        s.Include(RemoveAllIncludedFields.ToArray());
+            query.UseSnapshotPaging = true;
+            foreach (var field in FieldsRequiredForRemove.Union(new[] { "_id" }))
+                if (!query.SelectedFields.Contains(field))
+                    query.SelectedFields.Add(field);
 
-                    return s;
-                })
-                .Size(ElasticType.BulkBatchSize);
-
-            // TODO: Should use snapshot
-            var result = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-            _logger.Trace(() => result.GetRequest());
-            var documents = result.Documents.ToList();
-            while (documents.Count > 0) {
-                recordsAffected += documents.Count;
-                await RemoveAsync(documents, sendNotifications).AnyContext();
-
-                result = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-                _logger.Trace(() => result.GetRequest());
-                documents = result.Documents.ToList();
-            }
+            var results = await FindAsAsync<T>(query).AnyContext();
+            do {
+                recordsAffected += results.Documents.Count;
+                await RemoveAsync(results.Documents, sendNotifications).AnyContext();
+            } while (await results.NextPageAsync().AnyContext());
 
             _logger.Trace("{0} records removed", recordsAffected);
             return recordsAffected;

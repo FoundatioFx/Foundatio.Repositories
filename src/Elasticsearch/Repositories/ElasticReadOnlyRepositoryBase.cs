@@ -49,6 +49,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ArgumentNullException(nameof(query));
 
             var pagableQuery = query as IPagableQuery;
+            bool useSnapshotPaging = pagableQuery?.UseSnapshotPaging != null && pagableQuery.UseSnapshotPaging.Value;
+
             // don't use caching with snapshot paging.
             bool allowCaching = IsCacheEnabled && (pagableQuery == null || pagableQuery.UseSnapshotPaging == false);
 
@@ -56,7 +58,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (!String.IsNullOrEmpty(r.ScrollId)) {
                     var scrollResponse = await _client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), r.ScrollId).AnyContext();
                     _logger.Trace(() => scrollResponse.GetRequest());
-                    return scrollResponse.ToFindResults(HasVersion, pagableQuery != null && pagableQuery.UseSnapshotPaging ? Int32.MaxValue : pagableQuery?.Limit);
+                    return scrollResponse.ToFindResults(HasVersion, useSnapshotPaging ? Int32.MaxValue : pagableQuery?.Limit);
                 }
 
                 if (pagableQuery == null)
@@ -78,7 +80,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             SearchDescriptor<T> searchDescriptor = CreateSearchDescriptor(query);
-            if (pagableQuery?.UseSnapshotPaging == true)
+            if (useSnapshotPaging)
                 searchDescriptor.SearchType(SearchType.Scan).Scroll(pagableQuery.GetLifetime());
 
             var response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
@@ -88,7 +90,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
             }
 
-            if (pagableQuery?.UseSnapshotPaging == true) {
+            if (useSnapshotPaging) {
                 var scrollResponse = await _client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), response.ScrollId).AnyContext();
                 _logger.Trace(() => scrollResponse.GetRequest());
                 if (!scrollResponse.IsValid) {
