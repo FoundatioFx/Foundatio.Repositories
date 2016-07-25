@@ -31,15 +31,19 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (response?.RequestInformation == null)
                 return String.Empty;
 
-            string json = String.Empty;
+            string body = String.Empty;
             if (response.RequestInformation.RequestUrl.EndsWith("_bulk") && response.RequestInformation?.Request != null && response.RequestInformation.Request.Length > 0) {
                 string[] bulkCommands = Encoding.UTF8.GetString(response.RequestInformation.Request).Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-                json = String.Join("\r\n", bulkCommands.Select(c => JObject.Parse(c).ToString(Formatting.Indented)));
+                body = String.Join("\r\n", bulkCommands.Select(c => JObject.Parse(c).ToString(Formatting.Indented)));
             } else if (response.RequestInformation?.Request != null && response.RequestInformation.Request.Length > 0) {
-                json = JObject.Parse(Encoding.UTF8.GetString(response.RequestInformation.Request)).ToString(Formatting.Indented);
+                body = Encoding.UTF8.GetString(response.RequestInformation.Request);
+                try {
+                    if (body.StartsWith("{") || body.StartsWith("["))
+                        body = JObject.Parse(body).ToString(Formatting.Indented);
+                } catch { }
             }
             
-            return $"{response.RequestInformation.RequestMethod.ToUpper()} {response.RequestInformation.RequestUrl}\r\n{json}\r\n";
+            return $"{response.RequestInformation.RequestMethod.ToUpper()} {response.RequestInformation.RequestUrl}\r\n{body}\r\n";
         }
     }
 }

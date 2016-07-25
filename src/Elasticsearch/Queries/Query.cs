@@ -9,7 +9,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         IFieldConditionsQuery, IPagableQuery, ISearchQuery, IAggregationQuery,
         ISelectedFieldsQuery, ISortableQuery, IParentQuery, IChildQuery {
 
-        public List<string> Ids { get; }
+        public List<string> Ids { get; } = new List<string>();
         public string CacheKey { get; set; }
         public TimeSpan? ExpiresIn { get; set; }
         public DateTime? ExpiresAt { get; set; }

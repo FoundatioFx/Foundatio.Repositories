@@ -29,7 +29,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             NotificationsEnabled = _messagePublisher != null;
 
             if (HasCreatedDate)
-               RemoveAllIncludedFields.Add("createdUtc"); // TODO: What do we do if this field is serialized differently?
+               FieldsRequiredForRemove.Add("createdUtc"); // TODO: What do we do if this field is serialized differently?
         }
         
         public async Task<T> AddAsync(T document, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotification = true) {
