@@ -390,6 +390,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                     if (GetDocumentIndexFunc != null)
                         i.Index(GetDocumentIndexFunc(document));
 
+                    var versionedDoc = document as IVersioned;
+                    if (versionedDoc != null) {
+                        i.Version(versionedDoc.Version);
+                        versionedDoc.Version++;
+                    }
+
                     return i;
                 }).AnyContext();
             } else {

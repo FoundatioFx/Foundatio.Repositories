@@ -121,9 +121,21 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             var bulkRequest = new BulkRequest();
             TypeNameMarker typeNameMarker = type;
             bulkRequest.Type = typeNameMarker;
-            var list = objects.Select(o => new BulkIndexOperation<T>(o) {
-                Parent = getParent?.Invoke(o),
-                Index = getIndex?.Invoke(o),
+            var list = objects.Select(o => {
+                var doc = new BulkIndexOperation<T>(o);
+                if (getParent != null)
+                    doc.Parent = getParent(o);
+
+                if (getIndex != null)
+                    doc.Index = getIndex(o);
+
+                var versionedDoc = o as IVersioned;
+                if (versionedDoc != null) {
+                    doc.Version = versionedDoc.Version.ToString();
+                    versionedDoc.Version++;
+                }
+
+                return doc;
             }).Cast<IBulkOperation>().ToList();
             bulkRequest.Operations = list;
 
