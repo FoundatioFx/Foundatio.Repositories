@@ -8,6 +8,7 @@ using Nest;
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface ITimeSeriesIndexType : IIndexType, ITemplatedIndexType {
         string GetIndexById(string id);
+
         string[] GetIndexesByQuery(object query);
     }
 
@@ -16,16 +17,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
     }
 
     public class TimeSeriesIndexType<T> : IndexType<T>, ITimeSeriesIndexType<T> where T : class {
-        protected static readonly bool HasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
-        protected static readonly bool HasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
-
         protected readonly Func<T, DateTime> _getDocumentDateUtc;
         protected readonly string[] _defaultIndexes;
 
         public TimeSeriesIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null) : base(index, name) {
             _getDocumentDateUtc = getDocumentDateUtc;
             _defaultIndexes = new[] { index.Name };
-            
+
             if (_getDocumentDateUtc != null)
                 return;
 
@@ -35,7 +33,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _getDocumentDateUtc = document => {
                 if (document == null)
                     throw new ArgumentNullException(nameof(document));
-                
+
                 if (HasCreatedDate) {
                     var date = ((IHaveCreatedDate)document).CreatedUtc;
                     if (date != DateTime.MinValue)
@@ -43,24 +41,34 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 }
 
                 if (HasIdentity) {
-                    var date = ObjectId.Parse(((IIdentity)document).Id).CreationTime;
-                    if (date != DateTime.MinValue)
-                        return date;
+                    // This is also called when trying to create the document id.
+                    var id = ((IIdentity)document).Id;
+                    ObjectId objectId;
+                    if (id != null && ObjectId.TryParse(id, out objectId) && objectId.CreationTime != DateTime.MinValue)
+                        return objectId.CreationTime;
                 }
 
                 throw new ArgumentException("Unable to get document date.", nameof(document));
             };
         }
 
-        public override string GetDocumentId(T document) {
+        public override string CreateDocumentId(T document) {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
 
-            if (_getDocumentDateUtc == null)
-                return ObjectId.GenerateNewId().ToString();
+            if (HasIdentity) {
+                var id = ((IIdentity)document).Id;
+                if (!String.IsNullOrEmpty(id))
+                    return id;
+            }
 
-            var date = _getDocumentDateUtc(document);
-            return ObjectId.GenerateNewId(date).ToString();
+            try {
+                var date = _getDocumentDateUtc?.Invoke(document);
+                if (date.HasValue && date.Value != DateTime.MinValue)
+                    return ObjectId.GenerateNewId(date.Value).ToString();
+            } catch (ArgumentException) {}
+
+            return ObjectId.GenerateNewId().ToString();
         }
 
         public virtual string GetDocumentIndex(T document) {

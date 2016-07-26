@@ -100,14 +100,39 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task AddCollection() {
-            var identity = IdentityGenerator.Generate();
-            await _identityRepository.AddAsync(new List<Identity> { identity }, addToCache: true);
-            Assert.NotNull(identity.Id);
+        public async Task AddWithTimeSeries() {
+            var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate());
+            Assert.NotNull(log?.Id);
 
-            Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, useCache: true));
+            Assert.Equal(log, await _dailyRepository.GetByIdAsync(log.Id));
         }
 
+        [Fact]
+        public async Task AddCollection() {
+            var identity = IdentityGenerator.Generate();
+            await _identityRepository.AddAsync(new List<Identity> { identity });
+            Assert.NotNull(identity.Id);
+
+            Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id));
+        }
+        
+        [Fact]
+        public async Task AddCollectionWithTimeSeries() {
+            var utcNow = SystemClock.UtcNow;
+            var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
+            var nowLog = LogEventGenerator.Default;
+            
+            var logs = new List<LogEvent> { yesterdayLog, nowLog };
+            await _dailyRepository.AddAsync(logs);
+
+            var results = await _dailyRepository.GetByIdsAsync(new List<string> { yesterdayLog.Id, nowLog.Id });
+            Assert.Equal(logs, results.Documents.OrderBy(d => d.CreatedUtc).ToList());
+
+            await _client.RefreshAsync();
+            results = await _dailyRepository.GetAllAsync();
+            Assert.Equal(logs, results.Documents.OrderBy(d => d.CreatedUtc).ToList());
+        }
+        
         [Fact]
         public async Task AddCollectionWithCaching() {
             var identity = IdentityGenerator.Generate();
@@ -168,6 +193,22 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var identity = IdentityGenerator.Generate();
             await Assert.ThrowsAsync<ApplicationException>(async () => await _identityRepository.SaveAsync(new List<Identity> { identity }, addToCache: true));
         }
+        
+        [Fact]
+        public async Task SaveWithOutOfSyncIndex() {
+            var utcNow = SystemClock.UtcNow;
+            var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
+            Assert.NotNull(yesterdayLog?.Id);
+
+            await _client.RefreshAsync();
+            Assert.Equal(1, await _dailyRepository.CountAsync());
+            
+            yesterdayLog.Message = "updated";
+            await _dailyRepository.SaveAsync(yesterdayLog);
+
+            await _client.RefreshAsync();
+            Assert.Equal(1, await _dailyRepository.CountAsync());
+        }
 
         [Fact]
         public async Task SaveWithCaching() {
@@ -202,7 +243,25 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var results = await _identityRepository.GetByIdsAsync(identities.Select(i => i.Id).ToList());
             Assert.Equal(2, results.Documents.Count);
         }
+        
+        [Fact]
+        public async Task SaveCollectionWithTimeSeries() {
+            var utcNow = SystemClock.UtcNow;
+            var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
+            var nowLog = LogEventGenerator.Default;
 
+            var logs = new List<LogEvent> { yesterdayLog, nowLog };
+            await _dailyRepository.AddAsync(logs);
+
+            foreach (var logEvent in logs)
+                logEvent.Message = "updated";
+
+            await _dailyRepository.SaveAsync(logs);
+
+            var results = await _dailyRepository.GetByIdsAsync(new List<string> { yesterdayLog.Id, nowLog.Id });
+            Assert.Equal(logs, results.Documents.OrderBy(d => d.CreatedUtc).ToList());
+        }
+        
         [Fact]
         public async Task SaveCollectionWithCaching() {
             var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
@@ -289,10 +348,39 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 disposables.Clear();
             }
         }
+        
+        [Fact]
+        public async Task RemoveWithTimeSeries() {
+            var log = LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString());
+            await _dailyRepository.AddAsync(log);
+
+            await _client.RefreshAsync();
+            Assert.Equal(1, await _dailyRepository.CountAsync());
+
+            await _dailyRepository.RemoveAsync(log);
+
+            await _client.RefreshAsync();
+            Assert.Equal(0, await _dailyRepository.CountAsync());
+        }
+        
+        [Fact]
+        public async Task RemoveWithOutOfSyncIndex() {
+            var utcNow = SystemClock.UtcNow;
+            var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
+            Assert.NotNull(yesterdayLog?.Id);
+
+            await _client.RefreshAsync();
+            Assert.Equal(1, await _dailyRepository.CountAsync());
+            
+            await _dailyRepository.RemoveAsync(yesterdayLog);
+
+            await _client.RefreshAsync();
+            Assert.Equal(1, await _dailyRepository.CountAsync());
+        }
 
         [Fact]
         public async Task RemoveUnsavedDocument() {
-            await _dailyRepository.RemoveAsync(LogEventGenerator.Generate("123456", createdUtc: SystemClock.UtcNow));
+            await _dailyRepository.RemoveAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: SystemClock.UtcNow));
         }
 
         [Fact]
@@ -326,6 +414,24 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync();
             Assert.Equal(0, await _identityRepository.CountAsync());
         }
+        
+        [Fact]
+        public async Task RemoveCollectionWithTimeSeries() {
+            var utcNow = SystemClock.UtcNow;
+            var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
+            var nowLog = LogEventGenerator.Default;
+
+            var logs = new List<LogEvent> { yesterdayLog, nowLog };
+            await _dailyRepository.AddAsync(logs);
+
+            await _client.RefreshAsync();
+            Assert.Equal(2, await _dailyRepository.CountAsync());
+
+            await _dailyRepository.RemoveAsync(logs);
+
+            await _client.RefreshAsync();
+            Assert.Equal(0, await _dailyRepository.CountAsync());
+        }
 
         [Fact]
         public async Task RemoveCollectionWithCaching() {
@@ -342,6 +448,21 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _client.RefreshAsync();
             Assert.Equal(0, await _identityRepository.CountAsync());
+        }
+        
+        [Fact]
+        public async Task RemoveCollectionWithOutOfSyncIndex() {
+            var utcNow = SystemClock.UtcNow;
+            var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
+            Assert.NotNull(yesterdayLog?.Id);
+
+            await _client.RefreshAsync();
+            Assert.Equal(1, await _dailyRepository.CountAsync());
+
+            await _dailyRepository.RemoveAsync(new List<LogEvent> { yesterdayLog });
+
+            await _client.RefreshAsync();
+            Assert.Equal(1, await _dailyRepository.CountAsync());
         }
 
         [Fact]
@@ -394,6 +515,24 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _client.RefreshAsync();
             Assert.Equal(0, await _identityRepository.CountAsync());
+        }
+        
+        [Fact]
+        public async Task RemoveAllWithTimeSeries() {
+            var utcNow = SystemClock.UtcNow;
+            var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
+            var nowLog = LogEventGenerator.Default;
+
+            var logs = new List<LogEvent> { yesterdayLog, nowLog };
+            await _dailyRepository.AddAsync(logs);
+
+            await _client.RefreshAsync();
+            Assert.Equal(2, await _dailyRepository.CountAsync());
+
+            await _dailyRepository.RemoveAllAsync();
+
+            await _client.RefreshAsync();
+            Assert.Equal(0, await _dailyRepository.CountAsync());
         }
     }
 }

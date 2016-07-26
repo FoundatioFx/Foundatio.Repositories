@@ -9,6 +9,7 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Xunit;
 using Xunit.Abstractions;
@@ -156,7 +157,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(yesterdayLog, await _dailyRepository.GetByIdAsync(yesterdayLog.Id));
             Assert.Equal(nowLog, await _dailyRepository.GetByIdAsync(nowLog.Id));
         }
-        
+
+        [Fact]
+        public async Task GetByIdWithOutOfSyncIndex() {
+            var utcNow = SystemClock.UtcNow;
+            var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
+            Assert.NotNull(yesterdayLog?.Id);
+
+            Assert.Equal(yesterdayLog, await _dailyRepository.GetByIdAsync(yesterdayLog.Id));
+        }
+
         [Fact]
         public async Task GetByIds() {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default);
@@ -262,6 +272,17 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var results = await _dailyRepository.GetByIdsAsync(new[] { yesterdayLog.Id, nowLog.Id });
             Assert.NotNull(results);
             Assert.Equal(2, results.Total);
+        }
+        
+        [Fact]
+        public async Task GetByIdsWithOutOfSyncIndex() {
+            var utcNow = SystemClock.UtcNow;
+            var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
+            Assert.NotNull(yesterdayLog?.Id);
+            
+            var results = await _dailyRepository.GetByIdsAsync(new[] { yesterdayLog.Id });
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Total);
         }
         
         [Fact]

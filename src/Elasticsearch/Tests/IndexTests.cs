@@ -7,7 +7,6 @@ using Foundatio.Logging;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
-using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Utility;
 using Nest;
@@ -16,13 +15,11 @@ using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class IndexTests : ElasticRepositoryTestBase {
-        private readonly EmployeeRepository _employeeRepository;
         private readonly DailyLogEventRepository _dailyRepository;
         private readonly IQueue<WorkItemData> _workItemQueue = new InMemoryQueue<WorkItemData>();
 
         public IndexTests(ITestOutputHelper output) : base(output) {
             _dailyRepository = new DailyLogEventRepository(MyAppConfiguration, _cache, Log.CreateLogger<DailyLogEventRepository>());
-            _employeeRepository = new EmployeeRepository(MyAppConfiguration, _cache, Log.CreateLogger<EmployeeRepository>());
 
             RemoveDataAsync().GetAwaiter().GetResult();
         }
@@ -38,7 +35,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var version1EmployeeIndex = new VersionedEmployeeIndex(_client, 1, Log);
             var version1EmployeeRepository = new EmployeeRepository(_client, version1EmployeeIndex.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
             var version2EmployeeIndex = new VersionedEmployeeIndex(_client, 2, Log);
-            var version2EmployeeRepository = new EmployeeRepository(_client, version1EmployeeIndex.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+            var version2EmployeeRepository = new EmployeeRepository(_client, version2EmployeeIndex.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
 
             _client.DeleteIndex(i => i.Index("employees"));
             version1EmployeeIndex.Delete();

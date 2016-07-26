@@ -247,12 +247,12 @@ namespace Foundatio.Repositories.Elasticsearch {
         public AsyncEvent<DocumentsEventArgs<T>> DocumentsAdding { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
 
         private async Task OnDocumentsAddingAsync(ICollection<T> documents) {
-            documents.EnsureIds(ElasticType.GetDocumentId);
-
             if (HasDates)
                 documents.OfType<IHaveDates>().SetDates();
             else if (HasCreatedDate)
                 documents.OfType<IHaveCreatedDate>().SetCreatedDates();
+            
+            documents.EnsureIds(ElasticType.CreateDocumentId);
 
             if (DocumentsAdding != null)
                 await DocumentsAdding.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this)).AnyContext();

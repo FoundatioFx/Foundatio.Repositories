@@ -12,6 +12,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Queries;
+using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Xunit;
 using Xunit.Abstractions;
@@ -53,7 +54,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(0, await _dailyRepository.CountAsync());
 
             var utcNow = SystemClock.UtcNow;
-            var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow.AddDays(-1)));
+            var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1)));
             Assert.NotNull(yesterdayLog?.Id);
 
             var nowLog = await _dailyRepository.AddAsync(LogEventGenerator.Default);
@@ -85,7 +86,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task SearchByQueryWithTimeSeries() {
             var utcNow = SystemClock.UtcNow;
-            var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow.AddDays(-1), companyId: "1234567890"));
+            var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1234567890"));
             Assert.NotNull(yesterdayLog?.Id);
 
             var nowLog = await _dailyRepository.AddAsync(LogEventGenerator.Default);
