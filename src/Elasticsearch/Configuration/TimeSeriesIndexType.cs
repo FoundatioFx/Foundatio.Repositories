@@ -16,21 +16,40 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
     }
 
     public class TimeSeriesIndexType<T> : IndexType<T>, ITimeSeriesIndexType<T> where T : class {
+        protected static readonly bool HasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
+        protected static readonly bool HasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
+
         protected readonly Func<T, DateTime> _getDocumentDateUtc;
+        protected readonly string[] _defaultIndexes;
 
         public TimeSeriesIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null) : base(index, name) {
             _getDocumentDateUtc = getDocumentDateUtc;
+            _defaultIndexes = new[] { index.Name };
             
             if (_getDocumentDateUtc != null)
                 return;
 
-            var type = typeof(T);
-            if (typeof(IHaveCreatedDate).IsAssignableFrom(type))
-                _getDocumentDateUtc = d => ((IHaveCreatedDate)d).CreatedUtc;
-            else if (typeof(IIdentity).IsAssignableFrom(type))
-                _getDocumentDateUtc = d => ObjectId.Parse(((IIdentity)d).Id).CreationTime;
-            else
+            if (!HasIdentity && !HasCreatedDate)
                 throw new ArgumentNullException(nameof(getDocumentDateUtc));
+
+            _getDocumentDateUtc = document => {
+                if (document == null)
+                    throw new ArgumentNullException(nameof(document));
+                
+                if (HasCreatedDate) {
+                    var date = ((IHaveCreatedDate)document).CreatedUtc;
+                    if (date != DateTime.MinValue)
+                        return date;
+                }
+
+                if (HasIdentity) {
+                    var date = ObjectId.Parse(((IIdentity)document).Id).CreationTime;
+                    if (date != DateTime.MinValue)
+                        return date;
+                }
+
+                throw new ArgumentException("Unable to get document date.", nameof(document));
+            };
         }
 
         public override string GetDocumentId(T document) {
@@ -69,7 +88,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public virtual string[] GetIndexesByQuery(object query) {
             var withIndexesQuery = query as IElasticIndexesQuery;
             if (withIndexesQuery == null)
-                return new string[0];
+                return _defaultIndexes;
 
             var indexes = new List<string>();
             if (withIndexesQuery.Indexes.Count > 0)
@@ -78,7 +97,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (withIndexesQuery.UtcStartIndex.HasValue || withIndexesQuery.UtcEndIndex.HasValue)
                 indexes.AddRange(TimeSeriesIndex.GetIndexes(withIndexesQuery.UtcStartIndex, withIndexesQuery.UtcEndIndex));
 
-            return indexes.ToArray();
+            return indexes.Count > 0 ? indexes.ToArray() : _defaultIndexes;
         }
 
         protected ITimeSeriesIndex TimeSeriesIndex => (ITimeSeriesIndex)Index;

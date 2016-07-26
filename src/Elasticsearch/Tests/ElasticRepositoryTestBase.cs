@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Threading.Tasks;
 using Foundatio.Caching;
+using Foundatio.Logging;
 using Foundatio.Logging.Xunit;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Utility;
@@ -17,6 +18,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public ElasticRepositoryTestBase(ITestOutputHelper output) : base(output) {
             SystemClock.Reset();
             Log.MinimumLevel = LogLevel.Trace;
+            Log.SetLogLevel<ScheduledTimer>(LogLevel.Warning);
 
             _cache = new InMemoryCacheClient(Log);
             _configuration = GetElasticConfiguration();

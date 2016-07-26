@@ -291,6 +291,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task RemoveUnsavedDocument() {
+            await _dailyRepository.RemoveAsync(LogEventGenerator.Generate("123456", createdUtc: SystemClock.UtcNow));
+        }
+
+        [Fact]
         public async Task RemoveWithCaching() {
             var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
             await _identityRepository.AddAsync(identities, addToCache: true);
@@ -341,6 +346,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task RemoveAll() {
+            await _identityRepository.RemoveAllAsync();
+
             var identities = new List<Identity> { IdentityGenerator.Default };
             await _identityRepository.AddAsync(identities);
             await _client.RefreshAsync();

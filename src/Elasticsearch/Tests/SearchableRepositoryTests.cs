@@ -44,8 +44,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(identity, result);
 
             await _client.RefreshAsync();
-            Assert.Equal(0, await _identityRepository.CountAsync(new ElasticQuery().WithId("test")));
-            Assert.Equal(1, await _identityRepository.CountAsync(new ElasticQuery().WithId(identity.Id)));
+            Assert.Equal(0, await _identityRepository.CountAsync(null, "id:test"));
+            Assert.Equal(1, await _identityRepository.CountAsync(null, $"id:{identity.Id}"));
         }
 
         [Fact]
@@ -60,10 +60,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(nowLog?.Id);
 
             await _client.RefreshAsync();
-            Assert.Equal(0, await _dailyRepository.CountAsync(new ElasticQuery().WithId("test")));
-            Assert.Equal(1, await _dailyRepository.CountAsync(new ElasticQuery().WithId(nowLog.Id)));
-            Assert.Equal(1, await _dailyRepository.CountAsync(new ElasticQuery().WithId(nowLog.Id).WithDateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "created")));
-            Assert.Equal(0, await _dailyRepository.CountAsync(new ElasticQuery().WithId(nowLog.Id).WithDateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), "created")));
+            Assert.Equal(0, await _dailyRepository.CountAsync(null, "id:test"));
+            Assert.Equal(1, await _dailyRepository.CountAsync(null, $"id:{nowLog.Id}"));
+            Assert.Equal(1, await _dailyRepository.CountAsync(new ElasticQuery().WithDateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "created"), $"id:{nowLog.Id}"));
+            Assert.Equal(0, await _dailyRepository.CountAsync(new ElasticQuery().WithDateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), "created"), $"id:{nowLog.Id}"));
             Assert.Equal(1, await _dailyRepository.CountAsync(new ElasticQuery().WithDateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), "created")));
             Assert.Equal(1, await _dailyRepository.CountAsync(new ElasticQuery().WithDateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "created")));
         }
@@ -75,33 +75,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(identity, result);
 
             await _client.RefreshAsync();
-            var results = await _identityRepository.SearchAsync(new ElasticQuery().WithId("test"));
+            var results = await _identityRepository.SearchAsync(null, "id:test");
             Assert.Equal(0, results.Documents.Count);
 
-            results = await _identityRepository.SearchAsync(new ElasticQuery().WithId(identity.Id));
+            results = await _identityRepository.SearchAsync(null, $"id:{identity.Id}");
             Assert.Equal(1, results.Documents.Count);
         }
-
-        [Fact]
-        public async Task SearchByQueryWithIncludedFields() {
-            var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"));
-            Assert.NotNull(log?.Id);
-            
-            await _client.RefreshAsync();
-            var results = await _dailyRepository.SearchAsync(new MyAppQuery().WithCompany(log.CompanyId));
-            Assert.Equal(1, results.Documents.Count);
-            Assert.Equal(log, results.Documents.First());
-
-            results = await _dailyRepository.SearchAsync(new MyAppQuery().WithId(log.Id).WithSelectedFields("_id", "createdUtc"));
-            Assert.Equal(1, results.Documents.Count);
-
-            var document = results.Documents.First();
-            Assert.Equal(log.Id, document.Id);
-            Assert.Equal(log.CreatedUtc, document.CreatedUtc);
-            Assert.Null(document.Message);
-            Assert.Null(document.CompanyId);
-        }
-
+        
         [Fact]
         public async Task SearchByQueryWithTimeSeries() {
             var utcNow = SystemClock.UtcNow;
@@ -129,9 +109,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, results.Documents.Count);
         }
 
-        [Fact]
-        public async Task GetAggregations() {
-            throw new NotImplementedException();
-        }
+        //[Fact]
+        //public async Task GetAggregations() {
+        //    throw new NotImplementedException();
+        //}
     }
 }

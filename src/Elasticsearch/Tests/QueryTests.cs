@@ -13,10 +13,12 @@ using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class QueryTests : ElasticRepositoryTestBase {
+        private readonly DailyLogEventRepository _dailyRepository;
         private readonly EmployeeRepository _employeeRepository;
         private readonly IQueue<WorkItemData> _workItemQueue = new InMemoryQueue<WorkItemData>();
 
         public QueryTests(ITestOutputHelper output) : base(output) {
+            _dailyRepository = new DailyLogEventRepository(MyAppConfiguration, _cache, Log.CreateLogger<DailyLogEventRepository>());
             _employeeRepository = new EmployeeRepository(MyAppConfiguration, _cache, Log.CreateLogger<EmployeeRepository>());
 
             RemoveDataAsync().GetAwaiter().GetResult();
@@ -60,6 +62,25 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync();
             Assert.Equal(1, await _employeeRepository.CountAsync());
             Assert.Equal(0, await _employeeRepository.GetCountByCompanyAsync(employee1.CompanyId));
+        }
+        
+        [Fact]
+        public async Task GetByCompanyWithIncludedFields() {
+            var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"));
+            Assert.NotNull(log?.Id);
+
+            await _client.RefreshAsync();
+            var results = await _dailyRepository.GetByCompanyAsync(log.CompanyId);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(log, results.Documents.First());
+            
+            results = await _dailyRepository.GetPartialByCompanyAsync(log.CompanyId);
+            Assert.Equal(1, results.Documents.Count);
+            var companyLog = results.Documents.First();
+            Assert.Equal(log.Id, companyLog.Id);
+            Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
+            Assert.Null(companyLog.Message);
+            Assert.Null(companyLog.CompanyId);
         }
     }
 }

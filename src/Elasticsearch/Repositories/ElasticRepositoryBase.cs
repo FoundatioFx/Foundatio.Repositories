@@ -184,18 +184,30 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return;
 
             await OnDocumentsRemovingAsync(documents).AnyContext();
-            
-            var documentsByIndex = documents.GroupBy(d => GetDocumentIndexFunc?.Invoke(d));
-            var response = await _client.BulkAsync(bulk => {
-                foreach (var group in documentsByIndex)
-                    bulk.DeleteMany<T>(group.Select(g => g.Id), (b, id) => b.Index(group.Key));
 
-                return bulk;
-            }).AnyContext();
-            _logger.Trace(() => response.GetRequest());
+            // TODO: support Parent and child docs.
+            if (documents.Count == 1) {
+                var document = documents.First();
+                var response = await _client.DeleteAsync(document, descriptor => descriptor.Index(GetDocumentIndexFunc?.Invoke(document))).AnyContext();
+                _logger.Trace(() => response.GetRequest());
 
-            if (!response.IsValid)
-                throw new ApplicationException(String.Join("\r\n", response.ItemsWithErrors.Select(i => i.Error)) + "\r\n" + response.GetRequest(), response.ConnectionStatus.OriginalException);
+                if (!response.IsValid) {
+                    _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
+                    throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
+                }
+            } else {
+                var documentsByIndex = documents.GroupBy(d => GetDocumentIndexFunc?.Invoke(d));
+                var response = await _client.BulkAsync(bulk => {
+                    foreach (var group in documentsByIndex)
+                        bulk.DeleteMany<T>(group.Select(g => g.Id), (b, id) => b.Index(group.Key));
+
+                    return bulk;
+                }).AnyContext();
+                _logger.Trace(() => response.GetRequest());
+
+                if (!response.IsValid)
+                    throw new ApplicationException(String.Join("\r\n", response.ItemsWithErrors.Select(i => i.Error)) + "\r\n" + response.GetRequest(), response.ConnectionStatus.OriginalException);
+            }
 
             await OnDocumentsRemovedAsync(documents, sendNotification).AnyContext();
         }
@@ -216,7 +228,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             long recordsAffected = 0;
 
             query.UseSnapshotPaging = true;
-            foreach (var field in FieldsRequiredForRemove.Union(new[] { "_id" }))
+            foreach (var field in FieldsRequiredForRemove.Union(new[] { "id" }))
                 if (!query.SelectedFields.Contains(field))
                     query.SelectedFields.Add(field);
 

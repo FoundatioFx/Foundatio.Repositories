@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Foundatio.Caching;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Queries;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
@@ -16,9 +17,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public DailyLogEventRepository(MyAppElasticConfiguration elasticConfiguration, ICacheClient cache, ILogger<DailyLogEventRepository> logger) : base(elasticConfiguration.Client, null, cache, null, logger) {
             ElasticType = elasticConfiguration.DailyLogEvents.LogEvent;
         }
-
-        public Task<LogEvent> GetByCompanyAsync(string company) {
-            return FindOneAsync(new MyAppQuery().WithCompany(company));
+        
+        public Task<FindResults<LogEvent>> GetByCompanyAsync(string company) {
+            return FindAsync(new MyAppQuery().WithCompany(company));
+        }
+        
+        public Task<FindResults<LogEvent>> GetPartialByCompanyAsync(string company) {
+            return FindAsync(new MyAppQuery().WithCompany(company).WithSelectedFields("id", "createdUtc"));
         }
 
         public Task<FindResults<LogEvent>> GetAllByCompanyAsync(string company) {

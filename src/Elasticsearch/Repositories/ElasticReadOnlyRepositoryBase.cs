@@ -86,6 +86,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             var response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
             if (!response.IsValid) {
+                if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
+                    return new FindResults<TResult>();
+
                 _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
                 throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
             }
@@ -133,6 +136,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
+                if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
+                    return null;
+
                 _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
                 throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
             }
@@ -262,6 +268,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
+                if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
+                    return false;
+
                 _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
                 throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
             }
@@ -284,6 +293,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
+                if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
+                    return new CountResult();
+
                 _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
                 throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
             }
@@ -300,6 +312,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
+                if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
+                    return 0;
+
                 _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
                 throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
             }
@@ -408,6 +423,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var indices = GetIndexesByQuery(query);
             if (indices?.Length > 0)
                 search.Indices(indices);
+
             search.IgnoreUnavailable();
 
             // TODO: Figure out a better solution for query options
