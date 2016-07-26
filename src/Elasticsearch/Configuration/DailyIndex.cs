@@ -24,7 +24,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public DailyIndex(IElasticClient client, string name, int version = 1, ILoggerFactory loggerFactory = null): base(client, name, loggerFactory) {
             Version = version;
             AddAlias(name);
-            _currentVersionedNamePrefix = GetVersionedNamePrefix();
+            _currentVersionedNamePrefix = String.Concat(Name, "-v", version);
             _frozenAliases = new Lazy<IReadOnlyCollection<IndexAliasAge>>(() => _aliases.AsReadOnly());
         }
 
