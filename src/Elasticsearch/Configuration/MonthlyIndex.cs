@@ -15,7 +15,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public MonthlyIndex(IElasticClient client, string name, int version = 1, ILoggerFactory loggerFactory = null): base(client, name, version, loggerFactory) {}
 
         public override string GetIndex(DateTime utcDate) {
-            return $"{VersionedNamePrefix}-{utcDate:yyyy.MM}";
+            return $"{_currentVersionedNamePrefix}-{utcDate:yyyy.MM}";
         }
 
         public override string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd) {
@@ -36,7 +36,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected override DateTime GetIndexDate(string name) {
             DateTime result;
-            if (DateTime.TryParseExact(name, "'" + VersionedNamePrefix + "-'yyyy.MM", EnUs, DateTimeStyles.None, out result))
+            if (DateTime.TryParseExact(name, "'" + _currentVersionedNamePrefix + "-'yyyy.MM", EnUs, DateTimeStyles.None, out result))
                 return result;
 
             return DateTime.MaxValue;

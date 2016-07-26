@@ -19,18 +19,22 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         protected static readonly CultureInfo EnUs = new CultureInfo("en-US");
         private readonly List<IndexAliasAge> _aliases = new List<IndexAliasAge>();
         private readonly Lazy<IReadOnlyCollection<IndexAliasAge>> _frozenAliases;
+        protected readonly string _currentVersionedNamePrefix;
 
         public DailyIndex(IElasticClient client, string name, int version = 1, ILoggerFactory loggerFactory = null): base(client, name, loggerFactory) {
             Version = version;
-            VersionedNamePrefix = String.Concat(Name, "-v", Version);
             AddAlias(name);
+            _currentVersionedNamePrefix = GetVersionedNamePrefix();
             _frozenAliases = new Lazy<IReadOnlyCollection<IndexAliasAge>>(() => _aliases.AsReadOnly());
         }
 
         public int Version { get; }
-        public string VersionedNamePrefix { get; }
         public TimeSpan? MaxIndexAge { get; } = null;
         public IReadOnlyCollection<IndexAliasAge> Aliases => _frozenAliases.Value;
+
+        public string GetVersionedNamePrefix(int? version = null) {
+            return version == null ? _currentVersionedNamePrefix : String.Concat(Name, "-v", version);
+        }
 
         public void AddAlias(string name, TimeSpan? maxAge = null) {
             _aliases.Add(new IndexAliasAge { Name = name, MaxAge = maxAge ?? TimeSpan.MaxValue });
@@ -45,7 +49,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public virtual PutTemplateDescriptor ConfigureTemplate(PutTemplateDescriptor template) {
-            template.Template(VersionedNamePrefix + "-*");
+            template.Template(GetVersionedNamePrefix() + "-*");
             foreach (var alias in Aliases)
                 template.AddAlias(alias.Name);
 
@@ -57,7 +61,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
         
         public virtual string GetIndex(DateTime utcDate) {
-            return $"{VersionedNamePrefix}-{utcDate:yyyy.MM.dd}";
+            return $"{_currentVersionedNamePrefix}-{utcDate:yyyy.MM.dd}";
         }
 
         public virtual string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd) {
@@ -78,7 +82,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public override void Delete() {
             // delete all indexes by prefix
-            var response = _client.DeleteIndex(VersionedNamePrefix + "-*");
+            var response = _client.DeleteIndex(GetVersionedNamePrefix() + "-*");
             _logger.Trace(() => response.GetRequest());
             if (!response.IsValid)
                 throw new ApplicationException("An error occurred deleting the indexes: " + response.ServerError?.Error);
@@ -104,7 +108,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             DeleteOldIndexes();
         }
 
-        protected IList<IndexWithDate> GetIndexList() {
+        protected IList<IndexInfo> GetIndexList(int? version = null) {
+            if (version == null)
+                version = Version;
+
             var sw = Stopwatch.StartNew();
             var result = _client.CatIndices(
                 d => d.RequestConfiguration(r =>
@@ -112,7 +119,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             _logger.Trace(() => result.GetRequest());
             sw.Stop();
-            var indices = result.Records.Where(i => i.Index.StartsWith(VersionedNamePrefix)).Select(r => new IndexWithDate { DateUtc = GetIndexDate(r.Index), Index = r.Index }).ToList();
+            var indices = result.Records.Where(i => i.Index.StartsWith(GetVersionedNamePrefix(version))).Select(r => new IndexInfo { DateUtc = GetIndexDate(r.Index), Index = r.Index }).ToList();
 
             if (result.IsValid)
                 _logger.Info($"Retrieved list of {indices.Count} indexes in {sw.Elapsed.ToWords(true)}");
@@ -169,7 +176,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual DateTime GetIndexDate(string name) {
             DateTime result;
-            if (DateTime.TryParseExact(name, "'" + VersionedNamePrefix + "-'yyyy.MM.dd", EnUs, DateTimeStyles.None, out result))
+            if (DateTime.TryParseExact(name, "'" + _currentVersionedNamePrefix + "-'yyyy.MM.dd", EnUs, DateTimeStyles.None, out result))
                 return result;
 
             return DateTime.MaxValue;
@@ -180,7 +187,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             public TimeSpan MaxAge { get; set; }
         }
 
-        public class IndexWithDate {
+        public class IndexInfo {
             public string Index { get; set; }
             public DateTime DateUtc { get; set; }
         }
