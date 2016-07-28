@@ -97,16 +97,11 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
             return result;
         }
-
-        public static IBulkResponse IndexMany<T>(this IElasticClient client, IEnumerable<T> objects, Func<T, string> getParent, Func<T, string> getIndex = null, string type = null) where T : class {
-            if (getParent == null)
-                return client.IndexMany(objects, null, type);
-
-            var indexBulkRequest = CreateIndexBulkRequest(objects, getIndex, type, getParent);
-            return client.Bulk((IBulkRequest)indexBulkRequest);
-        }
-
+        
         public static Task<IBulkResponse> IndexManyAsync<T>(this IElasticClient client, IEnumerable<T> objects, Func<T, string> getParent, Func<T, string> getIndex = null, string type = null) where T : class {
+            if (objects == null)
+                throw new ArgumentNullException(nameof(objects));
+
             if (getParent == null && getIndex == null)
                 return client.IndexManyAsync(objects, null, type);
 
@@ -115,9 +110,6 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         }
 
         private static BulkRequest CreateIndexBulkRequest<T>(IEnumerable<T> objects, Func<T, string> getIndex, string type, Func<T, string> getParent) where T : class {
-            if (objects == null)
-                throw new ArgumentNullException(nameof(objects));
-
             var bulkRequest = new BulkRequest();
             TypeNameMarker typeNameMarker = type;
             bulkRequest.Type = typeNameMarker;

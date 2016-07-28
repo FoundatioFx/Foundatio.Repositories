@@ -180,7 +180,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var res = await _client.GetAsync<T>(id, index).AnyContext();
                 _logger.Trace(() => res.GetRequest());
 
-                result = res.Source;
+                result = res.ToDocument(HasVersion);
             } else {
                 // we don't have the parent id so we have to do a query
                 result = await FindOneAsync(new ElasticQuery().WithId(id)).AnyContext();
@@ -423,6 +423,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             var indices = GetIndexesByQuery(query);
             if (indices?.Length > 0)
                 search.Indices(indices);
+            if (HasVersion)
+                search.Version(HasVersion);
 
             search.IgnoreUnavailable();
 

@@ -390,10 +390,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                     if (GetDocumentIndexFunc != null)
                         i.Index(GetDocumentIndexFunc(document));
 
-                    var versionedDoc = document as IVersioned;
-                    if (versionedDoc != null) {
-                        i.Version(versionedDoc.Version);
-                        versionedDoc.Version++;
+                    if (HasVersion) {
+                        var versionDoc = (IVersioned)document;
+                        i.Version(versionDoc.Version);
+                        versionDoc.Version++;
                     }
 
                     return i;
@@ -401,12 +401,26 @@ namespace Foundatio.Repositories.Elasticsearch {
             } else {
                 result = await _client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc).AnyContext();
             }
+
             _logger.Trace(() => result.GetRequest());
-            if (!result.RequestInformation.Success) {
-                if (result is IBulkResponse) {
+
+            if (!((IResponse)result).IsValid) {
+                var bulkResponse = result as IBulkResponse;
+                if (bulkResponse != null) {
+                    if (HasVersion) {
+                        var idsWithErrors = bulkResponse.ItemsWithErrors.Where(i => !i.IsValid).Select(i => i.Id).ToList();
+                        foreach (var document in documents.Where(d => idsWithErrors.Contains(d.Id)))
+                            ((IVersioned)document).Version--;
+                    }
+
                     throw new ApplicationException(
-                        String.Join("\r\n", ((IBulkResponse)result).ItemsWithErrors.Select(i => i.Error)),
-                        ((IBulkResponse)result).ConnectionStatus.OriginalException);
+                        String.Join("\r\n", bulkResponse.ItemsWithErrors.Select(i => i.Error)),
+                        bulkResponse.ConnectionStatus.OriginalException);
+                }
+
+                if (HasVersion) {
+                    foreach (var document in documents)
+                        ((IVersioned)document).Version--;
                 }
 
                 throw new ApplicationException(String.Join("\r\n", ((IIndexResponse)result).ServerError.Error,
