@@ -62,7 +62,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                 await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
                 Assert.Equal(0, countdownEvent.CurrentCount);
-                
             } finally {
                 foreach (var disposable in disposables)
                     disposable.Dispose();
@@ -136,14 +135,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task AddCollectionWithCaching() {
             var identity = IdentityGenerator.Generate();
-            await _identityRepository.AddAsync(new List<Identity> { identity }, addToCache: true);
+            await _identityRepository.AddAsync(new List<Identity> { identity, IdentityGenerator.Generate() }, addToCache: true);
             Assert.NotNull(identity?.Id);
-            Assert.Equal(_cache.Count, 1);
+            Assert.Equal(_cache.Count, 2);
             Assert.Equal(_cache.Hits, 0);
             Assert.Equal(_cache.Misses, 0);
 
             Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, useCache: true));
-            Assert.Equal(_cache.Count, 1);
+            Assert.Equal(_cache.Count, 2);
             Assert.Equal(_cache.Hits, 1);
             Assert.Equal(_cache.Misses, 0);
         }
@@ -288,7 +287,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
         
         [Fact]
-        public async Task SetCreatedAndModifiedTimesAsync() {
+        public async Task SetCreatedAndModifiedTimes() {
             DateTime nowUtc = SystemClock.UtcNow;
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
             Assert.True(employee.CreatedUtc >= nowUtc);
@@ -305,7 +304,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CannotSetFutureCreatedAndModifiedTimesAsync() {
+        public async Task CannotSetFutureCreatedAndModifiedTimes() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(createdUtc: DateTime.MaxValue, updatedUtc: DateTime.MaxValue));
             Assert.True(employee.CreatedUtc != DateTime.MaxValue);
             Assert.True(employee.UpdatedUtc != DateTime.MaxValue);
@@ -316,6 +315,40 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             employee = await _employeeRepository.SaveAsync(employee);
             Assert.True(employee.CreatedUtc != DateTime.MaxValue);
             Assert.True(employee.UpdatedUtc != DateTime.MaxValue);
+        }
+
+        [Fact]
+        public async Task UpdateAll() {
+            var utcNow = SystemClock.UtcNow;
+            var employees = new List<Employee> {
+                EmployeeGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),
+                EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "1"),
+                EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "2"),
+            };
+
+            await _employeeRepository.AddAsync(employees);
+            await _client.RefreshAsync();
+            
+            Assert.Equal(2, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company"));
+            await _client.RefreshAsync();
+
+            var results = await _employeeRepository.GetAllByCompanyAsync("1");
+            Assert.Equal(2, results.Documents.Count);
+            foreach (var document in results.Documents) {
+                Assert.Equal("1", document.CompanyId);
+                Assert.Equal("Test Company", document.CompanyName);
+            }
+            
+            results = await _employeeRepository.GetAllByCompanyAsync("2");
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(employees.First(e => e.CompanyId == "2"), results.Documents.First());
+
+            var company2Employees = results.Documents.ToList();
+            Assert.Equal(1, await _employeeRepository.IncrementYearsEmployeed(company2Employees.Select(e => e.Id).ToArray()));
+            await _client.RefreshAsync();
+
+            results = await _employeeRepository.GetAllByCompanyAsync("2");
+            Assert.Equal(company2Employees.First().YearsEmployed + 1, results.Documents.First().YearsEmployed);
         }
 
         [Fact]

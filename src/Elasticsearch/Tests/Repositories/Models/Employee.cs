@@ -10,12 +10,21 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
         public string CompanyName { get; set; }
         public string Name { get; set; }
         public int Age { get; set; }
+        public int YearsEmployed { get; set; }
         public DateTime CreatedUtc { get; set; }
         public DateTime UpdatedUtc { get; set; }
         public long Version { get; set; }
 
         protected bool Equals(Employee other) {
-            return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase) && String.Equals(CompanyId, other.CompanyId, StringComparison.InvariantCultureIgnoreCase) && String.Equals(CompanyName, other.CompanyName, StringComparison.InvariantCultureIgnoreCase) && String.Equals(Name, other.Name, StringComparison.InvariantCultureIgnoreCase) && Age == other.Age && CreatedUtc.Equals(other.CreatedUtc) && UpdatedUtc.Equals(other.UpdatedUtc) && Version == other.Version;
+            return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase) && 
+                String.Equals(CompanyId, other.CompanyId, StringComparison.InvariantCultureIgnoreCase) && 
+                String.Equals(CompanyName, other.CompanyName, StringComparison.InvariantCultureIgnoreCase) && 
+                String.Equals(Name, other.Name, StringComparison.InvariantCultureIgnoreCase) && 
+                Age == other.Age &&
+                YearsEmployed == other.YearsEmployed &&
+                CreatedUtc.Equals(other.CreatedUtc) && 
+                UpdatedUtc.Equals(other.UpdatedUtc) && 
+                Version == other.Version;
         }
 
         public override bool Equals(object obj) {
@@ -35,6 +44,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
                 hashCode = (hashCode * 397) ^ (CompanyName != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(CompanyName) : 0);
                 hashCode = (hashCode * 397) ^ (Name != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Name) : 0);
                 hashCode = (hashCode * 397) ^ Age;
+                hashCode = (hashCode * 397) ^ YearsEmployed;
                 hashCode = (hashCode * 397) ^ CreatedUtc.GetHashCode();
                 hashCode = (hashCode * 397) ^ UpdatedUtc.GetHashCode();
                 hashCode = (hashCode * 397) ^ Version.GetHashCode();
@@ -57,15 +67,17 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
         public static Employee Default => new Employee {
             Name = "Blake",
             Age = 29,
+            YearsEmployed = 9,
             CompanyName = "Exceptionless",
             CompanyId = DefaultCompanyId
         };
 
-        public static Employee Generate(string id = null, string name = null, int? age = null, string companyName = null, string companyId = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
+        public static Employee Generate(string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
             return new Employee {
                 Id = id,
                 Name = name ?? RandomData.GetAlphaString(),
                 Age = age ?? RandomData.GetInt(18, 100),
+                YearsEmployed = yearsEmployed ?? RandomData.GetInt(0, 1),
                 CompanyName = companyName ?? RandomData.GetAlphaString(),
                 CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
                 CreatedUtc = createdUtc.GetValueOrDefault(),

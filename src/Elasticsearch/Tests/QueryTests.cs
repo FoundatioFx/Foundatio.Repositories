@@ -36,12 +36,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var employee20 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20));
             await _client.RefreshAsync();
 
-            var result = await _employeeRepository.GetByAgeAsync(employee19.Age);
-            Assert.Equal(employee19.ToJson(), result.ToJson());
-
-            var results = await _employeeRepository.GetAllByAgeAsync(employee20.Age);
+            var results = await _employeeRepository.GetAllByAgeAsync(employee19.Age);
             Assert.Equal(1, results.Total);
-            Assert.Equal(employee20.ToJson(), results.Documents.First().ToJson());
+            Assert.Equal(employee19, results.Documents.First());
+
+            results = await _employeeRepository.GetAllByAgeAsync(employee20.Age);
+            Assert.Equal(1, results.Total);
+            Assert.Equal(employee20, results.Documents.First());
         }
 
         [Fact]
@@ -49,13 +50,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId));
             var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20));
             await _client.RefreshAsync();
-
-            var result = await _employeeRepository.GetByCompanyAsync(employee1.CompanyId);
-            Assert.Equal(employee1.ToJson(), result.ToJson());
-
+            
             var results = await _employeeRepository.GetAllByCompanyAsync(employee1.CompanyId);
             Assert.Equal(1, results.Total);
-            Assert.Equal(employee1.ToJson(), results.Documents.First().ToJson());
+            Assert.Equal(employee1, results.Documents.First());
+
+            results = await _employeeRepository.GetAllByCompanyAsync(employee2.CompanyId);
+            Assert.Equal(1, results.Total);
+            Assert.Equal(employee2, results.Documents.First());
 
             Assert.Equal(1, await _employeeRepository.GetCountByCompanyAsync(employee1.CompanyId));
             await _employeeRepository.RemoveAsync(employee1, false);
