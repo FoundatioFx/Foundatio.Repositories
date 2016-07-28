@@ -254,6 +254,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             
             documents.EnsureIds(ElasticType.CreateDocumentId);
 
+            if (HasVersion) {
+                foreach (var document in documents.OfType<IVersioned>())
+                    document.Version = 0;
+            }
+
             if (DocumentsAdding != null)
                 await DocumentsAdding.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this)).AnyContext();
 

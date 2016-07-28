@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Jobs;
 using Foundatio.Logging;
@@ -38,17 +39,31 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             
             Assert.Equal(employee, await _employeeRepository.GetByIdAsync(employee.Id));
         }
-        
+
+        [Fact]
+        public async Task AddAndIngoreHighVersion() {
+            var employee = EmployeeGenerator.Generate();
+            employee.Version = 5;
+
+            employee = await _employeeRepository.AddAsync(employee);
+            Assert.NotNull(employee?.Id);
+            Assert.Equal(1, employee.Version);
+
+            Assert.Equal(employee, await _employeeRepository.GetByIdAsync(employee.Id));
+        }
+
         [Fact]
         public async Task AddCollection() {
             var employee = EmployeeGenerator.Default;
             Assert.Equal(0, employee.Version);
 
-            await _employeeRepository.AddAsync(new List<Employee> { employee, EmployeeGenerator.Generate() });
+            var employees = new List<Employee> { employee, EmployeeGenerator.Generate() };
+            await _employeeRepository.AddAsync(employees);
             Assert.Equal(1, employee.Version);
 
-            employee = await _employeeRepository.GetByIdAsync(employee.Id);
-            Assert.Equal(1, employee.Version);
+            var result = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToList());
+            Assert.Equal(2, result.Documents.Count);
+            Assert.Equal(employees, result.Documents);
         }
         
         [Fact]
@@ -69,8 +84,26 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             employee = await _employeeRepository.SaveAsync(employee);
             Assert.Equal(employeeCopy.Version + 1, employee.Version);
 
+            long version = employeeCopy.Version;
             await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(employeeCopy));
-            Assert.NotEqual(employeeCopy.Version, employee.Version);
+            Assert.Equal(version, employeeCopy.Version);
+
+            await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(employeeCopy));
+            Assert.Equal(version, employeeCopy.Version);
+
+            Assert.Equal(employee, await _employeeRepository.GetByIdAsync(employee.Id));
+        }
+        
+        [Fact]
+        public async Task SaveWithHigherVersion() {
+            var employee = EmployeeGenerator.Default;
+            Assert.Equal(0, employee.Version);
+
+            await _employeeRepository.AddAsync(new List<Employee> { employee });
+            Assert.Equal(1, employee.Version);
+
+            employee.Version = 5;
+            await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(employee));
         }
 
         [Fact]
@@ -97,12 +130,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(new List<Employee> { employeeCopy, employee2 }));
             Assert.NotEqual(employeeCopy.Version, employee1.Version);
             Assert.Equal(3, employee2.Version);
-            
+
+            await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(new List<Employee> { employeeCopy, employee2 }));
+            Assert.NotEqual(employeeCopy.Version, employee1.Version);
+            Assert.Equal(4, employee2.Version);
+
             Assert.Equal(employee2, await _employeeRepository.GetByIdAsync(employee2.Id));
         }
 
-
-        // TODO need versioning tests for index many and getindex = null;
+        // TODO need versioning tests for index many when getParent & getindex == null; // This should never be the case.
         // TODO need versioning tests for parent / child docs.
         // TODO UpdateAll version tests.
         // TODO: FindAs version tests

@@ -224,8 +224,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 foreach (var doc in multiGetResults.Documents) {
                     if (!doc.Found)
                         continue;
-
-                    results.Documents.Add(doc.Source as T);
+                    
+                    results.Documents.Add((T)doc.ToDocument(HasVersion));
                     itemsToFind.Remove(doc.Id);
                 }
             }
