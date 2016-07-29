@@ -8,6 +8,8 @@ using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
+using Foundatio.Repositories.Utility;
+using Foundatio.Utility;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -138,9 +140,48 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(employee2, await _employeeRepository.GetByIdAsync(employee2.Id));
         }
 
+        [Fact]
+        public async Task UpdateAll() {
+            var utcNow = SystemClock.UtcNow;
+            var employees = new List<Employee> {
+                EmployeeGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),
+                EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "1"),
+                EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "2"),
+            };
+
+            await _employeeRepository.AddAsync(employees);
+            await _client.RefreshAsync();
+            Assert.True(employees.All(e => e.Version == 1));
+            
+            Assert.Equal(2, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company"));
+            await _client.RefreshAsync();
+
+            var results = await _employeeRepository.GetAllByCompanyAsync("1");
+            Assert.Equal(2, results.Documents.Count);
+            foreach (var document in results.Documents) {
+                Assert.Equal(2, document.Version);
+                Assert.Equal("1", document.CompanyId);
+                Assert.Equal("Test Company", document.CompanyName);
+            }
+
+            results = await _employeeRepository.GetAllByCompanyAsync("2");
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(employees.First(e => e.CompanyId == "2"), results.Documents.First());
+
+            var company2Employees = results.Documents.ToList();
+            long company2EmployeesVersion = company2Employees.First().Version;
+            Assert.Equal(1, await _employeeRepository.IncrementYearsEmployeed(company2Employees.Select(e => e.Id).ToArray()));
+            await _client.RefreshAsync();
+
+            results = await _employeeRepository.GetAllByCompanyAsync("2");
+            Assert.Equal(company2Employees.First().YearsEmployed + 1, results.Documents.First().YearsEmployed);
+            
+            await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(company2Employees));
+            Assert.Equal(company2EmployeesVersion, company2Employees.First().Version);
+        }
+
         // TODO need versioning tests for index many when getParent & getindex == null; // This should never be the case.
         // TODO need versioning tests for parent / child docs.
-        // TODO UpdateAll version tests.
         // TODO: FindAs version tests
     }
 }
