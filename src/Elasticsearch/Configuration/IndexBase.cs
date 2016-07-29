@@ -42,7 +42,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
 
             if (response != null && !response.IsValid)
-                throw new ApplicationException("An error occurred deleting the index: " + response?.ServerError.Error);
+                throw new ApplicationException("An error occurred deleting the index: " + response.ServerError.Error, response.ConnectionStatus.OriginalException);
         }
 
         public virtual Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {

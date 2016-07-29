@@ -17,7 +17,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             _logger.Trace(() => response.GetRequest());
             if (response != null && !response.IsValid)
-                throw new ApplicationException("An error occurred creating the index or template: " + response.ServerError.Error);
+                throw new ApplicationException("An error occurred creating the index or template: " + response.ServerError.Error, response.ConnectionStatus.OriginalException);
 
             while (!_client.IndexExists(Name).Exists)
                 SystemClock.Sleep(100);

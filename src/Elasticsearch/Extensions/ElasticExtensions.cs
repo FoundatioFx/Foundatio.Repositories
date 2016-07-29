@@ -20,7 +20,11 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
             if (response.ServerError != null)
                 sb.AppendLine($"Server: ({response.ServerError.Status} - {response.ServerError.ExceptionType}) {response.ServerError.Error}");
-            
+
+            var bulkResponse = response as IBulkResponse;
+            if (bulkResponse != null)
+                sb.AppendLine($"Bulk: {String.Join("\r\n", bulkResponse.ItemsWithErrors.Select(i => i.Error))}");
+
             if (sb.Length == 0)
                 sb.AppendLine("Unknown error.");
 

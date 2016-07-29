@@ -89,16 +89,19 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
                     return new FindResults<TResult>();
 
-                _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
-                throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
+                string message = response.GetErrorMessage();
+                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
             }
 
             if (useSnapshotPaging) {
                 var scrollResponse = await _client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), response.ScrollId).AnyContext();
                 _logger.Trace(() => scrollResponse.GetRequest());
+
                 if (!scrollResponse.IsValid) {
-                    _logger.Error().Message($"Elasticsearch error code \"{scrollResponse.ConnectionStatus.HttpStatusCode}\"").Property("request", scrollResponse.GetRequest()).Write();
-                    throw new ApplicationException($"Elasticsearch error code \"{scrollResponse.ConnectionStatus.HttpStatusCode}\".", scrollResponse.ConnectionStatus.OriginalException);
+                    string message = response.GetErrorMessage();
+                    _logger.Error().Exception(scrollResponse.ConnectionStatus.OriginalException).Message(message).Property("request", scrollResponse.GetRequest()).Write();
+                    throw new ApplicationException(message, scrollResponse.ConnectionStatus.OriginalException);
                 }
 
                 result = scrollResponse.ToFindResults(HasVersion);
@@ -139,8 +142,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
                     return null;
 
-                _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
-                throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
+                string message = response.GetErrorMessage();
+                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
             }
 
             result = response.Documents.FirstOrDefault();
@@ -271,8 +275,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
                     return false;
 
-                _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
-                throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
+                string message = response.GetErrorMessage();
+                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
             }
 
             return response.HitsMetaData.Total > 0;
@@ -296,8 +301,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
                     return new CountResult();
 
-                _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
-                throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
+                string message = response.GetErrorMessage();
+                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
             }
 
             result = new CountResult(response.Total, response.ToAggregationResult());
@@ -315,8 +321,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
                     return 0;
 
-                _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
-                throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
+                string message = response.GetErrorMessage();
+                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
             }
 
             return response.Count;
@@ -346,8 +353,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
-                _logger.Error().Message("Retrieving aggregations failed: {0}", response.ServerError.Error).Write();
-                throw new ApplicationException("Retrieving aggregations failed.");
+                string message = $"Retrieving aggregations failed: {response.GetErrorMessage()}";
+                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
             }
 
             return response.ToAggregationResult();

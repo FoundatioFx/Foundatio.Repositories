@@ -110,8 +110,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             var scanResults = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
 
             // Check to see if no scroll id was returned. This will occur when the index doesn't exist.
-            if (!scanResults.IsValid || String.IsNullOrEmpty(scanResults.ScrollId))
+            if (!scanResults.IsValid || String.IsNullOrEmpty(scanResults.ScrollId)) {
+                _logger.Error().Exception(scanResults.ConnectionStatus.OriginalException).Message(scanResults.GetErrorMessage()).Property("request", scanResults.GetRequest()).WriteIf(!scanResults.IsValid);
                 return 0;
+            }
 
             var results = await _client.ScrollAsync<T>("4s", scanResults.ScrollId).AnyContext();
             _logger.Trace(() => results.GetRequest());
@@ -129,10 +131,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 if (!bulkResult.IsValid) {
                     _logger.Error()
-                        .Message("Error occurred while bulk updating")
-                        .Exception(bulkResult.ConnectionStatus.OriginalException ?? bulkResult.RequestInformation.OriginalException)
-                        .Property("ItemsWithErrors", bulkResult.ItemsWithErrors)
-                        .Property("Error", bulkResult.ServerError)
+                        .Exception(bulkResult.ConnectionStatus.OriginalException)
+                        .Message($"Error occurred while bulk updating: {bulkResult.GetErrorMessage()}")
                         .Property("Query", query)
                         .Property("Update", update)
                         .Write();
@@ -192,8 +192,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 _logger.Trace(() => response.GetRequest());
 
                 if (!response.IsValid) {
-                    _logger.Error().Message($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\"").Property("request", response.GetRequest()).Write();
-                    throw new ApplicationException($"Elasticsearch error code \"{response.ConnectionStatus.HttpStatusCode}\".", response.ConnectionStatus.OriginalException);
+                    string message = response.GetErrorMessage();
+                    _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                    throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
                 }
             } else {
                 var documentsByIndex = documents.GroupBy(d => GetDocumentIndexFunc?.Invoke(d));
@@ -205,8 +206,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }).AnyContext();
                 _logger.Trace(() => response.GetRequest());
 
-                if (!response.IsValid)
-                    throw new ApplicationException(String.Join("\r\n", response.ItemsWithErrors.Select(i => i.Error)) + "\r\n" + response.GetRequest(), response.ConnectionStatus.OriginalException);
+                if (!response.IsValid) {
+                    string message = response.GetErrorMessage();
+                    _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                    throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                }
             }
 
             await OnDocumentsRemovedAsync(documents, sendNotification).AnyContext();
@@ -385,10 +389,10 @@ namespace Foundatio.Repositories.Elasticsearch {
         #endregion
 
         private async Task IndexDocuments(ICollection<T> documents) {
-            IResponseWithRequestInformation result;
+            IResponse response;
             if (documents.Count == 1) {
                 var document = documents.Single();
-                result = await _client.IndexAsync(document, i => {
+                response = await _client.IndexAsync(document, i => {
                     if (GetParentIdFunc != null)
                         i.Parent(GetParentIdFunc(document));
 
@@ -404,32 +408,32 @@ namespace Foundatio.Repositories.Elasticsearch {
                     return i;
                 }).AnyContext();
             } else {
-                result = await _client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc).AnyContext();
+                response = await _client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc).AnyContext();
             }
 
-            _logger.Trace(() => result.GetRequest());
+            _logger.Trace(() => response.GetRequest());
+            
+            if (!response.IsValid) {
+                string message = response.GetErrorMessage();
+                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
 
-            if (!((IResponse)result).IsValid) {
-                var bulkResponse = result as IBulkResponse;
+                var bulkResponse = response as IBulkResponse;
                 if (bulkResponse != null) {
                     if (HasVersion) {
                         var idsWithErrors = bulkResponse.ItemsWithErrors.Where(i => !i.IsValid).Select(i => i.Id).ToList();
                         foreach (var document in documents.Where(d => idsWithErrors.Contains(d.Id)))
                             ((IVersioned)document).Version--;
                     }
-
-                    throw new ApplicationException(
-                        String.Join("\r\n", bulkResponse.ItemsWithErrors.Select(i => i.Error)),
-                        bulkResponse.ConnectionStatus.OriginalException);
+                    
+                    throw new ApplicationException(message, bulkResponse.ConnectionStatus.OriginalException);
                 }
 
                 if (HasVersion) {
                     foreach (var document in documents)
                         ((IVersioned)document).Version--;
                 }
-
-                throw new ApplicationException(String.Join("\r\n", ((IIndexResponse)result).ServerError.Error,
-                    ((IIndexResponse)result).ConnectionStatus.OriginalException));
+                
+                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
             }
         }
 

@@ -33,7 +33,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             await _lockProvider.TryUsingAsync("es-snapshot", async t => {
                 var sw = Stopwatch.StartNew();
                 var result = await Run.WithRetriesAsync(async () => {
-                    var res = await _client.SnapshotAsync(
+                    var response = await _client.SnapshotAsync(
                         Repository,
                         snapshotName,
                         d => d
@@ -42,10 +42,10 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                             .IncludeGlobalState(false)
                             .WaitForCompletion()).AnyContext();
 
-                    if (!res.IsValid)
-                        throw new ApplicationException($"Snapshot failed: {res.GetErrorMessage()}");
+                    if (!response.IsValid)
+                        throw new ApplicationException($"Snapshot failed: {response.GetErrorMessage()}", response.ConnectionStatus.OriginalException);
 
-                    return res;
+                    return response;
                 },
                     maxAttempts: 5,
                     retryInterval: TimeSpan.FromSeconds(10),

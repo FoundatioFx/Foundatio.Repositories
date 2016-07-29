@@ -45,7 +45,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid)
-                throw new ApplicationException("An error occurred creating the template: " + response?.ServerError.Error);
+                throw new ApplicationException("An error occurred creating the template: " + response.ServerError.Error, response.ConnectionStatus.OriginalException);
         }
 
         public virtual PutTemplateDescriptor ConfigureTemplate(PutTemplateDescriptor template) {
@@ -85,7 +85,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var response = _client.DeleteIndex(GetVersionedNamePrefix() + "-*");
             _logger.Trace(() => response.GetRequest());
             if (!response.IsValid)
-                throw new ApplicationException("An error occurred deleting the indexes: " + response.ServerError?.Error);
+                throw new ApplicationException("An error occurred deleting the indexes: " + response.ServerError?.Error, response.ConnectionStatus.OriginalException);
 
             // delete the template
             IIndicesOperationResponse deleteResponse = null;
@@ -95,7 +95,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             _logger.Trace(() => deleteResponse.GetRequest());
             if (deleteResponse != null && !deleteResponse.IsValid)
-                throw new ApplicationException("An error occurred deleting the index template: " + response?.ServerError.Error);
+                throw new ApplicationException("An error occurred deleting the index template: " + response.ServerError.Error, response.ConnectionStatus.OriginalException);
         }
 
         public override Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
@@ -124,7 +124,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (result.IsValid)
                 _logger.Info($"Retrieved list of {indices.Count} indexes in {sw.Elapsed.ToWords(true)}");
             else
-                _logger.Error($"Failed to retrieve list of indexes: {result.GetErrorMessage()}");
+                _logger.Error(result.ConnectionStatus.OriginalException, $"Failed to retrieve list of indexes: {result.GetErrorMessage()}");
 
             return indices;
         }
@@ -150,7 +150,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 if (result.IsValid)
                     _logger.Info($"Removed indexes ({String.Join(",", oldIndexes)}) from alias {alias.Name}");
                 else
-                    _logger.Error($"Failed to remove indexes ({String.Join(",", oldIndexes)}) from alias {alias.Name}");
+                    _logger.Error(result.ConnectionStatus.OriginalException, $"Failed to remove indexes ({String.Join(",", oldIndexes)}) from alias {alias.Name}");
             }
         }
 
@@ -170,7 +170,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 if (deleteResult.IsValid)
                     _logger.Info($"Deleted index {index.Index} of age {now.Subtract(index.DateUtc).ToWords(true)} in {sw.Elapsed.ToWords(true)}");
                 else
-                    _logger.Error($"Failed to delete index {index.Index}: {deleteResult.GetErrorMessage()}");
+                    _logger.Error(deleteResult.ConnectionStatus.OriginalException, $"Failed to delete index {index.Index}: {deleteResult.GetErrorMessage()}");
             }
         }
 
