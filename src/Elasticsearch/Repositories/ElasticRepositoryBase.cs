@@ -120,10 +120,12 @@ namespace Foundatio.Repositories.Elasticsearch {
             while (results.Hits.Any()) {
                 var bulkResult = await _client.BulkAsync(b => {
                     string script = update as string;
-                    if (script != null)
-                        results.Hits.ForEach(h => b.Update<T>(u => u.Id(h.Id).Index(h.Index).Script(script)));
-                    else
-                        results.Hits.ForEach(h => b.Update<T, object>(u => u.Id(h.Id).Index(h.Index).Doc(update)));
+                    foreach (var h in results.Hits) {
+                        if (script != null)
+                            b.Update<T>(u => u.Id(h.Id).Index(h.Index).Version(h.Version).Script(script));
+                        else
+                            b.Update<T, object>(u => u.Id(h.Id).Index(h.Index).Version(h.Version).Doc(update));
+                    }
 
                     return b;
                 }).AnyContext();

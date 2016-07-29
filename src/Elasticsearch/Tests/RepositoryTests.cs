@@ -319,6 +319,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task UpdateAll() {
+            // TODO: Test update all with unversioned documents.
             var utcNow = SystemClock.UtcNow;
             var employees = new List<Employee> {
                 EmployeeGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),
