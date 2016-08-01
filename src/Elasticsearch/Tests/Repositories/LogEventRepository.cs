@@ -11,6 +11,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent> {
@@ -34,13 +35,17 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return CountAsync(new MyAppQuery().WithCompany(company).WithCacheKey(company));
         }
 
+        public Task<long> IncrementValue(string[] ids, int value = 1) {
+            string script = $"ctx._source.value += {value};";
+            return UpdateAllAsync(new MyAppQuery().WithIds(ids), script);
+        }
+
         protected override async Task InvalidateCacheAsync(ICollection<ModifiedDocument<LogEvent>> documents) {
             if (!IsCacheEnabled)
                 return;
 
             if (documents != null && documents.Count > 0 && HasIdentity) {
                 var keys = documents.Select(d => $"count:{d.Value.CompanyId}").Distinct().ToList();
-
                 if (keys.Count > 0)
                     await Cache.RemoveAllAsync(keys);
             }

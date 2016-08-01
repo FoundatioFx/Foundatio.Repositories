@@ -319,46 +319,41 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task UpdateAll() {
-            // TODO: Test update all with unversioned documents.
             var utcNow = SystemClock.UtcNow;
-            var employees = new List<Employee> {
-                EmployeeGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),
-                EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "1"),
-                EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "2"),
+            var logs = new List<LogEvent> {
+                LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),
+                LogEventGenerator.Generate(createdUtc: utcNow, companyId: "1"),
+                LogEventGenerator.Generate(createdUtc: utcNow, companyId: "2"),
             };
 
-            await _employeeRepository.AddAsync(employees);
+            await _dailyRepository.AddAsync(logs, addToCache: true);
             await _client.RefreshAsync();
             Assert.Equal(_cache.Count, 3);
             Assert.Equal(_cache.Hits, 0);
             Assert.Equal(_cache.Misses, 0);
             
-            Assert.Equal(2, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company"));
-            await _client.RefreshAsync();
-            Assert.Equal(_cache.Count, 1);
-            Assert.Equal(_cache.Hits, 0);
-            Assert.Equal(_cache.Misses, 0);
-
-            var results = await _employeeRepository.GetAllByCompanyAsync("1");
-            Assert.Equal(2, results.Documents.Count);
-            foreach (var document in results.Documents) {
-                Assert.Equal("1", document.CompanyId);
-                Assert.Equal("Test Company", document.CompanyName);
-            }
-            
-            results = await _employeeRepository.GetAllByCompanyAsync("2");
-            Assert.Equal(1, results.Documents.Count);
-            Assert.Equal(employees.First(e => e.CompanyId == "2"), results.Documents.First());
-
-            var company2Employees = results.Documents.ToList();
-            Assert.Equal(1, await _employeeRepository.IncrementYearsEmployeed(company2Employees.Select(e => e.Id).ToArray()));
+            Assert.Equal(3, await _dailyRepository.IncrementValue(logs.Select(l => l.Id).ToArray()));
             await _client.RefreshAsync();
             Assert.Equal(_cache.Count, 0);
             Assert.Equal(_cache.Hits, 0);
             Assert.Equal(_cache.Misses, 0);
 
-            results = await _employeeRepository.GetAllByCompanyAsync("2");
-            Assert.Equal(company2Employees.First().YearsEmployed + 1, results.Documents.First().YearsEmployed);
+            var results = await _dailyRepository.GetAllByCompanyAsync("1");
+            Assert.Equal(2, results.Documents.Count);
+            foreach (var document in results.Documents) {
+                Assert.Equal("1", document.CompanyId);
+                Assert.Equal(1, document.Value);
+            }
+            
+            await _dailyRepository.SaveAsync(logs, addToCache: true);
+            await _client.RefreshAsync();
+
+            results = await _dailyRepository.GetAllByCompanyAsync("1");
+            Assert.Equal(2, results.Documents.Count);
+            foreach (var document in results.Documents) {
+                Assert.Equal("1", document.CompanyId);
+                Assert.Equal(0, document.Value);
+            }
         }
 
         [Fact]

@@ -12,7 +12,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
         protected bool Equals(LogEvent other) {
             return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase) && 
                 String.Equals(CompanyId, other.CompanyId, StringComparison.InvariantCultureIgnoreCase) && 
-                String.Equals(Message, other.Message, StringComparison.InvariantCultureIgnoreCase) && 
+                String.Equals(Message, other.Message, StringComparison.InvariantCultureIgnoreCase) &&
+                Value == other.Value &&
                 CreatedUtc.Equals(other.CreatedUtc);
         }
         
@@ -31,6 +32,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
                 var hashCode = (Id != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Id) : 0);
                 hashCode = (hashCode * 397) ^ (CompanyId != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(CompanyId) : 0);
                 hashCode = (hashCode * 397) ^ (Message != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Message) : 0);
+                hashCode = (hashCode * 397) ^ Value;
                 hashCode = (hashCode * 397) ^ CreatedUtc.GetHashCode();
                 return hashCode;
             }
@@ -46,6 +48,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
 
         public string CompanyId { get; set; }
         public string Message { get; set; }
+        public int Value { get; set; }
         public DateTime CreatedUtc { get; set; }
     }
 
