@@ -53,14 +53,15 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public override Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
             var reindexer = new ElasticReindexer(_client, _logger);
-            int currentVersion = GetVersion();
+            int currentVersion = GetCurrentVersion();
 
             var reindexWorkItem = new ReindexWorkItem {
                 OldIndex = String.Concat(Name, "-v", currentVersion),
                 NewIndex = VersionedName,
-                Alias = Name,
-                DeleteOld = true
+                Alias = Name
             };
+
+            reindexWorkItem.DeleteOld = reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;
 
             foreach (var type in IndexTypes.OfType<IChildIndexType>())
                 reindexWorkItem.ParentMaps.Add(new ParentMap { Type = type.Name, ParentPath = type.ParentPath });
@@ -68,7 +69,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
         }
 
-        public virtual int GetVersion() {
+        public virtual int GetCurrentVersion() {
             var res = _client.GetAlias(a => a.Alias(Name));
             if (!res.Indices.Any())
                 return -1;

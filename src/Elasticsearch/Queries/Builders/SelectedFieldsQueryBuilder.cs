@@ -10,7 +10,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
     public class SelectedFieldsQueryBuilder : IElasticQueryBuilder {
         public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var selectedFieldsQuery = ctx.GetQueryAs<ISelectedFieldsQuery>();
+            var selectedFieldsQuery = ctx.GetSourceAs<ISelectedFieldsQuery>();
             if (selectedFieldsQuery?.SelectedFields?.Count > 0) {
                 ctx.Search.Source(s => s.Include(selectedFieldsQuery.SelectedFields.ToArray()));
                 return;

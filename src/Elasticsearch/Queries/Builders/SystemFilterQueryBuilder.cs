@@ -11,7 +11,7 @@ namespace Foundatio.Repositories.Elasticsearch.Repositories.Queries.Builders {
         }
 
         public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var systemFilter = ctx.GetQueryAs<ISystemFilterQuery>();
+            var systemFilter = ctx.GetSourceAs<ISystemFilterQuery>();
             var opt = ctx.GetOptionsAs<IQueryOptions>();
 
             if (systemFilter?.SystemFilter != null)

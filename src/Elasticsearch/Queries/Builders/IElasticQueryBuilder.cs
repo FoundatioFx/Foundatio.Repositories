@@ -7,21 +7,20 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public class QueryBuilderContext<T> where T : class, new() {
-        private readonly object _query;
-
-        public QueryBuilderContext(object query, object options, SearchDescriptor<T> search = null) {
-            _query = query;
+        public QueryBuilderContext(object source, object options, SearchDescriptor<T> search = null) {
+            Source = source;
             Options = options;
             Search = search ?? new SearchDescriptor<T>();
         }
 
+        public object Source { get; }
         public object Options { get; }
         public QueryContainer Query { get; set; }
         public FilterContainer Filter { get; set; }
         public SearchDescriptor<T> Search { get; }
 
-        public TQuery GetQueryAs<TQuery>() where TQuery : class {
-            return _query as TQuery;
+        public TQuery GetSourceAs<TQuery>() where TQuery : class {
+            return Source as TQuery;
         }
 
         public TOptions GetOptionsAs<TOptions>() where TOptions : class {

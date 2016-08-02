@@ -6,7 +6,7 @@ using Nest;
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class SoftDeletesQueryBuilder : IElasticQueryBuilder {
         public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var softDeletesQuery = ctx.GetQueryAs<ISoftDeletesQuery>();
+            var softDeletesQuery = ctx.GetSourceAs<ISoftDeletesQuery>();
             if (softDeletesQuery == null)
                 return;
 

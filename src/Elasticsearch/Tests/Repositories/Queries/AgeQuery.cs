@@ -25,7 +25,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Queries {
 
     public class AgeQueryBuilder : IElasticQueryBuilder {
         public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var ageQuery = ctx.GetQueryAs<IAgeQuery>();
+            var ageQuery = ctx.GetSourceAs<IAgeQuery>();
             if (ageQuery?.Ages == null || ageQuery.Ages.Count <= 0)
                 return;
 

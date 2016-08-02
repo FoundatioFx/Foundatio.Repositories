@@ -59,7 +59,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.True(employeeCountResult.IsValid);
             Assert.Equal(1, employeeCountResult.Count);
 
-            Assert.Equal(1, version1EmployeeIndex.GetVersion());
+            Assert.Equal(1, version1EmployeeIndex.GetCurrentVersion());
             version2EmployeeIndex.Configure();
 
             // Make sure we can write to the index still. Should go to the old index until after the reindex is complete.
@@ -82,7 +82,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await version2EmployeeIndex.ReindexAsync();
             _client.Refresh();
 
-            Assert.Equal(2, version2EmployeeIndex.GetVersion());
+            Assert.Equal(2, version2EmployeeIndex.GetCurrentVersion());
 
             alias = _client.GetAlias(descriptor => descriptor.Alias(version2EmployeeIndex.Name));
             Assert.True(alias.IsValid);

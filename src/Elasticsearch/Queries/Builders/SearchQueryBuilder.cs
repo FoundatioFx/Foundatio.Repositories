@@ -20,7 +20,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
 
         public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var searchQuery = ctx.GetQueryAs<ISearchQuery>();
+            var searchQuery = ctx.GetSourceAs<ISearchQuery>();
             if (searchQuery == null)
                 return;
 

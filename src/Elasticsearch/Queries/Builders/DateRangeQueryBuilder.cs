@@ -31,7 +31,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
     public class DateRangeQueryBuilder : IElasticQueryBuilder {
         public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var dateRangeQuery = ctx.GetQueryAs<IDateRangeQuery>();
+            var dateRangeQuery = ctx.GetSourceAs<IDateRangeQuery>();
             if (dateRangeQuery?.DateRanges == null || dateRangeQuery.DateRanges.Count <= 0)
                 return;
 
