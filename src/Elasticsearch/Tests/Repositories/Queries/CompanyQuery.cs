@@ -19,7 +19,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Queries {
 
     public class CompanyQueryBuilder : IElasticQueryBuilder {
         public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var companyQuery = ctx.GetQueryAs<ICompanyQuery>();
+            var companyQuery = ctx.GetSourceAs<ICompanyQuery>();
             if (companyQuery?.Companies == null || companyQuery.Companies.Count <= 0)
                 return;
 

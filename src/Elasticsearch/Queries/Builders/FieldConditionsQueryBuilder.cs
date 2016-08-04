@@ -22,7 +22,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
     public class FieldConditionsQueryBuilder : IElasticQueryBuilder {
         public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var fieldValuesQuery = ctx.GetQueryAs<IFieldConditionsQuery>();
+            var fieldValuesQuery = ctx.GetSourceAs<IFieldConditionsQuery>();
             if (fieldValuesQuery?.FieldConditions == null || fieldValuesQuery.FieldConditions.Count <= 0)
                 return;
 

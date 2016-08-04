@@ -14,7 +14,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
 
         public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var parentQuery = ctx.GetQueryAs<IParentQuery>();
+            var parentQuery = ctx.GetSourceAs<IParentQuery>();
             if (parentQuery?.ParentQuery == null)
                 return;
             

@@ -70,9 +70,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var reindexWorkItem = new ReindexWorkItem {
                 OldIndex = String.Concat(Name, "-v", currentVersion),
                 NewIndex = VersionedName,
-                Alias = Name,
-                DeleteOld = true
+                Alias = Name
             };
+
+            reindexWorkItem.DeleteOld = reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;
 
             foreach (var type in IndexTypes.OfType<IChildIndexType>())
                 reindexWorkItem.ParentMaps.Add(new ParentMap { Type = type.Name, ParentPath = type.ParentPath });
@@ -86,6 +87,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         /// </summary>
         /// <returns>-1 if there are no indexes.</returns>
         public virtual int GetCurrentVersion() {
+            //var res = _client.GetAlias(a => a.Alias(Name));
+            //if (!res.Indices.Any())
+            //    return -1;
+
             var indexes = GetIndexList();
 
             var currentVersionIndex = indexes.FirstOrDefault(i => i.Version == Version);

@@ -7,7 +7,7 @@ using Nest;
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class SortableQueryBuilder : IElasticQueryBuilder {
         public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var sortableQuery = ctx.GetQueryAs<ISortableQuery>();
+            var sortableQuery = ctx.GetSourceAs<ISortableQuery>();
             if (sortableQuery?.SortBy == null || sortableQuery.SortBy.Count <= 0)
                 return;
 

@@ -12,7 +12,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
     public class AggregationsQueryBuilder : IElasticQueryBuilder {
         public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var aggregationQuery = ctx.GetQueryAs<IAggregationQuery>();
+            var aggregationQuery = ctx.GetSourceAs<IAggregationQuery>();
             if (aggregationQuery?.AggregationFields == null || aggregationQuery.AggregationFields.Count <= 0)
                 return;
 
