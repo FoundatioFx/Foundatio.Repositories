@@ -391,6 +391,11 @@ namespace Foundatio.Repositories.Elasticsearch {
         #endregion
 
         private async Task IndexDocuments(ICollection<T> documents) {
+            if (HasMultipleIndexes) {
+                foreach (var document in documents)
+                    TimeSeriesType.EnsureIndex(document);
+            }
+
             IResponse response;
             if (documents.Count == 1) {
                 var document = documents.Single();

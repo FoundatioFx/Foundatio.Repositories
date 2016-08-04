@@ -27,15 +27,17 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         protected abstract ElasticConfiguration GetElasticConfiguration();
 
-        protected virtual async Task RemoveDataAsync() {
+        protected virtual async Task RemoveDataAsync(bool configureIndexes = true) {
             var minimumLevel = Log.MinimumLevel;
             Log.MinimumLevel = LogLevel.Error;
 
             await _cache.RemoveAllAsync();
 
             _configuration.DeleteIndexes();
-            _configuration.ConfigureIndexes();
-            await _configuration.Client.RefreshAsync();
+            if (configureIndexes)
+                _configuration.ConfigureIndexes();
+            
+            await _client.RefreshAsync();
 
             Log.MinimumLevel = minimumLevel;
         }

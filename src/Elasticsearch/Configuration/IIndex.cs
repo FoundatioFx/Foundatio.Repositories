@@ -16,6 +16,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
     }
 
     public interface ITimeSeriesIndex : IIndex, IMaintainableIndex {
+        void EnsureIndex(DateTime utcDate);
         string GetIndex(DateTime utcDate);
         string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd);
     }

@@ -14,6 +14,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
     public interface ITimeSeriesIndexType<T> : IIndexType<T>, ITimeSeriesIndexType where T : class {
         string GetDocumentIndex(T document);
+        void EnsureIndex(T document);
     }
 
     public class TimeSeriesIndexType<T> : IndexType<T>, ITimeSeriesIndexType<T> where T : class {
@@ -81,7 +82,18 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var date = _getDocumentDateUtc(document);
             return TimeSeriesIndex.GetIndex(date);
         }
-        
+
+        public virtual void EnsureIndex(T document) {
+            if (document == null)
+                throw new ArgumentNullException(nameof(document));
+
+            if (_getDocumentDateUtc == null)
+                throw new ArgumentException("Unable to get document index", nameof(document));
+
+            var date = _getDocumentDateUtc(document);
+            TimeSeriesIndex.EnsureIndex(date);
+        }
+
         public virtual string GetIndexById(string id) {
             if (String.IsNullOrEmpty(id))
                 throw new ArgumentNullException(nameof(id));

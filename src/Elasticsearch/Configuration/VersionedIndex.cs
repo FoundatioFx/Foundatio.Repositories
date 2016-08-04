@@ -1,6 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
+using Exceptionless.DateTimeExtensions;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
@@ -28,8 +31,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 _logger.Trace(() => response.GetRequest());
             }
 
-            if (response != null && !response.IsValid)
-                throw new ApplicationException("An error occurred creating the index: " + response.ServerError.Error, response.ConnectionStatus.OriginalException);
+            if (response == null || response.IsValid)
+                return;
+
+            string message = $"An error occurred creating the index: {response.GetErrorMessage()}";
+            _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
         }
 
         public virtual CreateIndexDescriptor ConfigureDescriptor(CreateIndexDescriptor idx) {
@@ -47,13 +54,18 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 _logger.Trace(() => response.GetRequest());
             }
 
-            if (response != null && !response.IsValid)
-                throw new ApplicationException("An error occurred deleting the index: " + response.ServerError.Error, response.ConnectionStatus.OriginalException);
+            if (response == null || response.IsValid)
+                return;
+
+            string message = $"An error occurred deleting the index: {response.GetErrorMessage()}";
+            _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
         }
 
         public override Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
-            var reindexer = new ElasticReindexer(_client, _logger);
-            int currentVersion = GetVersion();
+            int currentVersion = GetCurrentVersion();
+            if (currentVersion < 0 || currentVersion == Version)
+                return Task.CompletedTask;
 
             var reindexWorkItem = new ReindexWorkItem {
                 OldIndex = String.Concat(Name, "-v", currentVersion),
@@ -65,22 +77,77 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             foreach (var type in IndexTypes.OfType<IChildIndexType>())
                 reindexWorkItem.ParentMaps.Add(new ParentMap { Type = type.Name, ParentPath = type.ParentPath });
 
+            var reindexer = new ElasticReindexer(_client, _logger);
             return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
         }
 
-        public virtual int GetVersion() {
-            var res = _client.GetAlias(a => a.Alias(Name));
-            if (!res.Indices.Any())
-                return -1;
+        /// <summary>
+        /// Returns the current index version (E.G., the oldest index version).
+        /// </summary>
+        /// <returns>-1 if there are no indexes.</returns>
+        public virtual int GetCurrentVersion() {
+            var indexes = GetIndexList();
 
-            string indexName = res.Indices.FirstOrDefault().Key;
-            string versionString = indexName.Substring(indexName.LastIndexOf("-", StringComparison.Ordinal));
+            var currentVersionIndex = indexes.FirstOrDefault(i => i.Version == Version);
+            if (currentVersionIndex != null)
+                indexes.Remove(currentVersionIndex);
+            
+            if (indexes.Count == 0)
+                return currentVersionIndex != null ? Version : -1;
+            
+            if (indexes.Count > 1)
+                throw new ApplicationException($"Multiple index versions found: {String.Join(", ", indexes.Select(i => i.Index))}");
+
+            return indexes.Single().Version;
+        }
+
+        protected IList<IndexInfo> GetIndexList(int version = -1) {
+            // TODO: Update this to use a index filter once we upgrade to elastic 2.x+
+            var sw = Stopwatch.StartNew();
+            var response = _client.CatIndices(i => i.Pri().H("index").RequestConfiguration(r => r.RequestTimeout(5 * 60 * 1000)));
+            sw.Stop();
+            _logger.Trace(() => response.GetRequest());
+
+            if (!response.IsValid) {
+                string message = $"Error getting indices: {response.GetErrorMessage()}";
+                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+            }
+
+            string index = version < 0 ? $"{Name}-v" : $"{Name}-v{version}";
+            var indices = response.Records
+                .Where(i => i.Index.StartsWith(index) && (version < 0 || GetIndexVersion(i.Index) == version))
+                .Select(i => new IndexInfo { DateUtc = GetIndexDate(i.Index), Index = i.Index, Version = GetIndexVersion(i.Index) })
+                .ToList();
+
+            _logger.Info($"Retrieved list of {indices.Count} indexes in {sw.Elapsed.ToWords(true)}");
+            return indices;
+        }
+        
+        protected virtual DateTime GetIndexDate(string name) {
+            return DateTime.MaxValue;
+        }
+        
+        protected virtual int GetIndexVersion(string name) {
+            if (String.IsNullOrEmpty(name))
+                throw new ArgumentNullException(nameof(name));
+
+            string input = name.Substring($"{Name}-v".Length);
+            int index = input.IndexOf('-');
+            if (index > 0)
+                input = input.Substring(0, index);
 
             int version;
-            if (!Int32.TryParse(versionString.Substring(2), out version))
-                return -1;
+            if (Int32.TryParse(input, out version))
+                return version;
 
-            return version;
+            return -1;
+        }
+
+        protected class IndexInfo {
+            public string Index { get; set; }
+            public int Version { get; set; }
+            public DateTime DateUtc { get; set; }
         }
     }
 }

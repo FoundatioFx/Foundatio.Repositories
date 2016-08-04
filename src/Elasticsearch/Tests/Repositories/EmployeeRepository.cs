@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Caching;
 using Foundatio.Logging;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
@@ -19,7 +20,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             ElasticType = elasticConfiguration.Employees.Employee;
         }
 
-        public EmployeeRepository(IElasticClient client, EmployeeType employeeType, ICacheClient cache, ILogger<EmployeeRepository> logger) : base(client, null, cache, null, logger) {
+        public EmployeeRepository(IElasticClient client, IIndexType<Employee> employeeType, ICacheClient cache, ILogger<EmployeeRepository> logger) : base(client, null, cache, null, logger) {
             ElasticType = employeeType;
         }
         

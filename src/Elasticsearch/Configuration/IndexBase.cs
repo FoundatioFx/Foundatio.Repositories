@@ -24,7 +24,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public string Name { get; }
         public IReadOnlyCollection<IIndexType> IndexTypes => _frozenTypes.Value;
 
-        public void AddType(IIndexType type) {
+        public virtual void AddType(IIndexType type) {
             if (_frozenTypes.IsValueCreated)
                 throw new InvalidOperationException("Can't add index types after the list has been frozen.");
 
