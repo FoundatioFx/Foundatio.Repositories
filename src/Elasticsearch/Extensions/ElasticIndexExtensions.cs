@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Nest;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticIndexExtensions {
@@ -132,6 +133,26 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             bulkRequest.Operations = list;
 
             return bulkRequest;
+        }
+
+        public static PropertiesDescriptor<T> SetupDefaults<T>(this PropertiesDescriptor<T> pd) where T : class {
+            var hasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
+            var hasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
+            var supportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(typeof(T));
+
+            if (supportsSoftDeletes) {
+                pd.Boolean(p => p.Name(d => (d as ISupportSoftDeletes).IsDeleted).IndexName(SoftDeletesQueryBuilder.Fields.Deleted));
+            }
+
+            if (hasCreatedDate) {
+                pd.Date(p => p.Name(d => (d as IHaveCreatedDate).CreatedUtc).IndexName("created"));
+            }
+
+            if (hasDates) {
+                pd.Date(p => p.Name(d => (d as IHaveDates).UpdatedUtc).IndexName("updated"));
+            }
+
+            return pd;
         }
     }
 }

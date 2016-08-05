@@ -18,11 +18,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase {
         private readonly IdentityRepository _identityRepository;
         private readonly DailyLogEventRepository _dailyRepository;
+        private readonly EmployeeRepository _employeeRepository;
         private readonly IQueue<WorkItemData> _workItemQueue = new InMemoryQueue<WorkItemData>();
 
         public ReadOnlyRepositoryTests(ITestOutputHelper output) : base(output) {
             _identityRepository = new IdentityRepository(MyAppConfiguration, _cache, Log.CreateLogger<IdentityRepository>());
             _dailyRepository = new DailyLogEventRepository(MyAppConfiguration, _cache, Log.CreateLogger<DailyLogEventRepository>());
+            _employeeRepository = new EmployeeRepository(MyAppConfiguration, _cache, Log.CreateLogger<EmployeeRepository>());
 
             RemoveDataAsync().GetAwaiter().GetResult();
         }
@@ -361,6 +363,20 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync();
             Assert.True(await _dailyRepository.ExistsAsync(yesterdayLog.Id));
             Assert.True(await _dailyRepository.ExistsAsync(nowLog.Id));
+        }
+
+        [Fact]
+        public async Task ShouldNotIncludeWhenDeleted() {
+            var deletedEmployee = EmployeeGenerator.Generate(age: 20, name: "Deleted");
+            deletedEmployee.IsDeleted = true;
+            await _employeeRepository.AddAsync(deletedEmployee);
+
+            var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20));
+            await _client.RefreshAsync();
+
+            var employees = await _employeeRepository.GetAllByAgeAsync(20);
+
+            Assert.Equal(1, employees.Documents.Count);
         }
     }
 }
