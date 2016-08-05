@@ -14,10 +14,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         CreateIndexDescriptor Configure(CreateIndexDescriptor idx);
     }
 
-    public interface ITemplatedIndexType {
-        PutTemplateDescriptor ConfigureTemplate(PutTemplateDescriptor idx);
-    }
-
     public interface IIndexType<T>: IIndexType where T : class {
         /// <summary>
         /// Creates a new document id. If a date can be resolved, it will be taken into account when creating a new id.

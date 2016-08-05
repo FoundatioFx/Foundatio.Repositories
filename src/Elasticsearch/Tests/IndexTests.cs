@@ -38,28 +38,24 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var index = new DailyEmployeeIndex(_client, 1, Log);
             index.Delete();
             await _client.RefreshAsync();
-
-            var existsResponse = await _client.TemplateExistsAsync(index.Name);
-            _logger.Trace(() => existsResponse.GetRequest());
-            Assert.True(existsResponse.IsValid);
-            Assert.False(existsResponse.Exists);
-
+            
             using (new DisposableAction(() => index.Delete())) {
                 index.Configure();
                 await _client.RefreshAsync();
-
-                existsResponse = await _client.TemplateExistsAsync(index.Name);
+                
+                var existsResponse = await _client.AliasExistsAsync(index.Name);
                 _logger.Trace(() => existsResponse.GetRequest());
                 Assert.True(existsResponse.IsValid);
-                Assert.True(existsResponse.Exists);
-                
-                existsResponse = await _client.AliasExistsAsync(index.Name);
+                Assert.False(existsResponse.Exists);
+
+
+                var utcNow = SystemClock.UtcNow;
+                existsResponse = await _client.AliasExistsAsync(index.GetIndex(utcNow));
                 _logger.Trace(() => existsResponse.GetRequest());
                 Assert.True(existsResponse.IsValid);
                 Assert.False(existsResponse.Exists);
                 
-                var utcNow = SystemClock.UtcNow;
-                existsResponse = await _client.IndexExistsAsync(index.GetIndex(utcNow));
+                existsResponse = await _client.IndexExistsAsync(index.GetVersionedIndex(utcNow));
                 _logger.Trace(() => existsResponse.GetRequest());
                 Assert.True(existsResponse.IsValid);
                 Assert.False(existsResponse.Exists);
@@ -74,7 +70,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.True(existsResponse.IsValid);
                 Assert.True(existsResponse.Exists);
 
-                existsResponse = await _client.IndexExistsAsync(index.GetIndex(utcNow));
+                existsResponse = await _client.AliasExistsAsync(index.GetIndex(utcNow));
+                _logger.Trace(() => existsResponse.GetRequest());
+                Assert.True(existsResponse.IsValid);
+                Assert.True(existsResponse.Exists);
+
+                existsResponse = await _client.IndexExistsAsync(index.GetVersionedIndex(utcNow));
                 _logger.Trace(() => existsResponse.GetRequest());
                 Assert.True(existsResponse.IsValid);
                 Assert.True(existsResponse.Exists);
@@ -86,28 +87,23 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var index = new MonthlyEmployeeIndex(_client, 1, Log);
             index.Delete();
             await _client.RefreshAsync();
-
-            var existsResponse = await _client.TemplateExistsAsync(index.Name);
-            _logger.Trace(() => existsResponse.GetRequest());
-            Assert.True(existsResponse.IsValid);
-            Assert.False(existsResponse.Exists);
-
+            
             using (new DisposableAction(() => index.Delete())) {
                 index.Configure();
                 await _client.RefreshAsync();
-
-                existsResponse = await _client.TemplateExistsAsync(index.Name);
-                _logger.Trace(() => existsResponse.GetRequest());
-                Assert.True(existsResponse.IsValid);
-                Assert.True(existsResponse.Exists);
-
-                existsResponse = await _client.AliasExistsAsync(index.Name);
+                
+                var existsResponse = await _client.AliasExistsAsync(index.Name);
                 _logger.Trace(() => existsResponse.GetRequest());
                 Assert.True(existsResponse.IsValid);
                 Assert.False(existsResponse.Exists);
 
                 var utcNow = SystemClock.UtcNow;
-                existsResponse = await _client.IndexExistsAsync(index.GetIndex(utcNow));
+                existsResponse = await _client.AliasExistsAsync(index.GetIndex(utcNow));
+                _logger.Trace(() => existsResponse.GetRequest());
+                Assert.True(existsResponse.IsValid);
+                Assert.False(existsResponse.Exists);
+
+                existsResponse = await _client.IndexExistsAsync(index.GetVersionedIndex(utcNow));
                 _logger.Trace(() => existsResponse.GetRequest());
                 Assert.True(existsResponse.IsValid);
                 Assert.False(existsResponse.Exists);
@@ -122,7 +118,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.True(existsResponse.IsValid);
                 Assert.True(existsResponse.Exists);
 
-                existsResponse = await _client.IndexExistsAsync(index.GetIndex(utcNow));
+                existsResponse = await _client.AliasExistsAsync(index.GetIndex(utcNow));
+                _logger.Trace(() => existsResponse.GetRequest());
+                Assert.True(existsResponse.IsValid);
+                Assert.True(existsResponse.Exists);
+
+                existsResponse = await _client.IndexExistsAsync(index.GetVersionedIndex(utcNow));
                 _logger.Trace(() => existsResponse.GetRequest());
                 Assert.True(existsResponse.IsValid);
                 Assert.True(existsResponse.Exists);
@@ -242,6 +243,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.Equal(1, aliasCountResponse.Count);
 
                 var indexCountResponse = await _client.CountAsync(d => d.Index(version1Index.GetIndex(utcNow)));
+                _logger.Trace(() => indexCountResponse.GetRequest());
+                Assert.True(indexCountResponse.IsValid);
+                Assert.Equal(1, indexCountResponse.Count);
+                
+                indexCountResponse = await _client.CountAsync(d => d.Index(version1Index.GetVersionedIndex(utcNow)));
                 _logger.Trace(() => indexCountResponse.GetRequest());
                 Assert.True(indexCountResponse.IsValid);
                 Assert.Equal(1, indexCountResponse.Count);

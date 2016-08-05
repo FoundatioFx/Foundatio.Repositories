@@ -10,14 +10,17 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public Index(IElasticClient client, string name, ILoggerFactory loggerFactory = null) : base(client, name, loggerFactory) {}
 
         public override void Configure() {
-            IIndicesOperationResponse response = null;
+            if (_client.IndexExists(Name).Exists)
+                return;
 
-            if (!_client.IndexExists(Name).Exists)
-                response = _client.CreateIndex(Name, ConfigureDescriptor);
-
+            var response = _client.CreateIndex(Name, ConfigureDescriptor);
             _logger.Trace(() => response.GetRequest());
-            if (response != null && !response.IsValid)
-                throw new ApplicationException("An error occurred creating the index or template: " + response.ServerError.Error, response.ConnectionStatus.OriginalException);
+
+            if (!response.IsValid) {
+                string message = $"An error occurred creating the index {Name}: {response.GetErrorMessage()}";
+                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+            }
 
             while (!_client.IndexExists(Name).Exists)
                 SystemClock.Sleep(100);

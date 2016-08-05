@@ -6,7 +6,7 @@ using Foundatio.Repositories.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
-    public interface ITimeSeriesIndexType : IIndexType, ITemplatedIndexType {
+    public interface ITimeSeriesIndexType : IIndexType {
         string GetIndexById(string id);
 
         string[] GetIndexesByQuery(object query);

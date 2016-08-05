@@ -44,25 +44,49 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public override void Configure() {
-            // TODO: Populate the alias cache...
+            var indexes = this.GetIndexList().OrderBy(i => i.Version).GroupBy(i => i.DateUtc);
+            var addedAliases = new List<string>();
+            foreach (var index in indexes) {
+                if (index.Key == DateTime.MaxValue)
+                    continue;
 
-            //var response = _client.PutTemplate(Name, ConfigureTemplate);
-            //_logger.Trace(() => response.GetRequest());
+                // TODO: MAX AGE?
+                string alias = GetIndex(index.Key);
+                if (_aliasCache.Contains(alias))
+                    continue;
 
-            //if (response.IsValid)
-            //    return;
+                if (_client.AliasExists(alias).Exists) {
+                    _aliasCache.Add(alias);
+                    continue;
+                }
 
-            //string message = $"An error occurred creating the template: {response.GetErrorMessage()}";
-            //_logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-            //throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                var response = _client.Alias(a => a.Add(s => s.Index(index.First().Index).Alias(alias)));
+                if (response.IsValid) { // TODO: What if a second instance created it..
+                    _aliasCache.Add(alias);
+                    addedAliases.Add(alias);
+                    continue;
+                }
+
+                string message = $"An error occurred creating the alias {alias} for index {index.First().Index}: {response.GetErrorMessage()}";
+                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+            }
+
+            foreach (var alias in addedAliases) {
+                while (!_client.AliasExists(alias).Exists)
+                    SystemClock.Sleep(100);
+            }
         }
         
         public virtual string GetIndex(DateTime utcDate) {
             return $"{Name}-{utcDate:yyyy.MM.dd}";
         }
 
-        public virtual string GetVersionedIndex(DateTime utcDate) {
-            return $"{VersionedName}-{utcDate:yyyy.MM.dd}";
+        public virtual string GetVersionedIndex(DateTime utcDate, int? version = null) {
+            if (version == null || version < 0)
+                version = Version;
+
+            return $"{Name}-v{Version}-{utcDate:yyyy.MM.dd}";
         }
         
         protected override DateTime GetIndexDate(string name) {
@@ -74,19 +98,20 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         // add needs to call ensure index + save
-        private readonly HashSet<string> _cache = new HashSet<string>();
+        private readonly HashSet<string> _aliasCache = new HashSet<string>();
 
         public virtual void EnsureIndex(DateTime utcDate) {
             string alias = GetIndex(utcDate);
-            if (_cache.Contains(alias))
+            if (_aliasCache.Contains(alias))
                 return;
 
             if (_client.AliasExists(alias).Exists) {
-                _cache.Add(alias);
+                _aliasCache.Add(alias);
                 return;
             }
 
             // TODO: check max age..
+            // Try creating the index.
             var index = GetVersionedIndex(utcDate);
             var response = _client.CreateIndex(index, descriptor => {
                 var d = ConfigureDescriptor(descriptor).AddAlias(alias);
@@ -95,17 +120,25 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
                 return d;
             });
-
+            
             _logger.Trace(() => response.GetRequest());
-            if (response.IsValid || _client.AliasExists(alias).Exists) { // TODO: Not sure if we should be checking the alias or index.
-                _cache.Add(alias);
+            if (response.IsValid) {
+                while (!_client.AliasExists(alias).Exists)
+                    SystemClock.Sleep(1);
+
+                _aliasCache.Add(alias);
+                return;
+            }
+
+            // The create might of failed but the index already exists..
+            if (_client.AliasExists(alias).Exists) {
+                _aliasCache.Add(alias);
                 return;
             }
 
             string message = $"An error occurred creating the index: {response.GetErrorMessage()}";
             _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
             throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
-
         }
 
         public virtual string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd) {
@@ -123,33 +156,19 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             return indices.ToArray();
         }
-
-
+        
         public override void Delete() {
             // delete all indexes by prefix
             var response = _client.DeleteIndex($"{VersionedName}-*");
             _logger.Trace(() => response.GetRequest());
+            _aliasCache.Clear();
 
-            string message;
-            if (!response.IsValid) {
-                message = $"An error occurred deleting the indexes: {response.GetErrorMessage()}";
-                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
-            }
- 
-            // delete the template
-            if (!_client.TemplateExists(Name).Exists)
+            if (response.IsValid)
                 return;
 
-            var deleteResponse = _client.DeleteTemplate(Name);
-            _logger.Trace(() => deleteResponse.GetRequest());
-
-            if (deleteResponse.IsValid)
-                return;
-
-            message = $"An error occurred deleting the index template: {deleteResponse.GetErrorMessage()}";
-            _logger.Error().Exception(deleteResponse.ConnectionStatus.OriginalException).Message(message).Property("request", deleteResponse.GetRequest()).Write();
-            throw new ApplicationException(message, deleteResponse.ConnectionStatus.OriginalException);
+            string message = $"An error occurred deleting the indexes: {response.GetErrorMessage()}";
+            _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
         }
 
         public override async Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {

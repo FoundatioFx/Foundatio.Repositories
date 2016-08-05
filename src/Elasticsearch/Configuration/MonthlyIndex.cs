@@ -18,10 +18,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return $"{VersionedName}-{utcDate:yyyy.MM}";
         }
 
-        public override string GetVersionedIndex(DateTime utcDate) {
-            return $"{VersionedName}-{utcDate:yyyy.MM}";
+        public override string GetVersionedIndex(DateTime utcDate, int? version = null) {
+            if (version == null || version < 0)
+                version = Version;
+
+            return $"{Name}-v{Version}-{utcDate:yyyy.MM}";
         }
-        
+
         protected override DateTime GetIndexDate(string name) {
             DateTime result;
             if (DateTime.TryParseExact(name, $"\'{VersionedName}-\'yyyy.MM", EnUs, DateTimeStyles.AssumeUniversal, out result))
