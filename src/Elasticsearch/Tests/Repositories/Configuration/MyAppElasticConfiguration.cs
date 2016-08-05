@@ -15,6 +15,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
             SetClient(new Uri(connectionString));
 
             // register our custom app query builders
+            ElasticQueryBuilder.Default.RegisterDefaults();
             ElasticQueryBuilder.Default.Register<AgeQueryBuilder>();
             ElasticQueryBuilder.Default.Register<CompanyQueryBuilder>();
 

@@ -14,7 +14,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (opt == null || !opt.SupportsSoftDeletes)
                 return;
             
-            ctx.Filter &= new TermFilter { Field = "deleted", Value = softDeletesQuery.IncludeSoftDeletes };
+            ctx.Filter &= new TermFilter { Field = Fields.Deleted, Value = softDeletesQuery.IncludeSoftDeletes };
+        }
+
+        internal class Fields {
+            public const string Deleted = "deleted";
         }
     }
 }

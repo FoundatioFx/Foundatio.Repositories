@@ -4,7 +4,7 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
-    public class Employee : IIdentity, IHaveDates, IVersioned {
+    public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes {
         public string Id { get; set; }
         public string CompanyId { get; set; }
         public string CompanyName { get; set; }
@@ -14,6 +14,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
         public DateTime CreatedUtc { get; set; }
         public DateTime UpdatedUtc { get; set; }
         public long Version { get; set; }
+        public bool IsDeleted { get; set; }
 
         protected bool Equals(Employee other) {
             return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase) && 

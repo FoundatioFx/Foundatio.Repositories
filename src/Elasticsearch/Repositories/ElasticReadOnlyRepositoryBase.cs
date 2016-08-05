@@ -455,11 +455,11 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected string GetDocumentIndex(T document) {
-            return HasMultipleIndexes ? TimeSeriesType.GetIndexByDocument(document) : ElasticIndex.Name;
+            return HasMultipleIndexes ? TimeSeriesType.GetDocumentIndex(document) : ElasticIndex.Name;
         }
 
         protected Func<T, string> GetParentIdFunc => HasParent ? d => ChildType.GetParentId(d) : (Func<T, string>)null;
-        protected Func<T, string> GetDocumentIndexFunc => HasMultipleIndexes ? d => TimeSeriesType.GetIndexByDocument(d) : (Func<T, string>)(d => ElasticIndex.Name);
+        protected Func<T, string> GetDocumentIndexFunc => HasMultipleIndexes ? d => TimeSeriesType.GetDocumentIndex(d) : (Func<T, string>)(d => ElasticIndex.Name);
 
         protected async Task<TResult> GetCachedQueryResultAsync<TResult>(object query, string cachePrefix = null, string cacheSuffix = null) {
             var cachedQuery = query as ICachableQuery;

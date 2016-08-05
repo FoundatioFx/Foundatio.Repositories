@@ -7,7 +7,7 @@ using Foundatio.Repositories.Queries;
 namespace Foundatio.Repositories.Elasticsearch.Queries {
     public class Query : ISystemFilterQuery, IIdentityQuery, ICachableQuery, IDateRangeQuery,
         IFieldConditionsQuery, IPagableQuery, ISearchQuery, IAggregationQuery,
-        ISelectedFieldsQuery, ISortableQuery, IParentQuery, IChildQuery {
+        ISelectedFieldsQuery, ISortableQuery, IParentQuery, IChildQuery, ISoftDeletesQuery {
 
         public List<string> Ids { get; } = new List<string>();
         public string CacheKey { get; set; }
@@ -29,5 +29,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         public List<AggregationField> AggregationFields { get; } = new List<AggregationField>();
         public ITypeQuery ParentQuery { get; set; }
         public ITypeQuery ChildQuery { get; set; }
+        public bool IncludeSoftDeletes { get; set; }
     }
 }
