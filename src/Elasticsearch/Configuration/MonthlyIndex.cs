@@ -21,6 +21,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public override string GetVersionedIndex(DateTime utcDate) {
             return $"{VersionedName}-{utcDate:yyyy.MM}";
         }
+        
+        protected override DateTime GetIndexDate(string name) {
+            DateTime result;
+            if (DateTime.TryParseExact(name, $"\'{VersionedName}-\'yyyy.MM", EnUs, DateTimeStyles.AssumeUniversal, out result))
+                return result.Date;
+
+            return DateTime.MaxValue;
+        }
 
         public override string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd) {
             if (!utcStart.HasValue)
@@ -36,14 +44,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 indices.Add(GetIndex(current));
 
             return indices.ToArray();
-        }
-
-        protected override DateTime GetIndexDate(string name) {
-            DateTime result;
-            if (DateTime.TryParseExact(name, $"\'{VersionedName}-\'yyyy.MM", EnUs, DateTimeStyles.None, out result))
-                return result;
-
-            return DateTime.MaxValue;
         }
     }
 }

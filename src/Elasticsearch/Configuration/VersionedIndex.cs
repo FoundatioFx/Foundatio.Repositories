@@ -20,7 +20,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public string VersionedName { get; }
 
         public override void Configure() {
-            IIndicesOperationResponse response = null;
+            IIndicesOperationResponse response;
+            string message;
 
             if (!_client.IndexExists(VersionedName).Exists) {
                 if (!_client.AliasExists(Name).Exists)
@@ -29,12 +30,26 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                     response = _client.CreateIndex(VersionedName, ConfigureDescriptor);
                 
                 _logger.Trace(() => response.GetRequest());
+                if (response.IsValid)
+                    return;
+
+                message = $"An error occurred creating the index: {response.GetErrorMessage()}";
+                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
             }
 
-            if (response == null || response.IsValid)
+            if (_client.AliasExists(Name).Exists)
                 return;
 
-            string message = $"An error occurred creating the index: {response.GetErrorMessage()}";
+            var currentVersion = GetCurrentVersion();
+            if (currentVersion < 0 || currentVersion >= Version)
+                currentVersion = Version;
+
+            response = _client.Alias(a => a.Add(s => s.Index(String.Concat(Name, "-v", currentVersion)).Alias(Name)));
+            if (response.IsValid)
+                return;
+
+            message = $"An error occurred creating the alias: {response.GetErrorMessage()}";
             _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
             throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
         }
@@ -64,7 +79,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public override Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
             int currentVersion = GetCurrentVersion();
-            if (currentVersion < 0 || currentVersion == Version)
+            if (currentVersion < 0 || currentVersion >= Version)
                 return Task.CompletedTask;
 
             var reindexWorkItem = new ReindexWorkItem {
@@ -92,18 +107,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             //    return -1;
 
             var indexes = GetIndexList();
-
-            var currentVersionIndex = indexes.FirstOrDefault(i => i.Version == Version);
-            if (currentVersionIndex != null)
-                indexes.Remove(currentVersionIndex);
-            
             if (indexes.Count == 0)
-                return currentVersionIndex != null ? Version : -1;
-            
-            if (indexes.Count > 1)
-                throw new ApplicationException($"Multiple index versions found: {String.Join(", ", indexes.Select(i => i.Index))}");
+                return -1;
 
-            return indexes.Single().Version;
+            return indexes.Select(i => i.Version).OrderBy(v => v).First();
         }
 
         protected IList<IndexInfo> GetIndexList(int version = -1) {

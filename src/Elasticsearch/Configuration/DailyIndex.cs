@@ -38,9 +38,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public void AddAlias(string name, TimeSpan? maxAge = null) {
             _aliases.Add(new IndexAliasAge {
-                             Name = name,
-                             MaxAge = maxAge ?? TimeSpan.MaxValue
-                         });
+                Name = name,
+                MaxAge = maxAge ?? TimeSpan.MaxValue
+            });
         }
 
         public override void Configure() {
@@ -56,26 +56,21 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             //_logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
             //throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
         }
-
-        //public virtual PutTemplateDescriptor ConfigureTemplate(PutTemplateDescriptor template) {
-        //    template.Template($"{VersionedName}-*");
-        //    template.AddAlias("{index}-alias");
-        //    foreach (var alias in Aliases)
-        //        template.AddAlias(alias.Name);
-
-        //    // TODO: What should happen if there are types that don't implement ITemplatedIndexType?
-        //    foreach (var type in IndexTypes.OfType<ITemplatedIndexType>())
-        //        type.ConfigureTemplate(template);
-
-        //    return template;
-        //}
-
+        
         public virtual string GetIndex(DateTime utcDate) {
             return $"{Name}-{utcDate:yyyy.MM.dd}";
         }
 
         public virtual string GetVersionedIndex(DateTime utcDate) {
             return $"{VersionedName}-{utcDate:yyyy.MM.dd}";
+        }
+        
+        protected override DateTime GetIndexDate(string name) {
+            DateTime result;
+            if (DateTime.TryParseExact(name, $"\'{VersionedName}-\'yyyy.MM.dd", EnUs, DateTimeStyles.AssumeUniversal, out result))
+                return result.Date;
+
+            return DateTime.MaxValue;
         }
 
         // add needs to call ensure index + save
@@ -92,7 +87,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
 
             // TODO: check max age..
-
             var index = GetVersionedIndex(utcDate);
             var response = _client.CreateIndex(index, descriptor => {
                 var d = ConfigureDescriptor(descriptor).AddAlias(alias);
@@ -103,7 +97,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             });
 
             _logger.Trace(() => response.GetRequest());
-            if (response.IsValid || _client.IndexExists(index).Exists) {
+            if (response.IsValid || _client.AliasExists(alias).Exists) { // TODO: Not sure if we should be checking the alias or index.
                 _cache.Add(alias);
                 return;
             }
@@ -129,6 +123,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             return indices.ToArray();
         }
+
 
         public override void Delete() {
             // delete all indexes by prefix
@@ -166,14 +161,17 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (indexes.Count == 0)
                 return;
 
+            // TODO: MaxAge??
+
             var reindexer = new ElasticReindexer(_client, _logger);
             foreach (var index in indexes) {
                 var reindexWorkItem = new ReindexWorkItem {
-                    OldIndex = String.Concat(Name, "-v", currentVersion),
+                    OldIndex = index.Index,
                     NewIndex = VersionedName,
-                    Alias = Name,
-                    DeleteOld = true
+                    Alias = Name
                 };
+
+                reindexWorkItem.DeleteOld = reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;
                 
                 foreach (var type in IndexTypes.OfType<IChildIndexType>())
                     reindexWorkItem.ParentMaps.Add(new ParentMap { Type = type.Name, ParentPath = type.ParentPath });
@@ -231,14 +229,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 else
                     _logger.Error(deleteResult.ConnectionStatus.OriginalException, $"Failed to delete index {index.Index}: {deleteResult.GetErrorMessage()}");
             }
-        }
-
-        protected override DateTime GetIndexDate(string name) {
-            DateTime result;
-            if (DateTime.TryParseExact(name, $"\'{VersionedName}-\'yyyy.MM.dd", EnUs, DateTimeStyles.None, out result))
-                return result;
-
-            return DateTime.MaxValue;
         }
 
         public class IndexAliasAge {
