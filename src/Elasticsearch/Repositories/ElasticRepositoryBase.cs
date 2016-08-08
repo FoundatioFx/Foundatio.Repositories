@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using FluentValidation;
@@ -184,6 +185,11 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (documents.Count == 0)
                 return;
+            
+            if (HasMultipleIndexes) {
+                foreach (var document in documents)
+                    TimeSeriesType.EnsureIndex(document);
+            }
 
             await OnDocumentsRemovingAsync(documents).AnyContext();
 

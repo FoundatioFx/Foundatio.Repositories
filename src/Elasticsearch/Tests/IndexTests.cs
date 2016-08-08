@@ -47,8 +47,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 _logger.Trace(() => existsResponse.GetRequest());
                 Assert.True(existsResponse.IsValid);
                 Assert.False(existsResponse.Exists);
-
-
+                
                 var utcNow = SystemClock.UtcNow;
                 existsResponse = await _client.AliasExistsAsync(index.GetIndex(utcNow));
                 _logger.Trace(() => existsResponse.GetRequest());

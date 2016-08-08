@@ -6,7 +6,6 @@ using Foundatio.Logging;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
-using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Xunit;
 using Xunit.Abstractions;
