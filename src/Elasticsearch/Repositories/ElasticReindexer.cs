@@ -31,10 +31,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             var startTime = SystemClock.UtcNow.AddSeconds(-1);
             await progressCallbackAsync(0, "Starting reindex...").AnyContext();
             var result = await InternalReindexAsync(workItem, progressCallbackAsync, 0, 90, workItem.StartUtc).AnyContext();
-            await progressCallbackAsync(90, $"Total: {result.Total} Completed: {result.Completed}").AnyContext();
+            await progressCallbackAsync(95, $"Total: {result.Total} Completed: {result.Completed}").AnyContext();
 
             // TODO: Check to make sure the docs have been added to the new index before changing alias
-
             if (!String.IsNullOrEmpty(workItem.Alias)) {
                 await _client.AliasAsync(x => x
                     .Remove(a => a.Alias(workItem.Alias).Index(workItem.OldIndex))
@@ -52,9 +51,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                 long newDocCount = (await _client.CountAsync(d => d.Index(workItem.NewIndex)).AnyContext()).Count - existingDocCount;
                 long oldDocCount = (await _client.CountAsync(d => d.Index(workItem.OldIndex)).AnyContext()).Count;
                 await progressCallbackAsync(98, $"Old Docs: {oldDocCount} New Docs: {newDocCount}").AnyContext();
-                if (newDocCount >= oldDocCount)
+                if (newDocCount >= oldDocCount) {
                     await _client.DeleteIndexAsync(d => d.Index(workItem.OldIndex)).AnyContext();
-                await progressCallbackAsync(98, $"Deleted index: {workItem.OldIndex}").AnyContext();
+                    await progressCallbackAsync(98, $"Deleted index: {workItem.OldIndex}").AnyContext();
+                }
             }
 
             await progressCallbackAsync(100, null).AnyContext();

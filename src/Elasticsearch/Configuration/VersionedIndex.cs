@@ -42,7 +42,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return;
 
             var currentVersion = GetCurrentVersion();
-            if (currentVersion < 0 || currentVersion >= Version)
+            if (currentVersion < 0 || currentVersion >= Version) // TODO: What do we do here.
                 currentVersion = Version;
 
             response = _client.Alias(a => a.Add(s => s.Index(String.Concat(Name, "-v", currentVersion)).Alias(Name)));
@@ -62,14 +62,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public override void Delete() {
-            IIndicesResponse response = null;
+            if (!_client.IndexExists(VersionedName).Exists)
+                return;
 
-            if (_client.IndexExists(VersionedName).Exists) {
-                response = _client.DeleteIndex(VersionedName);
-                _logger.Trace(() => response.GetRequest());
-            }
-
-            if (response == null || response.IsValid)
+            var response = _client.DeleteIndex(VersionedName);
+            _logger.Trace(() => response.GetRequest());
+            if (response.IsValid)
                 return;
 
             string message = $"An error occurred deleting the index: {response.GetErrorMessage()}";
@@ -77,7 +75,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
         }
 
-        public override Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
+        public override Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null, bool canDeleteOld = true) {
             int currentVersion = GetCurrentVersion();
             if (currentVersion < 0 || currentVersion >= Version)
                 return Task.CompletedTask;
@@ -88,7 +86,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 Alias = Name
             };
 
-            reindexWorkItem.DeleteOld = reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;
+            reindexWorkItem.DeleteOld = canDeleteOld && reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;
 
             foreach (var type in IndexTypes.OfType<IChildIndexType>())
                 reindexWorkItem.ParentMaps.Add(new ParentMap { Type = type.Name, ParentPath = type.ParentPath });
@@ -102,15 +100,15 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         /// </summary>
         /// <returns>-1 if there are no indexes.</returns>
         public virtual int GetCurrentVersion() {
-            //var res = _client.GetAlias(a => a.Alias(Name));
-            //if (!res.Indices.Any())
-            //    return -1;
+            return GetVersionFromAlias(Name);
+        }
 
-            var indexes = GetIndexList();
-            if (indexes.Count == 0)
-                return -1;
+        protected int GetVersionFromAlias(string alias) {
+            var response = _client.GetAlias(a => a.Alias(alias));
+            if (response.IsValid && response.Indices.Count > 0)
+                return response.Indices.Keys.Select(GetIndexVersion).OrderBy(v => v).First();
 
-            return indexes.Select(i => i.Version).OrderBy(v => v).First();
+            return -1;
         }
 
         protected IList<IndexInfo> GetIndexList(int version = -1) {

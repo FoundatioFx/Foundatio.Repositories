@@ -8,7 +8,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         IReadOnlyCollection<IIndexType> IndexTypes { get; }
         void Configure();
         void Delete();
-        Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null);
+        Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null, bool canDeleteOld = true);
     }
 
     public interface IMaintainableIndex {

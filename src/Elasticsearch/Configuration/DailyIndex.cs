@@ -120,6 +120,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
         }
 
+        public override int GetCurrentVersion() {
+            var indexes = GetIndexList();
+            if (indexes.Count == 0)
+                return -1;
+
+            return indexes.Select(i => i.Version).OrderBy(v => v).First();
+        }
+
         public virtual string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd) {
             if (!utcStart.HasValue)
                 utcStart = SystemClock.UtcNow;
@@ -167,7 +175,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
         }
 
-        public override async Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
+        public override async Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null, bool canDeleteOld = true) {
             int currentVersion = GetCurrentVersion();
             if (currentVersion < 0 || currentVersion == Version)
                 return;
@@ -177,7 +185,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return;
 
             // TODO: MaxAge??
-
+            // TODO: Create the mappings...
             var reindexer = new ElasticReindexer(_client, _logger);
             foreach (var index in indexes) {
                 var reindexWorkItem = new ReindexWorkItem {
@@ -186,10 +194,19 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                     Alias = Name
                 };
 
-                reindexWorkItem.DeleteOld = reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;
+                reindexWorkItem.DeleteOld = canDeleteOld && reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;
                 
                 foreach (var type in IndexTypes.OfType<IChildIndexType>())
                     reindexWorkItem.ParentMaps.Add(new ParentMap { Type = type.Name, ParentPath = type.ParentPath });
+
+                if (!_client.IndexExists(reindexWorkItem.NewIndex).Exists) {
+                    var response = _client.CreateIndex(reindexWorkItem.NewIndex, ConfigureDescriptor);
+                    if (!response.IsValid) {
+                        string message = $"An error occurred creating the index: {response.GetErrorMessage()}";
+                        _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                        throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                    }
+                }
 
                 // TODO: progress callback will report 0-100% multiple times...
                 await reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
