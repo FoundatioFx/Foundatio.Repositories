@@ -91,13 +91,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
             
             // Try creating the index.
-            var startOfUtcToday = SystemClock.UtcNow.Date;
             var index = GetVersionedIndex(utcDate);
             var response = _client.CreateIndex(index, descriptor => {
                 var d = ConfigureDescriptor(descriptor).AddAlias(alias);
-                foreach (var a in Aliases)
-                    if (startOfUtcToday.SafeSubtract(a.MaxAge) <= utcDate)
-                        d.AddAlias(a.Name);
+                foreach (var a in Aliases.Where(a => ShouldCreateAlias(utcDate, a)))
+                    d.AddAlias(a.Name);
 
                 return d;
             });
@@ -120,6 +118,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             string message = $"An error occurred creating the index: {response.GetErrorMessage()}";
             _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
             throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+        }
+
+        protected virtual bool ShouldCreateAlias(DateTime documentDateUtc, IndexAliasAge alias) {
+            return SystemClock.UtcNow.Date.SafeSubtract(alias.MaxAge) <= documentDateUtc;
         }
 
         public override int GetCurrentVersion() {

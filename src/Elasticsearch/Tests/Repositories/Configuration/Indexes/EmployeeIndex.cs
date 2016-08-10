@@ -1,6 +1,7 @@
 ﻿using System;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
@@ -43,10 +44,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
         public EmployeeType Employee { get; }
     }
 
-    public sealed class MonthlyEmployeeIndex : DailyIndex {
+    public sealed class MonthlyEmployeeIndex : MonthlyIndex {
         public MonthlyEmployeeIndex(IElasticClient client, int version, ILoggerFactory loggerFactory) : base(client, "monthly-employees", version, loggerFactory) {
             Employee = new MonthlyEmployeeType(this);
             AddType(Employee);
+            AddAlias($"{Name}-today", TimeSpan.FromDays(1));
+            AddAlias($"{Name}-last7days", TimeSpan.FromDays(7));
+            AddAlias($"{Name}-last30days", TimeSpan.FromDays(30));
+            AddAlias($"{Name}-last60days", TimeSpan.FromDays(60));
         }
 
         public MonthlyEmployeeType Employee { get; }
