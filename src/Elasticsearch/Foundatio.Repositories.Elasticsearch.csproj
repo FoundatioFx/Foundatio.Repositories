@@ -33,8 +33,8 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="ElasticMacros, Version=1.0.40.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Exceptionless.ElasticMacros.1.0.40\lib\net46\ElasticMacros.dll</HintPath>
+    <Reference Include="ElasticMacros, Version=1.0.42.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Exceptionless.ElasticMacros.1.0.42\lib\net46\ElasticMacros.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Elasticsearch.Net, Version=1.0.0.0, Culture=neutral, PublicKeyToken=96c599bbe3e70f5d, processorArchitecture=MSIL">
@@ -45,16 +45,16 @@
       <HintPath>..\..\packages\Exceptionless.DateTimeExtensions.3.2.53\lib\net45\Exceptionless.DateTimeExtensions.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Exceptionless.LuceneQueryParser, Version=1.0.40.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Exceptionless.LuceneQueryParser.1.0.40\lib\net46\Exceptionless.LuceneQueryParser.dll</HintPath>
+    <Reference Include="Exceptionless.LuceneQueryParser, Version=1.0.42.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Exceptionless.LuceneQueryParser.1.0.42\lib\net46\Exceptionless.LuceneQueryParser.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="FluentValidation, Version=6.2.1.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\..\packages\FluentValidation.6.2.1.0\lib\Net45\FluentValidation.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Foundatio, Version=4.2.1155.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Foundatio.4.2.1155\lib\net46\Foundatio.dll</HintPath>
+    <Reference Include="Foundatio, Version=4.2.1161.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Foundatio.4.2.1161\lib\net46\Foundatio.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Nest, Version=1.0.0.0, Culture=neutral, PublicKeyToken=96c599bbe3e70f5d, processorArchitecture=MSIL">

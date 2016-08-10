@@ -1,6 +1,5 @@
 ﻿using System;
 using ElasticMacros;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface ISearchQuery {
@@ -15,8 +14,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public class SearchQueryBuilder : IElasticQueryBuilder {
-        public SearchQueryBuilder() {
-            new ElasticMacroProcessor();
+        private readonly ElasticMacroProcessor _processor;
+
+        public SearchQueryBuilder(ElasticMacroProcessor processor) {
+            _processor = processor ?? new ElasticMacroProcessor();
         }
 
         public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
@@ -24,27 +25,12 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (searchQuery == null)
                 return;
 
-            var processor = new ElasticMacroProcessor(c => c
-                .UseGeo(l => "d", "field4")
-                .UseAliases(name => name == "geo" ? "field4" : name));
-            var filterContainer = processor.Process("geo:[9 TO d] OR field1:value1 OR field2:[1 TO 4] OR -geo:\"Dallas, TX\"~75mi");
+            // TODO: Use default search operator and wildcards
+            if (!String.IsNullOrEmpty(searchQuery.SearchQuery))
+                ctx.Query &= _processor.ProcessQuery(searchQuery.SearchQuery);
 
-            if (!String.IsNullOrEmpty(searchQuery.SearchQuery)) {
-                ctx.Query &= new QueryStringQuery {
-                    Query = searchQuery.SearchQuery,
-                    DefaultOperator = searchQuery.DefaultSearchQueryOperator == SearchOperator.Or ? Operator.Or : Operator.And,
-                    AnalyzeWildcard = true
-                };
-            }
-
-            if (!String.IsNullOrEmpty(searchQuery.Filter)) {
-                ctx.Filter &= new QueryFilter {
-                    Query = QueryContainer.From(new QueryStringQuery {
-                        Query = searchQuery.Filter,
-                        DefaultOperator = Operator.And
-                    })
-                };
-            }
+            if (!String.IsNullOrEmpty(searchQuery.Filter))
+                ctx.Filter &= _processor.ProcessFilter(searchQuery.Filter);
         }
     }
 

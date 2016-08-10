@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using Foundatio.Repositories.Elasticsearch.Repositories.Queries.Builders;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
@@ -12,26 +11,23 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 RegisterDefaults();
         }
 
-        public void Register<T>() where T : IElasticQueryBuilder, new() {
-            if (_partBuilders.Any(b => b.GetType() == typeof(T)))
-                return;
-
-             _partBuilders.Add(new T());
-        }
-
-        public void Register<T>(Func<IElasticQueryBuilder> creator) where T : IElasticQueryBuilder {
-            if (_partBuilders.Any(b => b.GetType() == typeof(T)))
-                return;
-
-            _partBuilders.Add(creator());
-        }
-
-        public void Register(IElasticQueryBuilder builder) {
-            _partBuilders.Add(builder);
+        public void Register<T>(bool replace = true) where T : IElasticQueryBuilder, new() {
+            Register(new T(), replace);
         }
 
         public void Register(params IElasticQueryBuilder[] builders) {
-            _partBuilders.AddRange(builders);
+            foreach (var builder in builders)
+                Register(builder);
+        }
+
+        public void Register<T>(T builder, bool replace = true) where T : IElasticQueryBuilder {
+            if (replace) {
+                int existing = _partBuilders.FindIndex(b => b.GetType() == typeof(T));
+                if (existing >= 0)
+                    _partBuilders.RemoveAt(existing);
+            }
+
+            _partBuilders.Add(builder);
         }
 
         public void RegisterDefaults() {
@@ -39,13 +35,13 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             Register<SelectedFieldsQueryBuilder>();
             Register<SortableQueryBuilder>();
             Register<AggregationsQueryBuilder>();
-            Register<ParentQueryBuilder>(() => new ParentQueryBuilder(this));
-            Register<ChildQueryBuilder>(() => new ChildQueryBuilder(this));
+            Register(new ParentQueryBuilder(this));
+            Register(new ChildQueryBuilder(this));
             Register<IdentityQueryBuilder>();
             Register<SoftDeletesQueryBuilder>();
             Register<DateRangeQueryBuilder>();
-            Register<SearchQueryBuilder>();
-            Register<SystemFilterQueryBuilder>(() => new SystemFilterQueryBuilder(this));
+            Register(new SearchQueryBuilder(null));
+            Register(new SystemFilterQueryBuilder(this));
             Register<ElasticFilterQueryBuilder>();
             Register<FieldConditionsQueryBuilder>();
         }
