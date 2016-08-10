@@ -29,7 +29,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _aliasCache = new InMemoryCacheClient(loggerFactory);
         }
 
-        public TimeSpan? MaxIndexAge { get; } = null;
+        public TimeSpan? MaxIndexAge { get; set; }
 
         private DateTime GetIndexExpirationDate(DateTime utcDate) {
             return MaxIndexAge.HasValue ? utcDate.Add(MaxIndexAge.Value) : DateTime.MaxValue;
@@ -91,11 +91,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
             
             // Try creating the index.
+            var startOfUtcToday = SystemClock.UtcNow.Date;
             var index = GetVersionedIndex(utcDate);
             var response = _client.CreateIndex(index, descriptor => {
                 var d = ConfigureDescriptor(descriptor).AddAlias(alias);
                 foreach (var a in Aliases)
-                    d.AddAlias(a.Name);
+                    if (startOfUtcToday.SafeSubtract(a.MaxAge) <= utcDate)
+                        d.AddAlias(a.Name);
 
                 return d;
             });
@@ -185,7 +187,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return;
 
             // TODO: MaxAge??
-            // TODO: Create the mappings...
             var reindexer = new ElasticReindexer(_client, _logger);
             foreach (var index in indexes) {
                 var reindexWorkItem = new ReindexWorkItem {
@@ -222,19 +223,19 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             DeleteOldIndexes(indexes);
         }
         
-        protected void RemoveOldIndexesFromAliases(IList<IndexInfo> indexes) {
+        protected virtual void RemoveOldIndexesFromAliases(IList<IndexInfo> indexes) {
             if (!MaxIndexAge.HasValue)
                 return;
             
-            DateTime utcNow = SystemClock.UtcNow;
+            DateTime startOfUtcToday = SystemClock.UtcNow.Date;
             foreach (var alias in Aliases) {
-                var oldIndexes = indexes.Where(i => i.DateUtc < utcNow.Subtract(alias.MaxAge)).ToList();
+                var oldIndexes = indexes.Where(i => i.DateUtc < startOfUtcToday.SafeSubtract(alias.MaxAge)).ToList();
                 if (oldIndexes.Count == 0)
                     continue;
 
                 var a = new AliasDescriptor();
                 foreach (var index in oldIndexes)
-                    a.Remove(r => r.Index(index.Index).Alias(alias.Name));
+                    a = a.Remove(r => r.Index(index.Index).Alias(alias.Name));
 
                 var result = _client.Alias(a);
                 _logger.Trace(() => result.GetRequest());
@@ -245,24 +246,25 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
         }
 
-        protected void DeleteOldIndexes(IList<IndexInfo> indexes) {
+        protected virtual void DeleteOldIndexes(IList<IndexInfo> indexes) {
             if (!MaxIndexAge.HasValue)
                 return;
 
             var sw = Stopwatch.StartNew();
-            DateTime now = SystemClock.UtcNow;
-            foreach (var index in indexes.Where(s => s.DateUtc < now.Subtract(MaxIndexAge.Value))) {
+            DateTime startOfUtcToday = SystemClock.UtcNow.Date;
+            foreach (var index in indexes.Where(s => s.DateUtc < startOfUtcToday.Subtract(MaxIndexAge.Value))) {
                 sw.Restart();
                 var deleteResult = _client.DeleteIndex(index.Index, d => d);
                 _logger.Trace(() => deleteResult.GetRequest());
                 sw.Stop();
                 if (deleteResult.IsValid)
-                    _logger.Info($"Deleted index {index.Index} of age {now.Subtract(index.DateUtc).ToWords(true)} in {sw.Elapsed.ToWords(true)}");
+                    _logger.Info($"Deleted index {index.Index} of age {startOfUtcToday.Subtract(index.DateUtc).ToWords(true)} in {sw.Elapsed.ToWords(true)}");
                 else
                     _logger.Error(deleteResult.ConnectionStatus.OriginalException, $"Failed to delete index {index.Index}: {deleteResult.GetErrorMessage()}");
             }
         }
         
+        [DebuggerDisplay("Name: {Name} Max Age: {MaxAge}")]
         public class IndexAliasAge {
             public string Name { get; set; }
             public TimeSpan MaxAge { get; set; }
