@@ -49,6 +49,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return indices.ToArray();
         }
 
+        protected override DateTime GetIndexExpirationDate(DateTime utcDate) {
+            return MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero ? utcDate.StartOfMonth().Add(MaxIndexAge.Value) : DateTime.MaxValue;
+        }
+
         protected override bool ShouldCreateAlias(DateTime documentDateUtc, IndexAliasAge alias) {
             if (SystemClock.UtcNow.StartOfMonth() == documentDateUtc.StartOfMonth())
                 return true;

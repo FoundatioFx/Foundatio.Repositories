@@ -849,8 +849,53 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             }
         }
 
-        public async Task IndexMaxAge() {
+        [Fact]
+        public async Task DailyIndexMaxAge() {
+            var index = new DailyEmployeeIndex(_client, 1, Log);
+            index.MaxIndexAge = TimeSpan.FromDays(1);
+            index.Delete();
+            
+            using (new DisposableAction(() => index.Delete())) {
+                index.Configure();
 
+                var utcNow = SystemClock.UtcNow;
+                index.EnsureIndex(utcNow);
+                var existsResponse = await _client.IndexExistsAsync(index.GetIndex(utcNow));
+                _logger.Trace(() => existsResponse.GetRequest());
+                Assert.True(existsResponse.IsValid);
+                Assert.True(existsResponse.Exists);
+
+                Assert.Throws<ArgumentException>(() => index.EnsureIndex(utcNow.SubtractDays(1)));
+                existsResponse = await _client.IndexExistsAsync(index.GetIndex(utcNow.SubtractDays(1)));
+                _logger.Trace(() => existsResponse.GetRequest());
+                Assert.True(existsResponse.IsValid);
+                Assert.False(existsResponse.Exists);
+            }
+        }
+
+
+        [Fact]
+        public async Task MonthlyIndexMaxAge() {
+            var index = new MonthlyEmployeeIndex(_client, 1, Log);
+            index.MaxIndexAge = TimeSpan.FromDays(31);
+            index.Delete();
+
+            using (new DisposableAction(() => index.Delete())) {
+                index.Configure();
+
+                var utcNow = SystemClock.UtcNow;
+                index.EnsureIndex(utcNow);
+                var existsResponse = await _client.IndexExistsAsync(index.GetIndex(utcNow));
+                _logger.Trace(() => existsResponse.GetRequest());
+                Assert.True(existsResponse.IsValid);
+                Assert.True(existsResponse.Exists);
+
+                Assert.Throws<ArgumentException>(() => index.EnsureIndex(utcNow.SubtractDays(35)));
+                existsResponse = await _client.IndexExistsAsync(index.GetIndex(utcNow.SubtractDays(35)));
+                _logger.Trace(() => existsResponse.GetRequest());
+                Assert.True(existsResponse.IsValid);
+                Assert.False(existsResponse.Exists);
+            }
         }
 
         private string ToJson(object data) {

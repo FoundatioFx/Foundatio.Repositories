@@ -31,8 +31,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public TimeSpan? MaxIndexAge { get; set; }
 
-        private DateTime GetIndexExpirationDate(DateTime utcDate) {
-            return MaxIndexAge.HasValue ? utcDate.Add(MaxIndexAge.Value) : DateTime.MaxValue;
+        protected virtual DateTime GetIndexExpirationDate(DateTime utcDate) {
+            return MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero ? utcDate.Date.Add(MaxIndexAge.Value) : DateTime.MaxValue;
         }
         
         public IReadOnlyCollection<IndexAliasAge> Aliases => _frozenAliases.Value;
@@ -78,7 +78,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         
         public virtual void EnsureIndex(DateTime utcDate) {
             var indexExpirationUtcDate = GetIndexExpirationDate(utcDate);
-            if (utcDate > indexExpirationUtcDate)
+            if (SystemClock.UtcNow >= indexExpirationUtcDate)
                 throw new ArgumentException($"Index max age exceeded: {indexExpirationUtcDate}", nameof(utcDate));
 
             string alias = GetIndex(utcDate);
