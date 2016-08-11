@@ -13,6 +13,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
         public EmployeeType Employee { get; }
     }
 
+    public sealed class EmployeeIndexWithYearsEmployed : Index {
+        public EmployeeIndexWithYearsEmployed(IElasticClient client, ILoggerFactory loggerFactory) : base(client, "employees", loggerFactory) {
+            Employee = new EmployeeTypeWithYearsEmployed(this);
+            AddType(Employee);
+        }
+
+        public EmployeeTypeWithYearsEmployed Employee { get; }
+    }
+
     public sealed class VersionedEmployeeIndex : VersionedIndex {
         public VersionedEmployeeIndex(IElasticClient client, int version, ILoggerFactory loggerFactory) : base(client, "employees", version, loggerFactory) {
             Employee = new EmployeeType(this);

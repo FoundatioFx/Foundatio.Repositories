@@ -102,9 +102,46 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             }
         }
 
-        [Fact]
+        [Fact(Skip = "Not currently possible to reindex the same index")]
         public async Task CanReindexSameIndex() {
-            //throw new NotImplementedException();
+            var index = new EmployeeIndex(_client, Log);
+            index.Delete();
+            
+            using (new DisposableAction(() => index.Delete())) {
+                index.Configure();
+                Assert.True(_client.IndexExists(index.Name).Exists);
+                
+                var repository = new EmployeeRepository(_client, index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                var employee = await repository.AddAsync(EmployeeGenerator.Default);
+                await _client.RefreshAsync();
+                Assert.NotNull(employee?.Id);
+
+                var countResponse = await _client.CountAsync(d => d.Index(index.Name));
+                _logger.Trace(() => countResponse.GetRequest());
+                Assert.True(countResponse.IsValid);
+                Assert.Equal(1, countResponse.Count);
+                
+                var mappingResponse = await _client.GetMappingAsync<Employee>(m => m.Index(index.Name));
+                _logger.Trace(() => mappingResponse.GetRequest());
+                Assert.True(mappingResponse.IsValid);
+                Assert.NotNull(mappingResponse.Mappings);
+                
+                var newIndex = new EmployeeIndexWithYearsEmployed(_client, Log);
+                await newIndex.ReindexAsync();
+                await _client.RefreshAsync();
+
+                countResponse = await _client.CountAsync(d => d.Index(index.Name));
+                _logger.Trace(() => countResponse.GetRequest());
+                Assert.True(countResponse.IsValid);
+                Assert.Equal(1, countResponse.Count);
+                
+                string version1Mappings = ToJson(mappingResponse.Mappings);
+                mappingResponse = await _client.GetMappingAsync<Employee>(m => m.Index(index.Name));
+                _logger.Trace(() => mappingResponse.GetRequest());
+                Assert.True(mappingResponse.IsValid);
+                Assert.NotNull(mappingResponse.Mappings);
+                Assert.NotEqual(version1Mappings, ToJson(mappingResponse.Mappings));
+            }
         }
 
         [Fact]

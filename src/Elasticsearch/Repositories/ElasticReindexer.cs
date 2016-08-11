@@ -26,6 +26,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (progressCallbackAsync == null)
                 progressCallbackAsync = (i, s) => Task.CompletedTask;
 
+            if (workItem.OldIndex == workItem.NewIndex) {
+                await progressCallbackAsync(100, null).AnyContext();
+                return;
+            }
+
             long existingDocCount = (await _client.CountAsync(d => d.Index(workItem.NewIndex)).AnyContext()).Count;
             _logger.Info("Received reindex work item for new index {0}", workItem.NewIndex);
             var startTime = SystemClock.UtcNow.AddSeconds(-1);
@@ -40,14 +45,12 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (aliases.Count > 0) {
                 await _client.AliasAsync(x => {
-                    foreach (var alias in aliases) {
-                        x = x.Remove(a => a.Alias(alias).Index(workItem.OldIndex))
-                             .Add(a => a.Alias(alias).Index(workItem.NewIndex));
-                    }
+                    foreach (var alias in aliases)
+                        x = x.Remove(a => a.Alias(alias).Index(workItem.OldIndex)).Add(a => a.Alias(alias).Index(workItem.NewIndex));
 
                     return x;
                 }).AnyContext();
-                
+
                 await progressCallbackAsync(98, $"Updated aliases: {String.Join(", ", aliases)} Remove: {workItem.OldIndex} Add: {workItem.NewIndex}").AnyContext();
             }
 
