@@ -34,12 +34,21 @@ namespace Foundatio.Repositories.Elasticsearch {
             await progressCallbackAsync(95, $"Total: {result.Total} Completed: {result.Completed}").AnyContext();
 
             // TODO: Check to make sure the docs have been added to the new index before changing alias
-            if (!String.IsNullOrEmpty(workItem.Alias)) {
-                await _client.AliasAsync(x => x
-                    .Remove(a => a.Alias(workItem.Alias).Index(workItem.OldIndex))
-                    .Add(a => a.Alias(workItem.Alias).Index(workItem.NewIndex))).AnyContext();
+            var aliases = await GetIndexAliases(workItem.OldIndex);
+            if (!String.IsNullOrEmpty(workItem.Alias) && !aliases.Contains(workItem.Alias))
+                aliases.Add(workItem.Alias);
 
-                await progressCallbackAsync(98, $"Updated alias: {workItem.Alias} Remove: {workItem.OldIndex} Add: {workItem.NewIndex}").AnyContext();
+            if (aliases.Count > 0) {
+                await _client.AliasAsync(x => {
+                    foreach (var alias in aliases) {
+                        x = x.Remove(a => a.Alias(alias).Index(workItem.OldIndex))
+                             .Add(a => a.Alias(alias).Index(workItem.NewIndex));
+                    }
+
+                    return x;
+                }).AnyContext();
+                
+                await progressCallbackAsync(98, $"Updated aliases: {String.Join(", ", aliases)} Remove: {workItem.OldIndex} Add: {workItem.NewIndex}").AnyContext();
             }
 
             await _client.RefreshAsync().AnyContext();
@@ -58,6 +67,16 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             await progressCallbackAsync(100, null).AnyContext();
+        }
+
+        private async Task<List<string>> GetIndexAliases(string index) {
+            var aliasesResponse = await _client.GetAliasesAsync(a => a.Index(index)).AnyContext();
+            if (aliasesResponse.IsValid && aliasesResponse.Indices.Count > 0) {
+                var aliases = aliasesResponse.Indices.Single(a => a.Key == index);
+                return aliases.Value.Select(a => a.Name).ToList();
+            }
+
+            return new List<string>();
         }
 
         private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync, int startProgress = 0, int endProgress = 100, DateTime? startTime = null) {

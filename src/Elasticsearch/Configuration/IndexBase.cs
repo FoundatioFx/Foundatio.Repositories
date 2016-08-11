@@ -34,21 +34,28 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public abstract void Configure();
 
         public virtual void Delete() {
-            IIndicesResponse response = null;
-
-            if (_client.IndexExists(Name).Exists) {
-                response = _client.DeleteIndex(Name);
-                _logger.Trace(() => response.GetRequest());
-            }
-
-            if (response != null && !response.IsValid)
-                throw new ApplicationException("An error occurred deleting the index: " + response.ServerError.Error, response.ConnectionStatus.OriginalException);
+            DeleteIndex(Name);
         }
 
-        public virtual Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null, bool canDeleteOld = true) {
-            var reindexer = new ElasticReindexer(_client, _logger);
+        protected void DeleteIndex(string name) {
+            if (name == null)
+                throw new ArgumentNullException(nameof(name));
 
-            // TODO: Does reindexing to the same index work?
+            if (!_client.IndexExists(name).Exists)
+                return;
+
+            var response = _client.DeleteIndex(name);
+            _logger.Trace(() => response.GetRequest());
+
+            if (response.IsValid)
+                return;
+
+            string message = $"Error deleting index {name}: {response.GetErrorMessage()}";
+            _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+        }
+
+        public virtual Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
             var reindexWorkItem = new ReindexWorkItem {
                 OldIndex = Name,
                 NewIndex = Name,
@@ -58,6 +65,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             foreach (var type in IndexTypes.OfType<IChildIndexType>())
                 reindexWorkItem.ParentMaps.Add(new ParentMap { Type = type.Name, ParentPath = type.ParentPath });
 
+            var reindexer = new ElasticReindexer(_client, _logger);
             return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
         }
     }

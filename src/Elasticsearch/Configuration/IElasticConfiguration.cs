@@ -82,7 +82,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 //else if (!Client.IndexExists(idx.VersionedName).Exists)
                 //    response = Client.CreateIndex(idx.VersionedName, descriptor => idx.Configure(descriptor));
 
-                //Debug.Assert(response == null || response.IsValid, response?.ServerError != null ? response.ServerError.Error : "An error occurred creating the index or template.");
+                //Debug.Assert(response == null || response.IsValid, response?.ServerError != null ? response.ServerError.Error : "Error creating the index or template.");
 
                 //// Add existing indexes to the alias.
                 //if (!Client.AliasExists(idx.Name).Exists) {
@@ -99,7 +99,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 //        response = Client.Alias(a => a.Add(add => add.Index(idx.VersionedName).Alias(idx.Name)));
                 //    }
 
-                //    Debug.Assert(response != null && response.IsValid, response?.ServerError != null ? response.ServerError.Error : "An error occurred creating the alias.");
+                //    Debug.Assert(response != null && response.IsValid, response?.ServerError != null ? response.ServerError.Error : "Error creating the alias.");
                 //}
 
                 //if (!beginReindexingOutdated)

@@ -1,7 +1,6 @@
 ﻿using System;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Configuration;
-using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {

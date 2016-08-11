@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -34,103 +35,78 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public void CannotAddInvalidTypeToDailyIndex() {
             Assert.Throws<ArgumentException>(() => new DailyEmployeeIndexWithWrongEmployeeType(_client, 1, Log));
         }
-
+        
         [Fact]
-        public async Task CanCreateDailyIndex() {
+        public async Task CanCreateDailyAliases() {
             var index = new DailyEmployeeIndex(_client, 1, Log);
             index.Delete();
-            await _client.RefreshAsync();
-            
+
+            var utcNow = SystemClock.UtcNow;
             using (new DisposableAction(() => index.Delete())) {
                 index.Configure();
-                await _client.RefreshAsync();
-                
-                var existsResponse = await _client.AliasExistsAsync(index.Name);
-                _logger.Trace(() => existsResponse.GetRequest());
-                Assert.True(existsResponse.IsValid);
-                Assert.False(existsResponse.Exists);
-                
-                var utcNow = SystemClock.UtcNow;
-                existsResponse = await _client.AliasExistsAsync(index.GetIndex(utcNow));
-                _logger.Trace(() => existsResponse.GetRequest());
-                Assert.True(existsResponse.IsValid);
-                Assert.False(existsResponse.Exists);
-                
-                existsResponse = await _client.IndexExistsAsync(index.GetVersionedIndex(utcNow));
-                _logger.Trace(() => existsResponse.GetRequest());
-                Assert.True(existsResponse.IsValid);
-                Assert.False(existsResponse.Exists);
-
                 var repository = new EmployeeRepository(_client, index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
-                var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow));
-                Assert.NotNull(employee?.Id);
-                await _client.RefreshAsync();
-                
-                existsResponse = await _client.AliasExistsAsync(index.Name);
-                _logger.Trace(() => existsResponse.GetRequest());
-                Assert.True(existsResponse.IsValid);
-                Assert.True(existsResponse.Exists);
 
-                existsResponse = await _client.AliasExistsAsync(index.GetIndex(utcNow));
-                _logger.Trace(() => existsResponse.GetRequest());
-                Assert.True(existsResponse.IsValid);
-                Assert.True(existsResponse.Exists);
+                for (int i = 0; i < 35; i += 5) {
+                    var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(i)));
+                    Assert.NotNull(employee?.Id);
 
-                existsResponse = await _client.IndexExistsAsync(index.GetVersionedIndex(utcNow));
-                _logger.Trace(() => existsResponse.GetRequest());
-                Assert.True(existsResponse.IsValid);
-                Assert.True(existsResponse.Exists);
+                    Assert.Equal(1, index.GetCurrentVersion());
+                    var existsResponse = await _client.IndexExistsAsync(index.GetIndex(employee.CreatedUtc));
+                    _logger.Trace(() => existsResponse.GetRequest());
+                    Assert.True(existsResponse.IsValid);
+                    Assert.True(existsResponse.Exists);
+
+                    var aliasesResponse = await _client.GetAliasesAsync(a => a.Index(index.GetIndex(employee.CreatedUtc)));
+                    _logger.Trace(() => aliasesResponse.GetRequest());
+                    Assert.True(aliasesResponse.IsValid);
+                    Assert.Equal(1, aliasesResponse.Indices.Count);
+
+                    var aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
+                    aliases.Sort();
+
+                    Assert.Equal(GetExpectedEmployeeDailyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
+                }
             }
         }
-        
+
         [Fact]
-        public async Task CanCreateMonthlyIndex() {
+        public async Task CanCreateMonthlyAliases() {
             var index = new MonthlyEmployeeIndex(_client, 1, Log);
             index.Delete();
-            await _client.RefreshAsync();
-            
+
+            var utcNow = SystemClock.UtcNow;
             using (new DisposableAction(() => index.Delete())) {
                 index.Configure();
-                await _client.RefreshAsync();
-                
-                var existsResponse = await _client.AliasExistsAsync(index.Name);
-                _logger.Trace(() => existsResponse.GetRequest());
-                Assert.True(existsResponse.IsValid);
-                Assert.False(existsResponse.Exists);
-
-                var utcNow = SystemClock.UtcNow;
-                existsResponse = await _client.AliasExistsAsync(index.GetIndex(utcNow));
-                _logger.Trace(() => existsResponse.GetRequest());
-                Assert.True(existsResponse.IsValid);
-                Assert.False(existsResponse.Exists);
-
-                existsResponse = await _client.IndexExistsAsync(index.GetVersionedIndex(utcNow));
-                _logger.Trace(() => existsResponse.GetRequest());
-                Assert.True(existsResponse.IsValid);
-                Assert.False(existsResponse.Exists);
-
                 var repository = new EmployeeRepository(_client, index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
-                var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow));
-                Assert.NotNull(employee?.Id);
-                await _client.RefreshAsync();
 
-                existsResponse = await _client.AliasExistsAsync(index.Name);
-                _logger.Trace(() => existsResponse.GetRequest());
-                Assert.True(existsResponse.IsValid);
-                Assert.True(existsResponse.Exists);
+                for (int i = 0; i < 4; i++) {
+                    var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractMonths(i)));
+                    Assert.NotNull(employee?.Id);
 
-                existsResponse = await _client.AliasExistsAsync(index.GetIndex(utcNow));
-                _logger.Trace(() => existsResponse.GetRequest());
-                Assert.True(existsResponse.IsValid);
-                Assert.True(existsResponse.Exists);
+                    Assert.Equal(1, index.GetCurrentVersion());
+                    var existsResponse = await _client.IndexExistsAsync(index.GetIndex(employee.CreatedUtc));
+                    _logger.Trace(() => existsResponse.GetRequest());
+                    Assert.True(existsResponse.IsValid);
+                    Assert.True(existsResponse.Exists);
 
-                existsResponse = await _client.IndexExistsAsync(index.GetVersionedIndex(utcNow));
-                _logger.Trace(() => existsResponse.GetRequest());
-                Assert.True(existsResponse.IsValid);
-                Assert.True(existsResponse.Exists);
+                    var aliasesResponse = await _client.GetAliasesAsync(a => a.Index(index.GetIndex(employee.CreatedUtc)));
+                    _logger.Trace(() => aliasesResponse.GetRequest());
+                    Assert.True(aliasesResponse.IsValid);
+                    Assert.Equal(1, aliasesResponse.Indices.Count);
+
+                    var aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
+                    aliases.Sort();
+
+                    Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
+                }
             }
         }
-        
+
+        [Fact]
+        public async Task CanReindexSameIndex() {
+            //throw new NotImplementedException();
+        }
+
         [Fact]
         public async Task CanReindexVersionedIndex() {
             var version1Index = new VersionedEmployeeIndex(_client, 1, Log);
@@ -227,6 +203,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             version1Index.Delete();
 
             var version2Index = new VersionedEmployeeIndex(_client, 2, Log);
+            version2Index.DiscardIndexesOnReindex = false;
             version2Index.Delete();
 
             using (new DisposableAction(() => version1Index.Delete())) {
@@ -244,7 +221,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     await version2Index.ReindexAsync((progress, message) => {
                         _logger.Info($"Reindex Progress {progress}%: {message}");
                         return Task.CompletedTask;
-                    }, false);
+                    });
 
                     await _client.RefreshAsync();
                     var existsResponse = await _client.IndexExistsAsync(d => d.Index(version1Index.VersionedName));
@@ -516,9 +493,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                 using (new DisposableAction(() => version2Index.Delete())) {
                     version2Index.Configure();
+                    Assert.Equal(1, version2Index.GetCurrentVersion());
                     var version2Repository = new EmployeeRepository(_client, version2Index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
 
-                    // Make sure we write to the new index.
+                    // Make sure we write to the old index.
                     await version2Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow));
                     await _client.RefreshAsync();
 
@@ -538,12 +516,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.False(existsResponse.Exists);
 
                     // alias should still point to the old version until reindex
-                    var alias = await _client.GetAliasAsync(descriptor => descriptor.Alias(version1Index.Name));
-                    _logger.Trace(() => alias.GetRequest());
-                    Assert.True(alias.IsValid);
-                    Assert.Equal(1, alias.Indices.Count);
+                    var aliasesResponse = await _client.GetAliasesAsync(a => a.Index(version1Index.GetIndex(employee.CreatedUtc)));
+                    _logger.Trace(() => aliasesResponse.GetRequest());
+                    Assert.True(aliasesResponse.IsValid);
+                    Assert.Equal(version1Index.GetVersionedIndex(employee.CreatedUtc, 1), aliasesResponse.Indices.Single().Key);
 
-                    Assert.Equal(1, version2Index.GetCurrentVersion());
+                    var aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
+                    aliases.Sort();
+                    Assert.Equal(GetExpectedEmployeeDailyAliases(version1Index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
                     await version2Index.ReindexAsync((progress, message) => {
                         _logger.Info($"Reindex Progress {progress}%: {message}");
@@ -551,15 +531,18 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     });
 
                     await _client.RefreshAsync();
-
-                    alias = await _client.GetAliasAsync(descriptor => descriptor.Alias(version1Index.Name));
-                    _logger.Trace(() => alias.GetRequest());
-                    Assert.True(alias.IsValid);
-                    Assert.Equal(1, alias.Indices.Count);
-                    
                     Assert.Equal(2, version1Index.GetCurrentVersion());
                     Assert.Equal(2, version2Index.GetCurrentVersion());
 
+                    aliasesResponse = await _client.GetAliasesAsync(a => a.Index(version1Index.GetIndex(employee.CreatedUtc)));
+                    _logger.Trace(() => aliasesResponse.GetRequest());
+                    Assert.True(aliasesResponse.IsValid);
+                    Assert.Equal(version1Index.GetVersionedIndex(employee.CreatedUtc, 2), aliasesResponse.Indices.Single().Key);
+
+                    aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
+                    aliases.Sort();
+                    Assert.Equal(GetExpectedEmployeeDailyAliases(version1Index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
+                    
                     existsResponse = await _client.IndexExistsAsync(d => d.Index(version1Index.GetVersionedIndex(utcNow, 1)));
                     _logger.Trace(() => existsResponse.GetRequest());
                     Assert.True(existsResponse.IsValid);
@@ -579,6 +562,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             version1Index.Delete();
 
             var version2Index = new DailyEmployeeIndex(_client, 2, Log);
+            version2Index.DiscardIndexesOnReindex = false;
             version2Index.Delete();
 
             using (new DisposableAction(() => version1Index.Delete())) {
@@ -596,7 +580,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     await version2Index.ReindexAsync((progress, message) => {
                         _logger.Info($"Reindex Progress {progress}%: {message}");
                         return Task.CompletedTask;
-                    }, false);
+                    });
 
                     await _client.RefreshAsync();
                     var existsResponse = await _client.IndexExistsAsync(d => d.Index(version1Index.GetVersionedIndex(utcNow, 1)));
@@ -660,7 +644,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task Maintain() {
+        public async Task MaintainDailyIndexes() {
             var index = new DailyEmployeeIndex(_client, 1, Log);
             index.Delete();
 
@@ -669,56 +653,113 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 var repository = new EmployeeRepository(_client, index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
 
                 SystemClock.UtcNowFunc = () => DateTime.UtcNow.SubtractDays(15);
-                var fifthteenDaysAgo = SystemClock.UtcNow;
-                var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: fifthteenDaysAgo));
+                var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: SystemClock.UtcNow));
                 Assert.NotNull(employee?.Id);
                 await _client.RefreshAsync();
 
                 index.Maintain();
                 Assert.Equal(1, index.GetCurrentVersion());
-                var existsResponse = await _client.IndexExistsAsync(index.GetIndex(fifthteenDaysAgo));
+                var existsResponse = await _client.IndexExistsAsync(index.GetIndex(employee.CreatedUtc));
                 _logger.Trace(() => existsResponse.GetRequest());
                 Assert.True(existsResponse.IsValid);
                 Assert.True(existsResponse.Exists);
 
-                var aliasesResponse = await _client.GetAliasesAsync(a => a.Index(index.GetIndex(fifthteenDaysAgo)));
+                var aliasesResponse = await _client.GetAliasesAsync(a => a.Index(index.GetIndex(employee.CreatedUtc)));
                 _logger.Trace(() => aliasesResponse.GetRequest());
                 Assert.True(aliasesResponse.IsValid);
                 Assert.Equal(1, aliasesResponse.Indices.Count);
                 var aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
                 aliases.Sort();
-                Assert.Equal($"{index.Name}, {index.GetIndex(fifthteenDaysAgo)}, {index.Name}-last30days, {index.Name}-last7days, {index.Name}-today", String.Join(", ", aliases));
+                Assert.Equal(GetExpectedEmployeeDailyAliases(index, SystemClock.UtcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
-                SystemClock.UtcNowFunc = () => fifthteenDaysAgo.AddDays(6);
+                SystemClock.UtcNowFunc = () => DateTime.UtcNow.SubtractDays(9);
                 index.MaxIndexAge = TimeSpan.FromDays(10);
                 index.Maintain();
-                existsResponse = await _client.IndexExistsAsync(index.GetIndex(fifthteenDaysAgo));
+                existsResponse = await _client.IndexExistsAsync(index.GetIndex(employee.CreatedUtc));
                 _logger.Trace(() => existsResponse.GetRequest());
                 Assert.True(existsResponse.IsValid);
                 Assert.True(existsResponse.Exists);
 
-                aliasesResponse = await _client.GetAliasesAsync(a => a.Index(index.GetIndex(fifthteenDaysAgo)));
+                aliasesResponse = await _client.GetAliasesAsync(a => a.Index(index.GetIndex(employee.CreatedUtc)));
                 _logger.Trace(() => aliasesResponse.GetRequest());
                 Assert.True(aliasesResponse.IsValid);
                 Assert.Equal(1, aliasesResponse.Indices.Count);
                 aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
                 aliases.Sort();
-                Assert.Equal($"{index.Name}, {index.GetIndex(fifthteenDaysAgo)}, {index.Name}-last30days, {index.Name}-last7days", String.Join(", ", aliases));
+                Assert.Equal(GetExpectedEmployeeDailyAliases(index, SystemClock.UtcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
                 SystemClock.Reset();
                 index.Maintain();
-                existsResponse = await _client.IndexExistsAsync(index.GetIndex(fifthteenDaysAgo));
+                existsResponse = await _client.IndexExistsAsync(index.GetIndex(employee.CreatedUtc));
                 _logger.Trace(() => existsResponse.GetRequest());
                 Assert.True(existsResponse.IsValid);
                 Assert.False(existsResponse.Exists);
 
-                aliasesResponse = await _client.GetAliasesAsync(a => a.Index(index.GetIndex(fifthteenDaysAgo)));
+                aliasesResponse = await _client.GetAliasesAsync(a => a.Index(index.GetIndex(employee.CreatedUtc)));
                 _logger.Trace(() => aliasesResponse.GetRequest());
                 Assert.True(aliasesResponse.IsValid);
                 Assert.Equal(0, aliasesResponse.Indices.Count);
             }
         }
+        
+        [Fact]
+        public async Task MaintainMonthlyIndexes() {
+            var index = new MonthlyEmployeeIndex(_client, 1, Log);
+            index.Delete();
 
+            var utcNow = SystemClock.UtcNow;
+            using (new DisposableAction(() => index.Delete())) {
+                index.Configure();
+                var repository = new EmployeeRepository(_client, index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+
+                for (int i = 0; i < 4; i++) {
+                    var created = utcNow.SubtractMonths(i);
+                    var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: created));
+                    Assert.NotNull(employee?.Id);
+                    
+                    Assert.Equal(1, index.GetCurrentVersion());
+                    var existsResponse = await _client.IndexExistsAsync(index.GetIndex(employee.CreatedUtc));
+                    _logger.Trace(() => existsResponse.GetRequest());
+                    Assert.True(existsResponse.IsValid);
+                    Assert.True(existsResponse.Exists);
+
+                    var aliasesResponse = await _client.GetAliasesAsync(a => a.Index(index.GetIndex(employee.CreatedUtc)));
+                    _logger.Trace(() => aliasesResponse.GetRequest());
+                    Assert.True(aliasesResponse.IsValid);
+                    Assert.Equal(1, aliasesResponse.Indices.Count);
+
+                    var aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
+                    aliases.Sort();
+                    
+                    Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
+                }
+
+                index.Maintain();
+
+                for (int i = 0; i < 4; i++) {
+                    var created = utcNow.SubtractMonths(i);
+                    var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: created));
+                    Assert.NotNull(employee?.Id);
+
+                    Assert.Equal(1, index.GetCurrentVersion());
+                    var existsResponse = await _client.IndexExistsAsync(index.GetIndex(employee.CreatedUtc));
+                    _logger.Trace(() => existsResponse.GetRequest());
+                    Assert.True(existsResponse.IsValid);
+                    Assert.True(existsResponse.Exists);
+
+                    var aliasesResponse = await _client.GetAliasesAsync(a => a.Index(index.GetIndex(employee.CreatedUtc)));
+                    _logger.Trace(() => aliasesResponse.GetRequest());
+                    Assert.True(aliasesResponse.IsValid);
+                    Assert.Equal(1, aliasesResponse.Indices.Count);
+
+                    var aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
+                    aliases.Sort();
+                    
+                    Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
+                }
+            }
+        }
+        
         [Fact]
         public async Task DailyAliasMaxAge() {
             SystemClock.UtcNowFunc = () => DateTime.UtcNow.EndOfMonth();
@@ -746,7 +787,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.Equal(1, aliasesResponse.Indices.Count);
                 var aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
                 aliases.Sort();
-                Assert.Equal($"{index.Name}, {index.GetIndex(employee.CreatedUtc)}, {index.Name}-last30days, {index.Name}-last7days, {index.Name}-today", String.Join(", ", aliases));
+                Assert.Equal(GetExpectedEmployeeDailyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
                 employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(2)));
                 Assert.NotNull(employee?.Id);
@@ -763,7 +804,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.Equal(1, aliasesResponse.Indices.Count);
                 aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
                 aliases.Sort();
-                Assert.Equal($"{index.Name}, {index.GetIndex(employee.CreatedUtc)}, {index.Name}-last30days, {index.Name}-last7days", String.Join(", ", aliases));
+                Assert.Equal(GetExpectedEmployeeDailyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
                 employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(35)));
                 Assert.NotNull(employee?.Id);
@@ -780,7 +821,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.Equal(1, aliasesResponse.Indices.Count);
                 aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
                 aliases.Sort();
-                Assert.Equal($"{index.Name}, {index.GetIndex(employee.CreatedUtc)}", String.Join(", ", aliases));
+                Assert.Equal(GetExpectedEmployeeDailyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
             }
         }
         
@@ -811,7 +852,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.Equal(1, aliasesResponse.Indices.Count);
                 var aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
                 aliases.Sort();
-                Assert.Equal($"{index.Name}, {index.Name}-last30days, {index.Name}-last60days, {index.Name}-last7days, {index.Name}-today, {index.GetIndex(employee.CreatedUtc)}", String.Join(", ", aliases));
+                Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
                 employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(2)));
                 Assert.NotNull(employee?.Id);
@@ -828,7 +869,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.Equal(1, aliasesResponse.Indices.Count);
                 aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
                 aliases.Sort();
-                Assert.Equal($"{index.Name}, {index.Name}-last30days, {index.Name}-last60days, {index.Name}-last7days, {index.Name}-today, {index.GetIndex(employee.CreatedUtc)}", String.Join(", ", aliases));
+                Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
                 employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(35)));
                 Assert.NotNull(employee?.Id);
@@ -845,7 +886,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.Equal(1, aliasesResponse.Indices.Count);
                 aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
                 aliases.Sort();
-                Assert.Equal($"{index.Name}, {index.Name}-last60days, {index.GetIndex(employee.CreatedUtc)}", String.Join(", ", aliases));
+                Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
             }
         }
 
@@ -896,6 +937,37 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.True(existsResponse.IsValid);
                 Assert.False(existsResponse.Exists);
             }
+        }
+        
+        private string GetExpectedEmployeeDailyAliases(DailyIndex index, DateTime utcNow, DateTime indexDateUtc) {
+            double totalDays = utcNow.Date.Subtract(indexDateUtc.Date).TotalDays;
+            var aliases = new List<string> { index.Name, index.GetIndex(indexDateUtc) };
+            if (totalDays <= 30)
+                aliases.Add($"{index.Name}-last30days");
+            if (totalDays <= 7)
+                aliases.Add($"{index.Name}-last7days");
+            if (totalDays <= 1)
+                aliases.Add($"{index.Name}-today");
+
+            aliases.Sort();
+            return String.Join(", ", aliases);
+        }
+
+        private string GetExpectedEmployeeMonthlyAliases(DailyIndex index, DateTime utcNow, DateTime indexDateUtc) {
+            double totalMonths = utcNow.StartOfMonth().Subtract(indexDateUtc.StartOfMonth()).GetTotalMonths();
+            var aliases = new List<string> { index.Name, index.GetIndex(indexDateUtc) };
+            if (totalMonths <= 1) {
+                aliases.Add($"{index.Name}-last30days");
+                aliases.Add($"{index.Name}-last7days");
+                aliases.Add($"{index.Name}-today");
+            }
+
+            if (totalMonths <= 2)
+                aliases.Add($"{index.Name}-last60days");
+            
+            aliases.Sort();
+
+            return String.Join(", ", aliases);
         }
 
         private string ToJson(object data) {

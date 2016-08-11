@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Threading;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Utility;
@@ -17,7 +16,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
-                string message = $"An error occurred creating the index {Name}: {response.GetErrorMessage()}";
+                string message = $"Error creating the index {Name}: {response.GetErrorMessage()}";
                 _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
                 throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
             }

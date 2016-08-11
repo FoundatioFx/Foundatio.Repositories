@@ -25,9 +25,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return $"{Name}-v{Version}-{utcDate:yyyy.MM}";
         }
 
-        protected override DateTime GetIndexDate(string name) {
+        protected override DateTime GetIndexDate(string index) {
             DateTime result;
-            if (DateTime.TryParseExact(name, $"\'{VersionedName}-\'yyyy.MM", EnUs, DateTimeStyles.AdjustToUniversal, out result))
+            if (DateTime.TryParseExact(index, $"\'{VersionedName}-\'yyyy.MM", EnUs, DateTimeStyles.AdjustToUniversal, out result))
                 return result.Date;
 
             return DateTime.MaxValue;

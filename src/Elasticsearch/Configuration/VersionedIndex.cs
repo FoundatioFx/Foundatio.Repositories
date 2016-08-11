@@ -7,6 +7,7 @@ using Exceptionless.DateTimeExtensions;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
+using Foundatio.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
@@ -18,11 +19,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public int Version { get; }
         public string VersionedName { get; }
+        public bool DiscardIndexesOnReindex { get; set; } = true;
 
         public override void Configure() {
             IIndicesOperationResponse response;
-            string message;
-
             if (!_client.IndexExists(VersionedName).Exists) {
                 if (!_client.AliasExists(Name).Exists)
                     response = _client.CreateIndex(VersionedName, descriptor => ConfigureDescriptor(descriptor).AddAlias(Name));
@@ -33,23 +33,37 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 if (response.IsValid)
                     return;
 
-                message = $"An error occurred creating the index: {response.GetErrorMessage()}";
+                string message = $"Error creating the index {VersionedName}: {response.GetErrorMessage()}";
                 _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
                 throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
             }
-
+            
             if (_client.AliasExists(Name).Exists)
                 return;
 
             var currentVersion = GetCurrentVersion();
-            if (currentVersion < 0 || currentVersion >= Version) // TODO: What do we do here.
+            if (currentVersion < 0)
                 currentVersion = Version;
+            
+            CreateAlias(String.Concat(Name, "-v", currentVersion), Name);
+        }
 
-            response = _client.Alias(a => a.Add(s => s.Index(String.Concat(Name, "-v", currentVersion)).Alias(Name)));
-            if (response.IsValid)
+        protected void CreateAlias(string index, string name) {
+            if (_client.AliasExists(name).Exists)
+                return;
+            
+            var response = _client.Alias(a => a.Add(s => s.Index(index).Alias(name)));
+            if (response.IsValid) {
+                while (!_client.AliasExists(name).Exists)
+                    SystemClock.Sleep(1);
+
+                return;
+            }
+
+            if (_client.AliasExists(name).Exists)
                 return;
 
-            message = $"An error occurred creating the alias: {response.GetErrorMessage()}";
+            string message = $"Error creating alias {name}: {response.GetErrorMessage()}";
             _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
             throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
         }
@@ -62,20 +76,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public override void Delete() {
-            if (!_client.IndexExists(VersionedName).Exists)
-                return;
-
-            var response = _client.DeleteIndex(VersionedName);
-            _logger.Trace(() => response.GetRequest());
-            if (response.IsValid)
-                return;
-
-            string message = $"An error occurred deleting the index: {response.GetErrorMessage()}";
-            _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-            throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+            DeleteIndex(VersionedName);
         }
 
-        public override Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null, bool canDeleteOld = true) {
+        public override Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
             int currentVersion = GetCurrentVersion();
             if (currentVersion < 0 || currentVersion >= Version)
                 return Task.CompletedTask;
@@ -86,7 +90,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 Alias = Name
             };
 
-            reindexWorkItem.DeleteOld = canDeleteOld && reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;
+            reindexWorkItem.DeleteOld = DiscardIndexesOnReindex && reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;
 
             foreach (var type in IndexTypes.OfType<IChildIndexType>())
                 reindexWorkItem.ParentMaps.Add(new ParentMap { Type = type.Name, ParentPath = type.ParentPath });
@@ -100,42 +104,23 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         /// </summary>
         /// <returns>-1 if there are no indexes.</returns>
         public virtual int GetCurrentVersion() {
-            return GetVersionFromAlias(Name);
+            int version = GetVersionFromAlias(Name);
+            if (version >= 0)
+                return version;
+
+            var indexes = GetIndexList();
+            if (indexes.Count == 0)
+                return Version;
+
+            return indexes.Select(i => i.Version).OrderBy(v => v).First();
         }
 
-        protected int GetVersionFromAlias(string alias) {
+        protected virtual int GetVersionFromAlias(string alias) {
             var response = _client.GetAlias(a => a.Alias(alias));
             if (response.IsValid && response.Indices.Count > 0)
                 return response.Indices.Keys.Select(GetIndexVersion).OrderBy(v => v).First();
 
             return -1;
-        }
-
-        protected IList<IndexInfo> GetIndexList(int version = -1) {
-            // TODO: Update this to use a index filter once we upgrade to elastic 2.x+
-            var sw = Stopwatch.StartNew();
-            var response = _client.CatIndices(i => i.Pri().H("index").RequestConfiguration(r => r.RequestTimeout(5 * 60 * 1000)));
-            sw.Stop();
-            _logger.Trace(() => response.GetRequest());
-
-            if (!response.IsValid) {
-                string message = $"Error getting indices: {response.GetErrorMessage()}";
-                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
-            }
-
-            string index = version < 0 ? $"{Name}-v" : $"{Name}-v{version}";
-            var indices = response.Records
-                .Where(i => i.Index.StartsWith(index) && (version < 0 || GetIndexVersion(i.Index) == version))
-                .Select(i => new IndexInfo { DateUtc = GetIndexDate(i.Index), Index = i.Index, Version = GetIndexVersion(i.Index) })
-                .ToList();
-
-            _logger.Info($"Retrieved list of {indices.Count} indexes in {sw.Elapsed.ToWords(true)}");
-            return indices;
-        }
-        
-        protected virtual DateTime GetIndexDate(string name) {
-            return DateTime.MaxValue;
         }
         
         protected virtual int GetIndexVersion(string name) {
@@ -154,9 +139,37 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return -1;
         }
 
+        protected virtual IList<IndexInfo> GetIndexList(int version = -1) {
+            // TODO: Update this to use a index filter once we upgrade to elastic 2.x+
+            var sw = Stopwatch.StartNew();
+            var response = _client.CatIndices(i => i.Pri().H("index").RequestConfiguration(r => r.RequestTimeout(5 * 60 * 1000)));
+            sw.Stop();
+            _logger.Trace(() => response.GetRequest());
+
+            if (!response.IsValid) {
+                string message = $"Error getting indices: {response.GetErrorMessage()}";
+                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+            }
+
+            string index = version < 0 ? $"{Name}-v" : $"{Name}-v{version}";
+            var indices = response.Records
+                .Where(i => i.Index.StartsWith(index) && (version < 0 || GetIndexVersion(i.Index) == version))
+                .Select(i => new IndexInfo { DateUtc = GetIndexDate(i.Index), Index = i.Index, Version = GetIndexVersion(i.Index) })
+                .ToList();
+            
+            _logger.Info($"Retrieved list of {indices.Count} indexes in {sw.Elapsed.ToWords(true)}");
+            return indices;
+        }
+
+        protected virtual DateTime GetIndexDate(string name) {
+            return DateTime.MaxValue;
+        }
+
         protected class IndexInfo {
             public string Index { get; set; }
             public int Version { get; set; }
+            public int CurrentVersion { get; set; } = -1;
             public DateTime DateUtc { get; set; }
         }
     }
