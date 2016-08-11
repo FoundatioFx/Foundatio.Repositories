@@ -102,7 +102,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             }
         }
 
-        [Fact(Skip = "Not currently possible to reindex the same index")]
+        [Fact(Skip = "This will only work if the mapping is manually updated.")]
         public async Task CanReindexSameIndex() {
             var index = new EmployeeIndex(_client, Log);
             index.Delete();
