@@ -22,6 +22,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         private readonly IQueue<WorkItemData> _workItemQueue = new InMemoryQueue<WorkItemData>();
 
         public IndexTests(ITestOutputHelper output) : base(output) {
+            Log.SetLogLevel<EmployeeRepository>(LogLevel.Warning);
             RemoveDataAsync(configureIndexes: false).GetAwaiter().GetResult();
         }
 
@@ -173,6 +174,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     version2Index.Configure();
                     Assert.True(_client.IndexExists(version2Index.VersionedName).Exists);
                     
+                    await Assert.ThrowsAsync<ApplicationException>(async () => await version2Index.ReindexAsync((progress, message) => {
+                        _logger.Info("Reindex Progress {0}%: {1}", progress, message);
+                         if (progress == 45)
+                             throw new ApplicationException("Random Error");
+
+                         return Task.CompletedTask;
+                     }));
+
+                    Assert.Equal(1, version1Index.GetCurrentVersion());
                     await version2Index.ReindexAsync();
 
                     var aliasResponse = await _client.GetAliasAsync(descriptor => descriptor.Alias(version2Index.Name));

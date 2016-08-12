@@ -32,8 +32,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     return Task.CompletedTask;
                 };
             }
-
-            long existingDocCount = (await _client.CountAsync(d => d.Index(workItem.NewIndex)).AnyContext()).Count;
+            
             _logger.Info("Received reindex work item for new index {0}", workItem.NewIndex);
             var startTime = SystemClock.UtcNow.AddSeconds(-1);
             await progressCallbackAsync(0, "Starting reindex...").AnyContext();
@@ -64,12 +63,12 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (workItem.DeleteOld && workItem.OldIndex != workItem.NewIndex) {
                 await _client.RefreshAsync().AnyContext();
-                long newDocCount = (await _client.CountAsync(d => d.Index(workItem.NewIndex)).AnyContext()).Count - existingDocCount;
+                long newDocCount = (await _client.CountAsync(d => d.Index(workItem.NewIndex)).AnyContext()).Count;
                 long oldDocCount = (await _client.CountAsync(d => d.Index(workItem.OldIndex)).AnyContext()).Count;
                 await progressCallbackAsync(98, $"Old Docs: {oldDocCount} New Docs: {newDocCount}").AnyContext();
                 if (newDocCount >= oldDocCount) {
                     await _client.DeleteIndexAsync(d => d.Index(workItem.OldIndex)).AnyContext();
-                    await progressCallbackAsync(98, $"Deleted index: {workItem.OldIndex}").AnyContext();
+                    await progressCallbackAsync(99, $"Deleted index: {workItem.OldIndex}").AnyContext();
                 }
             }
 
@@ -122,7 +121,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return await InternalReindexAsync(workItem, progressCallbackAsync, startProgress, endProgress, startTime).AnyContext();
             }
 
-            long completed = 0;
+            double completed = await scopedCacheClient.GetAsync<double>("completed", 0).AnyContext();
             long totalHits = results.Total;
             while (results.Documents.Any()) {
                 var bulkDescriptor = new BulkDescriptor();
@@ -220,15 +219,15 @@ namespace Foundatio.Repositories.Elasticsearch {
                         throw new ReindexException(response.ConnectionStatus, message);
                     }
                 }
-
-                completed += bulkResponse.Items.Count();
-                await progressCallbackAsync(CalculateProgress(totalHits, completed, startProgress, endProgress), $"Total: {totalHits} Completed: {completed}").AnyContext();
+                
+                completed = await scopedCacheClient.IncrementAsync("completed", bulkResponse.Items.Count(), TimeSpan.FromHours(1)).AnyContext();
+                await progressCallbackAsync(CalculateProgress(totalHits, (long)completed, startProgress, endProgress), $"Total: {totalHits} Completed: {completed}").AnyContext();
                 results = await _client.ScrollAsync<JObject>(scroll, results.ScrollId).AnyContext();
                 await scopedCacheClient.AddAsync("id", results.ScrollId, TimeSpan.FromHours(1)).AnyContext();
             }
 
-            await scopedCacheClient.RemoveAsync("id").AnyContext();
-            return new ReindexResult { Total = totalHits, Completed = completed };
+            await scopedCacheClient.RemoveAllAsync(new []{ "id", "completed" }).AnyContext();
+            return new ReindexResult { Total = totalHits, Completed = (long)completed };
         }
 
         private int CalculateProgress(long total, long completed, int startProgress = 0, int endProgress = 100) {

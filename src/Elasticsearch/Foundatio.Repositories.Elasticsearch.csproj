@@ -99,6 +99,7 @@
     </Compile>
     <Compile Include="Configuration\ChildIndexType.cs" />
     <Compile Include="Configuration\TimeSeriesIndexType.cs" />
+    <Compile Include="Extensions\CollectionEqualityExtensions.cs" />
     <Compile Include="Jobs\CleanupIndexesJob.cs" />
     <Compile Include="Jobs\CleanupSnapshotJob.cs" />
     <Compile Include="Jobs\SnapshotJob.cs" />

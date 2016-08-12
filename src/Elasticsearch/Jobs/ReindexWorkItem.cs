@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs {
     public class ReindexWorkItem {
@@ -8,7 +9,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         }
 
         protected bool Equals(ReindexWorkItem other) {
-            return string.Equals(OldIndex, other.OldIndex) && string.Equals(NewIndex, other.NewIndex) && string.Equals(Alias, other.Alias) && DeleteOld == other.DeleteOld && string.Equals(TimestampField, other.TimestampField) && StartUtc.Equals(other.StartUtc) && Equals(ParentMaps, other.ParentMaps);
+            return string.Equals(OldIndex, other.OldIndex) && string.Equals(NewIndex, other.NewIndex) && string.Equals(Alias, other.Alias) && DeleteOld == other.DeleteOld && string.Equals(TimestampField, other.TimestampField) && StartUtc.Equals(other.StartUtc) && ParentMaps.CollectionEquals(other.ParentMaps);
         }
 
         public override bool Equals(object obj) {
@@ -28,8 +29,8 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 hashCode = (hashCode * 397) ^ (Alias != null ? Alias.GetHashCode() : 0);
                 hashCode = (hashCode * 397) ^ DeleteOld.GetHashCode();
                 hashCode = (hashCode * 397) ^ (TimestampField != null ? TimestampField.GetHashCode() : 0);
-                hashCode = (hashCode * 397) ^ StartUtc.GetHashCode();
-                hashCode = (hashCode * 397) ^ (ParentMaps != null ? ParentMaps.GetHashCode() : 0);
+                hashCode = (hashCode * 397) ^ (StartUtc != null ? StartUtc.GetHashCode() : 0);
+                hashCode = (hashCode * 397) ^ (ParentMaps != null ? ParentMaps.GetCollectionHashCode() : 0);
                 return hashCode;
             }
         }
