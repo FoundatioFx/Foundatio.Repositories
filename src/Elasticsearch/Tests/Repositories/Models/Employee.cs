@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using Exceptionless;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
@@ -84,6 +85,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
                 CreatedUtc = createdUtc.GetValueOrDefault(),
                 UpdatedUtc = updatedUtc.GetValueOrDefault()
             };
+        }
+
+        public static List<Employee> GenerateEmployees(int count = 10, string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
+            var results = new List<Employee>(count);
+            for (int index = 0; index < count; index++)
+                results.Add(Generate(id, name, age, yearsEmployed, companyName, companyId, createdUtc, updatedUtc));
+
+            return results;
         }
     }
 }

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
+using Foundatio.Caching;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
@@ -12,7 +13,7 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class VersionedIndex : IndexBase {
-        public VersionedIndex(IElasticClient client, string name, int version = 1, ILoggerFactory loggerFactory = null): base(client, name, loggerFactory) {
+        public VersionedIndex(IElasticClient client, string name, int version = 1, ICacheClient cache = null, ILoggerFactory loggerFactory = null): base(client, name, cache, loggerFactory) {
             Version = version;
             VersionedName = String.Concat(Name, "-v", Version);
         }
@@ -95,7 +96,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             foreach (var type in IndexTypes.OfType<IChildIndexType>())
                 reindexWorkItem.ParentMaps.Add(new ParentMap { Type = type.Name, ParentPath = type.ParentPath });
 
-            var reindexer = new ElasticReindexer(_client, _logger);
+            var reindexer = new ElasticReindexer(_client, _cache, _logger);
             return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
         }
 

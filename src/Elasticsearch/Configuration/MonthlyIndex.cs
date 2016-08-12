@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using Exceptionless.DateTimeExtensions;
+using Foundatio.Caching;
 using Foundatio.Logging;
 using Foundatio.Utility;
 using Nest;
@@ -12,7 +13,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
     }
 
     public class MonthlyIndex: DailyIndex {
-        public MonthlyIndex(IElasticClient client, string name, int version = 1, ILoggerFactory loggerFactory = null): base(client, name, version, loggerFactory) {}
+        public MonthlyIndex(IElasticClient client, string name, int version = 1, ICacheClient cache = null, ILoggerFactory loggerFactory = null): base(client, name, version, cache, loggerFactory) {}
 
         public override string GetIndex(DateTime utcDate) {
             return $"{VersionedName}-{utcDate:yyyy.MM}";

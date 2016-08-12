@@ -1,4 +1,5 @@
 ﻿using System;
+using Foundatio.Caching;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Utility;
@@ -6,7 +7,7 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class Index : IndexBase {
-        public Index(IElasticClient client, string name, ILoggerFactory loggerFactory = null) : base(client, name, loggerFactory) {}
+        public Index(IElasticClient client, string name, ICacheClient cache = null, ILoggerFactory loggerFactory = null) : base(client, name, cache, loggerFactory) {}
 
         public override void Configure() {
             if (_client.IndexExists(Name).Exists)
@@ -36,7 +37,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
     }
 
     public class Index<T> : Index where T: class {
-        public Index(IElasticClient client, string name = null, ILoggerFactory loggerFactory = null): base(client, name ?? typeof(T).Name.ToLower(), loggerFactory) {
+        public Index(IElasticClient client, string name = null, ICacheClient cache = null, ILoggerFactory loggerFactory = null): base(client, name ?? typeof(T).Name.ToLower(), cache, loggerFactory) {
             Type = new IndexType<T>(this);
             AddType(Type);
         }

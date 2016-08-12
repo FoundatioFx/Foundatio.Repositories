@@ -23,10 +23,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private readonly Lazy<IReadOnlyCollection<IndexAliasAge>> _frozenAliases;
         private readonly ICacheClient _aliasCache;
 
-        public DailyIndex(IElasticClient client, string name, int version = 1, ILoggerFactory loggerFactory = null) : base(client, name, version, loggerFactory) {
+        public DailyIndex(IElasticClient client, string name, int version = 1, ICacheClient cache = null, ILoggerFactory loggerFactory = null) : base(client, name, version, cache, loggerFactory) {
             AddAlias(name);
             _frozenAliases = new Lazy<IReadOnlyCollection<IndexAliasAge>>(() => _aliases.AsReadOnly());
-            _aliasCache = new InMemoryCacheClient(loggerFactory);
+            _aliasCache = new ScopedCacheClient(_cache, "alias");
         }
 
         // TODO: Should we make this non nullable and do validation in the setter.
@@ -174,7 +174,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (indexes.Count == 0)
                 return;
             
-            var reindexer = new ElasticReindexer(_client, _logger);
+            var reindexer = new ElasticReindexer(_client, _cache, _logger);
             foreach (var index in indexes) {
                 if (index.DateUtc > GetIndexExpirationDate(index.DateUtc))
                     continue;

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Elasticsearch.Net;
+using Foundatio.Caching;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
@@ -15,17 +16,23 @@ using Newtonsoft.Json.Linq;
 namespace Foundatio.Repositories.Elasticsearch {
     public class ElasticReindexer {
         private readonly IElasticClient _client;
+        private readonly ICacheClient _cache;
         private readonly ILogger _logger;
 
-        public ElasticReindexer(IElasticClient client, ILogger logger) {
+        public ElasticReindexer(IElasticClient client, ICacheClient cache, ILogger logger) {
             _client = client;
+            _cache = new ScopedCacheClient(cache ?? new NullCacheClient(), "reindex");
             _logger = logger;
         }
 
         public async Task ReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync = null) {
-            if (progressCallbackAsync == null)
-                progressCallbackAsync = (i, s) => Task.CompletedTask;
-            
+            if (progressCallbackAsync == null) {
+                progressCallbackAsync = (progress, message) => {
+                    _logger.Info("Reindex Progress {0}%: {1}", progress, message);
+                    return Task.CompletedTask;
+                };
+            }
+
             long existingDocCount = (await _client.CountAsync(d => d.Index(workItem.NewIndex)).AnyContext()).Count;
             _logger.Info("Received reindex work item for new index {0}", workItem.NewIndex);
             var startTime = SystemClock.UtcNow.AddSeconds(-1);
@@ -81,31 +88,42 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync, int startProgress = 0, int endProgress = 100, DateTime? startTime = null) {
             const int pageSize = 100;
-            const string scroll = "5m";
+            const string scroll = "1h";
             string timestampField = workItem.TimestampField ?? "_timestamp";
+            var scopedCacheClient = new ScopedCacheClient(_cache, workItem.GetHashCode().ToString());
+            
+            string scrollId = await scopedCacheClient.GetAsync<string>("id", null).AnyContext();
+            if (String.IsNullOrEmpty(scrollId)) {
+                var scanResults = await _client.SearchAsync<JObject>(s => s
+                    .Index(workItem.OldIndex)
+                    .AllTypes()
+                    .Filter(f => startTime.HasValue
+                        ? f.Range(r => r.OnField(timestampField).Greater(startTime.Value))
+                        : f.MatchAll())
+                    .From(0).Take(pageSize)
+                    .SearchType(SearchType.Scan)
+                    .Scroll(scroll)).AnyContext();
 
-            long completed = 0;
+                if (!scanResults.IsValid || scanResults.ScrollId == null) {
+                    _logger.Error().Exception(scanResults.ConnectionStatus.OriginalException).Message("Invalid search result: message={0}", scanResults.GetErrorMessage()).Write();
+                    return new ReindexResult();
+                }
 
-            var scanResults = await _client.SearchAsync<JObject>(s => s
-                .Index(workItem.OldIndex)
-                .AllTypes()
-                .Filter(f => startTime.HasValue
-                    ? f.Range(r => r.OnField(timestampField).Greater(startTime.Value))
-                    : f.MatchAll())
-                .From(0).Take(pageSize)
-                .SearchType(SearchType.Scan)
-                .Scroll(scroll)).AnyContext();
-
-            if (!scanResults.IsValid || scanResults.ScrollId == null) {
-                _logger.Error().Exception(scanResults.ConnectionStatus.OriginalException).Message("Invalid search result: message={0}", scanResults.GetErrorMessage()).Write();
-                return new ReindexResult();
+                scrollId = scanResults.ScrollId;
+                await scopedCacheClient.AddAsync("id", scrollId, TimeSpan.FromHours(1)).AnyContext();
+            } else {
+                await scopedCacheClient.SetExpirationAsync("id", TimeSpan.FromHours(1)).AnyContext();
             }
 
-            long totalHits = scanResults.Total;
-
             var parentMap = workItem.ParentMaps?.ToDictionary(p => p.Type, p => p.ParentPath) ?? new Dictionary<string, string>();
+            var results = await _client.ScrollAsync<JObject>(scroll, scrollId).AnyContext();
+            if (!results.IsValid) {
+                await scopedCacheClient.RemoveAsync("id").AnyContext();
+                return await InternalReindexAsync(workItem, progressCallbackAsync, startProgress, endProgress, startTime).AnyContext();
+            }
 
-            var results = await _client.ScrollAsync<JObject>(scroll, scanResults.ScrollId).AnyContext();
+            long completed = 0;
+            long totalHits = results.Total;
             while (results.Documents.Any()) {
                 var bulkDescriptor = new BulkDescriptor();
                 foreach (var hit in results.Hits) {
@@ -204,13 +222,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
 
                 completed += bulkResponse.Items.Count();
-                await progressCallbackAsync(CalculateProgress(totalHits, completed, startProgress, endProgress),
-                    $"Total: {totalHits} Completed: {completed}").AnyContext();
-
-                _logger.Info().Message($"Reindex Progress: {CalculateProgress(totalHits, completed, startProgress, endProgress)} Completed: {completed} Total: {totalHits}").Write();
+                await progressCallbackAsync(CalculateProgress(totalHits, completed, startProgress, endProgress), $"Total: {totalHits} Completed: {completed}").AnyContext();
                 results = await _client.ScrollAsync<JObject>(scroll, results.ScrollId).AnyContext();
+                await scopedCacheClient.AddAsync("id", results.ScrollId, TimeSpan.FromHours(1)).AnyContext();
             }
 
+            await scopedCacheClient.RemoveAsync("id").AnyContext();
             return new ReindexResult { Total = totalHits, Completed = completed };
         }
 

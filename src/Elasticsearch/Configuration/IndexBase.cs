@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Foundatio.Caching;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
@@ -10,13 +11,15 @@ using Nest;
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public abstract class IndexBase : IIndex {
         protected readonly IElasticClient _client;
+        protected readonly ICacheClient _cache;
         protected readonly ILogger _logger;
         private readonly List<IIndexType> _types = new List<IIndexType>();
         private readonly Lazy<IReadOnlyCollection<IIndexType>> _frozenTypes;
 
-        public IndexBase(IElasticClient client, string name, ILoggerFactory loggerFactory = null) {
+        public IndexBase(IElasticClient client, string name, ICacheClient cache = null, ILoggerFactory loggerFactory = null) {
             Name = name;
             _client = client;
+            _cache = cache ?? new NullCacheClient();
             _logger = loggerFactory.CreateLogger(GetType());
             _frozenTypes = new Lazy<IReadOnlyCollection<IIndexType>>(() => _types.AsReadOnly());
         }
@@ -65,7 +68,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             foreach (var type in IndexTypes.OfType<IChildIndexType>())
                 reindexWorkItem.ParentMaps.Add(new ParentMap { Type = type.Name, ParentPath = type.ParentPath });
 
-            var reindexer = new ElasticReindexer(_client, _logger);
+            var reindexer = new ElasticReindexer(_client, _cache, _logger);
             return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
         }
     }
