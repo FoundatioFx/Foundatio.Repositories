@@ -328,13 +328,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _dailyRepository.AddAsync(logs, addToCache: true);
             await _client.RefreshAsync();
-            Assert.Equal(_cache.Count, 3);
+            Assert.Equal(_cache.Count, 5);
             Assert.Equal(_cache.Hits, 0);
             Assert.Equal(_cache.Misses, 0);
             
             Assert.Equal(3, await _dailyRepository.IncrementValue(logs.Select(l => l.Id).ToArray()));
             await _client.RefreshAsync();
-            Assert.Equal(_cache.Count, 0);
+            Assert.Equal(_cache.Count, 2);
             Assert.Equal(_cache.Hits, 0);
             Assert.Equal(_cache.Misses, 0);
 
