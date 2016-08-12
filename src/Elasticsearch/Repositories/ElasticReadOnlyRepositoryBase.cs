@@ -45,6 +45,19 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected async Task<FindResults<TResult>> FindAsAsync<TResult>(object query) where TResult : class, new() {
+            var results = await FindHitsAsAsync<TResult>(query).AnyContext();
+            var nextPageFunc = ((IGetNextPage<IHit<TResult>>)results).GetNextPageFunc;
+
+            var newResults = results.ToFindResults();
+            ((IGetNextPage<TResult>)newResults).GetNextPageFunc = async findResults => {
+                var result = await nextPageFunc(results).AnyContext();
+                return result.ToFindResults();
+            };
+
+            return newResults;
+        }
+
+        protected async Task<FindResults<IHit<TResult>>> FindHitsAsAsync<TResult>(object query) where TResult : class, new() {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
@@ -54,27 +67,27 @@ namespace Foundatio.Repositories.Elasticsearch {
             // don't use caching with snapshot paging.
             bool allowCaching = IsCacheEnabled && (pagableQuery == null || pagableQuery.UseSnapshotPaging == false);
 
-            Func<FindResults<TResult>, Task<FindResults<TResult>>> getNextPageFunc = async r => {
+            Func<FindResults<IHit<TResult>>, Task<FindResults<IHit<TResult>>>> getNextPageFunc = async r => {
                 if (!String.IsNullOrEmpty(r.ScrollId)) {
                     var scrollResponse = await _client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), r.ScrollId).AnyContext();
                     _logger.Trace(() => scrollResponse.GetRequest());
-                    return scrollResponse.ToFindResults(HasVersion, useSnapshotPaging ? Int32.MaxValue : pagableQuery?.Limit);
+                    return scrollResponse.ToHitFindResults(useSnapshotPaging ? Int32.MaxValue : pagableQuery?.Limit);
                 }
 
                 if (pagableQuery == null)
-                    return new FindResults<TResult>();
+                    return new FindResults<IHit<TResult>>();
 
                 pagableQuery.Page = pagableQuery.Page == null ? 2 : pagableQuery.Page + 1;
-                return await FindAsAsync<TResult>(query).AnyContext();
+                return await FindHitsAsAsync<TResult>(query).AnyContext();
             };
 
             string cacheSuffix = pagableQuery?.ShouldUseLimit() == true ? pagableQuery.Page?.ToString() ?? "1" : String.Empty;
 
-            FindResults<TResult> result;
+            FindResults<IHit<TResult>> result;
             if (allowCaching) {
-                result = await GetCachedQueryResultAsync<FindResults<TResult>>(query, cacheSuffix: cacheSuffix).AnyContext();
+                result = await GetCachedQueryResultAsync<FindResults<IHit<TResult>>>(query, cacheSuffix: cacheSuffix).AnyContext();
                 if (result != null) {
-                    ((IGetNextPage<TResult>)result).GetNextPageFunc = getNextPageFunc;
+                    ((IGetNextPage<IHit<TResult>>)result).GetNextPageFunc = getNextPageFunc;
                     return result;
                 }
             }
@@ -87,7 +100,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             _logger.Trace(() => response.GetRequest());
             if (!response.IsValid) {
                 if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
-                    return new FindResults<TResult>();
+                    return new FindResults<IHit<TResult>>();
 
                 string message = response.GetErrorMessage();
                 _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
@@ -104,13 +117,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ApplicationException(message, scrollResponse.ConnectionStatus.OriginalException);
                 }
 
-                result = scrollResponse.ToFindResults(HasVersion);
-                ((IGetNextPage<TResult>)result).GetNextPageFunc = getNextPageFunc;
+                result = scrollResponse.ToHitFindResults();
+                ((IGetNextPage<IHit<TResult>>)result).GetNextPageFunc = getNextPageFunc;
             } else if (pagableQuery?.ShouldUseLimit() == true) {
-                result = response.ToFindResults(HasVersion, pagableQuery.Limit);
-                ((IGetNextPage<TResult>)result).GetNextPageFunc = getNextPageFunc;
+                result = response.ToHitFindResults(pagableQuery.Limit);
+                ((IGetNextPage<IHit<TResult>>)result).GetNextPageFunc = getNextPageFunc;
             } else {
-                result = response.ToFindResults(HasVersion);
+                result = response.ToHitFindResults();
             }
             
             result.Page = pagableQuery?.Page ?? 1;
@@ -118,10 +131,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (!allowCaching)
                 return result;
 
-            var nextPageFunc = ((IGetNextPage<TResult>)result).GetNextPageFunc;
-            ((IGetNextPage<TResult>)result).GetNextPageFunc = null;
+            var nextPageFunc = ((IGetNextPage<IHit<TResult>>)result).GetNextPageFunc;
+            ((IGetNextPage<IHit<TResult>>)result).GetNextPageFunc = null;
             await SetCachedQueryResultAsync(query, result, cacheSuffix: cacheSuffix).AnyContext();
-            ((IGetNextPage<TResult>)result).GetNextPageFunc = nextPageFunc;
+            ((IGetNextPage<IHit<TResult>>)result).GetNextPageFunc = nextPageFunc;
 
             return result;
         }
@@ -184,7 +197,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var res = await _client.GetAsync<T>(id, index).AnyContext();
                 _logger.Trace(() => res.GetRequest());
 
-                result = res.ToDocument(HasVersion);
+                result = res.ToDocument();
             } else {
                 // we don't have the parent id so we have to do a query
                 result = await FindOneAsync(new ElasticQuery().WithId(id)).AnyContext();
@@ -229,7 +242,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     if (!doc.Found)
                         continue;
                     
-                    results.Documents.Add((T)doc.ToDocument(HasVersion));
+                    results.Documents.Add((T)doc.ToDocument());
                     itemsToFind.Remove(doc.Id);
                 }
             }

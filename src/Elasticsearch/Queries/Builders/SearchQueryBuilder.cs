@@ -16,7 +16,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class SearchQueryBuilder : IElasticQueryBuilder {
         private readonly ElasticMacroProcessor _processor;
 
-        public SearchQueryBuilder(ElasticMacroProcessor processor) {
+        public SearchQueryBuilder(ElasticMacroProcessor processor = null) {
             _processor = processor ?? new ElasticMacroProcessor();
         }
 

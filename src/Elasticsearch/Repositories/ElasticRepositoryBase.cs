@@ -97,30 +97,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             await OnDocumentsSavedAsync(documents, originalDocuments, sendNotifications).AnyContext();
         }
 
-        // TODO: Refactor to a single method that does a bulk operation and then RemoveAll and UpdateAll use that
-        protected async Task<long> UpdateAllAsync(object query, object update, bool sendNotifications = true) {
-            long recordsAffected = 0;
-
-            var searchDescriptor = CreateSearchDescriptor(query)
-                .Source(s => s.Include(f => f.Id))
-                .SearchType(SearchType.Scan)
-                .Scroll("4s")
-                .Size(ElasticType.BulkBatchSize);
-
-            var scanResults = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-
-            // Check to see if no scroll id was returned. This will occur when the index doesn't exist.
-            if (!scanResults.IsValid || String.IsNullOrEmpty(scanResults.ScrollId)) {
-                _logger.Error().Exception(scanResults.ConnectionStatus.OriginalException).Message(scanResults.GetErrorMessage()).Property("request", scanResults.GetRequest()).WriteIf(!scanResults.IsValid);
-                return 0;
-            }
-
-            var results = await _client.ScrollAsync<T>("4s", scanResults.ScrollId).AnyContext();
-            _logger.Trace(() => results.GetRequest());
-            while (results.Hits.Any()) {
+        protected async Task<long> UpdateAllAsync<TQuery>(TQuery query, object update, bool sendNotifications = true) where TQuery : IPagableQuery, ISelectedFieldsQuery {
+            var affectedRecords = await BatchProcessAsAsync<TQuery, T>(query, async results => {
                 var bulkResult = await _client.BulkAsync(b => {
                     string script = update as string;
-                    foreach (var h in results.Hits) {
+                    foreach (var h in results.Documents) {
                         if (script != null)
                             b.Update<T>(u => u.Id(h.Id).Index(h.Index).Version(h.Version).Script(script));
                         else
@@ -139,25 +120,18 @@ namespace Foundatio.Repositories.Elasticsearch {
                         .Property("Update", update)
                         .Write();
 
-                    return 0;
+                    //return 0;
                 }
 
                 if (IsCacheEnabled)
-                    foreach (var d in results.Hits)
+                    foreach (var d in results.Documents)
                         await Cache.RemoveAsync(d.Id).AnyContext();
-
-                recordsAffected += results.Documents.Count();
-                results = await _client.ScrollAsync<T>("4s", results.ScrollId).AnyContext();
-                _logger.Trace(() => results.GetRequest());
-            }
-
-            if (recordsAffected <= 0)
-                return 0;
+            });
 
             if (sendNotifications)
                 await SendNotificationsAsync(ChangeType.Saved).AnyContext();
 
-            return recordsAffected;
+            return affectedRecords;
         }
 
         public async Task RemoveAsync(string id, bool sendNotification = true) {
@@ -236,21 +210,39 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
-            long recordsAffected = 0;
-
-            query.UseSnapshotPaging = true;
             foreach (var field in FieldsRequiredForRemove.Union(new[] { "id" }))
                 if (!query.SelectedFields.Contains(field))
                     query.SelectedFields.Add(field);
 
-            var results = await FindAsAsync<T>(query).AnyContext();
+            return await BatchProcessAsync(query, async docs => {
+                await RemoveAsync(docs, sendNotifications).AnyContext();
+            });
+        }
+
+        protected Task<long> BatchProcessAsync<TQuery>(TQuery query, Func<ICollection<T>, Task> process) where TQuery : IPagableQuery, ISelectedFieldsQuery {
+            return BatchProcessAsAsync<TQuery, T>(query, results => {
+                return process(results.Documents.Select(d => d.Source).ToList());
+            });
+        }
+
+        protected async Task<long> BatchProcessAsAsync<TQuery, TResult>(TQuery query, Func<FindResults<IHit<TResult>>, Task> process) where TQuery : IPagableQuery, ISelectedFieldsQuery where TResult : class, new() {
+            if (query == null)
+                throw new ArgumentNullException(nameof(query));
+
+            long recordsProcessed = 0;
+
+            query.UseSnapshotPaging = true;
+            if (!query.SnapshotLifetime.HasValue)
+                query.SnapshotLifetime = TimeSpan.FromMinutes(5);
+
+            var results = await FindHitsAsAsync<TResult>(query).AnyContext();
             do {
-                recordsAffected += results.Documents.Count;
-                await RemoveAsync(results.Documents, sendNotifications).AnyContext();
+                recordsProcessed += results.Documents.Count;
+                await process(results).AnyContext();
             } while (await results.NextPageAsync().AnyContext());
 
-            _logger.Trace("{0} records removed", recordsAffected);
-            return recordsAffected;
+            _logger.Trace("{0} records processed", recordsProcessed);
+            return recordsProcessed;
         }
 
         #region Events

@@ -40,7 +40,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             Register<IdentityQueryBuilder>();
             Register<SoftDeletesQueryBuilder>();
             Register<DateRangeQueryBuilder>();
-            Register(new SearchQueryBuilder(null));
+            Register(new SearchQueryBuilder());
             Register(new SystemFilterQueryBuilder(this));
             Register<ElasticFilterQueryBuilder>();
             Register<FieldConditionsQueryBuilder>();

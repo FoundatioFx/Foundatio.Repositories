@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using Foundatio.Repositories.Extensions;
 
 namespace Foundatio.Repositories.Models {
-    public class FindResults<T> : CountResult, IGetNextPage<T> where T : class, new() {
+    public class FindResults<T> : CountResult, IGetNextPage<T> where T : class {
         public FindResults(ICollection<T> documents = null, long total = 0, ICollection<AggregationResult> facetResults = null, string scrollId = null, Func<FindResults<T>, Task<FindResults<T>>> getNextPage = null) {
             Documents = documents ?? new List<T>();
             Aggregations = facetResults ?? new List<AggregationResult>();
@@ -44,7 +44,7 @@ namespace Foundatio.Repositories.Models {
         }
     }
 
-    public interface IGetNextPage<T> where T : class, new() {
+    public interface IGetNextPage<T> where T : class {
         Func<FindResults<T>, Task<FindResults<T>>> GetNextPageFunc { get; set; }
     }
 

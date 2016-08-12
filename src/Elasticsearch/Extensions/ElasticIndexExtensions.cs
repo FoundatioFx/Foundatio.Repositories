@@ -9,53 +9,59 @@ using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticIndexExtensions {
-        public static FindResults<T> ToFindResults<T>(this ISearchResponse<T> res, bool isVersioned, int? limit = null) where T : class, new() {
+        public static FindResults<T> ToFindResults<T>(this FindResults<IHit<T>> res) where T : class, new() {
             var result = new FindResults<T> {
+                Total = res.Total,
+                Aggregations = res.Aggregations,
+                ScrollId = res.ScrollId,
+                HasMore = res.HasMore,
+                Page = res.Page
+            };
+
+            result.Documents.AddRange(res.Documents.Select(d => d.Source));
+
+            return result;
+        }
+
+        public static FindResults<IHit<T>> ToHitFindResults<T>(this ISearchResponse<T> res, int? limit = null) where T : class, new() {
+            var result = new FindResults<IHit<T>> {
                 Total = res.Total,
                 Aggregations = res.ToAggregationResult(),
                 ScrollId = res.ScrollId,
                 HasMore = limit.HasValue && res.Documents.Count() > limit.Value
             };
 
-            result.Documents.AddRange(res.Hits.Take(limit ?? Int32.MaxValue).Select(h => h.ToDocument(isVersioned)));
+            res.Hits.SetVersions();
+            result.Documents.AddRange(res.Hits.Take(limit ?? Int32.MaxValue));
 
             return result;
         }
 
-        public static T ToDocument<T>(this IHit<T> hit, bool isVersioned) where T : class {
-            if (!isVersioned)
-                return hit.Source;
-
-            var doc = hit.Source;
-            var versionedDoc = doc as IVersioned;
-            if (versionedDoc != null)
-                versionedDoc.Version = hit.Version != null ? Int64.Parse(hit.Version) : versionedDoc.Version;
-
-            return doc;
+        public static void SetVersions<T>(this IEnumerable<IHit<T>> hits) where T : class {
+            foreach (var hit in hits)
+                hit.SetVersion();
         }
 
-        public static T ToDocument<T>(this IGetResponse<T> hit, bool isVersioned) where T : class {
-            if (!isVersioned)
-                return hit.Source;
-
-            var doc = hit.Source;
-            var versionedDoc = doc as IVersioned;
+        public static void SetVersion<T>(this IHit<T> hit) where T : class {
+            var versionedDoc = hit.Source as IVersioned;
             if (versionedDoc != null)
                 versionedDoc.Version = hit.Version != null ? Int64.Parse(hit.Version) : versionedDoc.Version;
-
-            return doc;
         }
 
-        public static T ToDocument<T>(this IMultiGetHit<T> hit, bool isVersioned) where T : class {
-            if (!isVersioned)
-                return hit.Source;
-
-            var doc = hit.Source;
-            var versionedDoc = doc as IVersioned;
+        public static T ToDocument<T>(this IGetResponse<T> response) where T : class {
+            var versionedDoc = response.Source as IVersioned;
             if (versionedDoc != null)
-                versionedDoc.Version = hit.Version != null ? Int64.Parse(hit.Version) : versionedDoc.Version;
+                versionedDoc.Version = response.Version != null ? Int64.Parse(response.Version) : versionedDoc.Version;
 
-            return doc;
+            return response.Source;
+        }
+
+        public static T ToDocument<T>(this IMultiGetHit<T> response) where T : class {
+            var versionedDoc = response.Source as IVersioned;
+            if (versionedDoc != null)
+                versionedDoc.Version = response.Version != null ? Int64.Parse(response.Version) : versionedDoc.Version;
+
+            return response.Source;
         }
 
         private static AggregationResult ToAggregationResult(this Bucket bucket, string field) {
