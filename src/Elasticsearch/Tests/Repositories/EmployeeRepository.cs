@@ -24,11 +24,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             ElasticType = employeeType;
         }
         
-        public Task<FindResults<Employee>> GetAllByAgeAsync(int age) {
+        public Task<IFindResults<Employee>> GetAllByAgeAsync(int age) {
             return FindAsync(new MyAppQuery().WithAge(age));
         }
 
-        public Task<FindResults<Employee>> GetAllByCompanyAsync(string company) {
+        public Task<IFindResults<Employee>> GetAllByCompanyAsync(string company) {
             return FindAsync(new MyAppQuery().WithCompany(company));
         }
         
@@ -45,7 +45,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return UpdateAllAsync(new MyAppQuery().WithIds(ids), script);
         }
 
-        protected override async Task InvalidateCacheAsync(ICollection<ModifiedDocument<Employee>> documents) {
+        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<Employee>> documents) {
             if (!IsCacheEnabled)
                 return;
 

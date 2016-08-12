@@ -2,66 +2,78 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Nest;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Repositories.Elasticsearch.Repositories;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticIndexExtensions {
-        public static FindResults<T> ToFindResults<T>(this FindResults<IHit<T>> res) where T : class, new() {
-            var result = new FindResults<T> {
-                Total = res.Total,
-                Aggregations = res.Aggregations,
-                ScrollId = res.ScrollId,
-                HasMore = res.HasMore,
-                Page = res.Page
-            };
+        public static ElasticFindResults<T> ToFindResults<T>(this ISearchResponse<T> res, int? limit = null) where T : class, new() {
+            var docs = res.Hits.ToFindHits().Take(limit ?? Int32.MaxValue).ToList();
+            docs.SetVersions();
 
-            result.Documents.AddRange(res.Documents.Select(d => d.Source));
-
-            return result;
-        }
-
-        public static FindResults<IHit<T>> ToHitFindResults<T>(this ISearchResponse<T> res, int? limit = null) where T : class, new() {
-            var result = new FindResults<IHit<T>> {
-                Total = res.Total,
-                Aggregations = res.ToAggregationResult(),
-                ScrollId = res.ScrollId,
+            var result = new ElasticFindResults<T>(docs, res.Total, res.ToAggregationResult(), res.ScrollId) {
                 HasMore = limit.HasValue && res.Documents.Count() > limit.Value
             };
 
-            res.Hits.SetVersions();
-            result.Documents.AddRange(res.Hits.Take(limit ?? Int32.MaxValue));
-
             return result;
         }
 
-        public static void SetVersions<T>(this IEnumerable<IHit<T>> hits) where T : class {
+        public static void SetVersions<T>(this IEnumerable<IFindHit<T>> hits) where T : class {
             foreach (var hit in hits)
                 hit.SetVersion();
         }
 
-        public static void SetVersion<T>(this IHit<T> hit) where T : class {
+        public static void SetVersion<T>(this IFindHit<T> hit) where T : class {
+            var versionedDoc = hit.Document as IVersioned;
+            if (versionedDoc != null)
+                versionedDoc.Version = hit.Version;
+        }
+
+        public static void SetVersion<T>(this IGetResponse<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
             if (versionedDoc != null)
-                versionedDoc.Version = hit.Version != null ? Int64.Parse(hit.Version) : versionedDoc.Version;
+                versionedDoc.Version = hit.Version != null ? Int64.Parse(hit.Version) : -1;
         }
 
-        public static T ToDocument<T>(this IGetResponse<T> response) where T : class {
+        public static IEnumerable<ElasticFindHit<T>> ToFindHits<T>(this IEnumerable<IHit<T>> hits) where T : class {
+            return hits.Select(h => h.ToFindHit());
+        }
+
+        public static ElasticFindHit<T> ToFindHit<T>(this IGetResponse<T> hit) where T : class {
+            return new ElasticFindHit<T> {
+                Document = hit.Source,
+                Id = hit.Id,
+                Index = hit.Index,
+                Type = hit.Type,
+                Version = hit.Version != null ? Int64.Parse(hit.Version) : -1
+            };
+        }
+
+        public static ElasticFindHit<T> ToFindHit<T>(this IHit<T> hit) where T : class {
+            return new ElasticFindHit<T> {
+                Document = hit.Source,
+                Id = hit.Id,
+                Index = hit.Index,
+                Type = hit.Type,
+                Score = hit.Score,
+                Version = hit.Version != null ? Int64.Parse(hit.Version) : -1
+            };
+        }
+
+        public static ElasticFindHit<T> ToFindHit<T>(this IMultiGetHit<T> response) where T : class {
             var versionedDoc = response.Source as IVersioned;
             if (versionedDoc != null)
                 versionedDoc.Version = response.Version != null ? Int64.Parse(response.Version) : versionedDoc.Version;
 
-            return response.Source;
-        }
-
-        public static T ToDocument<T>(this IMultiGetHit<T> response) where T : class {
-            var versionedDoc = response.Source as IVersioned;
-            if (versionedDoc != null)
-                versionedDoc.Version = response.Version != null ? Int64.Parse(response.Version) : versionedDoc.Version;
-
-            return response.Source;
+            return new ElasticFindHit<T> {
+                Document = response.Source,
+                Id = response.Id,
+                Index = response.Index,
+                Type = response.Type,
+                Version = versionedDoc?.Version ?? -1
+            };
         }
 
         private static AggregationResult ToAggregationResult(this Bucket bucket, string field) {
@@ -88,7 +100,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             };
         }
 
-        public static ICollection<AggregationResult> ToAggregationResult<T>(this ISearchResponse<T> res) where T : class {
+        public static IReadOnlyCollection<AggregationResult> ToAggregationResult<T>(this ISearchResponse<T> res) where T : class {
             var result = new List<AggregationResult>();
             if (res.Aggregations == null || res.Aggregations.Count == 0)
                 return result;

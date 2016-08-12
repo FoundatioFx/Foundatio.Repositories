@@ -19,15 +19,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             ElasticType = elasticConfiguration.DailyLogEvents.LogEvent;
         }
         
-        public Task<FindResults<LogEvent>> GetByCompanyAsync(string company) {
+        public Task<IFindResults<LogEvent>> GetByCompanyAsync(string company) {
             return FindAsync(new MyAppQuery().WithCompany(company));
         }
         
-        public Task<FindResults<LogEvent>> GetPartialByCompanyAsync(string company) {
+        public Task<IFindResults<LogEvent>> GetPartialByCompanyAsync(string company) {
             return FindAsync(new MyAppQuery().WithCompany(company).WithSelectedFields("id", "createdUtc"));
         }
 
-        public Task<FindResults<LogEvent>> GetAllByCompanyAsync(string company) {
+        public Task<IFindResults<LogEvent>> GetAllByCompanyAsync(string company) {
             return FindAsync(new MyAppQuery().WithCompany(company));
         }
 
@@ -40,7 +40,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return UpdateAllAsync(new MyAppQuery().WithIds(ids), script);
         }
 
-        protected override async Task InvalidateCacheAsync(ICollection<ModifiedDocument<LogEvent>> documents) {
+        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents) {
             if (!IsCacheEnabled)
                 return;
 

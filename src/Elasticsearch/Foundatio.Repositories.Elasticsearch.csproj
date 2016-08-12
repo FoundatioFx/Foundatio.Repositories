@@ -106,6 +106,7 @@
     <Compile Include="Jobs\ReindexWorkItem.cs" />
     <Compile Include="Jobs\ReindexWorkItemHandler.cs" />
     <Compile Include="Configuration\DailyIndex.cs" />
+    <Compile Include="Repositories\ElasticFindResults.cs" />
     <Compile Include="Repositories\ElasticReindexer.cs" />
     <Compile Include="Configuration\IElasticConfiguration.cs" />
     <Compile Include="Configuration\IIndex.cs" />
@@ -117,6 +118,7 @@
     <Compile Include="Configuration\IndexBase.cs" />
     <Compile Include="Configuration\MonthlyIndex.cs" />
     <Compile Include="Configuration\VersionedIndex.cs" />
+    <Compile Include="Repositories\IElasticFindResults.cs" />
     <Compile Include="Repositories\MigrationsRepository.cs" />
     <Compile Include="Queries\Builders\ElasticQueryBuilder.cs" />
     <Compile Include="Queries\Builders\SystemFilterQueryBuilder.cs" />
