@@ -788,6 +788,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task MaintainMonthlyIndexes() {
             var index = new MonthlyEmployeeIndex(_client, 1, _cache, Log);
+            index.MaxIndexAge = TimeSpan.FromDays(120);
             index.Delete();
 
             var utcNow = SystemClock.UtcNow;

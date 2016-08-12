@@ -49,7 +49,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             CreateAlias(String.Concat(Name, "-v", currentVersion), Name);
         }
 
-        protected void CreateAlias(string index, string name) {
+        protected virtual void CreateAlias(string index, string name) {
             if (_client.AliasExists(name).Exists)
                 return;
             

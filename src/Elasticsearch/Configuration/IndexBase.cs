@@ -40,7 +40,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             DeleteIndex(Name);
         }
 
-        protected void DeleteIndex(string name) {
+        protected virtual void DeleteIndex(string name) {
             if (name == null)
                 throw new ArgumentNullException(nameof(name));
 
