@@ -69,7 +69,7 @@ namespace Foundatio.Repositories.Models {
     public class FindResult<T> {
         public T Document { get; set; }
         public double Score { get; set; }
-        public long Version { get; set; }
+        public long? Version { get; set; }
         public string Id { get; set; }
     }
 }

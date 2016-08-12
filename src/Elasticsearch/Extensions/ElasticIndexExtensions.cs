@@ -28,7 +28,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         public static void SetVersion<T>(this IFindHit<T> hit) where T : class {
             var versionedDoc = hit.Document as IVersioned;
             if (versionedDoc != null)
-                versionedDoc.Version = hit.Version;
+                versionedDoc.Version = hit.Version ?? 0;
         }
 
         public static void SetVersion<T>(this IGetResponse<T> hit) where T : class {
@@ -47,7 +47,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 Id = hit.Id,
                 Index = hit.Index,
                 Type = hit.Type,
-                Version = hit.Version != null ? Int64.Parse(hit.Version) : -1
+                Version = hit.Version != null ? Int64.Parse(hit.Version) : (long?)null
             };
         }
 
@@ -58,7 +58,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 Index = hit.Index,
                 Type = hit.Type,
                 Score = hit.Score,
-                Version = hit.Version != null ? Int64.Parse(hit.Version) : -1
+                Version = hit.Version != null ? Int64.Parse(hit.Version) : (long?)null
             };
         }
 
@@ -72,7 +72,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 Id = response.Id,
                 Index = response.Index,
                 Type = response.Type,
-                Version = versionedDoc?.Version ?? -1
+                Version = versionedDoc?.Version ?? (long?)null
             };
         }
 

@@ -105,9 +105,17 @@ namespace Foundatio.Repositories.Elasticsearch {
                     string script = update as string;
                     foreach (var h in results.Hits.Cast<IElasticFindHit<T>>()) {
                         if (script != null)
-                            b.Update<T>(u => u.Id(h.Id).Index(h.Index).Version(h.Version.ToString()).Script(script));
+                            b.Update<T>(u => u
+                                .Id(h.Id)
+                                .Index(h.Index)
+                                .Version(h.Version.HasValue ? h.Version.ToString() : null)
+                                .Script(script));
                         else
-                            b.Update<T, object>(u => u.Id(h.Id).Index(h.Index).Version(h.Version.ToString()).Doc(update));
+                            b
+                                .Update<T, object>(u => u.Id(h.Id)
+                                .Index(h.Index)
+                                .Version(h.Version.HasValue ? h.Version.ToString() : null)
+                                .Doc(update));
                     }
 
                     return b;

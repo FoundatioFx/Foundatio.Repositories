@@ -15,7 +15,7 @@ namespace Foundatio.Repositories.Models {
     public interface IFindHit<out T> {
         T Document { get; }
         double Score { get; }
-        long Version { get; }
+        long? Version { get; }
         string Id { get; }
     }
 }
