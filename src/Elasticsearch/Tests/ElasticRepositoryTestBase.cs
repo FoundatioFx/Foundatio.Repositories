@@ -12,7 +12,7 @@ using LogLevel = Foundatio.Logging.LogLevel;
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public abstract class ElasticRepositoryTestBase : TestWithLoggingBase {
         protected readonly InMemoryCacheClient _cache;
-        protected readonly ElasticConfiguration _configuration;
+        protected readonly IElasticConfiguration _configuration;
         protected readonly IElasticClient _client;
 
         public ElasticRepositoryTestBase(ITestOutputHelper output) : base(output) {
@@ -25,7 +25,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             _client = _configuration.Client;
         }
 
-        protected abstract ElasticConfiguration GetElasticConfiguration();
+        protected abstract IElasticConfiguration GetElasticConfiguration();
 
         protected virtual async Task RemoveDataAsync(bool configureIndexes = true) {
             var minimumLevel = Log.MinimumLevel;

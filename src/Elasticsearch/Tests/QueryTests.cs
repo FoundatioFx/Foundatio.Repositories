@@ -23,7 +23,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             RemoveDataAsync().GetAwaiter().GetResult();
         }
 
-        protected override ElasticConfiguration GetElasticConfiguration() {
+        protected override IElasticConfiguration GetElasticConfiguration() {
             return new MyAppElasticConfiguration(_workItemQueue, _cache, Log);
         }
 

@@ -9,7 +9,7 @@ using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
-    public class MyAppElasticConfiguration : ElasticConfiguration {
+    public class MyAppElasticConfiguration : ElasticConfigurationBase {
         public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILoggerFactory loggerFactory) : base(workItemQueue, cacheClient, loggerFactory) {
             var connectionString = ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString;
             SetClient(new Uri(connectionString));
