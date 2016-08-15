@@ -12,9 +12,11 @@ using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Repositories;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.JsonPatch;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
 using Foundatio.Utility;
+using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IRepository<T> where T : class, IIdentity, new() {
@@ -99,21 +101,156 @@ namespace Foundatio.Repositories.Elasticsearch {
             await OnDocumentsSavedAsync(docs, originalDocuments, sendNotifications).AnyContext();
         }
 
-        protected async Task<long> UpdateAllAsync<TQuery>(TQuery query, object update, bool sendNotifications = true) where TQuery : IPagableQuery, ISelectedFieldsQuery {
-            var affectedRecords = await BatchProcessAsAsync<TQuery, T>(query, async results => {
+        public async Task PatchAsync(string id, object update, bool sendNotification = true) {
+            string script = update as string;
+            var patch = update as PatchDocument;
+
+            if (script != null) {
+                var response = await _client.UpdateAsync<T>(u => {
+                    u.Id(id);
+                    u.Index(GetIndexById(id));
+                    u.Type(ElasticType.Name);
+                    u.Script(script);
+                    return u;
+                }).AnyContext();
+
+                _logger.Trace(() => response.GetRequest());
+
+                if (!response.IsValid) {
+                    string message = response.GetErrorMessage();
+                    _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                    throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                }
+            } else if (patch != null) {
+                var response = await _client.GetAsync<JObject>(u => {
+                    u.Id(id);
+                    u.Index(GetIndexById(id));
+                    u.Type(ElasticType.Name);
+                    return u;
+                }).AnyContext();
+
+                _logger.Trace(() => response.GetRequest());
+
+                if (!response.IsValid) {
+                    string message = response.GetErrorMessage();
+                    _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                    throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                }
+                
+                var target = response.Source as JToken;
+                new JsonPatcher().Patch(ref target, patch);
+
+                var updateResponse = await _client.Raw.IndexPutAsync(response.Index, response.Type, id, target.ToString()).AnyContext();
+                
+                _logger.Trace(() => updateResponse.GetRequest());
+
+                if (!updateResponse.Success) {
+                    string message = updateResponse.GetErrorMessage();
+                    _logger.Error().Exception(updateResponse.OriginalException).Message(message).Property("request", updateResponse.GetRequest()).Write();
+                    throw new ApplicationException(message, updateResponse.OriginalException);
+                }
+            } else {
+                var response = await _client.UpdateAsync<T, object>(u => {
+                    u.Id(id);
+                    u.Index(GetIndexById(id));
+                    u.Type(ElasticType.Name);
+                    u.Doc(update);
+                    return u;
+                }).AnyContext();
+
+                _logger.Trace(() => response.GetRequest());
+
+                if (!response.IsValid) {
+                    string message = response.GetErrorMessage();
+                    _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                    throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                }
+            }
+
+            if (IsCacheEnabled)
+                await Cache.RemoveAsync(id).AnyContext();
+
+            if (sendNotification)
+                await SendNotificationsAsync(ChangeType.Saved).AnyContext();
+        }
+
+        public async Task PatchAsync(IEnumerable<string> ids, object update, bool sendNotification = true) {
+            var idList = ids?.ToList() ?? new List<string>();
+            if (idList.Count == 0)
+                return;
+
+            if (idList.Count == 1) {
+                await PatchAsync(idList[0], update, sendNotification).AnyContext();
+                return;
+            }
+
+            await PatchAllAsync(new Query().WithIds(idList), update, sendNotification).AnyContext();
+        }
+
+        protected async Task<long> PatchAllAsync<TQuery>(TQuery query, object update, bool sendNotifications = true) where TQuery : IPagableQuery, ISelectedFieldsQuery {
+            string script = update as string;
+            var patch = update as PatchDocument;
+
+            if (patch == null && query.SelectedFields.Count == 0)
+                query.SelectedFields.Add("id");
+
+            long affectedRecords = 0;
+            if (patch != null) {
+                var patcher = new JsonPatcher();
+                affectedRecords = await BatchProcessAsAsync<TQuery, JObject>(query, async results => {
+                    var bulkResult = await _client.BulkAsync(b => {
+                        foreach (var h in results.Hits.Cast<IElasticFindHit<T>>()) {
+                            var target = h.Document as JToken;
+                            patcher.Patch(ref target, patch);
+
+                            b.Index<JObject>(i => i
+                                .Document(target as JObject)
+                                .Id(h.Id)
+                                .Index(h.Index)
+                                .Type(h.Type)
+                                .Version(h.Version.HasValue ? h.Version.ToString() : null));
+                        }
+
+                        return b;
+                    }).AnyContext();
+                    _logger.Trace(() => bulkResult.GetRequest());
+
+                    if (!bulkResult.IsValid) {
+                        _logger.Error()
+                            .Exception(bulkResult.ConnectionStatus.OriginalException)
+                            .Message($"Error occurred while bulk updating: {bulkResult.GetErrorMessage()}")
+                            .Property("Query", query)
+                            .Property("Update", update)
+                            .Write();
+
+                        return false;
+                    }
+
+                    if (IsCacheEnabled)
+                        foreach (var d in results.Documents)
+                            await Cache.RemoveAsync(d["id"].Value<string>()).AnyContext();
+
+                    return true;
+                });
+
+                return affectedRecords;
+            }
+            
+            affectedRecords = await BatchProcessAsync(query, async results => {
                 var bulkResult = await _client.BulkAsync(b => {
-                    string script = update as string;
                     foreach (var h in results.Hits.Cast<IElasticFindHit<T>>()) {
                         if (script != null)
                             b.Update<T>(u => u
                                 .Id(h.Id)
                                 .Index(h.Index)
+                                .Type(h.Type)
                                 .Version(h.Version.HasValue ? h.Version.ToString() : null)
                                 .Script(script));
                         else
                             b
                                 .Update<T, object>(u => u.Id(h.Id)
                                 .Index(h.Index)
+                                .Type(h.Type)
                                 .Version(h.Version.HasValue ? h.Version.ToString() : null)
                                 .Doc(update));
                     }
@@ -130,12 +267,14 @@ namespace Foundatio.Repositories.Elasticsearch {
                         .Property("Update", update)
                         .Write();
 
-                    //return 0;
+                    return false;
                 }
 
                 if (IsCacheEnabled)
                     foreach (var d in results.Documents)
                         await Cache.RemoveAsync(d.Id).AnyContext();
+
+                return true;
             });
 
             if (sendNotifications)
@@ -227,14 +366,15 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             return await BatchProcessAsync(query, async results => {
                 await RemoveAsync(results.Documents, sendNotifications).AnyContext();
+                return true;
             });
         }
 
-        protected Task<long> BatchProcessAsync<TQuery>(TQuery query, Func<IElasticFindResults<T>, Task> process) where TQuery : IPagableQuery, ISelectedFieldsQuery {
+        protected Task<long> BatchProcessAsync<TQuery>(TQuery query, Func<IElasticFindResults<T>, Task<bool>> process) where TQuery : IPagableQuery, ISelectedFieldsQuery {
             return BatchProcessAsAsync(query, process);
         }
 
-        protected async Task<long> BatchProcessAsAsync<TQuery, TResult>(TQuery query, Func<IElasticFindResults<TResult>, Task> process) where TQuery : IPagableQuery, ISelectedFieldsQuery where TResult : class, new() {
+        protected async Task<long> BatchProcessAsAsync<TQuery, TResult>(TQuery query, Func<IElasticFindResults<TResult>, Task<bool>> process) where TQuery : IPagableQuery, ISelectedFieldsQuery where TResult : class, new() {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
@@ -247,7 +387,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             var results = await FindAsAsync<TResult>(query).AnyContext();
             do {
                 recordsProcessed += results.Documents.Count;
-                await process(results).AnyContext();
+                if (!await process(results).AnyContext()) {
+                    _logger.Trace("Aborted batch processing.");
+                    break;
+                }
             } while (await results.NextPageAsync().AnyContext());
 
             _logger.Trace("{0} records processed", recordsProcessed);

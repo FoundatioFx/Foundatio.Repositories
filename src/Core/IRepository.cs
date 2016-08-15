@@ -10,6 +10,8 @@ namespace Foundatio.Repositories {
         Task AddAsync(IEnumerable<T> documents, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotification = true);
         Task<T> SaveAsync(T document, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotification = true);
         Task SaveAsync(IEnumerable<T> documents, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotification = true);
+        Task PatchAsync(string id, object update, bool sendNotification = true);
+        Task PatchAsync(IEnumerable<string> ids, object update, bool sendNotification = true);
         Task RemoveAsync(string id, bool sendNotification = true);
         Task RemoveAsync(T document, bool sendNotification = true);
         Task RemoveAsync(IEnumerable<T> documents, bool sendNotification = true);

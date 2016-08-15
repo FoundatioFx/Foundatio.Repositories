@@ -68,9 +68,22 @@
   <ItemGroup>
     <Compile Include="Extensions\EnumerableExtensions.cs" />
     <Compile Include="Extensions\NumberExtensions.cs" />
+    <Compile Include="Extensions\StringExtensions.cs" />
     <Compile Include="Extensions\TaskExtensions.cs" />
     <Compile Include="IRepositoryConfiguration.cs" />
     <Compile Include="ISearchableRepository.cs" />
+    <Compile Include="JsonPatch\AbstractPatcher.cs" />
+    <Compile Include="JsonPatch\AddOperation.cs" />
+    <Compile Include="JsonPatch\CopyOperation.cs" />
+    <Compile Include="JsonPatch\JsonDiffer.cs" />
+    <Compile Include="JsonPatch\JsonPatcher.cs" />
+    <Compile Include="JsonPatch\MoveOperation.cs" />
+    <Compile Include="JsonPatch\Operation.cs" />
+    <Compile Include="JsonPatch\PatchDocument.cs" />
+    <Compile Include="JsonPatch\PatchDocumentConverter.cs" />
+    <Compile Include="JsonPatch\RemoveOperation.cs" />
+    <Compile Include="JsonPatch\ReplaceOperation.cs" />
+    <Compile Include="JsonPatch\TestOperation.cs" />
     <Compile Include="Migration\IMigration.cs" />
     <Compile Include="Migration\IMigrationRepository.cs" />
     <Compile Include="Migration\MigrationBase.cs" />

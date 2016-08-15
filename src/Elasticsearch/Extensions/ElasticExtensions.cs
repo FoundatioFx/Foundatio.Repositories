@@ -31,6 +31,41 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return sb.ToString();
         }
 
+        public static string GetErrorMessage(this IElasticsearchResponse response) {
+            var sb = new StringBuilder();
+
+            if (response.OriginalException != null)
+                sb.AppendLine($"Original: ({response.HttpStatusCode} - {response.OriginalException.GetType().Name}) {response.OriginalException.Message}");
+
+            var bulkResponse = response as IBulkResponse;
+            if (bulkResponse != null)
+                sb.AppendLine($"Bulk: {String.Join("\r\n", bulkResponse.ItemsWithErrors.Select(i => i.Error))}");
+
+            if (sb.Length == 0)
+                sb.AppendLine("Unknown error.");
+
+            return sb.ToString();
+        }
+
+        public static string GetRequest(this IElasticsearchResponse response) {
+            if (response == null)
+                return String.Empty;
+
+            string body = String.Empty;
+            if (response.RequestUrl.EndsWith("_bulk") && response.Request != null && response.Request.Length > 0) {
+                string[] bulkCommands = Encoding.UTF8.GetString(response.Request).Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+                body = String.Join("\r\n", bulkCommands.Select(c => JObject.Parse(c).ToString(Formatting.Indented)));
+            } else if (response.Request != null && response.Request.Length > 0) {
+                body = Encoding.UTF8.GetString(response.Request);
+                try {
+                    if (body.StartsWith("{") || body.StartsWith("["))
+                        body = JObject.Parse(body).ToString(Formatting.Indented);
+                } catch { }
+            }
+
+            return $"{response.RequestMethod.ToUpper()} {response.RequestUrl}\r\n{body}\r\n";
+        }
+        
         public static string GetRequest(this IResponseWithRequestInformation response) {
             if (response?.RequestInformation == null)
                 return String.Empty;

@@ -37,12 +37,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public Task<long> UpdateCompanyNameByCompanyAsync(string company, string name) {
-            return UpdateAllAsync(new MyAppQuery().WithCompany(company), new { CompanyName = name });
+            return PatchAllAsync(new MyAppQuery().WithCompany(company), new { CompanyName = name });
         }
         
         public Task<long> IncrementYearsEmployeed(string[] ids, int years = 1) {
             string script = $"ctx._source.yearsEmployed += {years};";
-            return UpdateAllAsync(new MyAppQuery().WithIds(ids), script);
+            return PatchAllAsync(new MyAppQuery().WithIds(ids), script);
         }
 
         protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<Employee>> documents) {

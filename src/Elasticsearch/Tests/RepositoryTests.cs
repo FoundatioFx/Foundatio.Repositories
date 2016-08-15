@@ -10,6 +10,7 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
+using Foundatio.Repositories.JsonPatch;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Nito.AsyncEx;
@@ -318,7 +319,41 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task UpdateAll() {
+        public async Task JsonPatch() {
+            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+
+            var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
+            await _employeeRepository.PatchAsync(employee.Id, patch);
+
+            employee = await _employeeRepository.GetByIdAsync(employee.Id);
+            Assert.Equal("Patched", employee.Name);
+            Assert.Equal(2, employee.Version);
+        }
+
+        [Fact]
+        public async Task PartialPatch() {
+            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+
+            await _employeeRepository.PatchAsync(employee.Id, new { name = "Patched" });
+
+            employee = await _employeeRepository.GetByIdAsync(employee.Id);
+            Assert.Equal("Patched", employee.Name);
+            Assert.Equal(2, employee.Version);
+        }
+
+        [Fact]
+        public async Task ScriptPatch() {
+            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+
+            await _employeeRepository.PatchAsync(employee.Id, "ctx._source.name = 'Patched';");
+
+            employee = await _employeeRepository.GetByIdAsync(employee.Id);
+            Assert.Equal("Patched", employee.Name);
+            Assert.Equal(2, employee.Version);
+        }
+
+        [Fact]
+        public async Task PatchAll() {
             var utcNow = SystemClock.UtcNow;
             var logs = new List<LogEvent> {
                 LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),

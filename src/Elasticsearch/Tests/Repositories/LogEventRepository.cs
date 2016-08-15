@@ -37,7 +37,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         public Task<long> IncrementValue(string[] ids, int value = 1) {
             string script = $"ctx._source.value += {value};";
-            return UpdateAllAsync(new MyAppQuery().WithIds(ids), script);
+            return PatchAllAsync(new MyAppQuery().WithIds(ids), script);
         }
 
         protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents) {
