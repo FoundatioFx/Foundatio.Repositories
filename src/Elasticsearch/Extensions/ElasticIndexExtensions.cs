@@ -154,21 +154,22 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         }
 
         public static PropertiesDescriptor<T> SetupDefaults<T>(this PropertiesDescriptor<T> pd) where T : class {
+            var hasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
             var hasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
             var hasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
             var supportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(typeof(T));
 
-            if (supportsSoftDeletes) {
+            if (hasIdentity)
+                pd.String(p => p.Name(d => (d as IIdentity).Id).IndexName("id").Index(FieldIndexOption.NotAnalyzed));
+
+            if (supportsSoftDeletes)
                 pd.Boolean(p => p.Name(d => (d as ISupportSoftDeletes).IsDeleted).IndexName(SoftDeletesQueryBuilder.Fields.Deleted));
-            }
 
-            if (hasCreatedDate) {
+            if (hasCreatedDate)
                 pd.Date(p => p.Name(d => (d as IHaveCreatedDate).CreatedUtc).IndexName("created"));
-            }
 
-            if (hasDates) {
+            if (hasDates)
                 pd.Date(p => p.Name(d => (d as IHaveDates).UpdatedUtc).IndexName("updated"));
-            }
 
             return pd;
         }
