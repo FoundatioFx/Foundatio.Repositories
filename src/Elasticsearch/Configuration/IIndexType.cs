@@ -32,6 +32,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             Name = name ?? _typeName;
             Index = index;
+
+            //TODO: Support Scopes
         }
 
         public string Name { get; }
@@ -57,7 +59,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return ObjectId.GenerateNewId().ToString();
         }
 
-        public CreateIndexDescriptor Configure(CreateIndexDescriptor idx) {
+        public virtual CreateIndexDescriptor Configure(CreateIndexDescriptor idx) {
             return idx.AddMapping<T>(BuildMapping);
         }
 
