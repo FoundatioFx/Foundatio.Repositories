@@ -444,7 +444,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return search;
         }
 
-        private object GetQueryOptions() {
+        protected virtual object GetQueryOptions() {
             return new QueryOptions(typeof(T)) { AllowedAggregationFields = ElasticType.AllowedAggregationFields.ToArray() };
         }
 
