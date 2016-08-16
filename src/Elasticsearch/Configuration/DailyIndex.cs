@@ -68,14 +68,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         protected string DateFormat { get; set; } = "yyyy.MM.dd";
 
         public virtual string GetIndex(DateTime utcDate) {
-            return $"{Name}-{utcDate:DateFormat}";
+            return $"{Name}-{utcDate.ToString(DateFormat)}";
         }
 
         public virtual string GetVersionedIndex(DateTime utcDate, int? version = null) {
             if (version == null || version < 0)
                 version = Version;
 
-            return $"{Name}-v{version}-{utcDate:DateFormat}";
+            return $"{Name}-v{version}-{utcDate.ToString(DateFormat)}";
         }
         
         protected override DateTime GetIndexDate(string index) {
