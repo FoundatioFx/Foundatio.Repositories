@@ -30,8 +30,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             _messagePublisher = messagePublisher;
             NotificationsEnabled = _messagePublisher != null;
 
-            if (HasCreatedDate)
-               FieldsRequiredForRemove.Add("createdUtc"); // TODO: What do we do if this field is serialized differently?
+            if (HasCreatedDate) {
+                var propertyName = _client.Infer.PropertyName(typeof(T).GetMember(nameof(IHaveCreatedDate.CreatedUtc)).Single());
+                FieldsRequiredForRemove.Add(propertyName);
+            }
         }
         
         public async Task<T> AddAsync(T document, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotification = true) {
@@ -319,7 +321,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             // TODO: support Parent and child docs.
             if (docs.Count == 1) {
                 var document = docs.First();
-                var response = await _client.DeleteAsync(document, descriptor => descriptor.Index(GetDocumentIndexFunc?.Invoke(document))).AnyContext();
+                var response = await _client.DeleteAsync(document, descriptor => descriptor.Index(GetDocumentIndexFunc?.Invoke(document)).Type(ElasticType.Name)).AnyContext();
                 _logger.Trace(() => response.GetRequest());
 
                 if (!response.IsValid) {
@@ -331,7 +333,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var documentsByIndex = docs.GroupBy(d => GetDocumentIndexFunc?.Invoke(d));
                 var response = await _client.BulkAsync(bulk => {
                     foreach (var group in documentsByIndex)
-                        bulk.DeleteMany<T>(group.Select(g => g.Id), (b, id) => b.Index(group.Key));
+                        bulk.DeleteMany<T>(group.Select(g => g.Id), (b, id) => b.Index(group.Key).Type(ElasticType.Name));
 
                     return bulk;
                 }).AnyContext();
@@ -549,6 +551,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (documents.Count == 1) {
                 var document = documents.Single();
                 response = await _client.IndexAsync(document, i => {
+                    i.Type(ElasticType.Name);
+
                     if (GetParentIdFunc != null)
                         i.Parent(GetParentIdFunc(document));
 
@@ -564,7 +568,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     return i;
                 }).AnyContext();
             } else {
-                response = await _client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc).AnyContext();
+                response = await _client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc, ElasticType.Name).AnyContext();
             }
 
             _logger.Trace(() => response.GetRequest());

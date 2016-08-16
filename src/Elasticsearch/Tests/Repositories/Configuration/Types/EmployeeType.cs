@@ -9,6 +9,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
 
         public override PutMappingDescriptor<Employee> BuildMapping(PutMappingDescriptor<Employee> map) {
             return map
+                .Type(Name)
                 .Dynamic(false)
                 .TimestampField(ts => ts.Enabled().Path(u => u.UpdatedUtc).IgnoreMissing(false))
                 .Properties(p => p
@@ -35,6 +36,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
 
         public override PutMappingDescriptor<Employee> BuildMapping(PutMappingDescriptor<Employee> map) {
             return map
+                .Type(Name)
                 .Dynamic(false)
                 .TimestampField(ts => ts.Enabled().Path(u => u.UpdatedUtc).IgnoreMissing(false))
                 .Properties(p => p
@@ -63,6 +65,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
 
         public override PutMappingDescriptor<Employee> BuildMapping(PutMappingDescriptor<Employee> map) {
             return map
+                .Type(Name)
                 .Dynamic(false)
                 .TimestampField(ts => ts.Enabled().Path(u => u.UpdatedUtc).IgnoreMissing(false))
                 .Properties(p => p
@@ -89,6 +92,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
 
         public override PutMappingDescriptor<Employee> BuildMapping(PutMappingDescriptor<Employee> map) {
             return map
+                .Type(Name)
                 .Dynamic(false)
                 .TimestampField(ts => ts.Enabled().Path(u => u.UpdatedUtc).IgnoreMissing(false))
                 .Properties(p => p

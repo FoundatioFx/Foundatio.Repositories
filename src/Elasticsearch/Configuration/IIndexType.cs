@@ -64,7 +64,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public virtual PutMappingDescriptor<T> BuildMapping(PutMappingDescriptor<T> map) {
-            return map;
+            return map.Type(Name);
         }
 
         public int DefaultCacheExpirationSeconds { get; set; } = RepositoryConstants.DEFAULT_CACHE_EXPIRATION_SECONDS;

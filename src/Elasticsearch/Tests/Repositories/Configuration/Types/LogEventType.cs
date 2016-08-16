@@ -8,6 +8,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
 
         public override PutMappingDescriptor<LogEvent> BuildMapping(PutMappingDescriptor<LogEvent> map) {
             return map
+                .Type(Name)
                 .Dynamic(false)
                 .Properties(p => p
                     .String(f => f.Name(e => e.Id).IndexName(Fields.Id).Index(FieldIndexOption.NotAnalyzed))

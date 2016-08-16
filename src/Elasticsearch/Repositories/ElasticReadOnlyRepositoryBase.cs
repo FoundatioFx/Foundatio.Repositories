@@ -183,7 +183,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             string index = GetIndexById(id);
             if (!HasParent) {
-                var res = await _client.GetAsync<T>(id, index).AnyContext();
+                var res = await _client.GetAsync<T>(id, index, ElasticType.Name).AnyContext();
                 _logger.Trace(() => res.GetRequest());
 
                 res.SetVersion();
@@ -222,7 +222,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var multiGet = new MultiGetDescriptor();
 
             if (!HasParent) {
-                itemsToFind.ForEach(id => multiGet.Get<T>(f => f.Id(id).Index(GetIndexById(id))));
+                itemsToFind.ForEach(id => multiGet.Get<T>(f => f.Id(id).Index(GetIndexById(id)).Type(ElasticType.Name)));
 
                 var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
                 _logger.Trace(() => multiGetResults.GetRequest());
@@ -315,7 +315,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public async Task<long> CountAsync() {
-            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Indices(GetIndexesByQuery(null))).AnyContext();
+            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Indices(GetIndexesByQuery(null)).Type(ElasticType.Name)).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
@@ -430,6 +430,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (search == null)
                 search = new SearchDescriptor<T>();
 
+            search.Type(ElasticType.Name);
             var indices = GetIndexesByQuery(query);
             if (indices?.Length > 0)
                 search.Indices(indices);
