@@ -65,15 +65,29 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _aliasCache.SetAsync(alias, alias, expires).GetAwaiter().GetResult();
         }
 
+        protected string DateFormat { get; set; } = "yyyy.MM.dd";
+
         public virtual string GetIndex(DateTime utcDate) {
-            return $"{Name}-{utcDate:yyyy.MM.dd}";
+            return $"{Name}-{utcDate:DateFormat}";
         }
 
         public virtual string GetVersionedIndex(DateTime utcDate, int? version = null) {
             if (version == null || version < 0)
                 version = Version;
 
-            return $"{Name}-v{version}-{utcDate:yyyy.MM.dd}";
+            return $"{Name}-v{version}-{utcDate:DateFormat}";
+        }
+        
+        protected override DateTime GetIndexDate(string index) {
+            var version = GetIndexVersion(index);
+            if (version < 0)
+                version = Version;
+
+            DateTime result;
+            if (DateTime.TryParseExact(index, $"\'{Name}-v{version}-\'{DateFormat}", EnUs, DateTimeStyles.AdjustToUniversal, out result))
+                return result.Date;
+
+            return DateTime.MaxValue;
         }
 
         public virtual void EnsureIndex(DateTime utcDate) {
@@ -143,7 +157,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var utcEndOfDay = utcEnd.Value.EndOfDay();
 
             var indices = new List<string>();
-            for (DateTime current = utcStart.Value; current <= utcEndOfDay; current = current.AddDays(1))
+            for (DateTime current = utcStart.Value.StartOfDay(); current <= utcEndOfDay; current = current.AddDays(1))
                 indices.Add(GetIndex(current));
 
             return indices.ToArray();
@@ -286,18 +300,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
         }
         
-        protected override DateTime GetIndexDate(string index) {
-            var version = GetIndexVersion(index);
-            if (version < 0)
-                version = Version;
-
-            DateTime result;
-            if (DateTime.TryParseExact(index, $"\'{Name}-v{version}-\'yyyy.MM.dd", EnUs, DateTimeStyles.AdjustToUniversal, out result))
-                return result.Date;
-
-            return DateTime.MaxValue;
-        }
-
         protected override IList<IndexInfo> GetIndexList(int version = -1) {
             var indexes = base.GetIndexList(version);
             if (indexes.Count == 0)

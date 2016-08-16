@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Globalization;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Caching;
 using Foundatio.Logging;
@@ -9,31 +8,16 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class MonthlyIndexType<T> : TimeSeriesIndexType<T> where T : class {
-        public MonthlyIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null) : base(index, name, getDocumentDateUtc) { }
+        public MonthlyIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null) 
+            : base(index, name, getDocumentDateUtc) { }
     }
 
     public class MonthlyIndex: DailyIndex {
-        public MonthlyIndex(IElasticClient client, string name, int version = 1, ICacheClient cache = null, ILoggerFactory loggerFactory = null): base(client, name, version, cache, loggerFactory) {}
-
-        public override string GetIndex(DateTime utcDate) {
-            return $"{VersionedName}-{utcDate:yyyy.MM}";
+        public MonthlyIndex(IElasticClient client, string name, int version = 1, ICacheClient cache = null, ILoggerFactory loggerFactory = null) 
+            : base(client, name, version, cache, loggerFactory) {
+            DateFormat = "yyyy.MM";
         }
-
-        public override string GetVersionedIndex(DateTime utcDate, int? version = null) {
-            if (version == null || version < 0)
-                version = Version;
-
-            return $"{Name}-v{Version}-{utcDate:yyyy.MM}";
-        }
-
-        protected override DateTime GetIndexDate(string index) {
-            DateTime result;
-            if (DateTime.TryParseExact(index, $"\'{VersionedName}-\'yyyy.MM", EnUs, DateTimeStyles.AdjustToUniversal, out result))
-                return result.Date;
-
-            return DateTime.MaxValue;
-        }
-
+        
         public override string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd) {
             if (!utcStart.HasValue)
                 utcStart = SystemClock.UtcNow;
@@ -41,10 +25,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (!utcEnd.HasValue || utcEnd.Value < utcStart)
                 utcEnd = SystemClock.UtcNow;
 
-            var utcEndOfDay = utcEnd.Value.EndOfDay();
+            var utcEndOfMonth = utcEnd.Value.EndOfMonth();
 
             var indices = new List<string>();
-            for (DateTime current = utcStart.Value; current <= utcEndOfDay; current = current.AddMonths(1))
+            for (DateTime current = utcStart.Value.StartOfMonth(); current <= utcEndOfMonth; current = current.AddMonths(1))
                 indices.Add(GetIndex(current));
 
             return indices.ToArray();
