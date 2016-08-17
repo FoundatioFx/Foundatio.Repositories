@@ -8,12 +8,14 @@ using Foundatio.Caching;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
+using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class VersionedIndex : IndexBase {
-        public VersionedIndex(IElasticClient client, string name, int version = 1, ICacheClient cache = null, ILoggerFactory loggerFactory = null): base(client, name, cache, loggerFactory) {
+        public VersionedIndex(IElasticClient client, string name, int version = 1, ICacheClient cache = null, ILoggerFactory loggerFactory = null)
+            : base(client, name, cache, loggerFactory) {
             Version = version;
             VersionedName = String.Concat(Name, "-v", Version);
         }
@@ -22,49 +24,50 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public string VersionedName { get; }
         public bool DiscardIndexesOnReindex { get; set; } = true;
 
-        public override void Configure() {
-            IIndicesOperationResponse response;
-            if (!_client.IndexExists(VersionedName).Exists) {
-                if (!_client.AliasExists(Name).Exists)
-                    response = _client.CreateIndex(VersionedName, descriptor => ConfigureDescriptor(descriptor).AddAlias(Name));
+        public override async Task ConfigureAsync() {
+            if (!await IndexExistsAsync(VersionedName).AnyContext()) {
+                if (!await AliasExistsAsync(Name).AnyContext())
+                    await CreateIndexAsync(VersionedName, d => ConfigureDescriptor(d).AddAlias(Name)).AnyContext();
                 else
-                    response = _client.CreateIndex(VersionedName, ConfigureDescriptor);
-                
-                _logger.Trace(() => response.GetRequest());
-                if (response.IsValid)
-                    return;
-
-                string message = $"Error creating the index {VersionedName}: {response.GetErrorMessage()}";
-                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                    await CreateIndexAsync(VersionedName, ConfigureDescriptor).AnyContext();
             }
             
-            if (_client.AliasExists(Name).Exists)
+            if (await AliasExistsAsync(Name).AnyContext())
                 return;
 
-            var currentVersion = GetCurrentVersion();
+            var currentVersion = await GetCurrentVersionAsync().AnyContext();
             if (currentVersion < 0)
                 currentVersion = Version;
             
-            CreateAlias(String.Concat(Name, "-v", currentVersion), Name);
+            await CreateAliasAsync(String.Concat(Name, "-v", currentVersion), Name).AnyContext();
         }
 
-        protected virtual void CreateAlias(string index, string name) {
-            if (_client.AliasExists(name).Exists)
+        protected virtual async Task CreateAliasAsync(string index, string name) {
+            if (await AliasExistsAsync(Name).AnyContext())
                 return;
             
-            var response = _client.Alias(a => a.Add(s => s.Index(index).Alias(name)));
+            var response = await _client.AliasAsync(a => a.Add(s => s.Index(index).Alias(name))).AnyContext();
             if (response.IsValid) {
-                while (!_client.AliasExists(name).Exists)
-                    SystemClock.Sleep(1);
+                while (!await AliasExistsAsync(name).AnyContext())
+                    SystemClock.Sleep(100);
 
                 return;
             }
 
-            if (_client.AliasExists(name).Exists)
+            if (await AliasExistsAsync(name).AnyContext())
                 return;
 
             string message = $"Error creating alias {name}: {response.GetErrorMessage()}";
+            _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+        }
+
+        protected async Task<bool> AliasExistsAsync(string alias) {
+            var response = await _client.AliasExistsAsync(alias).AnyContext();
+            if (response.IsValid)
+                return response.Exists;
+            
+            string message = $"Error checking to see if alias {alias} exists: {response.GetErrorMessage()}";
             _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
             throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
         }
@@ -76,14 +79,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return idx;
         }
 
-        public override void Delete() {
-            DeleteIndex(VersionedName);
+        public override Task DeleteAsync() {
+            return DeleteIndexAsync(VersionedName);
         }
 
-        public override Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
-            int currentVersion = GetCurrentVersion();
+        public override async Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
+            int currentVersion = await GetCurrentVersionAsync().AnyContext();
             if (currentVersion < 0 || currentVersion >= Version)
-                return Task.CompletedTask;
+                return;
 
             var reindexWorkItem = new ReindexWorkItem {
                 OldIndex = String.Concat(Name, "-v", currentVersion),
@@ -97,27 +100,29 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 reindexWorkItem.ParentMaps.Add(new ParentMap { Type = type.Name, ParentPath = type.ParentPath });
 
             var reindexer = new ElasticReindexer(_client, _cache, _logger);
-            return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
+            await reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync).AnyContext();
         }
 
         /// <summary>
         /// Returns the current index version (E.G., the oldest index version).
         /// </summary>
         /// <returns>-1 if there are no indexes.</returns>
-        public virtual int GetCurrentVersion() {
-            int version = GetVersionFromAlias(Name);
+        public virtual async Task<int> GetCurrentVersionAsync() {
+            int version = await GetVersionFromAliasAsync(Name).AnyContext();
             if (version >= 0)
                 return version;
 
-            var indexes = GetIndexList();
+            var indexes = await GetIndexesAsync().AnyContext();
             if (indexes.Count == 0)
                 return Version;
 
             return indexes.Select(i => i.Version).OrderBy(v => v).First();
         }
 
-        protected virtual int GetVersionFromAlias(string alias) {
-            var response = _client.GetAlias(a => a.Alias(alias));
+        protected virtual async Task<int> GetVersionFromAliasAsync(string alias) {
+            var response = await  _client.GetAliasAsync(a => a.Alias(alias)).AnyContext();
+            _logger.Trace(() => response.GetRequest());
+
             if (response.IsValid && response.Indices.Count > 0)
                 return response.Indices.Keys.Select(GetIndexVersion).OrderBy(v => v).First();
 
@@ -140,10 +145,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return -1;
         }
 
-        protected virtual IList<IndexInfo> GetIndexList(int version = -1) {
+        protected virtual async Task<IList<IndexInfo>> GetIndexesAsync(int version = -1) {
             // TODO: Update this to use a index filter once we upgrade to elastic 2.x+
             var sw = Stopwatch.StartNew();
-            var response = _client.CatIndices(i => i.Pri().H("index").RequestConfiguration(r => r.RequestTimeout(5 * 60 * 1000)));
+            var response = await _client.CatIndicesAsync(i => i.Pri().H("index").RequestConfiguration(r => r.RequestTimeout(5 * 60 * 1000))).AnyContext();
             sw.Stop();
             _logger.Trace(() => response.GetRequest());
 

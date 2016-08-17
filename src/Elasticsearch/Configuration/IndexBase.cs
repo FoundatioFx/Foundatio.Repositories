@@ -2,16 +2,20 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Elasticsearch.Net;
 using Foundatio.Caching;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
+using Foundatio.Repositories.Extensions;
+using Foundatio.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public abstract class IndexBase : IIndex {
         protected readonly IElasticClient _client;
         protected readonly ICacheClient _cache;
+        protected readonly bool _shouldDisposeCache;
         protected readonly ILogger _logger;
         private readonly List<IIndexType> _types = new List<IIndexType>();
         private readonly Lazy<IReadOnlyCollection<IIndexType>> _frozenTypes;
@@ -19,7 +23,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public IndexBase(IElasticClient client, string name, ICacheClient cache = null, ILoggerFactory loggerFactory = null) {
             Name = name;
             _client = client;
-            _cache = cache ?? new NullCacheClient();
+            _cache = cache;
+            _shouldDisposeCache = cache == null;
             _logger = loggerFactory.CreateLogger(GetType());
             _frozenTypes = new Lazy<IReadOnlyCollection<IIndexType>>(() => _types.AsReadOnly());
         }
@@ -34,26 +39,74 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _types.Add(type);
         }
 
-        public abstract void Configure();
+        public abstract Task ConfigureAsync();
 
-        public virtual void Delete() {
-            DeleteIndex(Name);
+        public virtual Task DeleteAsync() {
+            return DeleteIndexAsync(Name);
         }
-
-        protected virtual void DeleteIndex(string name) {
+        
+        protected virtual async Task CreateIndexAsync(string name, Func<CreateIndexDescriptor, CreateIndexDescriptor> descriptor) {
             if (name == null)
                 throw new ArgumentNullException(nameof(name));
 
-            if (!_client.IndexExists(name).Exists)
-                return;
+            if (await IndexExistsAsync(name).AnyContext()) {
+                var healthResponse = await _client.ClusterHealthAsync(h => h.Index(name).WaitForStatus(WaitForStatus.Green)).AnyContext();
+                if (!healthResponse.IsValid)
+                    throw new ApplicationException($"Index {name} exists but is unhealthy: {healthResponse.Status}.", healthResponse.ConnectionStatus.OriginalException);
 
-            var response = _client.DeleteIndex(name);
+                return;
+            }
+
+            var response = await _client.CreateIndexAsync(name, descriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
-            if (response.IsValid)
+            if (response.IsValid) {
+                while (!await IndexExistsAsync(name).AnyContext())
+                    SystemClock.Sleep(100);
+
+                var healthResponse = await _client.ClusterHealthAsync(h => h.Index(name).WaitForStatus(WaitForStatus.Green)).AnyContext();
+                if (!healthResponse.IsValid)
+                    throw new ApplicationException($"Index {name} is unhealthy: {healthResponse.Status}.", healthResponse.ConnectionStatus.OriginalException);
+
+                return;
+            }
+            
+            string message = $"Error creating the index {name}: {response.GetErrorMessage()}";
+            _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+        }
+
+        protected virtual async Task DeleteIndexAsync(string name) {
+            if (name == null)
+                throw new ArgumentNullException(nameof(name));
+
+            if (!await IndexExistsAsync(name).AnyContext())
                 return;
 
+            var response = await _client.DeleteIndexAsync(i => i.Index(name)).AnyContext();
+            _logger.Trace(() => response.GetRequest());
+
+            if (response.IsValid) {
+                while (await IndexExistsAsync(name).AnyContext())
+                    SystemClock.Sleep(100);
+                
+                return;
+            }
+            
             string message = $"Error deleting index {name}: {response.GetErrorMessage()}";
+            _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+        }
+        
+        protected async Task<bool> IndexExistsAsync(string name) {
+            if (name == null)
+                throw new ArgumentNullException(nameof(name));
+
+            var response = await _client.IndexExistsAsync(name).AnyContext();
+            if (response.IsValid)
+                return response.Exists;
+
+            string message = $"Error checking to see if index {name} exists: {response.GetErrorMessage()}";
             _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
             throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
         }
@@ -70,6 +123,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             var reindexer = new ElasticReindexer(_client, _cache, _logger);
             return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
+        }
+
+        public virtual void Dispose() {
+            foreach (var indexType in IndexTypes)
+                indexType.Dispose();
         }
     }
 }

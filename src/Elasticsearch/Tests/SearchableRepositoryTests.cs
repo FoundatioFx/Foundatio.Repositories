@@ -1,12 +1,8 @@
 ﻿using System;
 using System.Threading.Tasks;
-using Foundatio.Jobs;
 using Foundatio.Logging;
-using Foundatio.Queues;
-using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
@@ -20,20 +16,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class SearchableRepositoryTests : ElasticRepositoryTestBase {
         private readonly IdentityRepository _identityRepository;
         private readonly DailyLogEventRepository _dailyRepository;
-        private readonly IQueue<WorkItemData> _workItemQueue = new InMemoryQueue<WorkItemData>();
 
         public SearchableRepositoryTests(ITestOutputHelper output) : base(output) {
-            _identityRepository = new IdentityRepository(MyAppConfiguration, _cache, Log.CreateLogger<IdentityRepository>());
-            _dailyRepository = new DailyLogEventRepository(MyAppConfiguration, _cache, Log.CreateLogger<DailyLogEventRepository>());
+            _identityRepository = new IdentityRepository(_configuration, _cache, Log.CreateLogger<IdentityRepository>());
+            _dailyRepository = new DailyLogEventRepository(_configuration, _cache, Log.CreateLogger<DailyLogEventRepository>());
 
             RemoveDataAsync().GetAwaiter().GetResult();
         }
-
-        protected override IElasticConfiguration GetElasticConfiguration() {
-            return new MyAppElasticConfiguration(_workItemQueue, _cache, Log);
-        }
-
-        private MyAppElasticConfiguration MyAppConfiguration => _configuration as MyAppElasticConfiguration;
         
         [Fact]
         public async Task CountByQuery() {

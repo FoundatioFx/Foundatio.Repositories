@@ -3,11 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Foundatio.Jobs;
 using Foundatio.Logging;
-using Foundatio.Queues;
-using Foundatio.Repositories.Elasticsearch.Configuration;
-using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.JsonPatch;
@@ -22,22 +18,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         private readonly EmployeeRepository _employeeRepository;
         private readonly DailyLogEventRepository _dailyRepository;
         private readonly IdentityRepository _identityRepository;
-        private readonly IQueue<WorkItemData> _workItemQueue = new InMemoryQueue<WorkItemData>();
 
         public RepositoryTests(ITestOutputHelper output) : base(output) {
-            _dailyRepository = new DailyLogEventRepository(MyAppConfiguration, _cache, Log.CreateLogger<DailyLogEventRepository>());
-            _employeeRepository = new EmployeeRepository(MyAppConfiguration, _cache, Log.CreateLogger<EmployeeRepository>());
-            _identityRepository = new IdentityRepository(MyAppConfiguration, _cache, Log.CreateLogger<IdentityRepository>());
+            _dailyRepository = new DailyLogEventRepository(_configuration, _cache, Log.CreateLogger<DailyLogEventRepository>());
+            _employeeRepository = new EmployeeRepository(_configuration, _cache, Log.CreateLogger<EmployeeRepository>());
+            _identityRepository = new IdentityRepository(_configuration, _cache, Log.CreateLogger<IdentityRepository>());
             
             RemoveDataAsync().GetAwaiter().GetResult();
         }
-
-        protected override IElasticConfiguration GetElasticConfiguration() {
-            return new MyAppElasticConfiguration(_workItemQueue, _cache, Log);
-        }
-
-        private MyAppElasticConfiguration MyAppConfiguration => _configuration as MyAppElasticConfiguration;
-
+        
         [Fact]
         public async Task Add() {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Generate());

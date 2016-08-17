@@ -5,7 +5,7 @@ using Foundatio.Repositories.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
-    public interface IIndexType {
+    public interface IIndexType : IDisposable {
         string Name { get; }
         IIndex Index { get; }
         int DefaultCacheExpirationSeconds { get; set; }
@@ -32,8 +32,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             Name = name ?? _typeName;
             Index = index;
-
-            //TODO: Support Scopes
         }
 
         public string Name { get; }
@@ -66,6 +64,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public virtual PutMappingDescriptor<T> BuildMapping(PutMappingDescriptor<T> map) {
             return map.Type(Name);
         }
+
+        public virtual void Dispose() {}
 
         public int DefaultCacheExpirationSeconds { get; set; } = RepositoryConstants.DEFAULT_CACHE_EXPIRATION_SECONDS;
         public int BulkBatchSize { get; set; } = 1000;

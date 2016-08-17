@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Elasticsearch.Net.ConnectionPool;
 using Foundatio.Caching;
 using Foundatio.Jobs;
 using Foundatio.Lock;
@@ -11,11 +10,11 @@ using Foundatio.Repositories.Extensions;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
-    public interface IElasticConfiguration {
+    public interface IElasticConfiguration : IDisposable {
         IElasticClient Client { get; }
         IReadOnlyCollection<IIndex> Indexes { get; }
-        void ConfigureIndexes(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true);
-        void DeleteIndexes(IEnumerable<IIndex> indexes = null);
+        Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true);
+        Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null);
         Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func < int, string, Task> progressCallbackAsync = null);
     }
 
@@ -46,12 +45,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _indexes.Add(index);
         }
 
-        public void ConfigureIndexes(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true) {
+        public async Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true) {
             if (indexes == null)
                 indexes = Indexes;
 
             foreach (var idx in indexes) {
-                idx.Configure();
+                await idx.ConfigureAsync().AnyContext();
 
                 //IIndicesOperationResponse response = null;
                 //var templatedIndex = idx as ITimeSeriesIndex;
@@ -112,12 +111,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
         }
 
-        public void DeleteIndexes(IEnumerable<IIndex> indexes = null) {
+        public async Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null) {
             if (indexes == null)
                 indexes = Indexes;
 
             foreach (var idx in indexes)
-                idx.Delete();
+                await idx.DeleteAsync().AnyContext();
         }
 
         public async Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func<int, string, Task> progressCallbackAsync = null) {
@@ -127,6 +126,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             // TODO: Base the progress on the number of indexes
             foreach (var idx in indexes)
                 await idx.ReindexAsync(progressCallbackAsync).AnyContext();
+        }
+
+        public virtual void Dispose() {
+            foreach (var index in Indexes)
+                index.Dispose();
         }
     }
 }

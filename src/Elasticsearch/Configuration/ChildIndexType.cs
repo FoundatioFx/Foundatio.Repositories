@@ -13,6 +13,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         protected readonly Func<T, string> _getParentId;
 
         public ChildIndexType(string parentPath, Func<T, string> getParentId, string name = null, IIndex index = null): base(index, name) {
+            if (_getParentId == null)
+                throw new ArgumentNullException(nameof(getParentId));
+
             ParentPath = parentPath;
             _getParentId = getParentId;
         }

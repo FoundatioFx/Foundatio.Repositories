@@ -58,7 +58,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 foreach (var doc in docs)
                     await _validator.ValidateAndThrowAsync(doc).AnyContext();
 
-            await IndexDocuments(docs);
+            await IndexDocumentsAsync(docs).AnyContext();
 
             if (addToCache)
                 await AddToCacheAsync(docs, expiresIn).AnyContext();
@@ -95,7 +95,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 foreach (var doc in docs)
                     await _validator.ValidateAndThrowAsync(doc).AnyContext();
 
-            await IndexDocuments(docs).AnyContext();
+            await IndexDocumentsAsync(docs).AnyContext();
 
             if (addToCache)
                 await AddToCacheAsync(docs, expiresIn).AnyContext();
@@ -312,8 +312,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return;
             
             if (HasMultipleIndexes) {
-                foreach (var document in docs)
-                    TimeSeriesType.EnsureIndex(document);
+                foreach (var documentGroup in docs.GroupBy(TimeSeriesType.GetDocumentIndex))
+                    await TimeSeriesType.EnsureIndexAsync(documentGroup.First()).AnyContext();
             }
 
             await OnDocumentsRemovingAsync(docs).AnyContext();
@@ -541,10 +541,10 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         #endregion
 
-        private async Task IndexDocuments(IReadOnlyCollection<T> documents) {
+        private async Task IndexDocumentsAsync(IReadOnlyCollection<T> documents) {
             if (HasMultipleIndexes) {
-                foreach (var document in documents)
-                    TimeSeriesType.EnsureIndex(document);
+                foreach (var documentGroup in documents.GroupBy(TimeSeriesType.GetDocumentIndex))
+                    await TimeSeriesType.EnsureIndexAsync(documentGroup.First()).AnyContext();
             }
 
             IResponse response;

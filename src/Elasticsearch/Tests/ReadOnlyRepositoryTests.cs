@@ -2,11 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Foundatio.Jobs;
 using Foundatio.Logging;
-using Foundatio.Queues;
-using Foundatio.Repositories.Elasticsearch.Configuration;
-using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
@@ -19,22 +15,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         private readonly IdentityRepository _identityRepository;
         private readonly DailyLogEventRepository _dailyRepository;
         private readonly EmployeeRepository _employeeRepository;
-        private readonly IQueue<WorkItemData> _workItemQueue = new InMemoryQueue<WorkItemData>();
 
         public ReadOnlyRepositoryTests(ITestOutputHelper output) : base(output) {
-            _identityRepository = new IdentityRepository(MyAppConfiguration, _cache, Log.CreateLogger<IdentityRepository>());
-            _dailyRepository = new DailyLogEventRepository(MyAppConfiguration, _cache, Log.CreateLogger<DailyLogEventRepository>());
-            _employeeRepository = new EmployeeRepository(MyAppConfiguration, _cache, Log.CreateLogger<EmployeeRepository>());
+            _identityRepository = new IdentityRepository(_configuration, _cache, Log.CreateLogger<IdentityRepository>());
+            _dailyRepository = new DailyLogEventRepository(_configuration, _cache, Log.CreateLogger<DailyLogEventRepository>());
+            _employeeRepository = new EmployeeRepository(_configuration, _cache, Log.CreateLogger<EmployeeRepository>());
 
             RemoveDataAsync().GetAwaiter().GetResult();
         }
-
-        protected override IElasticConfiguration GetElasticConfiguration() {
-            return new MyAppElasticConfiguration(_workItemQueue, _cache, Log);
-        }
-
-        private MyAppElasticConfiguration MyAppConfiguration => _configuration as MyAppElasticConfiguration;
-
+        
         [Fact]
         public async Task InvalidateCache() {
             var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, addToCache: true);

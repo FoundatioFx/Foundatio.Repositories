@@ -19,10 +19,10 @@ namespace Foundatio.Repositories.Elasticsearch {
         private readonly ICacheClient _cache;
         private readonly ILogger _logger;
 
-        public ElasticReindexer(IElasticClient client, ICacheClient cache, ILogger logger) {
+        public ElasticReindexer(IElasticClient client, ICacheClient cache = null, ILogger logger = null) {
             _client = client;
             _cache = new ScopedCacheClient(cache ?? new NullCacheClient(), "reindex");
-            _logger = logger;
+            _logger = logger ?? NullLogger.Instance;
         }
 
         public async Task ReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync = null) {

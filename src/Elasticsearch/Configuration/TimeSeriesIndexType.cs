@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface ITimeSeriesIndexType : IIndexType {
@@ -14,7 +14,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
     public interface ITimeSeriesIndexType<T> : IIndexType<T>, ITimeSeriesIndexType where T : class {
         string GetDocumentIndex(T document);
-        void EnsureIndex(T document);
+        Task EnsureIndexAsync(T document);
     }
 
     public class TimeSeriesIndexType<T> : IndexType<T>, ITimeSeriesIndexType<T> where T : class {
@@ -82,8 +82,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var date = _getDocumentDateUtc(document);
             return TimeSeriesIndex.GetIndex(date);
         }
-
-        public virtual void EnsureIndex(T document) {
+        
+        public virtual Task EnsureIndexAsync(T document) {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
 
@@ -91,7 +91,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ArgumentException("Unable to get document index", nameof(document));
 
             var date = _getDocumentDateUtc(document);
-            TimeSeriesIndex.EnsureIndex(date);
+            return TimeSeriesIndex.EnsureIndexAsync(date);
         }
 
         public virtual string GetIndexById(string id) {
@@ -121,9 +121,5 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected ITimeSeriesIndex TimeSeriesIndex => (ITimeSeriesIndex)Index;
-
-        public PutTemplateDescriptor ConfigureTemplate(PutTemplateDescriptor template) {
-            return template.AddMapping<T>(BuildMapping);
-        }
     }
 }

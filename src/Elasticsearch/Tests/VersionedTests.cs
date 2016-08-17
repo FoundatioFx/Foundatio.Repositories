@@ -2,11 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Foundatio.Jobs;
 using Foundatio.Logging;
-using Foundatio.Queues;
-using Foundatio.Repositories.Elasticsearch.Configuration;
-using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
@@ -16,20 +12,13 @@ using Xunit.Abstractions;
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class VersionedTests : ElasticRepositoryTestBase {
         private readonly EmployeeRepository _employeeRepository;
-        private readonly IQueue<WorkItemData> _workItemQueue = new InMemoryQueue<WorkItemData>();
 
         public VersionedTests(ITestOutputHelper output) : base(output) {
-            _employeeRepository = new EmployeeRepository(MyAppConfiguration, _cache, Log.CreateLogger<EmployeeRepository>());
+            _employeeRepository = new EmployeeRepository(_configuration, _cache, Log.CreateLogger<EmployeeRepository>());
             
             RemoveDataAsync().GetAwaiter().GetResult();
         }
-
-        protected override IElasticConfiguration GetElasticConfiguration() {
-            return new MyAppElasticConfiguration(_workItemQueue, _cache, Log);
-        }
-
-        private MyAppElasticConfiguration MyAppConfiguration => _configuration as MyAppElasticConfiguration;
-
+        
         [Fact]
         public async Task Add() {
             var employee = EmployeeGenerator.Default;

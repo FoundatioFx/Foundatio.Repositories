@@ -7,15 +7,6 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Utility {
     internal static class Run {
-        public static async Task DelayedAsync(TimeSpan delay, Func<Task> action) {
-            await Task.Run(async () => {
-                if (delay > TimeSpan.Zero)
-                    await SystemClock.SleepAsync(delay).AnyContext();
-
-                await action().AnyContext();
-            }).AnyContext();
-        }
-        
         public static async Task<T> WithRetriesAsync<T>(Func<Task<T>> action, int maxAttempts = 5, TimeSpan? retryInterval = null, CancellationToken cancellationToken = default(CancellationToken), ILogger logger = null) {
             if (action == null)
                 throw new ArgumentNullException(nameof(action));

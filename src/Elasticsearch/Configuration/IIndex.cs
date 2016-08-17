@@ -3,20 +3,20 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
-    public interface IIndex {
+    public interface IIndex : IDisposable {
         string Name { get; }
         IReadOnlyCollection<IIndexType> IndexTypes { get; }
-        void Configure();
-        void Delete();
+        Task ConfigureAsync();
+        Task DeleteAsync();
         Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null);
     }
 
     public interface IMaintainableIndex {
-        void Maintain();
+        Task MaintainAsync();
     }
 
     public interface ITimeSeriesIndex : IIndex, IMaintainableIndex {
-        void EnsureIndex(DateTime utcDate);
+        Task EnsureIndexAsync(DateTime utcDate);
         string GetIndex(DateTime utcDate);
         string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd);
     }

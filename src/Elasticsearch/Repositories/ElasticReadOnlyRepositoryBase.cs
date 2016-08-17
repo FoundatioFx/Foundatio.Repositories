@@ -349,8 +349,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (ElasticType.AllowedAggregationFields.Count > 0 && !aggregationQuery.AggregationFields.All(f => ElasticType.AllowedAggregationFields.Contains(f.Field)))
                 throw new ArgumentException("All aggregation fields must be allowed.", nameof(query));
 
-            var search = CreateSearchDescriptor(query).SearchType(SearchType.Count);
-            var response = await _client.SearchAsync<T>(search);
+            var searchDescriptor = CreateSearchDescriptor(query).SearchType(SearchType.Count);
+            var response = await _client.SearchAsync<T>(searchDescriptor);
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
