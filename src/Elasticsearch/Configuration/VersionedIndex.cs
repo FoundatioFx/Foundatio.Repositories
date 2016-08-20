@@ -13,7 +13,7 @@ using Foundatio.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
-    public class VersionedIndex : IndexBase {
+    public class VersionedIndex : IndexBase, IMaintainableIndex {
         public VersionedIndex(IElasticClient client, string name, int version = 1, ICacheClient cache = null, ILoggerFactory loggerFactory = null)
             : base(client, name, cache, loggerFactory) {
             Version = version;
@@ -31,15 +31,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 else
                     await CreateIndexAsync(VersionedName, ConfigureDescriptor).AnyContext();
             }
-            
-            if (await AliasExistsAsync(Name).AnyContext())
-                return;
-
-            var currentVersion = await GetCurrentVersionAsync().AnyContext();
-            if (currentVersion < 0)
-                currentVersion = Version;
-            
-            await CreateAliasAsync(String.Concat(Name, "-v", currentVersion), Name).AnyContext();
         }
 
         protected virtual async Task CreateAliasAsync(string index, string name) {
@@ -101,6 +92,17 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             var reindexer = new ElasticReindexer(_client, _cache, _logger);
             await reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync).AnyContext();
+        }
+        
+        public virtual async Task MaintainAsync() {
+            if (await AliasExistsAsync(Name).AnyContext())
+                return;
+
+            var currentVersion = await GetCurrentVersionAsync().AnyContext();
+            if (currentVersion < 0)
+                currentVersion = Version;
+
+            await CreateAliasAsync(String.Concat(Name, "-v", currentVersion), Name).AnyContext();
         }
 
         /// <summary>
