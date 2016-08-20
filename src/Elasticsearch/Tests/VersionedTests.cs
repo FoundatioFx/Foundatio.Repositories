@@ -32,7 +32,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task AddAndIngoreHighVersion() {
+        public async Task AddAndIgnoreHighVersion() {
             var employee = EmployeeGenerator.Generate();
             employee.Version = 5;
 

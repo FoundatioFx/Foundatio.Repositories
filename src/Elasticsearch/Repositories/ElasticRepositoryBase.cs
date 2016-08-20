@@ -410,11 +410,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 documents.OfType<IHaveCreatedDate>().SetCreatedDates();
             
             documents.EnsureIds(ElasticType.CreateDocumentId);
-
-            if (HasVersion) {
-                foreach (var document in documents.OfType<IVersioned>())
-                    document.Version = 0;
-            }
+            foreach (var doc in documents.OfType<IVersioned>())
+                doc.Version = 0;
 
             if (DocumentsAdding != null)
                 await DocumentsAdding.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this)).AnyContext();
@@ -547,10 +544,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                     await TimeSeriesType.EnsureIndexAsync(documentGroup.First()).AnyContext();
             }
 
-            IResponse response;
             if (documents.Count == 1) {
                 var document = documents.Single();
-                response = await _client.IndexAsync(document, i => {
+                var response = await _client.IndexAsync(document, i => {
                     i.Type(ElasticType.Name);
 
                     if (GetParentIdFunc != null)
@@ -562,38 +558,43 @@ namespace Foundatio.Repositories.Elasticsearch {
                     if (HasVersion) {
                         var versionDoc = (IVersioned)document;
                         i.Version(versionDoc.Version);
-                        versionDoc.Version++;
                     }
 
                     return i;
                 }).AnyContext();
-            } else {
-                response = await _client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc, ElasticType.Name).AnyContext();
-            }
 
-            _logger.Trace(() => response.GetRequest());
-            
-            if (!response.IsValid) {
-                string message = response.GetErrorMessage();
-                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-
-                var bulkResponse = response as IBulkResponse;
-                if (bulkResponse != null) {
-                    if (HasVersion) {
-                        var idsWithErrors = bulkResponse.ItemsWithErrors.Where(i => !i.IsValid).Select(i => i.Id).ToList();
-                        foreach (var document in documents.Where(d => idsWithErrors.Contains(d.Id)))
-                            ((IVersioned)document).Version--;
-                    }
-                    
-                    throw new ApplicationException(message, bulkResponse.ConnectionStatus.OriginalException);
+                _logger.Trace(() => response.GetRequest());
+                if (!response.IsValid) {
+                    string message = response.GetErrorMessage();
+                    _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                    throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
                 }
 
                 if (HasVersion) {
-                    foreach (var document in documents)
-                        ((IVersioned)document).Version--;
+                    var versionDoc = (IVersioned)document;
+                    versionDoc.Version = response.Version != null ? Int64.Parse(response.Version) : -1;
                 }
-                
-                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+            } else {
+                var response = await _client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc, ElasticType.Name).AnyContext();
+
+                _logger.Trace(() => response.GetRequest());
+                if (HasVersion) {
+                    foreach (var hit in response.Items) {
+                        var document = documents.FirstOrDefault(d => d.Id == hit.Id);
+                        if (document == null)
+                            continue;
+
+                        var versionDoc = (IVersioned)document;
+                        if (hit.Version != null)
+                            versionDoc.Version = Int64.Parse(hit.Version);
+                    }
+                }
+
+                if (!response.IsValid) {
+                    string message = response.GetErrorMessage();
+                    _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                    throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                }
             }
         }
 

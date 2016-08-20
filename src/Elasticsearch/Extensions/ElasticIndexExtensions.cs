@@ -27,14 +27,14 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
         public static void SetVersion<T>(this IFindHit<T> hit) where T : class {
             var versionedDoc = hit.Document as IVersioned;
-            if (versionedDoc != null)
-                versionedDoc.Version = hit.Version ?? 0;
+            if (versionedDoc != null && hit.Version.HasValue)
+                versionedDoc.Version = hit.Version.Value;
         }
 
         public static void SetVersion<T>(this IGetResponse<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
-            if (versionedDoc != null)
-                versionedDoc.Version = hit.Version != null ? Int64.Parse(hit.Version) : -1;
+            if (versionedDoc != null && hit.Version != null)
+                versionedDoc.Version = Int64.Parse(hit.Version);
         }
 
         public static IEnumerable<ElasticFindHit<T>> ToFindHits<T>(this IEnumerable<IHit<T>> hits) where T : class {
@@ -64,15 +64,15 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
         public static ElasticFindHit<T> ToFindHit<T>(this IMultiGetHit<T> response) where T : class {
             var versionedDoc = response.Source as IVersioned;
-            if (versionedDoc != null)
-                versionedDoc.Version = response.Version != null ? Int64.Parse(response.Version) : versionedDoc.Version;
+            if (versionedDoc != null && response.Version != null)
+                versionedDoc.Version = Int64.Parse(response.Version);
 
             return new ElasticFindHit<T> {
                 Document = response.Source,
                 Id = response.Id,
                 Index = response.Index,
                 Type = response.Type,
-                Version = versionedDoc?.Version ?? (long?)null
+                Version = versionedDoc?.Version ?? null
             };
         }
 
@@ -141,10 +141,8 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     doc.Index = getIndex(o);
 
                 var versionedDoc = o as IVersioned;
-                if (versionedDoc != null) {
+                if (versionedDoc != null)
                     doc.Version = versionedDoc.Version.ToString();
-                    versionedDoc.Version++;
-                }
 
                 return doc;
             }).Cast<IBulkOperation>().ToList();
