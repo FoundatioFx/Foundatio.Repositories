@@ -149,6 +149,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (!utcEnd.HasValue || utcEnd.Value < utcStart)
                 utcEnd = SystemClock.UtcNow;
 
+            var period = utcEnd.Value - utcStart.Value;
+            if ((MaxIndexAge.HasValue && period > MaxIndexAge.Value) || period.GetTotalYears() > 1)
+                return new string[0];
+
             var utcEndOfDay = utcEnd.Value.EndOfDay();
 
             var indices = new List<string>();
@@ -198,7 +202,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
         }
 
-        public virtual async Task MaintainAsync() {
+        public override async Task MaintainAsync() {
             if (!MaxIndexAge.HasValue || MaxIndexAge <= TimeSpan.Zero)
                 return;
 

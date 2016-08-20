@@ -25,6 +25,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (!utcEnd.HasValue || utcEnd.Value < utcStart)
                 utcEnd = SystemClock.UtcNow;
 
+            var period = utcEnd.Value - utcStart.Value;
+            if ((MaxIndexAge.HasValue && period > MaxIndexAge.Value) || period.GetTotalYears() > 1)
+                return new string[0];
+
             var utcEndOfMonth = utcEnd.Value.EndOfMonth();
 
             var indices = new List<string>();
