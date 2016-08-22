@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
+using Foundatio.Repositories.Models;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -71,6 +72,80 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
             Assert.Null(companyLog.Message);
             Assert.Null(companyLog.CompanyId);
+        }
+        
+        [Fact]
+        public async Task GetAgeByFilter() {
+            await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId));
+            await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20));
+
+            await _client.RefreshAsync();
+            var results = await GetByFilterAsync("age:19");
+            Assert.Equal(1, results.Total);
+            Assert.True(results.Documents.All(d => d.Age == 19));
+            
+            results = await GetByFilterAsync("age:>19");
+            Assert.Equal(1, results.Total);
+            Assert.True(results.Documents.All(d => d.Age > 19));
+            
+            results = await GetByFilterAsync("age:<19");
+            Assert.Equal(0, results.Total);
+        }
+
+        /// <summary>
+        /// Name field is Analyzed
+        /// </summary>
+        [Fact]
+        public async Task GetNameByFilter() {
+            var employeeEric = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith"));
+            var employeeBlake = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake Niemyjski"));
+
+            await _client.RefreshAsync();
+            var results = await GetByFilterAsync("name:blake");
+            Assert.Equal(1, results.Total);
+            Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
+
+            results = await GetByFilterAsync("name:\"Blake Niemyjski\"");
+            Assert.Equal(1, results.Total);
+            Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
+
+            results = await GetByFilterAsync("name:*Niemyjski");
+            Assert.Equal(1, results.Total);
+            Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
+
+            results = await GetByFilterAsync("name:*J.*");
+            Assert.Equal(1, results.Total);
+            Assert.True(results.Documents.All(d => d.Name == employeeEric.Name));
+        }
+
+        /// <summary>
+        /// Company field is NotAnalyzed
+        /// </summary>
+        [Fact]
+        public async Task GetCompanyByFilter() {
+            var employeeEric = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith", companyName: "Acme"));
+            var employeeBlake = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake Niemyjski", companyName: "Exceptionless"));
+
+            await _client.RefreshAsync();
+            var results = await GetByFilterAsync("company_name:Exceptionless");
+            Assert.Equal(1, results.Total);
+            Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
+
+            results = await GetByFilterAsync("company_name:\"Exceptionless\"");
+            Assert.Equal(1, results.Total);
+            Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
+
+            results = await GetByFilterAsync("company_name:*less");
+            Assert.Equal(1, results.Total);
+            Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
+
+            results = await GetByFilterAsync("company_name:*e*");
+            Assert.Equal(2, results.Total);;
+        }
+
+        private Task<IFindResults<Employee>> GetByFilterAsync(string filter) {
+            Log.SetLogLevel<EmployeeRepository>(LogLevel.Trace);
+            return _employeeRepository.GetByFilterAsync(null, filter, new SortingOptions(), null, DateTime.MinValue, DateTime.MaxValue, new PagingOptions());
         }
     }
 }

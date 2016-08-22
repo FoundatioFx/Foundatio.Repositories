@@ -17,7 +17,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                     .String(f => f.Name(e => e.Id).IndexName(Fields.Id).Index(FieldIndexOption.NotAnalyzed))
                     .String(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId).Index(FieldIndexOption.NotAnalyzed))
                     .String(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName).Index(FieldIndexOption.NotAnalyzed))
-                    .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.NotAnalyzed))
+                    .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.Analyzed))
                     .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
                 );
         }
@@ -44,7 +44,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                     .String(f => f.Name(e => e.Id).IndexName(Fields.Id).Index(FieldIndexOption.NotAnalyzed))
                     .String(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId).Index(FieldIndexOption.NotAnalyzed))
                     .String(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName).Index(FieldIndexOption.NotAnalyzed))
-                    .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.NotAnalyzed))
+                    .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.Analyzed))
                     .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
                     .Number(f => f.Name(e => e.YearsEmployed).IndexName(Fields.YearsEmployed))
                 );
@@ -73,7 +73,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                     .String(f => f.Name(e => e.Id).IndexName(Fields.Id).Index(FieldIndexOption.NotAnalyzed))
                     .String(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId).Index(FieldIndexOption.NotAnalyzed))
                     .String(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName).Index(FieldIndexOption.NotAnalyzed))
-                    .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.NotAnalyzed))
+                    .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.Analyzed))
                     .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
                 );
         }
@@ -100,7 +100,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                     .String(f => f.Name(e => e.Id).IndexName(Fields.Id).Index(FieldIndexOption.NotAnalyzed))
                     .String(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId).Index(FieldIndexOption.NotAnalyzed))
                     .String(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName).Index(FieldIndexOption.NotAnalyzed))
-                    .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.NotAnalyzed))
+                    .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.Analyzed))
                     .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
                 );
         }
