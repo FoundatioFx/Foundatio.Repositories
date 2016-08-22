@@ -123,7 +123,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         /// </summary>
         [Fact]
         public async Task GetCompanyByFilter() {
-            var employeeEric = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith", companyName: "Acme"));
+            var employeeEric = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith", companyName: "Exceptionless Test Company"));
             var employeeBlake = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake Niemyjski", companyName: "Exceptionless"));
 
             await _client.RefreshAsync();
@@ -135,11 +135,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
 
-            results = await GetByFilterAsync("company_name:*less");
+            results = await GetByFilterAsync("company_name:*Exceptionless");
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
 
-            results = await GetByFilterAsync("company_name:*e*");
+            results = await GetByFilterAsync("company_name:*Exceptionless*");
             Assert.Equal(2, results.Total);;
         }
 
