@@ -40,20 +40,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public Task<long> UpdateCompanyNameByCompanyAsync(string company, string name) {
             return PatchAllAsync(new MyAppQuery().WithCompany(company), new { CompanyName = name });
         }
-        
-        public Task<IFindResults<Employee>> GetByFilterAsync(string systemFilter, string userFilter, SortingOptions sorting, string field, DateTime utcStart, DateTime utcEnd, PagingOptions paging) {
-            if (sorting.Fields.Count == 0)
-                sorting.Fields.Add(new FieldSort { Field = EmployeeType.Fields.Age, Order = Foundatio.Repositories.Models.SortOrder.Descending });
-
-            var search = new MyAppQuery()
-                .WithIndexes(utcStart, utcEnd)
-                .WithSystemFilter(systemFilter)
-                .WithFilter(userFilter)
-                .WithPaging(paging)
-                .WithSort(sorting);
-
-            return FindAsync(search);
-        }
 
         public Task<long> IncrementYearsEmployeed(string[] ids, int years = 1) {
             string script = $"ctx._source.yearsEmployed += {years};";

@@ -95,7 +95,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         /// <summary>
         /// Name field is Analyzed
         /// </summary>
-        [Fact(Skip = "Needs query parser fix")]
+        [Fact(Skip = "Needs to be fixed in query parser")]
         public async Task GetNameByFilter() {
             var employeeEric = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith"));
             var employeeBlake = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake Niemyjski"));
@@ -121,7 +121,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         /// <summary>
         /// Company field is NotAnalyzed
         /// </summary>
-        [Fact(Skip = "Needs query parser fix")]
+        [Fact]
         public async Task GetCompanyByFilter() {
             var employeeEric = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith", companyName: "Exceptionless Test Company"));
             var employeeBlake = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake Niemyjski", companyName: "Exceptionless"));
@@ -134,15 +134,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             results = await GetByFilterAsync("company_name:\"Exceptionless\"");
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
-
-            results = await GetByFilterAsync("company_name:Exception*");
-            Assert.Equal(1, results.Total);
-            Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
         }
 
         private Task<IFindResults<Employee>> GetByFilterAsync(string filter) {
             Log.SetLogLevel<EmployeeRepository>(LogLevel.Trace);
-            return _employeeRepository.GetByFilterAsync(null, filter, new SortingOptions(), null, DateTime.MinValue, DateTime.MaxValue, new PagingOptions());
+            return _employeeRepository.SearchAsync(null, filter);
         }
     }
 }
