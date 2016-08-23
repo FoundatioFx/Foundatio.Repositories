@@ -55,6 +55,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             // don't use caching with snapshot paging.
             bool allowCaching = IsCacheEnabled && (pagableQuery == null || pagableQuery.UseSnapshotPaging == false);
 
+            await OnBeforeQueryAsync(query, typeof(TResult)).AnyContext();
+
             Func<IFindResults<TResult>, Task<IFindResults<TResult>>> getNextPageFunc = async r => {
                 var elasticResults = r as IElasticFindResults<TResult>;
                 if (!String.IsNullOrEmpty(elasticResults.ScrollId)) {
@@ -125,6 +127,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             await SetCachedQueryResultAsync(query, result, cacheSuffix: cacheSuffix).AnyContext();
             ((IGetNextPage<TResult>)result).GetNextPageFunc = nextPageFunc;
 
+
+
             return result;
         }
 
@@ -135,6 +139,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             var result = IsCacheEnabled ? await GetCachedQueryResultAsync<T>(query).AnyContext() : null;
             if (result != null)
                 return result;
+
+            await OnBeforeQueryAsync(query, typeof(T)).AnyContext();
 
             var searchDescriptor = CreateSearchDescriptor(query).Size(1);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
@@ -517,6 +523,20 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected IChildIndexType<T> ChildType { get; private set; }
         protected bool HasMultipleIndexes { get; private set; }
         protected ITimeSeriesIndexType<T> TimeSeriesType { get; private set; }
+
+        #endregion
+
+        #region Events
+
+        public AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; } = new AsyncEvent<BeforeQueryEventArgs<T>>();
+
+        private async Task OnBeforeQueryAsync(object query, Type resultType)
+        {
+            if (BeforeQuery == null)
+                return;
+
+            await BeforeQuery.InvokeAsync(this, new BeforeQueryEventArgs<T>(query, this, resultType)).AnyContext();
+        }
 
         #endregion
     }
