@@ -66,6 +66,8 @@
     <Reference Include="System.Runtime.Serialization" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Exceptions\DocumentNotFoundException.cs" />
+    <Compile Include="Exceptions\DuplicateDocumentException.cs" />
     <Compile Include="Extensions\EnumerableExtensions.cs" />
     <Compile Include="Extensions\NumberExtensions.cs" />
     <Compile Include="Extensions\StringExtensions.cs" />

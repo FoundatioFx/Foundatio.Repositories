@@ -173,7 +173,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 await Cache.RemoveAsync(id).AnyContext();
 
             if (sendNotification)
-                await SendNotificationsAsync(ChangeType.Saved).AnyContext();
+                await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
         }
 
         public async Task PatchAsync(IEnumerable<string> ids, object update, bool sendNotification = true) {
@@ -280,7 +280,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             });
 
             if (sendNotifications)
-                await SendNotificationsAsync(ChangeType.Saved).AnyContext();
+                await SendQueryNotificationsAsync(ChangeType.Saved, query).AnyContext();
 
             return affectedRecords;
         }
@@ -618,6 +618,31 @@ namespace Foundatio.Repositories.Elasticsearch {
             return SendNotificationsAsync(changeType, documents.Select(d => new ModifiedDocument<T>(d, null)).ToList());
         }
 
+        protected virtual async Task SendQueryNotificationsAsync(ChangeType changeType, object query) {
+            if (!NotificationsEnabled)
+                return;
+
+            var delay = TimeSpan.FromSeconds(1.5);
+
+            var idsQuery = query as IIdentityQuery;
+            if (idsQuery != null && idsQuery.Ids.Count > 0) {
+                foreach (var id in idsQuery.Ids) {
+                    await PublishMessageAsync(new EntityChanged {
+                        ChangeType = changeType,
+                        Id = id,
+                        Type = ElasticType.Name
+                    }, delay).AnyContext();
+                }
+
+                return;
+            }
+
+            await PublishMessageAsync(new EntityChanged {
+                ChangeType = changeType,
+                Type = ElasticType.Name
+            }, delay).AnyContext();
+        }
+
         protected virtual async Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents) {
             if (!NotificationsEnabled)
                 return;
@@ -666,14 +691,18 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, T document, IDictionary<string, object> data = null, TimeSpan? delay = null) {
+            return PublishChangeTypeMessageAsync(changeType, document?.Id, null, delay);
+        }
+
+        protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, string id, IDictionary<string, object> data = null, TimeSpan? delay = null) {
             return PublishMessageAsync(new EntityChanged {
                 ChangeType = changeType,
-                Id = document?.Id,
+                Id = id,
                 Type = ElasticType.Name,
                 Data = new DataDictionary(data ?? new Dictionary<string, object>())
             }, delay);
         }
-        
+
         protected async Task PublishMessageAsync<TMessageType>(TMessageType message, TimeSpan? delay = null) where TMessageType : class {
             if (_messagePublisher == null)
                 return;
