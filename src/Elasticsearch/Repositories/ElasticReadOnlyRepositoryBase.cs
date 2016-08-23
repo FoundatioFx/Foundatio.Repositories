@@ -163,7 +163,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public Task<IFindResults<T>> SearchAsync(object systemFilter, string userFilter = null, string query = null, SortingOptions sorting = null, PagingOptions paging = null, AggregationOptions aggregations = null) {
-            var search = new ElasticQuery()
+            var search = NewQuery()
                 .WithSystemFilter(systemFilter)
                 .WithFilter(userFilter)
                 .WithSearchQuery(query, false)
@@ -196,7 +196,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 result = res.Source;
             } else {
                 // we don't have the parent id so we have to do a query
-                result = await FindOneAsync(new ElasticQuery().WithId(id)).AnyContext();
+                result = await FindOneAsync(NewQuery().WithId(id)).AnyContext();
             }
 
             if (IsCacheEnabled && result != null && useCache)
@@ -244,7 +244,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             // fallback to doing a find
             if (itemsToFind.Count > 0 && (HasParent || HasMultipleIndexes))
-                hits.AddRange((await FindAsync(new ElasticQuery().WithIds(itemsToFind)).AnyContext()).Hits.Cast<ElasticFindHit<T>>());
+                hits.AddRange((await FindAsync(NewQuery().WithIds(itemsToFind)).AnyContext()).Hits.Cast<ElasticFindHit<T>>());
 
             if (IsCacheEnabled && useCache) {
                 foreach (var item in hits)
@@ -255,7 +255,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public Task<IFindResults<T>> GetAllAsync(SortingOptions sorting = null, PagingOptions paging = null) {
-            var search = new ElasticQuery()
+            var search = NewQuery()
                 .WithPaging(paging)
                 .WithSort(sorting);
 
@@ -337,7 +337,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public Task<CountResult> CountBySearchAsync(object systemFilter, string userFilter = null, string query = null, AggregationOptions aggregations = null) {
-            var search = new ElasticQuery()
+            var search = NewQuery()
                 .WithSystemFilter(systemFilter)
                 .WithFilter(userFilter)
                 .WithSearchQuery(query, false)
@@ -369,13 +369,17 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public Task<IReadOnlyCollection<AggregationResult>> GetAggregationsAsync(object systemFilter, AggregationOptions aggregations, string userFilter = null, string query = null) {
-            var search = new ElasticQuery()
+            var search = NewQuery()
                 .WithSystemFilter(systemFilter)
                 .WithFilter(userFilter)
                 .WithSearchQuery(query, false)
                 .WithAggregation(aggregations);
 
             return GetAggregationsAsync(search);
+        }
+
+        protected virtual IElasticQuery NewQuery() {
+            return new ElasticQuery();
         }
         
         public bool IsCacheEnabled { get; private set; } = true;
