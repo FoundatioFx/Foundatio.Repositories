@@ -54,7 +54,7 @@
       <Private>True</Private>
     </Reference>
     <Reference Include="Foundatio, Version=4.2.1169.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\..\Exceptionless\packages\Foundatio.4.2.1169\lib\net46\Foundatio.dll</HintPath>
+      <HintPath>..\..\packages\Foundatio.4.2.1169\lib\net46\Foundatio.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Nest, Version=1.0.0.0, Culture=neutral, PublicKeyToken=96c599bbe3e70f5d, processorArchitecture=MSIL">
