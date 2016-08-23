@@ -1,11 +1,8 @@
 ﻿using System;
 
-namespace Foundatio.Repositories.Models
-{
-    public class BeforeQueryEventArgs<T> : EventArgs where T : class, new()
-    {
-        public BeforeQueryEventArgs(object query, IReadOnlyRepository<T> repository, Type resultType)
-        {
+namespace Foundatio.Repositories.Models {
+    public class BeforeQueryEventArgs<T> : EventArgs where T : class, new() {
+        public BeforeQueryEventArgs(object query, IReadOnlyRepository<T> repository, Type resultType) {
             Query = query;
             Repository = repository;
             ResultType = resultType;
