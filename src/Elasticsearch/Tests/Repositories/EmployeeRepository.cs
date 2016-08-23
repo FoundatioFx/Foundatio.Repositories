@@ -14,7 +14,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
 using Nest;
-using SortOrder = System.Data.SqlClient.SortOrder;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class EmployeeRepository : ElasticRepositoryBase<Employee> {

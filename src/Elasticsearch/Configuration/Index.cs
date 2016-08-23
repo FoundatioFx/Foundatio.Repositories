@@ -22,12 +22,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
     }
 
-    public class Index<T> : Index where T: class {
+    public sealed class Index<T> : Index where T: class {
         public Index(IElasticClient client, string name = null, ICacheClient cache = null, ILoggerFactory loggerFactory = null): base(client, name ?? typeof(T).Name.ToLower(), cache, loggerFactory) {
-            Type = new IndexType<T>(this);
+            Type = new DynamicIndexType(this, name);
             AddType(Type);
         }
 
-        public IndexType<T> Type { get; }
+        public DynamicIndexType Type { get; }
     }
 }

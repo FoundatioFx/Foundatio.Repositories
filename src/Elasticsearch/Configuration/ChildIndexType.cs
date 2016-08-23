@@ -9,7 +9,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         string GetParentId(T document);
     }
 
-    public class ChildIndexType<T> : IndexType<T>, IChildIndexType<T> where T : class {
+    public class ChildIndexType<T> : IndexTypeBase<T>, IChildIndexType<T> where T : class {
         protected readonly Func<T, string> _getParentId;
 
         public ChildIndexType(string parentPath, Func<T, string> getParentId, string name = null, IIndex index = null): base(index, name) {

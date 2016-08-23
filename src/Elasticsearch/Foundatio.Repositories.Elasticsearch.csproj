@@ -98,6 +98,7 @@
       <Link>Utility\TaskHelper.cs</Link>
     </Compile>
     <Compile Include="Configuration\ChildIndexType.cs" />
+    <Compile Include="Configuration\DynamicIndexType.cs" />
     <Compile Include="Configuration\TimeSeriesIndexType.cs" />
     <Compile Include="Extensions\CollectionEqualityExtensions.cs" />
     <Compile Include="Jobs\CleanupIndexesJob.cs" />

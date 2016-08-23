@@ -21,12 +21,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         string CreateDocumentId(T document);
     }
 
-    public class IndexType<T> : IIndexType<T> where T : class {
+    public abstract class IndexTypeBase<T> : IIndexType<T> where T : class {
         protected static readonly bool HasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
         protected static readonly bool HasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
         private readonly string _typeName = typeof(T).Name.ToLower();
 
-        public IndexType(IIndex index, string name = null) {
+        public IndexTypeBase(IIndex index, string name = null) {
             if (index == null)
                 throw new ArgumentNullException(nameof(index));
 

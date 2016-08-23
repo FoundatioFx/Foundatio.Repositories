@@ -39,6 +39,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _types.Add(type);
         }
 
+        public void AddDynamicType(string name) {
+            AddType(new DynamicIndexType(this, name));
+        }
+
         public abstract Task ConfigureAsync();
 
         public virtual Task DeleteAsync() {

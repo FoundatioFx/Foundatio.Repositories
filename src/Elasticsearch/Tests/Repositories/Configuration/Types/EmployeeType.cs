@@ -4,12 +4,11 @@ using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
-    public class EmployeeType : IndexType<Employee> {
+    public class EmployeeType : IndexTypeBase<Employee> {
         public EmployeeType(IIndex index) : base(index: index) { }
 
         public override PutMappingDescriptor<Employee> BuildMapping(PutMappingDescriptor<Employee> map) {
-            return map
-                .Type(Name)
+            return base.BuildMapping(map
                 .Dynamic(false)
                 .TimestampField(ts => ts.Enabled().Path(u => u.UpdatedUtc).IgnoreMissing(false))
                 .Properties(p => p
@@ -19,7 +18,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                     .String(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName).Index(FieldIndexOption.NotAnalyzed))
                     .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.Analyzed))
                     .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
-                );
+                ));
         }
 
         public class Fields {
@@ -31,12 +30,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
         }
     }
     
-    public class EmployeeTypeWithYearsEmployed : IndexType<Employee> {
+    public class EmployeeTypeWithYearsEmployed : IndexTypeBase<Employee> {
         public EmployeeTypeWithYearsEmployed(IIndex index) : base(index: index) { }
 
         public override PutMappingDescriptor<Employee> BuildMapping(PutMappingDescriptor<Employee> map) {
-            return map
-                .Type(Name)
+            return base.BuildMapping(map
                 .Dynamic(false)
                 .TimestampField(ts => ts.Enabled().Path(u => u.UpdatedUtc).IgnoreMissing(false))
                 .Properties(p => p
@@ -47,7 +45,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                     .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.Analyzed))
                     .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
                     .Number(f => f.Name(e => e.YearsEmployed).IndexName(Fields.YearsEmployed))
-                );
+                ));
         }
 
         public class Fields {
@@ -64,8 +62,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
         public DailyEmployeeType(IIndex index) : base(index: index) { }
 
         public override PutMappingDescriptor<Employee> BuildMapping(PutMappingDescriptor<Employee> map) {
-            return map
-                .Type(Name)
+            return base.BuildMapping(map
                 .Dynamic(false)
                 .TimestampField(ts => ts.Enabled().Path(u => u.UpdatedUtc).IgnoreMissing(false))
                 .Properties(p => p
@@ -75,7 +72,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                     .String(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName).Index(FieldIndexOption.NotAnalyzed))
                     .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.Analyzed))
                     .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
-                );
+                ));
         }
 
         public class Fields {
@@ -91,8 +88,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
         public MonthlyEmployeeType(IIndex index) : base(index: index) { }
 
         public override PutMappingDescriptor<Employee> BuildMapping(PutMappingDescriptor<Employee> map) {
-            return map
-                .Type(Name)
+            return base.BuildMapping(map
                 .Dynamic(false)
                 .TimestampField(ts => ts.Enabled().Path(u => u.UpdatedUtc).IgnoreMissing(false))
                 .Properties(p => p
@@ -102,7 +98,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                     .String(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName).Index(FieldIndexOption.NotAnalyzed))
                     .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.Analyzed))
                     .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
-                );
+                ));
         }
 
         public class Fields {

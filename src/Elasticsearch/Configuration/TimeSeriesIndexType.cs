@@ -17,7 +17,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         Task EnsureIndexAsync(T document);
     }
 
-    public class TimeSeriesIndexType<T> : IndexType<T>, ITimeSeriesIndexType<T> where T : class {
+    public class TimeSeriesIndexType<T> : IndexTypeBase<T>, ITimeSeriesIndexType<T> where T : class {
         protected readonly Func<T, DateTime> _getDocumentDateUtc;
         protected readonly string[] _defaultIndexes;
 

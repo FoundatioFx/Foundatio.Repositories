@@ -4,7 +4,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
-    public class IdentityType : IndexType<Identity> {
+    public class IdentityType : IndexTypeBase<Identity> {
         public IdentityType(IIndex index) : base(index: index) { }
 
         public override PutMappingDescriptor<Identity> BuildMapping(PutMappingDescriptor<Identity> map) {
