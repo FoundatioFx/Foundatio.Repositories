@@ -91,6 +91,7 @@
     <Compile Include="Migration\MigrationBase.cs" />
     <Compile Include="Migration\MigrationManager.cs" />
     <Compile Include="Migration\Migration.cs" />
+    <Compile Include="Models\BeforeQueryEventArgs.cs" />
     <Compile Include="Models\IFindResults.cs" />
     <Compile Include="Models\IVersioned.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
