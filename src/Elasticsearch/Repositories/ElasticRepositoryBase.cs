@@ -189,7 +189,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             await PatchAllAsync(new Query().WithIds(idList), update, sendNotification).AnyContext();
         }
 
-        protected async Task<long> PatchAllAsync<TQuery>(TQuery query, object update, bool sendNotifications = true) where TQuery : IPagableQuery, ISelectedFieldsQuery {
+        protected async Task<long> PatchAllAsync<TQuery>(TQuery query, object update, bool sendNotifications = true, Action<IEnumerable<string>> updatedIdsCallback = null) where TQuery : IPagableQuery, ISelectedFieldsQuery {
             string script = update as string;
             var patch = update as PatchDocument;
 
@@ -231,6 +231,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                     if (IsCacheEnabled)
                         foreach (var d in results.Documents)
                             await Cache.RemoveAsync(d["id"].Value<string>()).AnyContext();
+
+                    updatedIdsCallback?.Invoke(results.Hits.Select(h => h.Id));
 
                     return true;
                 });
@@ -275,6 +277,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (IsCacheEnabled)
                     foreach (var d in results.Documents)
                         await Cache.RemoveAsync(d.Id).AnyContext();
+
+                updatedIdsCallback?.Invoke(results.Hits.Select(h => h.Id));
 
                 return true;
             });
