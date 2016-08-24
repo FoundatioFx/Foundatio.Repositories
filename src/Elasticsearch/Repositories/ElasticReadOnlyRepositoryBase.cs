@@ -19,7 +19,7 @@ using Foundatio.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch {
-    public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableRepository<T> where T : class, new() {
+    public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepository<T> where T : class, new() {
         protected static readonly bool HasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
         protected static readonly bool HasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
         protected static readonly bool HasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));

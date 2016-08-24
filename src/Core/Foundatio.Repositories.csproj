@@ -73,6 +73,7 @@
     <Compile Include="Extensions\StringExtensions.cs" />
     <Compile Include="Extensions\TaskExtensions.cs" />
     <Compile Include="IRepositoryConfiguration.cs" />
+    <Compile Include="ISearchableReadOnlyRepository.cs" />
     <Compile Include="ISearchableRepository.cs" />
     <Compile Include="JsonPatch\AbstractPatcher.cs" />
     <Compile Include="JsonPatch\AddOperation.cs" />
