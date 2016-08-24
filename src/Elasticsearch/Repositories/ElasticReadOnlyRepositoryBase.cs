@@ -45,6 +45,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             return await FindAsAsync<T>(query);
         }
 
+        protected ISet<string> DefaultExcludes { get; } = new HashSet<string>();
+
         protected async Task<IElasticFindResults<TResult>> FindAsAsync<TResult>(object query) where TResult : class, new() {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
@@ -378,10 +380,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             return GetAggregationsAsync(search);
         }
 
-        protected virtual IElasticQuery NewQuery() {
+        protected IElasticQuery NewQuery() {
             return new ElasticQuery();
         }
-        
+
         public bool IsCacheEnabled { get; private set; } = true;
         protected ScopedCacheClient Cache => _scopedCacheClient ?? new ScopedCacheClient(new NullCacheClient());
 
@@ -456,7 +458,10 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected virtual object GetQueryOptions() {
-            return new QueryOptions(typeof(T)) { AllowedAggregationFields = ElasticType.AllowedAggregationFields.ToArray() };
+            return new QueryOptions(typeof(T)) {
+                AllowedAggregationFields = ElasticType.AllowedAggregationFields.ToArray(),
+                DefaultExcludes = DefaultExcludes.ToArray()
+            };
         }
 
         protected string[] GetIndexesByQuery(object query) {
