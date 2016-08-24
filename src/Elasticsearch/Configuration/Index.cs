@@ -24,10 +24,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
     public sealed class Index<T> : Index where T: class {
         public Index(IElasticClient client, string name = null, ICacheClient cache = null, ILoggerFactory loggerFactory = null): base(client, name ?? typeof(T).Name.ToLower(), cache, loggerFactory) {
-            Type = new DynamicIndexType(this, name);
-            AddType(Type);
+            Type = AddDynamicType<T>(Name);
         }
 
-        public DynamicIndexType Type { get; }
+        public IIndexType<T> Type { get; }
     }
 }

@@ -39,8 +39,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _types.Add(type);
         }
 
-        public IIndexType AddDynamicType(string name) {
-            var indexType = new DynamicIndexType(this, name);
+        public IIndexType<T> AddDynamicType<T>(string name) where T : class {
+            var indexType = new DynamicIndexType<T>(this, name);
             AddType(indexType);
 
             return indexType;
