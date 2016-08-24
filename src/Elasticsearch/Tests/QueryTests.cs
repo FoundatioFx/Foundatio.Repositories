@@ -95,7 +95,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         /// <summary>
         /// Name field is Analyzed
         /// </summary>
-        [Fact(Skip = "Needs to be fixed in query parser")]
+        [Fact]
         public async Task GetNameByFilter() {
             var employeeEric = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith"));
             var employeeBlake = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake Niemyjski"));
