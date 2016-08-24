@@ -1,7 +1,14 @@
 using System.Threading.Tasks;
+using Foundatio.Logging;
 
 namespace Foundatio.Repositories.Migrations {
     public abstract class MigrationBase : IMigration {
+        protected ILogger _logger;
+
+        public MigrationBase(ILoggerFactory loggerFactory = null) {
+            _logger = loggerFactory.CreateLogger(GetType());
+        }
+
         public abstract int Version { get; }
         public abstract Task RunAsync();
 

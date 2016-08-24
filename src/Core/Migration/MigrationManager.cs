@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
+using Foundatio.Logging;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
 
@@ -11,10 +12,12 @@ namespace Foundatio.Repositories.Migrations {
     public class MigrationManager {
         private readonly IServiceProvider _container;
         private readonly IMigrationRepository _migrationRepository;
+        protected readonly ILogger _logger;
 
-        public MigrationManager(IServiceProvider container, IMigrationRepository migrationRepository) {
+        public MigrationManager(IServiceProvider container, IMigrationRepository migrationRepository, ILogger<MigrationManager> logger = null) {
             _container = container;
             _migrationRepository = migrationRepository;
+            _logger = logger ?? NullLogger.Instance;
         }
 
         public async Task RunAsync() {
