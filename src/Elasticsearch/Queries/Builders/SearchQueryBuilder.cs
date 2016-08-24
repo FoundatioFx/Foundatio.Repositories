@@ -1,5 +1,6 @@
 ﻿using System;
 using ElasticMacros;
+using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface ISearchQuery {
@@ -14,9 +15,33 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public class SearchQueryBuilder : IElasticQueryBuilder {
+        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            var searchQuery = ctx.GetSourceAs<ISearchQuery>();
+            if (searchQuery == null)
+                return;
+
+            if (!String.IsNullOrEmpty(searchQuery.Filter))
+                ctx.Filter &= new QueryFilter {
+                    Query = new QueryStringQuery {
+                        Query = searchQuery.Filter,
+                        DefaultOperator = Operator.And,
+                        AnalyzeWildcard = false
+                    }.ToContainer()
+                };
+
+            if (!String.IsNullOrEmpty(searchQuery.SearchQuery))
+                ctx.Query &= new QueryStringQuery {
+                    Query = searchQuery.SearchQuery,
+                    DefaultOperator = searchQuery.DefaultSearchQueryOperator == SearchOperator.Or ? Operator.Or : Operator.And,
+                    AnalyzeWildcard = true
+                };
+        }
+    }
+
+    public class ElasticMacroSearchQueryBuilder : IElasticQueryBuilder {
         private readonly ElasticMacroProcessor _processor;
 
-        public SearchQueryBuilder(ElasticMacroProcessor processor = null) {
+        public ElasticMacroSearchQueryBuilder(ElasticMacroProcessor processor = null) {
             _processor = processor ?? new ElasticMacroProcessor();
         }
 

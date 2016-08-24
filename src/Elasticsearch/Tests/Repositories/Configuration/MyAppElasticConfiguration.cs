@@ -9,6 +9,7 @@ using Foundatio.Logging;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
@@ -26,16 +27,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
             Employees = new EmployeeIndex(Client, cacheClient, loggerFactory);
             DailyLogEvents = new DailyLogEventIndex(Client, cacheClient, loggerFactory);
             MonthlyLogEvents = new MonthlyLogEventIndex(Client, cacheClient, loggerFactory);
+            ParentChild = new ParentChildIndex(Client, cacheClient, loggerFactory);
 
             AddIndex(Identities);
             AddIndex(Employees);
             AddIndex(DailyLogEvents);
             AddIndex(MonthlyLogEvents);
+            AddIndex(ParentChild);
         }
 
         public IdentityIndex Identities { get; }
         public EmployeeIndex Employees { get; }
         public DailyLogEventIndex DailyLogEvents { get; }
         public MonthlyLogEventIndex MonthlyLogEvents { get; }
+        public ParentChildIndex ParentChild { get; }
     }
 }
