@@ -301,25 +301,23 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync();
             var results = await _identityRepository.GetAllAsync(paging: new PagingOptions().WithLimit(1));
             Assert.NotNull(results);
-            Assert.True(results.HasMore);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
             Assert.Equal(2, results.Total);
 
             Assert.True(await results.NextPageAsync());
-            Assert.False(results.HasMore);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(2, results.Page);
             Assert.Equal(2, results.Total);
+            var secondDoc = results.Documents.First();
             
             Assert.False(await results.NextPageAsync());
-            Assert.False(results.HasMore);
-            Assert.Equal(1, results.Documents.Count);
-            Assert.Equal(2, results.Page);
+            Assert.Equal(0, results.Documents.Count);
+            Assert.Equal(3, results.Page);
             Assert.Equal(2, results.Total);
             
             var secondPageResults = await _identityRepository.GetAllAsync(paging: new PagingOptions().WithPage(2).WithLimit(1));
-            Assert.Equal(results.Documents.First(), secondPageResults.Documents.First());
+            Assert.Equal(secondDoc, secondPageResults.Documents.First());
 
             //TODO Ensure we are using snapshot paging...
         }

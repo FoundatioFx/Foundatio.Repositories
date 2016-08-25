@@ -13,10 +13,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             var docs = response.Hits.ToFindHits().Take(limit ?? Int32.MaxValue).ToList();
             docs.SetVersions();
 
-            int count = response.Documents.Count();
-            var result = new ElasticFindResults<T>(docs, response.Total, response.ToAggregationResult(), response.ScrollId) {
-                HasMore = count > 0 && (limit.HasValue ? count > limit.Value : !String.IsNullOrEmpty(response.ScrollId))
-            };
+            var result = new ElasticFindResults<T>(docs, response.Total, response.ToAggregationResult(), response.ScrollId);
 
             return result;
         }

@@ -1,7 +1,7 @@
 ﻿using System;
 
 namespace Foundatio.Repositories.Queries {
-    public interface ISoftDeletesQuery {
+    public interface ISoftDeletesQuery : IRepositoryQuery {
         bool IncludeSoftDeletes { get; set; }
     }
 

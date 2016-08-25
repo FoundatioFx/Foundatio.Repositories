@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Queries {
-    public interface ISortableQuery {
+    public interface ISortableQuery : IRepositoryQuery {
         List<FieldSort> SortBy { get; }
         bool SortByScore { get; set; }
     }

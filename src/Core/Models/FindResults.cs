@@ -15,20 +15,15 @@ namespace Foundatio.Repositories.Models {
         }
 
         public IReadOnlyCollection<T> Documents { get; protected set; }
-        public IReadOnlyCollection<IFindHit<T>> Hits { get; }
+        public IReadOnlyCollection<IFindHit<T>> Hits { get; protected set; }
         public int Page { get; set; } = 1;
-        public bool HasMore { get; set; }
         Func<IFindResults<T>, Task<IFindResults<T>>> IGetNextPage<T>.GetNextPageFunc { get; set; }
 
         public virtual async Task<bool> NextPageAsync() {
-            if (!HasMore)
-                return false;
-
             Aggregations = new List<AggregationResult>();
             Documents = new List<T>();
             
             if (((IGetNextPage<T>)this).GetNextPageFunc == null) {
-                HasMore = false;
                 Page = -1;
                 return false;
             }
@@ -36,7 +31,6 @@ namespace Foundatio.Repositories.Models {
             var results = await ((IGetNextPage<T>)this).GetNextPageFunc(this).AnyContext();
             Aggregations = results.Aggregations;
             Documents = results.Documents;
-            HasMore = results.HasMore;
             Page = results.Page;
             Total = results.Total;
             return Documents.Count > 0;

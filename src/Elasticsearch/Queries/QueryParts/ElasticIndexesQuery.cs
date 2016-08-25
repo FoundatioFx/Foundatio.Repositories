@@ -1,8 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries {
-    public interface IElasticIndexesQuery {
+    public interface IElasticIndexesQuery : IRepositoryQuery {
         List<string> Indexes { get; set; }
         DateTime? UtcStartIndex { get; set; }
         DateTime? UtcEndIndex { get; set; }

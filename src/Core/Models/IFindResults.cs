@@ -7,7 +7,6 @@ namespace Foundatio.Repositories.Models {
         IReadOnlyCollection<IFindHit<T>> Hits { get; }
         IReadOnlyCollection<T> Documents { get; }
         IReadOnlyCollection<AggregationResult> Aggregations { get; }
-        bool HasMore { get; }
         int Page { get; }
         Task<bool> NextPageAsync();
     }

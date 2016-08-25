@@ -199,7 +199,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             long affectedRecords = 0;
             if (patch != null) {
                 var patcher = new JsonPatcher();
-                affectedRecords = await BatchProcessAsAsync<TQuery, JObject>(query, async results => {
+                affectedRecords += await BatchProcessAsAsync<TQuery, JObject>(query, async results => {
                     var bulkResult = await _client.BulkAsync(b => {
                         foreach (var h in results.Hits.Cast<IElasticFindHit<T>>()) {
                             var target = h.Document as JToken;
@@ -240,7 +240,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return affectedRecords;
             }
             
-            affectedRecords = await BatchProcessAsync(query, async results => {
+            affectedRecords += await BatchProcessAsync(query, async results => {
                 var bulkResult = await _client.BulkAsync(b => {
                     foreach (var h in results.Hits.Cast<IElasticFindHit<T>>()) {
                         if (script != null)
@@ -390,16 +390,18 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             long recordsProcessed = 0;
             var results = await FindAsAsync<TResult>(query).AnyContext();
-            while (results.Documents.Count > 0) {
-                recordsProcessed += results.Documents.Count;
-                if (!await processAsync(results).AnyContext()) {
-                    _logger.Trace("Aborted batch processing.");
+            do {
+                if (results.Hits.Count == 0)
                     break;
+
+                if (await processAsync(results).AnyContext()) {
+                    recordsProcessed += results.Documents.Count;
+                    continue;
                 }
 
-                if (!await results.NextPageAsync().AnyContext())
-                    break;
-            }
+                _logger.Trace("Aborted batch processing.");
+                break;
+            } while (await results.NextPageAsync().AnyContext());
 
             _logger.Trace("{0} records processed", recordsProcessed);
             return recordsProcessed;

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 namespace Foundatio.Repositories.Queries {
-    public interface IIdentityQuery {
+    public interface IIdentityQuery : IRepositoryQuery {
         List<string> Ids { get; }
     }
 

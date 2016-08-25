@@ -5,7 +5,7 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries {
-    public class Query : IRepositoryQuery, ISystemFilterQuery, IIdentityQuery, ICachableQuery, IDateRangeQuery,
+    public class Query : ISystemFilterQuery, IIdentityQuery, ICachableQuery, IDateRangeQuery,
         IFieldConditionsQuery, IPagableQuery, ISearchQuery, IAggregationQuery,
         ISelectedFieldsQuery, ISortableQuery, IParentQuery, IChildQuery, ISoftDeletesQuery {
 

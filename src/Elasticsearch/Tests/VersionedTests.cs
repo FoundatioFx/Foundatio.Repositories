@@ -4,6 +4,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
+using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Xunit;
@@ -175,15 +177,103 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task CanUsePaging() {
+            const int NUMBER_OF_EMPLOYEES = 1000;
+            const int PAGE_SIZE = 100;
+            Log.MinimumLevel = LogLevel.Warning;
+
+            var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
+            await _employeeRepository.AddAsync(employees);
+
+            await _client.RefreshAsync();
+            Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
+
+            var results = await _employeeRepository.GetAllAsync(null, PAGE_SIZE);
+
+            var viewedIds = new HashSet<string>();
+            int pagedRecords = 0;
+            do {
+                Assert.Equal(PAGE_SIZE, results.Documents.Count);
+                Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
+                Assert.False(results.Hits.Any(h => viewedIds.Contains(h.Id)));
+                viewedIds.AddRange(results.Hits.Select(h => h.Id));
+
+                pagedRecords += results.Documents.Count;
+            } while (await results.NextPageAsync());
+
+            Assert.Equal(NUMBER_OF_EMPLOYEES, pagedRecords);
+        }
+
+        [Fact]
+        public async Task CanUseSnapshotPaging() {
+            const int NUMBER_OF_EMPLOYEES = 1000;
+            const int PAGE_SIZE = 100;
+
+            Log.MinimumLevel = LogLevel.Warning;
+            await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1"));
+            Log.MinimumLevel = LogLevel.Trace;
+
+            await _client.RefreshAsync();
+            Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
+
+            var results = await _employeeRepository.GetAllAsync(null, new PagingOptions().WithLimit(PAGE_SIZE).UseSnapshotPaging());
+
+
+            var viewedIds = new HashSet<string>();
+            var newEmployees = new List<Employee>();
+            int pagedRecords = 0;
+            do {
+                Assert.Equal(PAGE_SIZE, results.Documents.Count);
+                Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
+                Assert.False(results.Hits.Any(h => viewedIds.Contains(h.Id)));
+                viewedIds.AddRange(results.Hits.Select(h => h.Id));
+
+                Assert.False(newEmployees.Any(d => viewedIds.Contains(d.Id)));
+
+                pagedRecords += results.Documents.Count;
+                newEmployees.Add(await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: "1")));
+                await _client.RefreshAsync();
+            } while (await results.NextPageAsync());
+
+            Assert.Equal(NUMBER_OF_EMPLOYEES, pagedRecords);
+        }
+
+        [Fact]
+        public async Task CanUsePagingWithOddNumber() {
+            const int NUMBER_OF_EMPLOYEES = 877;
+            const int PAGE_SIZE = 100;
+            Log.MinimumLevel = LogLevel.Warning;
+
+            await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1"));
+
+            await _client.RefreshAsync();
+            Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
+
+            var results = await _employeeRepository.GetAllAsync(null, PAGE_SIZE);
+
+            int pagedRecords = 0;
+            do {
+                Assert.Equal(Math.Min(PAGE_SIZE, NUMBER_OF_EMPLOYEES - pagedRecords), results.Documents.Count);
+                Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
+
+                pagedRecords += results.Documents.Count;
+            } while (await results.NextPageAsync());
+
+            Assert.Equal(NUMBER_OF_EMPLOYEES, pagedRecords);
+        }
+
+        [Fact]
         public async Task UpdateAllWithPageLimit() {
             const int NUMBER_OF_EMPLOYEES = 1000;
+            Log.MinimumLevel = LogLevel.Warning;
+
             await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1"));
 
             await _client.RefreshAsync();
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company", limit: 100));
 
             await _client.RefreshAsync();
-            var results = await _employeeRepository.GetAllByCompanyAsync("1");
+            var results = await _employeeRepository.GetAllByCompanyAsync("1", NUMBER_OF_EMPLOYEES);
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Documents.Count);
             foreach (var document in results.Documents) {
                 Assert.Equal(2, document.Version);
@@ -201,7 +291,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company"));
 
             await _client.RefreshAsync();
-            var results = await _employeeRepository.GetAllByCompanyAsync("1");
+            var results = await _employeeRepository.GetAllByCompanyAsync("1", paging: NUMBER_OF_EMPLOYEES);
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Documents.Count);
             foreach (var document in results.Documents) {
                 Assert.Equal(2, document.Version);

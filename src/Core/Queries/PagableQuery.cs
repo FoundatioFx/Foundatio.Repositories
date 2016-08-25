@@ -3,7 +3,7 @@ using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Queries {
-    public interface IPagableQuery {
+    public interface IPagableQuery : IRepositoryQuery {
         int? Limit { get; set; }
         int? Page { get; set; }
         bool? UseSnapshotPaging { get; set; }

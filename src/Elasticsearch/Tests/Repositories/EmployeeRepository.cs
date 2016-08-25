@@ -6,7 +6,6 @@ using Foundatio.Caching;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Queries;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
@@ -29,8 +28,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return FindAsync(new MyAppQuery().WithAge(age));
         }
 
-        public Task<IFindResults<Employee>> GetAllByCompanyAsync(string company) {
-            return FindAsync(new MyAppQuery().WithCompany(company));
+        public Task<IFindResults<Employee>> GetAllByCompanyAsync(string company, PagingOptions paging = null) {
+            return FindAsync(new MyAppQuery().WithCompany(company).WithPaging(paging));
         }
         
         public Task<CountResult> GetCountByCompanyAsync(string company) {

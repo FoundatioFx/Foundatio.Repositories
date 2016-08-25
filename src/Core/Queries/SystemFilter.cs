@@ -1,7 +1,7 @@
 ﻿using System;
 
 namespace Foundatio.Repositories.Queries {
-    public interface ISystemFilterQuery {
+    public interface ISystemFilterQuery : IRepositoryQuery {
         IRepositoryQuery SystemFilter { get; set; }
     }
 

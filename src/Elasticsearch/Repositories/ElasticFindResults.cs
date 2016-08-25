@@ -14,22 +14,18 @@ namespace Foundatio.Repositories.Elasticsearch.Repositories {
         public string ScrollId { get; set; }
 
         public override async Task<bool> NextPageAsync() {
-            if (!HasMore)
-                return false;
-
             Aggregations = new List<AggregationResult>();
             Documents = new List<T>();
 
             if (((IGetNextPage<T>)this).GetNextPageFunc == null) {
-                HasMore = false;
                 Page = -1;
                 return false;
             }
 
             var results = await ((IGetNextPage<T>)this).GetNextPageFunc(this).AnyContext() as IElasticFindResults<T>;
             Aggregations = results.Aggregations;
+            Hits = results.Hits;
             Documents = results.Documents;
-            HasMore = results.HasMore;
             Page = results.Page;
             Total = results.Total;
             ScrollId = results.ScrollId;
