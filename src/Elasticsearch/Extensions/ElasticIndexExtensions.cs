@@ -9,12 +9,13 @@ using Foundatio.Repositories.Elasticsearch.Repositories;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticIndexExtensions {
-        public static ElasticFindResults<T> ToFindResults<T>(this ISearchResponse<T> res, int? limit = null) where T : class, new() {
-            var docs = res.Hits.ToFindHits().Take(limit ?? Int32.MaxValue).ToList();
+        public static ElasticFindResults<T> ToFindResults<T>(this ISearchResponse<T> response, int? limit = null) where T : class, new() {
+            var docs = response.Hits.ToFindHits().Take(limit ?? Int32.MaxValue).ToList();
             docs.SetVersions();
 
-            var result = new ElasticFindResults<T>(docs, res.Total, res.ToAggregationResult(), res.ScrollId) {
-                HasMore = limit.HasValue && res.Documents.Count() > limit.Value
+            int count = response.Documents.Count();
+            var result = new ElasticFindResults<T>(docs, response.Total, response.ToAggregationResult(), response.ScrollId) {
+                HasMore = count > 0 && (limit.HasValue ? count > limit.Value : !String.IsNullOrEmpty(response.ScrollId))
             };
 
             return result;

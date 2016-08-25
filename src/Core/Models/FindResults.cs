@@ -14,13 +14,13 @@ namespace Foundatio.Repositories.Models {
             Total = total;
         }
 
-        public IReadOnlyCollection<T> Documents { get; private set; }
+        public IReadOnlyCollection<T> Documents { get; protected set; }
         public IReadOnlyCollection<IFindHit<T>> Hits { get; }
         public int Page { get; set; } = 1;
         public bool HasMore { get; set; }
         Func<IFindResults<T>, Task<IFindResults<T>>> IGetNextPage<T>.GetNextPageFunc { get; set; }
 
-        public async Task<bool> NextPageAsync() {
+        public virtual async Task<bool> NextPageAsync() {
             if (!HasMore)
                 return false;
 
@@ -39,7 +39,6 @@ namespace Foundatio.Repositories.Models {
             HasMore = results.HasMore;
             Page = results.Page;
             Total = results.Total;
-
             return Documents.Count > 0;
         }
     }

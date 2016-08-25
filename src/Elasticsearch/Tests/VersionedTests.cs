@@ -168,9 +168,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(company2Employees));
             Assert.Equal(company2EmployeesVersion, company2Employees.First().Version);
         }
-
-        // TODO need versioning tests for index many when getParent & getindex == null; // This should never be the case.
-        // TODO need versioning tests for parent / child docs.
+        
+        // TODO: need versioning tests for index many when getParent & getindex == null; // This should never be the case.
+        // TODO: need versioning tests for parent / child docs.
         // TODO: FindAs version tests
+        // TODO: Patch all tests with no results
+        // TODO: Patch all tests with paging (limit)
+        // TODO: Patch all tests with snapshot paging. 
     }
 }

@@ -376,28 +376,30 @@ namespace Foundatio.Repositories.Elasticsearch {
             });
         }
 
-        protected Task<long> BatchProcessAsync<TQuery>(TQuery query, Func<IElasticFindResults<T>, Task<bool>> process) where TQuery : IPagableQuery, ISelectedFieldsQuery {
-            return BatchProcessAsAsync(query, process);
+        protected Task<long> BatchProcessAsync<TQuery>(TQuery query, Func<IElasticFindResults<T>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery {
+            return BatchProcessAsAsync(query, processAsync);
         }
 
-        protected async Task<long> BatchProcessAsAsync<TQuery, TResult>(TQuery query, Func<IElasticFindResults<TResult>, Task<bool>> process) where TQuery : IPagableQuery, ISelectedFieldsQuery where TResult : class, new() {
+        protected async Task<long> BatchProcessAsAsync<TQuery, TResult>(TQuery query, Func<IElasticFindResults<TResult>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery where TResult : class, new() {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
-
-            long recordsProcessed = 0;
-
+            
             query.UseSnapshotPaging = true;
             if (!query.SnapshotLifetime.HasValue)
                 query.SnapshotLifetime = TimeSpan.FromMinutes(5);
 
+            long recordsProcessed = 0;
             var results = await FindAsAsync<TResult>(query).AnyContext();
-            do {
+            while (results.Documents.Count > 0) {
                 recordsProcessed += results.Documents.Count;
-                if (!await process(results).AnyContext()) {
+                if (!await processAsync(results).AnyContext()) {
                     _logger.Trace("Aborted batch processing.");
                     break;
                 }
-            } while (await results.NextPageAsync().AnyContext());
+
+                if (!await results.NextPageAsync().AnyContext())
+                    break;
+            }
 
             _logger.Trace("{0} records processed", recordsProcessed);
             return recordsProcessed;

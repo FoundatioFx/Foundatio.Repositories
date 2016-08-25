@@ -60,11 +60,17 @@ namespace Foundatio.Repositories.Elasticsearch {
             await OnBeforeQueryAsync(query, typeof(TResult)).AnyContext();
 
             Func<IFindResults<TResult>, Task<IFindResults<TResult>>> getNextPageFunc = async r => {
-                var elasticResults = r as IElasticFindResults<TResult>;
-                if (!String.IsNullOrEmpty(elasticResults.ScrollId)) {
-                    var scrollResponse = await _client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), elasticResults.ScrollId).AnyContext();
+                var previousResults = r as IElasticFindResults<TResult>;
+                if (previousResults == null)
+                    throw new ArgumentException(nameof(r));
+
+                if (!String.IsNullOrEmpty(previousResults.ScrollId)) {
+                    var scrollResponse = await _client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), previousResults.ScrollId).AnyContext();
                     _logger.Trace(() => scrollResponse.GetRequest());
-                    return scrollResponse.ToFindResults(useSnapshotPaging ? Int32.MaxValue : pagableQuery?.Limit);
+
+                    var results = scrollResponse.ToFindResults(pagableQuery?.Limit);
+                    results.Page = previousResults.Page + 1;
+                    return results;
                 }
 
                 if (pagableQuery == null)
@@ -110,7 +116,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ApplicationException(message, scrollResponse.ConnectionStatus.OriginalException);
                 }
 
-                result = scrollResponse.ToFindResults();
+                result = scrollResponse.ToFindResults(pagableQuery.Limit);
                 ((IGetNextPage<TResult>)result).GetNextPageFunc = getNextPageFunc;
             } else if (pagableQuery?.ShouldUseLimit() == true) {
                 result = response.ToFindResults(pagableQuery.Limit);
@@ -128,9 +134,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             ((IGetNextPage<TResult>)result).GetNextPageFunc = null;
             await SetCachedQueryResultAsync(query, result, cacheSuffix: cacheSuffix).AnyContext();
             ((IGetNextPage<TResult>)result).GetNextPageFunc = nextPageFunc;
-
-
-
+            
             return result;
         }
 

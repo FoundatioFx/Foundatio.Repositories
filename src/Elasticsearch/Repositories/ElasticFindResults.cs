@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Repositories {
@@ -11,6 +12,30 @@ namespace Foundatio.Repositories.Elasticsearch.Repositories {
         }
 
         public string ScrollId { get; set; }
+
+        public override async Task<bool> NextPageAsync() {
+            if (!HasMore)
+                return false;
+
+            Aggregations = new List<AggregationResult>();
+            Documents = new List<T>();
+
+            if (((IGetNextPage<T>)this).GetNextPageFunc == null) {
+                HasMore = false;
+                Page = -1;
+                return false;
+            }
+
+            var results = await ((IGetNextPage<T>)this).GetNextPageFunc(this).AnyContext() as IElasticFindResults<T>;
+            Aggregations = results.Aggregations;
+            Documents = results.Documents;
+            HasMore = results.HasMore;
+            Page = results.Page;
+            Total = results.Total;
+            ScrollId = results.ScrollId;
+
+            return Documents.Count > 0;
+        }
     }
 
     public class ElasticFindHit<T> : FindResult<T>, IElasticFindHit<T> {
