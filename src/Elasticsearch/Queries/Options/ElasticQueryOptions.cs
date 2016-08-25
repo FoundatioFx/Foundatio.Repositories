@@ -1,8 +1,9 @@
 ﻿using System;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Options {
-    public interface IQueryOptions {
+    public interface IElasticQueryOptions : IQueryOptions {
         bool SupportsSoftDeletes { get; }
         bool HasIdentity { get; }
         string[] AllowedAggregationFields { get; }
@@ -10,8 +11,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Options {
         string[] DefaultExcludes { get; }
     }
 
-    public class QueryOptions : IQueryOptions {
-        public QueryOptions(Type entityType) {
+    public class ElasticQueryOptions : IElasticQueryOptions {
+        public ElasticQueryOptions(Type entityType) {
             SupportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(entityType);
             HasIdentity = typeof(IIdentity).IsAssignableFrom(entityType);
         }

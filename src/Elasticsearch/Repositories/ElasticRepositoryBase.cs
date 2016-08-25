@@ -189,7 +189,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             await PatchAllAsync(new Query().WithIds(idList), update, sendNotification).AnyContext();
         }
 
-        protected async Task<long> PatchAllAsync<TQuery>(TQuery query, object update, bool sendNotifications = true, Action<IEnumerable<string>> updatedIdsCallback = null) where TQuery : IPagableQuery, ISelectedFieldsQuery {
+        protected async Task<long> PatchAllAsync<TQuery>(TQuery query, object update, bool sendNotifications = true, Action<IEnumerable<string>> updatedIdsCallback = null) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery {
             string script = update as string;
             var patch = update as PatchDocument;
 
@@ -362,7 +362,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         protected List<string> FieldsRequiredForRemove { get; } = new List<string>();
 
-        protected async Task<long> RemoveAllAsync<TQuery>(TQuery query, bool sendNotifications = true) where TQuery: IPagableQuery, ISelectedFieldsQuery {
+        protected async Task<long> RemoveAllAsync<TQuery>(TQuery query, bool sendNotifications = true) where TQuery: IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
@@ -376,11 +376,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             });
         }
 
-        protected Task<long> BatchProcessAsync<TQuery>(TQuery query, Func<IElasticFindResults<T>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery {
+        protected Task<long> BatchProcessAsync<TQuery>(TQuery query, Func<IElasticFindResults<T>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery {
             return BatchProcessAsAsync(query, processAsync);
         }
 
-        protected async Task<long> BatchProcessAsAsync<TQuery, TResult>(TQuery query, Func<IElasticFindResults<TResult>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery where TResult : class, new() {
+        protected async Task<long> BatchProcessAsAsync<TQuery, TResult>(TQuery query, Func<IElasticFindResults<TResult>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery where TResult : class, new() {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
             

@@ -10,7 +10,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (softDeletesQuery == null)
                 return;
 
-            var opt = ctx.GetOptionsAs<IQueryOptions>();
+            var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
             if (opt == null || !opt.SupportsSoftDeletes)
                 return;
             

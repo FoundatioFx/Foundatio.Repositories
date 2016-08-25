@@ -3,7 +3,7 @@ using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries {
-    public class ParentQuery : ISystemFilterQuery, IIdentityQuery, IDateRangeQuery, IFieldConditionsQuery, ISearchQuery, ITypeQuery {
+    public class ParentQuery : IRepositoryQuery, ISystemFilterQuery, IIdentityQuery, IDateRangeQuery, IFieldConditionsQuery, ISearchQuery, ITypeQuery {
         public ParentQuery() {
             DateRanges = new List<DateRange>();
             FieldConditions = new List<FieldCondition>();
@@ -14,7 +14,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         public string Type { get; set; }
         public List<DateRange> DateRanges { get; }
         public List<FieldCondition> FieldConditions { get; }
-        public object SystemFilter { get; set; }
+        public IRepositoryQuery SystemFilter { get; set; }
         public string Filter { get; set; }
         public string SearchQuery { get; set; }
         public SearchOperator DefaultSearchQueryOperator { get; set; }

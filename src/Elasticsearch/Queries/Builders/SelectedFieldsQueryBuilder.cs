@@ -16,7 +16,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return;
             }
 
-            var opt = ctx.GetOptionsAs<IQueryOptions>();
+            var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
             if (opt?.DefaultExcludes?.Length > 0)
                 ctx.Search.Source(s => s.Exclude(opt.DefaultExcludes));
         }
