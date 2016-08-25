@@ -125,7 +125,7 @@
     <Compile Include="Queries\Builders\SystemFilterQueryBuilder.cs" />
     <Compile Include="Queries\ChildQuery.cs" />
     <Compile Include="Queries\ElasticQuery.cs" />
-    <Compile Include="Queries\Options\QueryOptions.cs" />
+    <Compile Include="Queries\Options\ElasticQueryOptions.cs" />
     <Compile Include="Queries\ParentQuery.cs" />
     <Compile Include="Queries\QueryParts\CachableQuery.cs" />
     <Compile Include="Queries\Builders\ChildQueryBuilder.cs" />

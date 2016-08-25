@@ -5,7 +5,7 @@ using Foundatio.Repositories.Queries;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries {
-    public interface IElasticQuery: ISystemFilterQuery, IIdentityQuery, IPagableQuery, ISearchQuery, IAggregationQuery, ISortableQuery { }
+    public interface IElasticQuery: IRepositoryQuery, ISystemFilterQuery, IIdentityQuery, IPagableQuery, ISearchQuery, IAggregationQuery, ISortableQuery { }
 
     public class ElasticQuery : Query, IElasticQuery, IElasticFilterQuery, IElasticIndexesQuery {
         public FilterContainer ElasticFilter { get; set; }

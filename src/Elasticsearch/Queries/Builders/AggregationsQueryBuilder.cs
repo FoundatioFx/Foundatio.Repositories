@@ -16,7 +16,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (aggregationQuery?.AggregationFields == null || aggregationQuery.AggregationFields.Count <= 0)
                 return;
 
-            var opt = ctx.GetOptionsAs<IQueryOptions>();
+            var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
             if (opt?.AllowedAggregationFields?.Length > 0 && !aggregationQuery.AggregationFields.All(f => opt.AllowedAggregationFields.Contains(f.Field)))
                 throw new InvalidOperationException("All facet fields must be allowed.");
 

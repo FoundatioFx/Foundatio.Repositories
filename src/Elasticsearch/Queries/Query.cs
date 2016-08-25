@@ -5,7 +5,7 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries {
-    public class Query : ISystemFilterQuery, IIdentityQuery, ICachableQuery, IDateRangeQuery,
+    public class Query : IRepositoryQuery, ISystemFilterQuery, IIdentityQuery, ICachableQuery, IDateRangeQuery,
         IFieldConditionsQuery, IPagableQuery, ISearchQuery, IAggregationQuery,
         ISelectedFieldsQuery, ISortableQuery, IParentQuery, IChildQuery, ISoftDeletesQuery {
 
@@ -19,7 +19,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         public int? Page { get; set; }
         public bool? UseSnapshotPaging { get; set; }
         public TimeSpan? SnapshotLifetime { get; set; }
-        public object SystemFilter { get; set; }
+        public IRepositoryQuery SystemFilter { get; set; }
         public string Filter { get; set; }
         public string SearchQuery { get; set; }
         public SearchOperator DefaultSearchQueryOperator { get; set; }

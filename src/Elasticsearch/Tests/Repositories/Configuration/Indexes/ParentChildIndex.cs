@@ -6,8 +6,8 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Type
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes {
-    public sealed class ParentChildIndex : Index {
-        public ParentChildIndex(IElasticClient client, ICacheClient cache = null, ILoggerFactory loggerFactory = null): base(client, "parentchild", cache, loggerFactory) {
+    public sealed class ParentChildIndex : VersionedIndex {
+        public ParentChildIndex(IElasticClient client, ICacheClient cache = null, ILoggerFactory loggerFactory = null): base(client, "parentchild", 1, cache, loggerFactory) {
             Parent = new ParentType(this);
             Child = new ChildType(this);
 

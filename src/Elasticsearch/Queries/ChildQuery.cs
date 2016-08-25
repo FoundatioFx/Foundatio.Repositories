@@ -11,7 +11,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
 
         public List<DateRange> DateRanges { get; }
         public List<FieldCondition> FieldConditions { get; }
-        public object SystemFilter { get; set; }
+        public IRepositoryQuery SystemFilter { get; set; }
         public string Filter { get; set; }
         public string SearchQuery { get; set; }
         public SearchOperator DefaultSearchQueryOperator { get; set; }

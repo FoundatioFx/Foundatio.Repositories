@@ -41,13 +41,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             _logger = logger ?? NullLogger.Instance;
         }
 
-        protected async Task<IFindResults<T>> FindAsync(object query) {
+        protected async Task<IFindResults<T>> FindAsync(IRepositoryQuery query) {
             return await FindAsAsync<T>(query);
         }
 
         protected ISet<string> DefaultExcludes { get; } = new HashSet<string>();
 
-        protected async Task<IElasticFindResults<TResult>> FindAsAsync<TResult>(object query) where TResult : class, new() {
+        protected async Task<IElasticFindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query) where TResult : class, new() {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
@@ -134,7 +134,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return result;
         }
 
-        protected async Task<T> FindOneAsync(object query) {
+        protected async Task<T> FindOneAsync(IRepositoryQuery query) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
             
@@ -164,7 +164,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return result;
         }
 
-        public Task<IFindResults<T>> SearchAsync(object systemFilter, string userFilter = null, string query = null, SortingOptions sorting = null, PagingOptions paging = null, AggregationOptions aggregations = null) {
+        public Task<IFindResults<T>> SearchAsync(IRepositoryQuery systemFilter, string userFilter = null, string query = null, SortingOptions sorting = null, PagingOptions paging = null, AggregationOptions aggregations = null) {
             var search = NewQuery()
                 .WithSystemFilter(systemFilter)
                 .WithFilter(userFilter)
@@ -271,7 +271,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return await ExistsAsync(new Query().WithId(id)).AnyContext();
         }
 
-        protected async Task<bool> ExistsAsync(object query) {
+        protected async Task<bool> ExistsAsync(IRepositoryQuery query) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
@@ -292,7 +292,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return response.HitsMetaData.Total > 0;
         }
 
-        protected async Task<CountResult> CountAsync(object query) {
+        protected async Task<CountResult> CountAsync(IRepositoryQuery query) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
@@ -338,7 +338,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return response.Count;
         }
 
-        public Task<CountResult> CountBySearchAsync(object systemFilter, string userFilter = null, string query = null, AggregationOptions aggregations = null) {
+        public Task<CountResult> CountBySearchAsync(IRepositoryQuery systemFilter, string userFilter = null, string query = null, AggregationOptions aggregations = null) {
             var search = NewQuery()
                 .WithSystemFilter(systemFilter)
                 .WithFilter(userFilter)
@@ -348,7 +348,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return CountAsync(search);
         }
 
-        public async Task<IReadOnlyCollection<AggregationResult>> GetAggregationsAsync(object query) {
+        public async Task<IReadOnlyCollection<AggregationResult>> GetAggregationsAsync(IRepositoryQuery query) {
             var aggregationQuery = query as IAggregationQuery;
 
             if (aggregationQuery == null || aggregationQuery.AggregationFields.Count == 0)
@@ -370,7 +370,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return response.ToAggregationResult();
         }
 
-        public Task<IReadOnlyCollection<AggregationResult>> GetAggregationsAsync(object systemFilter, AggregationOptions aggregations, string userFilter = null, string query = null) {
+        public Task<IReadOnlyCollection<AggregationResult>> GetAggregationsAsync(IRepositoryQuery systemFilter, AggregationOptions aggregations, string userFilter = null, string query = null) {
             var search = NewQuery()
                 .WithSystemFilter(systemFilter)
                 .WithFilter(userFilter)
@@ -434,11 +434,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             return InvalidateCacheAsync(docs.Select(d => new ModifiedDocument<T>(d, null)).ToList());
         }
 
-        protected SearchDescriptor<T> CreateSearchDescriptor(object query) {
+        protected SearchDescriptor<T> CreateSearchDescriptor(IRepositoryQuery query) {
             return ConfigureSearchDescriptor(null, query);
         }
 
-        protected SearchDescriptor<T> ConfigureSearchDescriptor(SearchDescriptor<T> search, object query) {
+        protected SearchDescriptor<T> ConfigureSearchDescriptor(SearchDescriptor<T> search, IRepositoryQuery query) {
             if (search == null)
                 search = new SearchDescriptor<T>();
 
@@ -457,8 +457,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             return search;
         }
 
-        protected virtual object GetQueryOptions() {
-            return new QueryOptions(typeof(T)) {
+        protected virtual IQueryOptions GetQueryOptions() {
+            return new ElasticQueryOptions(typeof(T)) {
                 AllowedAggregationFields = ElasticType.AllowedAggregationFields.ToArray(),
                 DefaultExcludes = DefaultExcludes.ToArray()
             };
@@ -539,7 +539,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         public AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; } = new AsyncEvent<BeforeQueryEventArgs<T>>();
 
-        private async Task OnBeforeQueryAsync(object query, Type resultType)
+        private async Task OnBeforeQueryAsync(IRepositoryQuery query, Type resultType)
         {
             if (BeforeQuery == null)
                 return;
