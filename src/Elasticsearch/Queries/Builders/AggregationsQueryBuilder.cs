@@ -23,13 +23,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             ctx.Search.Aggregations(agg => GetAggregationDescriptor<T>(aggregationQuery));
         }
 
-        private AggregationDescriptor<T> GetAggregationDescriptor<T>(object query) where T : class {
-            var aggregationQuery = query as IAggregationQuery;
-            if (aggregationQuery == null || aggregationQuery.AggregationFields.Count == 0)
-                return null;
-
+        private AggregationDescriptor<T> GetAggregationDescriptor<T>(IAggregationQuery query) where T : class {
             var descriptor = new AggregationDescriptor<T>();
-            foreach (var t in aggregationQuery.AggregationFields)
+            foreach (var t in query.AggregationFields)
                 descriptor = descriptor.Terms(t.Field, s => s.Field(t.Field).Size(t.Size ?? 100));
 
             return descriptor;

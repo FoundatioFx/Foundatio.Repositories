@@ -3,8 +3,9 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
-    public class Parent : IIdentity {
+    public class Parent : IIdentity, ISupportSoftDeletes {
         public string Id { get; set; }
+        public bool IsDeleted { get; set; }
     }
 
     public static class ParentGenerator {

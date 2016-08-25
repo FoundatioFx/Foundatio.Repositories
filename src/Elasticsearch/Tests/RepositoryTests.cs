@@ -200,6 +200,22 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task CanGetAggregations() {
+            var utcNow = SystemClock.UtcNow;
+            var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
+            Assert.NotNull(yesterdayLog?.Id);
+
+            await _client.RefreshAsync();
+            var result = await _dailyRepository.CountBySearchAsync(null, aggregations: "companyId");
+            Assert.Equal(1, result.Aggregations.Count);
+            var agg = result.Aggregations.FirstOrDefault(a => a.Field == "companyId");
+            Assert.NotNull(agg);
+            Assert.Equal(1, agg.Terms.Count);
+            Assert.Equal(1, agg.Terms.First().Value.Total);
+
+        }
+
+        [Fact]
         public async Task SaveWithCaching() {
             var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, addToCache: true);
             Assert.NotNull(identity?.Id);

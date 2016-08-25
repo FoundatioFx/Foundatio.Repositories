@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Linq;
+using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Repositories.Queries;
 using Nest;
 
@@ -16,12 +18,35 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
         public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var parentQuery = ctx.GetSourceAs<IParentQuery>();
-            if (parentQuery?.ParentQuery == null)
+            if (parentQuery == null)
                 return;
-            
+
+            var options = ctx.GetOptionsAs<IElasticQueryOptions>();
+            IQueryOptions parentOptions = null;
+
+            if (options != null && options.HasParent == false)
+                return;
+
+            if (parentQuery.ParentQuery == null && options != null && options.ParentSupportsSoftDeletes) {
+                parentQuery.ParentQuery = new ParentQuery();
+                var parentType = options.ChildType.Index.IndexTypes.FirstOrDefault(i => i.Name == options.ChildType.ParentIndexTypeName);
+                if (parentType == null)
+                    throw new ApplicationException("ParentIndexTypeName on child index type must match the name of the parent type.");
+
+                parentOptions = new ElasticQueryOptions(parentType) {
+                    SupportsSoftDeletes = true
+                };
+            }
+
+            if (parentQuery.ParentQuery == null)
+                return;
+
+            var query = _queryBuilder.BuildQuery<T>(parentQuery.ParentQuery, parentOptions);
+            var filter = _queryBuilder.BuildFilter<T>(parentQuery.ParentQuery, parentOptions);
             ctx.Filter &= new HasParentFilter {
-                Query = _queryBuilder.BuildQuery<T>(parentQuery.ParentQuery, ctx.Options),
-                Type = parentQuery.ParentQuery.Type
+                Query = query,
+                Filter = filter,
+                Type = options?.ChildType?.ParentIndexTypeName
             };
         }
     }

@@ -462,8 +462,9 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected virtual IQueryOptions GetQueryOptions() {
-            return new ElasticQueryOptions(typeof(T)) {
-                AllowedAggregationFields = ElasticType.AllowedAggregationFields.ToArray(),
+            return new ElasticQueryOptions(ElasticType) {
+                SupportsSoftDeletes = SupportsSoftDeletes,
+                HasIdentity = HasIdentity,
                 DefaultExcludes = DefaultExcludes.ToArray()
             };
         }
