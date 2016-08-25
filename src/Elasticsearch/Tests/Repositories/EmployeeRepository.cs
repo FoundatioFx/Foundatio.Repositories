@@ -37,8 +37,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return CountAsync(new MyAppQuery().WithCompany(company).WithCacheKey(company));
         }
 
-        public Task<long> UpdateCompanyNameByCompanyAsync(string company, string name) {
-            return PatchAllAsync(new MyAppQuery().WithCompany(company), new { CompanyName = name });
+        /// <summary>
+        /// Updates company name by company id
+        /// </summary>
+        /// <param name="company">company id</param>
+        /// <param name="name">company name</param>
+        /// <param name="limit">OPTIONAL limit that should be applied to bulk updates. This is here only for tests...</param>
+        /// <returns></returns>
+        public Task<long> UpdateCompanyNameByCompanyAsync(string company, string name, int? limit = null) {
+            return PatchAllAsync(new MyAppQuery().WithCompany(company).WithLimit(limit), new { CompanyName = name });
         }
 
         public Task<long> IncrementYearsEmployeed(string[] ids, int years = 1) {
