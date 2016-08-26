@@ -71,8 +71,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 while (!await IndexExistsAsync(name).AnyContext())
                     SystemClock.Sleep(100);
 
-                var healthResponse = await _client.ClusterHealthAsync(h => h.Index(name).WaitForStatus(WaitForStatus.Green)).AnyContext();
-                if (!healthResponse.IsValid)
+                var healthResponse = await _client.ClusterHealthAsync(h => h
+                    .Index(name)
+                    .WaitForStatus(WaitForStatus.Green)
+                    .Timeout("10s")).AnyContext();
+                if (!healthResponse.IsValid || healthResponse.Status != "green" || healthResponse.TimedOut)
                     throw new ApplicationException($"Index {name} is unhealthy: {healthResponse.Status}.", healthResponse.ConnectionStatus.OriginalException);
 
                 return;
