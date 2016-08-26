@@ -219,7 +219,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             var results = await _employeeRepository.GetAllAsync(null, new ElasticPagingOptions().WithLimit(PAGE_SIZE).UseSnapshotPaging());
 
-
             var viewedIds = new HashSet<string>();
             var newEmployees = new List<Employee>();
             int pagedRecords = 0;
@@ -235,6 +234,41 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 newEmployees.Add(await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: "1")));
                 await _client.RefreshAsync();
             } while (await results.NextPageAsync());
+
+            Assert.Equal(NUMBER_OF_EMPLOYEES, pagedRecords);
+        }
+
+        [Fact]
+        public async Task CanUseSnapshotWithScrollId() {
+            const int NUMBER_OF_EMPLOYEES = 100;
+            const int PAGE_SIZE = 10;
+
+            Log.MinimumLevel = LogLevel.Warning;
+            await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1"));
+            Log.MinimumLevel = LogLevel.Trace;
+
+            await _client.RefreshAsync();
+            Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
+
+            var results = await _employeeRepository.GetAllAsync(null, new ElasticPagingOptions().WithLimit(PAGE_SIZE).UseSnapshotPaging());
+
+            var viewedIds = new HashSet<string>();
+            var newEmployees = new List<Employee>();
+            int pagedRecords = 0;
+            do {
+                Assert.Equal(PAGE_SIZE, results.Documents.Count);
+                Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
+                Assert.False(results.Hits.Any(h => viewedIds.Contains(h.Id)));
+                viewedIds.AddRange(results.Hits.Select(h => h.Id));
+
+                Assert.False(newEmployees.Any(d => viewedIds.Contains(d.Id)));
+
+                pagedRecords += results.Documents.Count;
+                newEmployees.Add(await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: "1")));
+                await _client.RefreshAsync();
+
+                results = await _employeeRepository.GetAllAsync(null, new ElasticPagingOptions().WithScrollId(results));
+            } while (results != null && results.Hits.Count > 0);
 
             Assert.Equal(NUMBER_OF_EMPLOYEES, pagedRecords);
         }
