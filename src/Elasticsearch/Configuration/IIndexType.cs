@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Nest;
@@ -62,7 +63,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public virtual PutMappingDescriptor<T> BuildMapping(PutMappingDescriptor<T> map) {
-            return map.Type(Name);
+            return map.Type(Name).Properties(p => p.SetupDefaults());
         }
 
         public virtual void Dispose() {}

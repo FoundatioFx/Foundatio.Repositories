@@ -240,8 +240,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task CanUsePagingWithOddNumber() {
-            const int NUMBER_OF_EMPLOYEES = 877;
-            const int PAGE_SIZE = 100;
+            const int NUMBER_OF_EMPLOYEES = 67;
+            const int PAGE_SIZE = 12;
             Log.MinimumLevel = LogLevel.Warning;
 
             await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1"));
@@ -264,7 +264,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task UpdateAllWithPageLimit() {
-            const int NUMBER_OF_EMPLOYEES = 1000;
+            const int NUMBER_OF_EMPLOYEES = 100;
             Log.MinimumLevel = LogLevel.Warning;
 
             await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1"));
@@ -284,7 +284,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         
         [Fact]
         public async Task UpdateAllWithNoPageLimit() {
-            const int NUMBER_OF_EMPLOYEES = 1000;
+            const int NUMBER_OF_EMPLOYEES = 100;
             await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1"));
 
             await _client.RefreshAsync();

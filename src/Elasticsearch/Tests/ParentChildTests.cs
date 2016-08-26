@@ -27,6 +27,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var child = ChildGenerator.Default;
             child = await _childRepository.AddAsync(child);
             Assert.NotNull(child?.Id);
+
+            await _client.RefreshAsync();
+            child = await _childRepository.GetByIdAsync(child.Id);
+            Assert.NotNull(child?.Id);
         }
 
         [Fact]
@@ -44,6 +48,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _client.RefreshAsync();
             Assert.Equal(0, await _childRepository.CountBySearchAsync(null));
+
+            parent.IsDeleted = false;
+            await _parentRepository.SaveAsync(parent);
+
+            await _client.RefreshAsync();
+            Assert.Equal(1, await _childRepository.CountBySearchAsync(null));
         }
 
         // TODO: Test parent that doesn't support soft deletes

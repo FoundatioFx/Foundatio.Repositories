@@ -10,8 +10,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (softDeletesQuery == null)
                 return;
 
+            var idsQuery = ctx.GetSourceAs<IIdentityQuery>();
+
             var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
-            if (opt == null || !opt.SupportsSoftDeletes)
+            if (opt == null || !opt.SupportsSoftDeletes || (idsQuery != null && idsQuery.Ids.Count > 0))
                 return;
             
             ctx.Filter &= new TermFilter { Field = Fields.Deleted, Value = softDeletesQuery.IncludeSoftDeletes };
