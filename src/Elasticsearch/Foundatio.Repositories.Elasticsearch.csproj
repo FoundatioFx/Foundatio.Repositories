@@ -107,6 +107,8 @@
     <Compile Include="Jobs\ReindexWorkItem.cs" />
     <Compile Include="Jobs\ReindexWorkItemHandler.cs" />
     <Compile Include="Configuration\DailyIndex.cs" />
+    <Compile Include="Models\ElasticPagingOptions.cs" />
+    <Compile Include="Queries\ElasticPagableQuery.cs" />
     <Compile Include="Repositories\ElasticFindResults.cs" />
     <Compile Include="Repositories\ElasticReindexer.cs" />
     <Compile Include="Configuration\IElasticConfiguration.cs" />

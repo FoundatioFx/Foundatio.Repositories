@@ -8,6 +8,7 @@ using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Models;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Repositories.Elasticsearch.Repositories;
@@ -52,10 +53,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ArgumentNullException(nameof(query));
 
             var pagableQuery = query as IPagableQuery;
-            bool useSnapshotPaging = pagableQuery?.UseSnapshotPaging != null && pagableQuery.UseSnapshotPaging.Value;
+            var pagingOptions = pagableQuery?.Options as IPagingOptions;
+            var elasticPagingOptions = pagableQuery?.Options as ElasticPagingOptions;
+            bool useSnapshotPaging = elasticPagingOptions?.UseSnapshotPaging ?? false;
 
             // don't use caching with snapshot paging.
-            bool allowCaching = IsCacheEnabled && (pagableQuery == null || pagableQuery.UseSnapshotPaging == false);
+            bool allowCaching = IsCacheEnabled && (elasticPagingOptions == null || elasticPagingOptions.UseSnapshotPaging == false);
 
             await OnBeforeQueryAsync(query, typeof(TResult)).AnyContext();
 
@@ -68,7 +71,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     var scrollResponse = await _client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), previousResults.ScrollId).AnyContext();
                     _logger.Trace(() => scrollResponse.GetRequest());
 
-                    var results = scrollResponse.ToFindResults(pagableQuery?.Limit);
+                    var results = scrollResponse.ToFindResults(pagingOptions?.Limit);
                     results.Page = previousResults.Page + 1;
                     return results;
                 }
@@ -76,11 +79,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (pagableQuery == null)
                     return new ElasticFindResults<TResult>();
 
-                pagableQuery.Page = pagableQuery.Page == null ? 2 : pagableQuery.Page + 1;
+                pagingOptions.Page = pagingOptions.Page == null ? 2 : pagingOptions.Page + 1;
                 return await FindAsAsync<TResult>(query).AnyContext();
             };
 
-            string cacheSuffix = pagableQuery?.ShouldUseLimit() == true ? pagableQuery.Page?.ToString() ?? "1" : String.Empty;
+            string cacheSuffix = pagableQuery?.ShouldUseLimit() == true ? pagingOptions.Page?.ToString() ?? "1" : String.Empty;
 
             ElasticFindResults<TResult> result;
             if (allowCaching) {
@@ -91,41 +94,45 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
             }
 
-            SearchDescriptor<T> searchDescriptor = CreateSearchDescriptor(query);
-            if (useSnapshotPaging)
-                searchDescriptor.SearchType(SearchType.Scan).Scroll(pagableQuery.GetLifetime());
+            ISearchResponse<TResult> response = null;
 
-            var response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
-            _logger.Trace(() => response.GetRequest());
-            if (!response.IsValid) {
-                if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
-                    return new ElasticFindResults<TResult>();
+            if (useSnapshotPaging == false || String.IsNullOrEmpty(elasticPagingOptions?.ScrollId)) {
+                SearchDescriptor<T> searchDescriptor = CreateSearchDescriptor(query);
+                if (useSnapshotPaging)
+                    searchDescriptor.SearchType(SearchType.Scan).Scroll(pagableQuery.GetLifetime());
 
-                string message = response.GetErrorMessage();
-                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
+                _logger.Trace(() => response.GetRequest());
+                if (!response.IsValid) {
+                    if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
+                        return new ElasticFindResults<TResult>();
+
+                    string message = response.GetErrorMessage();
+                    _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                    throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                }
             }
 
             if (useSnapshotPaging) {
-                var scrollResponse = await _client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), response.ScrollId).AnyContext();
+                var scrollResponse = await _client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), response?.ScrollId ?? elasticPagingOptions?.ScrollId).AnyContext();
                 _logger.Trace(() => scrollResponse.GetRequest());
 
                 if (!scrollResponse.IsValid) {
-                    string message = response.GetErrorMessage();
+                    string message = scrollResponse.GetErrorMessage();
                     _logger.Error().Exception(scrollResponse.ConnectionStatus.OriginalException).Message(message).Property("request", scrollResponse.GetRequest()).Write();
                     throw new ApplicationException(message, scrollResponse.ConnectionStatus.OriginalException);
                 }
 
-                result = scrollResponse.ToFindResults(pagableQuery.Limit);
+                result = scrollResponse.ToFindResults(pagableQuery.GetLimit());
                 ((IGetNextPage<TResult>)result).GetNextPageFunc = getNextPageFunc;
             } else if (pagableQuery?.ShouldUseLimit() == true) {
-                result = response.ToFindResults(pagableQuery.Limit);
+                result = response.ToFindResults(pagableQuery.GetLimit());
                 ((IGetNextPage<TResult>)result).GetNextPageFunc = getNextPageFunc;
             } else {
                 result = response.ToFindResults();
             }
             
-            result.Page = pagableQuery?.Page ?? 1;
+            result.Page = pagingOptions?.Page ?? 1;
 
             if (!allowCaching)
                 return result;

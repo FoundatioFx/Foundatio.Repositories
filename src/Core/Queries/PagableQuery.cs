@@ -1,78 +1,65 @@
 ﻿using System;
-using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Queries {
     public interface IPagableQuery : IRepositoryQuery {
-        int? Limit { get; set; }
-        int? Page { get; set; }
-        bool? UseSnapshotPaging { get; set; }
-        TimeSpan? SnapshotLifetime { get; set; }
+        IPagingOptions Options { get; set; }
     }
 
     public static class PagableQueryExtensions {
         public static bool ShouldUseLimit<T>(this T query) where T : IPagableQuery {
-            return query.Limit.HasValue;
+            return query.Options?.Limit != null;
         }
 
         public static bool ShouldUseSkip<T>(this T query) where T : IPagableQuery {
-            return query.Page.HasValue && query.Page.Value > 1;
+            if (query.Options == null)
+                return false;
+
+            return query.Options.Page.HasValue && query.Options.Page.Value > 1;
         }
 
         public static int GetLimit<T>(this T query) where T : IPagableQuery {
-            if (!query.Limit.HasValue || query.Limit.Value < 1)
+            if (query.Options?.Limit == null || query.Options.Limit.Value < 1)
                 return RepositoryConstants.DEFAULT_LIMIT;
 
-            if (query.Limit.Value > RepositoryConstants.MAX_LIMIT)
+            if (query.Options.Limit.Value > RepositoryConstants.MAX_LIMIT)
                 return RepositoryConstants.MAX_LIMIT;
 
-            return query.Limit.Value;
+            return query.Options.Limit.Value;
         }
 
         public static int GetSkip<T>(this T query) where T : IPagableQuery {
-            if (!query.Page.HasValue || query.Page.Value < 1)
+            if (query.Options?.Page == null || query.Options.Page.Value < 1)
                 return 0;
 
-            int skip = (query.Page.Value - 1) * query.GetLimit();
+            int skip = (query.Options.Page.Value - 1) * query.GetLimit();
             if (skip < 0)
                 skip = 0;
 
             return skip;
         }
 
-        public static string GetLifetime<T>(this T query) where T : IPagableQuery {
-            if (query == null)
-                return "2m";
+        public static T WithLimit<T>(this T query, int? limit) where T : IPagableQuery {
+            if (query.Options == null)
+                query.Options = new PagingOptions();
 
-            return query.SnapshotLifetime.HasValue ? query.SnapshotLifetime.Value.ToWords(true, 1) : "2m";
-        }
-
-        public static bool ShouldUseSnapshotPaging<T>(this T query) where T : IPagableQuery {
-            return query.UseSnapshotPaging.HasValue && query.UseSnapshotPaging.Value;
-        }
-
-        public static T WithLimit<T>(this T options, int? limit) where T : IPagableQuery {
-            options.Limit = limit;
-            return options;
+            query.Options.Limit = limit;
+            return query;
         }
 
         public static T WithPage<T>(this T query, int? page) where T : IPagableQuery {
-            query.Page = page;
+            if (query.Options == null)
+                query.Options = new PagingOptions();
+
+            query.Options.Page = page;
             return query;
         }
 
-        public static T WithSnapshotPaging<T>(this T query, bool useSnapshotPaging = true) where T : IPagableQuery {
-            query.UseSnapshotPaging = useSnapshotPaging;
-            return query;
-        }
-
-        public static T WithPaging<T>(this T query, PagingOptions paging) where T : IPagableQuery {
+        public static T WithPaging<T>(this T query, IPagingOptions paging) where T : IPagableQuery {
             if (paging == null)
                 return query;
 
-            query.Page = paging.Page;
-            query.Limit = paging.Limit;
-            query.UseSnapshotPaging = paging.UseSnapshotPaging;
+            query.Options = paging;
 
             return query;
         }

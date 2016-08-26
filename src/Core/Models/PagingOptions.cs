@@ -1,12 +1,11 @@
 ﻿using System;
 
 namespace Foundatio.Repositories.Models {
-    public class PagingOptions {
+    public class PagingOptions : IPagingOptions {
         public int? Limit { get; set; }
         public int? Page { get; set; }
-        public bool UseSnapshotPaging { get; set; }
 
-        static public implicit operator PagingOptions(int limit) {
+        public static implicit operator PagingOptions(int limit) {
             return new PagingOptions { Limit = limit };
         }
     }
@@ -19,11 +18,6 @@ namespace Foundatio.Repositories.Models {
 
         public static PagingOptions WithPage(this PagingOptions options, int? page) {
             options.Page = page;
-            return options;
-        }
-
-        public static PagingOptions UseSnapshotPaging(this PagingOptions options, bool useSnapshotPaging = true) {
-            options.UseSnapshotPaging = useSnapshotPaging;
             return options;
         }
     }

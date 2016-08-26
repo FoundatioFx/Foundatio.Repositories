@@ -15,10 +15,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         public DateTime? ExpiresAt { get; set; }
         public List<DateRange> DateRanges { get; } = new List<DateRange>();
         public List<FieldCondition> FieldConditions { get; } = new List<FieldCondition>();
-        public int? Limit { get; set; }
-        public int? Page { get; set; }
-        public bool? UseSnapshotPaging { get; set; }
-        public TimeSpan? SnapshotLifetime { get; set; }
         public IRepositoryQuery SystemFilter { get; set; }
         public string Filter { get; set; }
         public string SearchQuery { get; set; }
@@ -30,5 +26,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         public ITypeQuery ParentQuery { get; set; }
         public ITypeQuery ChildQuery { get; set; }
         public bool IncludeSoftDeletes { get; set; }
+        public IPagingOptions Options { get; set; }
     }
 }

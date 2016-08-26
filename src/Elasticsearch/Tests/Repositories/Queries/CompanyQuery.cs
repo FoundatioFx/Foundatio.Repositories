@@ -3,10 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
+using Foundatio.Repositories.Queries;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Queries {
-    public interface ICompanyQuery {
+    public interface ICompanyQuery: IRepositoryQuery {
         List<string> Companies { get; set; }
     }
 

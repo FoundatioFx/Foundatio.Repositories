@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Logging;
+using Foundatio.Repositories.Elasticsearch.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
@@ -206,8 +207,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task CanUseSnapshotPaging() {
-            const int NUMBER_OF_EMPLOYEES = 1000;
-            const int PAGE_SIZE = 100;
+            const int NUMBER_OF_EMPLOYEES = 100;
+            const int PAGE_SIZE = 10;
 
             Log.MinimumLevel = LogLevel.Warning;
             await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1"));
@@ -216,7 +217,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync();
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
-            var results = await _employeeRepository.GetAllAsync(null, new PagingOptions().WithLimit(PAGE_SIZE).UseSnapshotPaging());
+            var results = await _employeeRepository.GetAllAsync(null, new ElasticPagingOptions().WithLimit(PAGE_SIZE).UseSnapshotPaging());
 
 
             var viewedIds = new HashSet<string>();

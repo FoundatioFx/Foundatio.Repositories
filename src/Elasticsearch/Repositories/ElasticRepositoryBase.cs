@@ -8,6 +8,7 @@ using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Logging;
 using Foundatio.Messaging;
+using Foundatio.Repositories.Elasticsearch.Models;
 using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Repositories;
@@ -186,7 +187,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return;
             }
 
-            await PatchAllAsync(new Query().WithIds(idList), update, sendNotification).AnyContext();
+            await PatchAllAsync(NewQuery().WithIds(idList), update, sendNotification).AnyContext();
         }
 
         protected async Task<long> PatchAllAsync<TQuery>(TQuery query, object update, bool sendNotifications = true, Action<IEnumerable<string>> updatedIdsCallback = null) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery {
@@ -357,7 +358,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (IsCacheEnabled)
                 await Cache.RemoveAllAsync().AnyContext();
 
-            await RemoveAllAsync(new Query(), false).AnyContext();
+            await RemoveAllAsync(NewQuery(), false).AnyContext();
         }
 
         protected List<string> FieldsRequiredForRemove { get; } = new List<string>();
@@ -383,10 +384,15 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected async Task<long> BatchProcessAsAsync<TQuery, TResult>(TQuery query, Func<IElasticFindResults<TResult>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery where TResult : class, new() {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
-            
-            query.UseSnapshotPaging = true;
-            if (!query.SnapshotLifetime.HasValue)
-                query.SnapshotLifetime = TimeSpan.FromMinutes(5);
+
+            var elasticPagingOptions = query.Options as ElasticPagingOptions;
+            if (query.Options == null || elasticPagingOptions == null) {
+                elasticPagingOptions = ElasticPagingOptions.FromOptions(query.Options);
+                query.Options = elasticPagingOptions;
+            }
+            elasticPagingOptions.UseSnapshotPaging = true;
+            if (!elasticPagingOptions.SnapshotLifetime.HasValue)
+                elasticPagingOptions.SnapshotLifetime = TimeSpan.FromMinutes(5);
 
             long recordsProcessed = 0;
             var results = await FindAsAsync<TResult>(query).AnyContext();
