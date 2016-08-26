@@ -73,13 +73,16 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     var results = scrollResponse.ToFindResults(pagingOptions?.Limit);
                     results.Page = previousResults.Page + 1;
+                    results.HasMore = scrollResponse.Hits.Count() >= pagableQuery.GetLimit();
                     return results;
                 }
 
                 if (pagableQuery == null)
                     return new ElasticFindResults<TResult>();
 
-                pagingOptions.Page = pagingOptions.Page == null ? 2 : pagingOptions.Page + 1;
+                if (pagingOptions != null)
+                    pagingOptions.Page = pagingOptions.Page == null ? 2 : pagingOptions.Page + 1;
+
                 return await FindAsAsync<TResult>(query).AnyContext();
             };
 
@@ -124,9 +127,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
 
                 result = scrollResponse.ToFindResults(pagableQuery.GetLimit());
+                result.HasMore = scrollResponse.Hits.Count() >= pagableQuery.GetLimit();
+
                 ((IGetNextPage<TResult>)result).GetNextPageFunc = getNextPageFunc;
             } else if (pagableQuery?.ShouldUseLimit() == true) {
                 result = response.ToFindResults(pagableQuery.GetLimit());
+                result.HasMore = response.Hits.Count() > pagableQuery.GetLimit();
                 ((IGetNextPage<TResult>)result).GetNextPageFunc = getNextPageFunc;
             } else {
                 result = response.ToFindResults();

@@ -8,8 +8,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (pagableQuery == null)
                 return;
 
+            // add 1 to limit if not auto paging so we can know if we have more results
             if (pagableQuery.ShouldUseLimit())
-                ctx.Search.Size(pagableQuery.GetLimit());
+                ctx.Search.Size(pagableQuery.GetLimit() + (pagableQuery.ShouldUseSnapshotPaging() == false ? 1 : 0));
+
             if (pagableQuery.ShouldUseSkip())
                 ctx.Search.Skip(pagableQuery.GetSkip());
         }

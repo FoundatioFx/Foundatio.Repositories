@@ -11,26 +11,48 @@ namespace Foundatio.Repositories.Elasticsearch.Repositories {
             ScrollId = scrollId;
         }
 
-        public string ScrollId { get; set; }
+        public string ScrollId { get; protected set; }
 
         public override async Task<bool> NextPageAsync() {
-            Aggregations = new List<AggregationResult>();
-            Documents = new List<T>();
+            if (!HasMore) {
+                Aggregations = EmptyAggregations;
+                Hits = EmptyFindHits;
+                Documents = EmptyDocuments;
+                ScrollId = null;
+
+                return false;
+            }
 
             if (((IGetNextPage<T>)this).GetNextPageFunc == null) {
                 Page = -1;
+                Aggregations = EmptyAggregations;
+                Hits = EmptyFindHits;
+                Documents = EmptyDocuments;
+                ScrollId = null;
+
                 return false;
             }
 
             var results = await ((IGetNextPage<T>)this).GetNextPageFunc(this).AnyContext() as IElasticFindResults<T>;
+            if (results == null || results.Hits.Count == 0) {
+                Aggregations = EmptyAggregations;
+                Hits = EmptyFindHits;
+                Documents = EmptyDocuments;
+                HasMore = false;
+                ScrollId = null;
+
+                return false;
+            }
+
             Aggregations = results.Aggregations;
-            Hits = results.Hits;
             Documents = results.Documents;
+            Hits = results.Hits;
             Page = results.Page;
             Total = results.Total;
+            HasMore = results.HasMore;
             ScrollId = results.ScrollId;
 
-            return Documents.Count > 0;
+            return true;
         }
     }
 

@@ -190,6 +190,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
             var results = await _employeeRepository.GetAllAsync(null, PAGE_SIZE);
+            Assert.True(results.HasMore);
 
             var viewedIds = new HashSet<string>();
             int pagedRecords = 0;
@@ -202,6 +203,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 pagedRecords += results.Documents.Count;
             } while (await results.NextPageAsync());
 
+            Assert.False(results.HasMore);
+            Assert.True(employees.All(e => viewedIds.Contains(e.Id)));
             Assert.Equal(NUMBER_OF_EMPLOYEES, pagedRecords);
         }
 
@@ -211,13 +214,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             const int PAGE_SIZE = 10;
 
             Log.MinimumLevel = LogLevel.Warning;
-            await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1"));
+            var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
+            await _employeeRepository.AddAsync(employees);
             Log.MinimumLevel = LogLevel.Trace;
 
             await _client.RefreshAsync();
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
             var results = await _employeeRepository.GetAllAsync(null, new ElasticPagingOptions().WithLimit(PAGE_SIZE).UseSnapshotPaging());
+            Assert.True(results.HasMore);
 
             var viewedIds = new HashSet<string>();
             var newEmployees = new List<Employee>();
@@ -235,6 +240,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 await _client.RefreshAsync();
             } while (await results.NextPageAsync());
 
+            Assert.False(results.HasMore);
+            Assert.True(employees.All(e => viewedIds.Contains(e.Id)));
             Assert.Equal(NUMBER_OF_EMPLOYEES, pagedRecords);
         }
 
@@ -244,13 +251,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             const int PAGE_SIZE = 10;
 
             Log.MinimumLevel = LogLevel.Warning;
-            await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1"));
+            var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
+            await _employeeRepository.AddAsync(employees);
             Log.MinimumLevel = LogLevel.Trace;
 
             await _client.RefreshAsync();
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
             var results = await _employeeRepository.GetAllAsync(null, new ElasticPagingOptions().WithLimit(PAGE_SIZE).UseSnapshotPaging());
+            Assert.True(results.HasMore);
 
             var viewedIds = new HashSet<string>();
             var newEmployees = new List<Employee>();
@@ -270,6 +279,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 results = await _employeeRepository.GetAllAsync(null, new ElasticPagingOptions().WithScrollId(results));
             } while (results != null && results.Hits.Count > 0);
 
+            Assert.False(results.HasMore);
+            Assert.True(employees.All(e => viewedIds.Contains(e.Id)));
             Assert.Equal(NUMBER_OF_EMPLOYEES, pagedRecords);
         }
 
@@ -279,21 +290,28 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             const int PAGE_SIZE = 12;
             Log.MinimumLevel = LogLevel.Warning;
 
-            await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1"));
+            var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
+            await _employeeRepository.AddAsync(employees);
 
             await _client.RefreshAsync();
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
             var results = await _employeeRepository.GetAllAsync(null, PAGE_SIZE);
+            Assert.True(results.HasMore);
 
+            var viewedIds = new HashSet<string>();
             int pagedRecords = 0;
             do {
                 Assert.Equal(Math.Min(PAGE_SIZE, NUMBER_OF_EMPLOYEES - pagedRecords), results.Documents.Count);
                 Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
+                Assert.False(results.Hits.Any(h => viewedIds.Contains(h.Id)));
+                viewedIds.AddRange(results.Hits.Select(h => h.Id));
 
                 pagedRecords += results.Documents.Count;
             } while (await results.NextPageAsync());
 
+            Assert.False(results.HasMore);
+            Assert.True(employees.All(e => viewedIds.Contains(e.Id)));
             Assert.Equal(NUMBER_OF_EMPLOYEES, pagedRecords);
         }
 

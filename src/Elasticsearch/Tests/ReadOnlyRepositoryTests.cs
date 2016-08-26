@@ -303,17 +303,20 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
+            Assert.True(results.HasMore);
             Assert.Equal(2, results.Total);
 
             Assert.True(await results.NextPageAsync());
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(2, results.Page);
             Assert.Equal(2, results.Total);
+            Assert.False(results.HasMore);
             var secondDoc = results.Documents.First();
             
             Assert.False(await results.NextPageAsync());
             Assert.Equal(0, results.Documents.Count);
-            Assert.Equal(3, results.Page);
+            Assert.Equal(2, results.Page);
+            Assert.False(results.HasMore);
             Assert.Equal(2, results.Total);
             
             var secondPageResults = await _identityRepository.GetAllAsync(paging: new PagingOptions().WithPage(2).WithLimit(1));

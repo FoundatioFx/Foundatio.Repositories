@@ -6,6 +6,9 @@ using Foundatio.Repositories.Extensions;
 
 namespace Foundatio.Repositories.Models {
     public class FindResults<T> : CountResult, IGetNextPage<T>, IFindResults<T> where T : class {
+        protected static readonly IReadOnlyCollection<IFindHit<T>> EmptyFindHits = new List<IFindHit<T>>().AsReadOnly();
+        protected static readonly IReadOnlyCollection<T> EmptyDocuments = new List<T>().AsReadOnly();
+
         public FindResults(IEnumerable<IFindHit<T>> hits = null, long total = 0, IEnumerable<AggregationResult> aggregationResults = null, Func<IFindResults<T>, Task<IFindResults<T>>> getNextPage = null) {
             Hits = new List<IFindHit<T>>(hits ?? new IFindHit<T>[] {});
             Documents = hits?.Select(r => r.Document).ToList() ?? new List<T>();
@@ -17,23 +20,45 @@ namespace Foundatio.Repositories.Models {
         public IReadOnlyCollection<T> Documents { get; protected set; }
         public IReadOnlyCollection<IFindHit<T>> Hits { get; protected set; }
         public int Page { get; set; } = 1;
+        public bool HasMore { get; set; }
         Func<IFindResults<T>, Task<IFindResults<T>>> IGetNextPage<T>.GetNextPageFunc { get; set; }
 
         public virtual async Task<bool> NextPageAsync() {
-            Aggregations = new List<AggregationResult>();
-            Documents = new List<T>();
-            
+            if (!HasMore) {
+                Aggregations = EmptyAggregations;
+                Hits = EmptyFindHits;
+                Documents = EmptyDocuments;
+
+                return false;
+            }
+
             if (((IGetNextPage<T>)this).GetNextPageFunc == null) {
                 Page = -1;
+                Aggregations = EmptyAggregations;
+                Hits = EmptyFindHits;
+                Documents = EmptyDocuments;
+
                 return false;
             }
 
             var results = await ((IGetNextPage<T>)this).GetNextPageFunc(this).AnyContext();
+            if (results == null || results.Hits.Count == 0) {
+                Aggregations = EmptyAggregations;
+                Hits = EmptyFindHits;
+                Documents = EmptyDocuments;
+                HasMore = false;
+
+                return false;
+            }
+
             Aggregations = results.Aggregations;
             Documents = results.Documents;
+            Hits = results.Hits;
             Page = results.Page;
             Total = results.Total;
-            return Documents.Count > 0;
+            HasMore = results.HasMore;
+
+            return true;
         }
     }
 
@@ -42,8 +67,10 @@ namespace Foundatio.Repositories.Models {
     }
 
     public class CountResult {
+        protected static readonly IReadOnlyCollection<AggregationResult> EmptyAggregations = new List<AggregationResult>().AsReadOnly();
+
         public CountResult(long total = 0, IEnumerable<AggregationResult> aggregations = null) {
-            Aggregations = new List<AggregationResult>(aggregations ?? new AggregationResult[] {});
+            Aggregations = aggregations == null ? EmptyAggregations : new List<AggregationResult>(aggregations);
             Total = total;
         }
 
