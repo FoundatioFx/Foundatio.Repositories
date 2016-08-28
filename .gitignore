@@ -16,7 +16,7 @@ x86/
 bld/
 [Bb]in/
 [Oo]bj/
-
+Build/elasticsearch*/
 # Roslyn cache directories
 *.ide/
 

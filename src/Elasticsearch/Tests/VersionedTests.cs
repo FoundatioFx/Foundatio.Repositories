@@ -228,7 +228,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var newEmployees = new List<Employee>();
             int pagedRecords = 0;
             do {
-                Assert.Equal(PAGE_SIZE, results.Documents.Count);
+                Assert.True(results.Documents.Count >= PAGE_SIZE);
                 Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
                 Assert.False(results.Hits.Any(h => viewedIds.Contains(h.Id)));
                 viewedIds.AddRange(results.Hits.Select(h => h.Id));
@@ -265,7 +265,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var newEmployees = new List<Employee>();
             int pagedRecords = 0;
             do {
-                Assert.Equal(PAGE_SIZE, results.Documents.Count);
+                Assert.True(results.Documents.Count >= PAGE_SIZE);
                 Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
                 Assert.False(results.Hits.Any(h => viewedIds.Contains(h.Id)));
                 viewedIds.AddRange(results.Hits.Select(h => h.Id));

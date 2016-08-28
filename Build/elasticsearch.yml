@@ -1,10 +1,7 @@
 # single node configuration
 cluster.name: foundatio
-script.disable_dynamic: false
-index.number_of_shards: 1
-index.number_of_replicas: 0
-node.local: true
-http.port: 9200
-transport.tcp.port: 9300
+script.groovy.sandbox.enabled: true
+index.number_of_shards: 3
+index.number_of_replicas: 1
 bootstrap.mlockall: true
-discovery.zen.ping.multicast.enabled: false
+discovery.zen.ping.multicast.enabled: true
