@@ -38,8 +38,8 @@ build:
 before_package:
   - ps: if ((-not $env:APPVEYOR_PULL_REQUEST_NUMBER) -and ($env:APPVEYOR_REPO_BRANCH -eq 'master')) { & "GitLink" .\ }
 
-#on_failure:
-#  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
+on_failure:
+  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
 
 artifacts:
   - path: artifacts\*.nupkg
