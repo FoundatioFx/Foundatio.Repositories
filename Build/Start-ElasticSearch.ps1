@@ -19,6 +19,7 @@ If ((Test-Path -Path "elasticsearch-$es_version.zip") -And !(Test-Path -Path "el
     [io.compression.zipfile]::ExtractToDirectory("$PSScriptRoot\elasticsearch-$es_version.zip", $PSScriptRoot)
     cp .\elasticsearch.yml .\elasticsearch-$es_version\config -Force
     rm elasticsearch-$es_version.zip
+    & ".\elasticsearch-$es_version\bin\plugin.bat" install elasticsearch/marvel/latest
 
     cp .\elasticsearch-$es_version .\elasticsearch-01 -Recurse
     cp .\elasticsearch-$es_version .\elasticsearch-02 -Recurse
