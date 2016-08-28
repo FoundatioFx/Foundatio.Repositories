@@ -21,13 +21,16 @@ If ((Test-Path -Path "elasticsearch-$es_version.zip") -And !(Test-Path -Path "el
     rm elasticsearch-$es_version.zip
     & ".\elasticsearch-$es_version\bin\plugin.bat" install elasticsearch/marvel/latest
 
-    cp .\elasticsearch-$es_version .\elasticsearch-01 -Recurse
-    cp .\elasticsearch-$es_version .\elasticsearch-02 -Recurse
-    cp .\elasticsearch-$es_version .\elasticsearch-03 -Recurse
+    cp .\elasticsearch-$es_version .\elasticsearch-node1 -Recurse
+    cp .\elasticsearch-$es_version .\elasticsearch-node2 -Recurse
+    cp .\elasticsearch-$es_version .\elasticsearch-node3 -Recurse
 }
 
-Start-Process "$(Get-Location)\elasticsearch-01\bin\elasticsearch.bat"
-Start-Process "$(Get-Location)\elasticsearch-02\bin\elasticsearch.bat"
-Start-Process "$(Get-Location)\elasticsearch-03\bin\elasticsearch.bat"
+Write-Output "Starting node 1..."
+Start-Process "$(Get-Location)\elasticsearch-node1\bin\elasticsearch.bat"
+Write-Output "Starting node 2..."
+Start-Process "$(Get-Location)\elasticsearch-node2\bin\elasticsearch.bat"
+Write-Output "Starting node 3..."
+Start-Process "$(Get-Location)\elasticsearch-node3\bin\elasticsearch.bat"
 
 Pop-Location

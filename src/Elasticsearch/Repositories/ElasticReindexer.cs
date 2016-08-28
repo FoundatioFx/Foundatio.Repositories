@@ -159,8 +159,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                     string message = $"Reindex bulk error: old={workItem.OldIndex} new={workItem.NewIndex} completed={completed} message={bulkResponse.GetErrorMessage()}";
                     _logger.Warn(bulkResponse.ConnectionStatus.OriginalException, message);
                     // try each doc individually so we can see which doc is breaking us
-                    foreach (var hit in results.Hits) {
-                        var h = hit;
+                    foreach (var itemWithError in bulkResponse.ItemsWithErrors) {
+                        var h = results.Hits.First(hit => hit.Id == itemWithError.Id);
                         var response = await _client.IndexAsync<JObject>(h.Source, d => {
                             long version;
                             if (!Int64.TryParse(h.Version, out version))
@@ -186,7 +186,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                         if (response.IsValid)
                             continue;
 
-                        message = $"Reindex error: old={workItem.OldIndex} new={workItem.NewIndex} id={hit.Id} completed={completed} message={response.GetErrorMessage()}";
+                        message = $"Reindex error: old={workItem.OldIndex} new={workItem.NewIndex} id={itemWithError.Id} completed={completed} message={response.GetErrorMessage()}";
                         _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message);
 
                         var errorDoc = new JObject(new {
@@ -214,7 +214,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                         if (response.IsValid)
                             continue;
 
-                        message = $"Reindex error: old={workItem.OldIndex} new={workItem.NewIndex} id={hit.Id} completed={completed} message={response.GetErrorMessage()}";
+                        message = $"Reindex error: old={workItem.OldIndex} new={workItem.NewIndex} id={itemWithError.Id} completed={completed} message={response.GetErrorMessage()}";
                         _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message);
                         throw new ReindexException(response.ConnectionStatus, message);
                     }
