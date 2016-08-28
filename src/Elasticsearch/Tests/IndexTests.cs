@@ -166,7 +166,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     
                     await Assert.ThrowsAsync<ApplicationException>(async () => await version2Index.ReindexAsync((progress, message) => {
                         _logger.Info("Reindex Progress {0}%: {1}", progress, message);
-                         if (progress == 45)
+                         if (progress >= 45)
                              throw new ApplicationException("Random Error");
 
                          return Task.CompletedTask;
