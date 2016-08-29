@@ -783,7 +783,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task MaintainMonthlyIndexes() {
             var index = new MonthlyEmployeeIndex(_client, 1, _cache, Log);
-            index.MaxIndexAge = SystemClock.UtcNow - SystemClock.UtcNow.SubtractMonths(4).StartOfMonth();
+            index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.SubtractMonths(4).StartOfMonth();
             await index.DeleteAsync();
 
             var utcNow = SystemClock.UtcNow;
@@ -997,7 +997,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task MonthlyIndexMaxAge() {
             var index = new MonthlyEmployeeIndex(_client, 1, _cache, Log);
-            index.MaxIndexAge = SystemClock.UtcNow - SystemClock.UtcNow.StartOfMonth();
+            index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.StartOfMonth();
             await index.DeleteAsync();
 
             using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
