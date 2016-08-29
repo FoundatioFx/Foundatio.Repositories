@@ -40,37 +40,37 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _identityRepository.SaveAsync(identity, addToCache: true);
             Assert.Equal(_cache.Count, 1);
             Assert.Equal(_cache.Hits, 0);
-            Assert.Equal(_cache.Misses, 0);
+            Assert.Equal(_cache.Misses, 1); // Save will attempt to lookup the original document using the cache.
 
             await _identityRepository.InvalidateCacheAsync(new List<Identity> { identity });
             Assert.Equal(_cache.Count, 0);
             Assert.Equal(_cache.Hits, 0);
-            Assert.Equal(_cache.Misses, 0);
+            Assert.Equal(_cache.Misses, 1);
             
             await _identityRepository.SaveAsync(new List<Identity> { identity }, addToCache: true);
             Assert.Equal(_cache.Count, 1);
             Assert.Equal(_cache.Hits, 0);
-            Assert.Equal(_cache.Misses, 0);
+            Assert.Equal(_cache.Misses, 2); // Save will attempt to lookup the original document using the cache.
 
             await _identityRepository.InvalidateCacheAsync(new List<Identity> { identity });
             Assert.Equal(_cache.Count, 0);
             Assert.Equal(_cache.Hits, 0);
-            Assert.Equal(_cache.Misses, 0);
+            Assert.Equal(_cache.Misses, 2);
             
             await _identityRepository.SaveAsync(new List<Identity> { identity }, addToCache: true);
             Assert.Equal(_cache.Count, 1);
             Assert.Equal(_cache.Hits, 0);
-            Assert.Equal(_cache.Misses, 0);
+            Assert.Equal(_cache.Misses, 3);
 
             await _identityRepository.InvalidateCacheAsync(identity);
             Assert.Equal(_cache.Count, 0);
             Assert.Equal(_cache.Hits, 0);
-            Assert.Equal(_cache.Misses, 0);
+            Assert.Equal(_cache.Misses, 3);
 
             await _identityRepository.InvalidateCacheAsync(new List<Identity> { identity });
             Assert.Equal(_cache.Count, 0);
             Assert.Equal(_cache.Hits, 0);
-            Assert.Equal(_cache.Misses, 0);
+            Assert.Equal(_cache.Misses, 3);
         }
         
         [Fact]
