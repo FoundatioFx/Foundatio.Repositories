@@ -177,6 +177,49 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             }
         }
 
+
+        [Fact]
+        public async Task AddAndSave() {
+            var log = await _dailyRepository.AddAsync(LogEventGenerator.Default);
+            Assert.NotNull(log?.Id);
+            
+            var disposables = new List<IDisposable>(4);
+            var countdownEvent = new AsyncCountdownEvent(4);
+
+            // Save requires an id to be set.
+            var addedLog = LogEventGenerator.Generate(id: ObjectId.GenerateNewId().ToString());
+            try {
+                disposables.Add(_dailyRepository.DocumentsAdding.AddSyncHandler((o, args) => {
+                    Assert.Equal(addedLog, args.Documents.First());
+                    countdownEvent.Signal();
+                }));
+                disposables.Add(_dailyRepository.DocumentsAdded.AddSyncHandler((o, args) => {
+                    Assert.Equal(addedLog, args.Documents.First());
+                    countdownEvent.Signal();
+                }));
+                disposables.Add(_dailyRepository.DocumentsSaving.AddSyncHandler((o, args) => {
+                    Assert.Equal(log, args.Documents.First().Value);
+                    countdownEvent.Signal();
+                }));
+                disposables.Add(_dailyRepository.DocumentsSaved.AddSyncHandler((o, args) => {
+                    Assert.Equal(log, args.Documents.First().Value);
+                    countdownEvent.Signal();
+                }));
+
+                log.CompanyId = ObjectId.GenerateNewId().ToString();
+                await _dailyRepository.SaveAsync(new List<LogEvent> { log, addedLog });
+
+                await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
+                Assert.Equal(0, countdownEvent.CurrentCount);
+            } finally {
+                foreach (var disposable in disposables)
+                    disposable.Dispose();
+
+                disposables.Clear();
+            }
+        }
+
+
         [Fact]
         public async Task SaveWithNoIdentity() {
             var identity = IdentityGenerator.Generate();
