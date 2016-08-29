@@ -783,7 +783,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task MaintainMonthlyIndexes() {
             var index = new MonthlyEmployeeIndex(_client, 1, _cache, Log);
-            index.MaxIndexAge = TimeSpan.FromDays(120);
+            index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.SubtractMonths(4).StartOfMonth();
             await index.DeleteAsync();
 
             var utcNow = SystemClock.UtcNow;
@@ -997,7 +997,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task MonthlyIndexMaxAge() {
             var index = new MonthlyEmployeeIndex(_client, 1, _cache, Log);
-            index.MaxIndexAge = TimeSpan.FromDays(31);
+            index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.StartOfMonth();
             await index.DeleteAsync();
 
             using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
@@ -1010,7 +1010,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.True(existsResponse.IsValid);
                 Assert.True(existsResponse.Exists);
 
-                await Assert.ThrowsAsync<ArgumentException>(async () => await index.EnsureIndexAsync(utcNow.SubtractDays(35)));
+                await Assert.ThrowsAsync<ArgumentException>(async () => await index.EnsureIndexAsync(utcNow.SubtractMonths(1)));
                 existsResponse = await _client.IndexExistsAsync(index.GetIndex(utcNow.SubtractDays(35)));
                 _logger.Trace(() => existsResponse.GetRequest());
                 Assert.True(existsResponse.IsValid);
