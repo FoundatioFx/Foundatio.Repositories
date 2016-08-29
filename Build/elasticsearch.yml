@@ -1,5 +1,6 @@
-# single node configuration
 cluster.name: foundatio
+cluster.routing.allocation.disk.threshold_enabled: false
+action.auto_create_index: false
 script.groovy.sandbox.enabled: true
 index.number_of_shards: 3
 index.number_of_replicas: 1
