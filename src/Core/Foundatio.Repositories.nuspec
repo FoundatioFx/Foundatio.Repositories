@@ -15,6 +15,6 @@
     </dependencies>
   </metadata>
   <files>
-    <file src="bin\Release\Foundatio.Repositories.pdb" target="lib\net451" />
+    <file src="bin\Release\Foundatio.Repositories.pdb" target="lib\net46" />
   </files>
 </package>
