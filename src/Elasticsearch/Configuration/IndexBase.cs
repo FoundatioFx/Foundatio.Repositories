@@ -57,8 +57,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ArgumentNullException(nameof(name));
 
             if (await IndexExistsAsync(name).AnyContext()) {
-                var healthResponse = await _client.ClusterHealthAsync(h => h.Index(name).WaitForStatus(WaitForStatus.Yellow)).AnyContext();
-                if (!healthResponse.IsValid)
+                var healthResponse = await _client.ClusterHealthAsync(h => h
+                    .Index(name)
+                    .WaitForStatus(WaitForStatus.Yellow)
+                    .Timeout("10s")).AnyContext();
+                if (!healthResponse.IsValid || (healthResponse.Status != "green" && healthResponse.Status != "yellow") || healthResponse.TimedOut)
                     throw new ApplicationException($"Index {name} exists but is unhealthy: {healthResponse.Status}.", healthResponse.ConnectionStatus.OriginalException);
 
                 return;
@@ -75,7 +78,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                     .Index(name)
                     .WaitForStatus(WaitForStatus.Yellow)
                     .Timeout("10s")).AnyContext();
-                if (!healthResponse.IsValid || healthResponse.Status != "green" || healthResponse.Status != "yellow" || healthResponse.TimedOut)
+                if (!healthResponse.IsValid || (healthResponse.Status != "green" && healthResponse.Status != "yellow") || healthResponse.TimedOut)
                     throw new ApplicationException($"Index {name} is unhealthy: {healthResponse.Status}.", healthResponse.ConnectionStatus.OriginalException);
 
                 return;
