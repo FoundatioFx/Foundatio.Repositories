@@ -43,10 +43,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected override bool ShouldCreateAlias(DateTime documentDateUtc, IndexAliasAge alias) {
-            if (SystemClock.UtcNow.StartOfMonth() == documentDateUtc.StartOfMonth())
+            if (alias.MaxAge == TimeSpan.MaxValue)
                 return true;
-
-            return base.ShouldCreateAlias(documentDateUtc, alias);
+            
+            return SystemClock.UtcNow.Date.SafeSubtract(alias.MaxAge) <= documentDateUtc.EndOfMonth();
         }
     }
 }

@@ -127,7 +127,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected virtual bool ShouldCreateAlias(DateTime documentDateUtc, IndexAliasAge alias) {
-            return SystemClock.UtcNow.Date.SafeSubtract(alias.MaxAge) <= documentDateUtc;
+            if (alias.MaxAge == TimeSpan.MaxValue)
+                return true;
+
+            return SystemClock.UtcNow.Date.SafeSubtract(alias.MaxAge) <= documentDateUtc.EndOfDay();
         }
 
         public override async Task<int> GetCurrentVersionAsync() {
