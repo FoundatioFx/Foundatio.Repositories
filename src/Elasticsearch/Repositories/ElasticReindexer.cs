@@ -96,9 +96,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var scanResults = await _client.SearchAsync<JObject>(s => s
                     .Index(workItem.OldIndex)
                     .AllTypes()
-                    .Filter(f => startTime.HasValue
-                        ? f.Range(r => r.OnField(timestampField).Greater(startTime.Value))
-                        : f.MatchAll())
+                    .Query(q => q.Filtered(f => {
+                        if (startTime.HasValue)
+                            f.Filter(f1 => f1.Range(r => r.OnField(timestampField).Greater(startTime.Value)));
+                    }))
                     .From(0).Take(pageSize)
                     .SearchType(SearchType.Scan)
                     .Scroll(scroll)).AnyContext();

@@ -17,9 +17,20 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             var childQuery = ctx.GetSourceAs<IChildQuery>();
             if (childQuery?.ChildQuery == null)
                 return;
-            
+
+            if (String.IsNullOrEmpty(childQuery.ChildQuery.Type))
+                throw new ArgumentException("Must specify a child type for child queries.");
+
+            var childContext = new QueryBuilderContext<T>(childQuery.ChildQuery, ctx.Options);
+            _queryBuilder.Build(childContext);
+
+            if ((childContext.Query == null || childContext.Query.IsConditionless)
+                && (childContext.Filter == null || childContext.Filter.IsConditionless))
+                return;
+
             ctx.Filter &= new HasChildFilter {
-                Query = _queryBuilder.BuildQuery<T>(childQuery.ChildQuery, ctx.Options),
+                Query = childContext.Query,
+                Filter = childContext.Filter,
                 Type = childQuery.ChildQuery.Type
             };
         }

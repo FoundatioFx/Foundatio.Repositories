@@ -13,8 +13,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         public List<FieldCondition> FieldConditions { get; }
         public IRepositoryQuery SystemFilter { get; set; }
         public string Filter { get; set; }
-        public string SearchQuery { get; set; }
-        public SearchOperator DefaultSearchQueryOperator { get; set; }
+        public string Criteria { get; set; }
+        public SearchOperator DefaultCriteriaOperator { get; set; }
         public string Type { get; set; }
     }
 }

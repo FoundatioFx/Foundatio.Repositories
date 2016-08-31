@@ -5,8 +5,8 @@ using Nest;
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface ISearchQuery {
         string Filter { get; set; }
-        string SearchQuery { get; set; }
-        SearchOperator DefaultSearchQueryOperator { get; set; }
+        string Criteria { get; set; }
+        SearchOperator DefaultCriteriaOperator { get; set; }
     }
 
     public enum SearchOperator {
@@ -29,10 +29,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                     }.ToContainer()
                 };
 
-            if (!String.IsNullOrEmpty(searchQuery.SearchQuery))
+            if (!String.IsNullOrEmpty(searchQuery.Criteria))
                 ctx.Query &= new QueryStringQuery {
-                    Query = searchQuery.SearchQuery,
-                    DefaultOperator = searchQuery.DefaultSearchQueryOperator == SearchOperator.Or ? Operator.Or : Operator.And,
+                    Query = searchQuery.Criteria,
+                    DefaultOperator = searchQuery.DefaultCriteriaOperator == SearchOperator.Or ? Operator.Or : Operator.And,
                     AnalyzeWildcard = true
                 };
         }
@@ -51,8 +51,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return;
 
             // TODO: Use default search operator and wildcards
-            if (!String.IsNullOrEmpty(searchQuery.SearchQuery))
-                ctx.Query &= _processor.BuildQuery(searchQuery.SearchQuery);
+            if (!String.IsNullOrEmpty(searchQuery.Criteria))
+                ctx.Query &= _processor.BuildQuery(searchQuery.Criteria);
 
             if (!String.IsNullOrEmpty(searchQuery.Filter))
                 ctx.Filter &= _processor.BuildFilter(searchQuery.Filter);
@@ -66,8 +66,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
 
         public static T WithSearchQuery<T>(this T query, string queryString, bool useAndAsDefaultOperator = true) where T : ISearchQuery {
-            query.SearchQuery = queryString;
-            query.DefaultSearchQueryOperator = useAndAsDefaultOperator ? SearchOperator.And : SearchOperator.Or;
+            query.Criteria = queryString;
+            query.DefaultCriteriaOperator = useAndAsDefaultOperator ? SearchOperator.And : SearchOperator.Or;
             return query;
         }
     }

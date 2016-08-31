@@ -34,7 +34,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             var dateRangeQuery = ctx.GetSourceAs<IDateRangeQuery>();
             if (dateRangeQuery?.DateRanges == null || dateRangeQuery.DateRanges.Count <= 0)
                 return;
-
+            
             foreach (var dateRange in dateRangeQuery.DateRanges.Where(dr => dr.UseDateRange)) {
                 ctx.Filter &= new RangeFilter {
                     Field = dateRange.Field,

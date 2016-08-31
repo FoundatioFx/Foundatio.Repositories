@@ -101,19 +101,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var employeeBlake = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake Niemyjski"));
 
             await _client.RefreshAsync();
-            var results = await GetByFilterAsync("name:blake");
+            var results = await GetByFilterAsync(null, "name:blake");
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
 
-            results = await GetByFilterAsync("name:\"Blake Niemyjski\"");
+            results = await GetByFilterAsync(null, "name:\"Blake Niemyjski\"");
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
 
-            results = await GetByFilterAsync("name:Niemy*");
-            Assert.Equal(1, results.Total);
-            Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
+            results = await GetByFilterAsync(null, "name:\"Niemy* eric\"");
+            Assert.Equal(2, results.Total);
+            Assert.True(results.Hits.All(h => h.Score < 1));
 
-            results = await GetByFilterAsync("name:J*");
+            results = await GetByFilterAsync(null, "name:J*");
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeEric.Name));
         }
@@ -136,9 +136,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
         }
 
-        private Task<IFindResults<Employee>> GetByFilterAsync(string filter) {
+        private Task<IFindResults<Employee>> GetByFilterAsync(string filter, string criteria = null) {
             Log.SetLogLevel<EmployeeRepository>(LogLevel.Trace);
-            return _employeeRepository.SearchAsync(null, filter);
+            return _employeeRepository.SearchAsync(null, filter, criteria);
         }
     }
 }

@@ -181,11 +181,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             return result;
         }
 
-        public Task<IFindResults<T>> SearchAsync(IRepositoryQuery systemFilter, string userFilter = null, string query = null, SortingOptions sorting = null, PagingOptions paging = null, AggregationOptions aggregations = null) {
+        public Task<IFindResults<T>> SearchAsync(IRepositoryQuery systemFilter, string filter = null, string criteria = null, SortingOptions sorting = null, PagingOptions paging = null, AggregationOptions aggregations = null) {
             var search = NewQuery()
                 .WithSystemFilter(systemFilter)
-                .WithFilter(userFilter)
-                .WithSearchQuery(query, false)
+                .WithFilter(filter)
+                .WithSearchQuery(criteria, false)
                 .WithAggregation(aggregations)
                 .WithSort(sorting)
                 .WithPaging(paging);
@@ -355,11 +355,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             return response.Count;
         }
 
-        public Task<CountResult> CountBySearchAsync(IRepositoryQuery systemFilter, string userFilter = null, string query = null, AggregationOptions aggregations = null) {
+        public Task<CountResult> CountBySearchAsync(IRepositoryQuery systemFilter, string filter = null, AggregationOptions aggregations = null) {
             var search = NewQuery()
                 .WithSystemFilter(systemFilter)
-                .WithFilter(userFilter)
-                .WithSearchQuery(query, false)
+                .WithFilter(filter)
                 .WithAggregation(aggregations);
 
             return CountAsync(search);
@@ -387,11 +386,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             return response.ToAggregationResult();
         }
 
-        public Task<IReadOnlyCollection<AggregationResult>> GetAggregationsAsync(IRepositoryQuery systemFilter, AggregationOptions aggregations, string userFilter = null, string query = null) {
+        public Task<IReadOnlyCollection<AggregationResult>> GetAggregationsAsync(IRepositoryQuery systemFilter, AggregationOptions aggregations, string filter = null) {
             var search = NewQuery()
                 .WithSystemFilter(systemFilter)
-                .WithFilter(userFilter)
-                .WithSearchQuery(query, false)
+                .WithFilter(filter)
                 .WithAggregation(aggregations);
 
             return GetAggregationsAsync(search);
@@ -468,8 +466,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             search.IgnoreUnavailable();
 
-            // TODO: Figure out a better solution for query options
-            _queryBuilder.BuildSearch(query, GetQueryOptions(), ref search);
+            _queryBuilder.ConfigureSearch(query, GetQueryOptions(), search);
 
             return search;
         }

@@ -17,8 +17,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         public List<FieldCondition> FieldConditions { get; } = new List<FieldCondition>();
         public IRepositoryQuery SystemFilter { get; set; }
         public string Filter { get; set; }
-        public string SearchQuery { get; set; }
-        public SearchOperator DefaultSearchQueryOperator { get; set; }
+        public string Criteria { get; set; }
+        public SearchOperator DefaultCriteriaOperator { get; set; }
         public List<string> SelectedFields { get; } = new List<string>();
         public List<FieldSort> SortBy { get; } = new List<FieldSort>();
         public bool SortByScore { get; set; }

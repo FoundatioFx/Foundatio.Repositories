@@ -30,32 +30,21 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public static class ElasticQueryBuilderExtensions {
-        public static QueryContainer BuildQuery<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, IQueryOptions options) where T : class, new() {
-            var ctx = new QueryBuilderContext<T>(query, options);
-            builder.Build(ctx);
-
-            return ctx.Query;
-        }
-
-        public static FilterContainer BuildFilter<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, IQueryOptions options) where T : class, new() {
-            var ctx = new QueryBuilderContext<T>(query, options);
-            builder.Build(ctx);
-
-            return ctx.Filter;
-        }
-
-        public static void BuildSearch<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, IQueryOptions options, ref SearchDescriptor<T> search) where T : class, new() {
-            if (search == null)
-                search = new SearchDescriptor<T>();
-
+        public static QueryContainer BuildQuery<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, IQueryOptions options, SearchDescriptor<T> search) where T : class, new() {
             var ctx = new QueryBuilderContext<T>(query, options, search);
             builder.Build(ctx);
 
-            if (ctx.Query != null)
-                search.Query(ctx.Query);
-            
-            if (ctx.Filter != null)
-                search.Query(ctx.Query &= new FilteredQuery { Filter = ctx.Filter });
+            return new FilteredQuery {
+                Filter = ctx.Filter,
+                Query = ctx.Query
+            };
+        }
+
+        public static void ConfigureSearch<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, IQueryOptions options, SearchDescriptor<T> search) where T : class, new() {
+            if (search == null)
+                throw new ArgumentNullException(nameof(search));
+
+            search.Query(builder.BuildQuery(query, options, search));
         }
     }
 }
