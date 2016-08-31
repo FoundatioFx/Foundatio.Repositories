@@ -52,10 +52,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             // TODO: Use default search operator and wildcards
             if (!String.IsNullOrEmpty(searchQuery.SearchQuery))
-                ctx.Query &= _processor.ProcessQuery(searchQuery.SearchQuery);
+                ctx.Query &= _processor.BuildQuery(searchQuery.SearchQuery);
 
             if (!String.IsNullOrEmpty(searchQuery.Filter))
-                ctx.Filter &= _processor.ProcessFilter(searchQuery.Filter);
+                ctx.Filter &= _processor.BuildFilter(searchQuery.Filter);
         }
     }
 
