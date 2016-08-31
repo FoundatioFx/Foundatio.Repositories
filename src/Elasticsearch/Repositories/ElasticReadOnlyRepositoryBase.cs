@@ -26,7 +26,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected static readonly bool HasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
         protected static readonly bool SupportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(typeof(T));
         protected static readonly bool HasVersion = typeof(IVersioned).IsAssignableFrom(typeof(T));
-        protected static readonly string EntityTypeName = typeof(T).Name;
+        protected static readonly string EntityTypeName = typeof(T).Name.ToLowerInvariant();
 
         protected readonly ILogger _logger;
         protected readonly IElasticClient _client;
