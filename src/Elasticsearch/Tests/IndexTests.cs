@@ -686,6 +686,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             }
         }
 
+        [Fact(Skip = "TODO: Implement reindexing monthly into daily indexes")]
+        public Task CanReindexMonthlyIntoDailyIndex() {
+            throw new NotImplementedException();
+        }
+
         [Fact]
         public async Task GetByDateBasedIndex() {
             await _configuration.DailyLogEvents.ConfigureAsync();
@@ -782,7 +787,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task MaintainMonthlyIndexes() {
-            SystemClock.UtcNowFunc = () => new DateTime(2016, 8, 30, 23, 15, 0, DateTimeKind.Utc);
+            SystemClock.UtcNowFunc = () => new DateTime(2016, 8, 31, 0, 0, 0, DateTimeKind.Utc);
             var index = new MonthlyEmployeeIndex(_client, 1, _cache, Log);
             index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.SubtractMonths(4).StartOfMonth();
             await index.DeleteAsync();
