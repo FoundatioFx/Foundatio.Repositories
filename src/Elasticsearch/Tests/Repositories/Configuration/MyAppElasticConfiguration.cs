@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Configuration;
 using System.Linq;
 using Elasticsearch.Net.ConnectionPool;
@@ -9,6 +8,7 @@ using Foundatio.Jobs;
 using Foundatio.Logging;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Nest;
@@ -17,7 +17,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
     public class MyAppElasticConfiguration : ElasticConfiguration {
         public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILoggerFactory loggerFactory) : base(null, workItemQueue, cacheClient, loggerFactory) {
             var connectionString = ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString;
-            Client = new ElasticClient(new ConnectionSettings(new StaticConnectionPool(connectionString.Split(',').Select(url => new Uri(url)))).EnableTcpKeepAlive(30 * 1000, 2000));
+            var settings = new ConnectionSettings(new StaticConnectionPool(connectionString.Split(',').Select(url => new Uri(url))))
+                .MapPropertiesFor<Employee>(p => p.Rename(d => d.Age, "fdf"))
+                .EnableTcpKeepAlive(30 * 1000, 2000);
+            Client = new ElasticClient();
 
             // register our custom app query builders
             ElasticQueryBuilder.Default.RegisterDefaults();
