@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Caching;
 using Foundatio.Jobs;
@@ -14,6 +15,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         IElasticClient Client { get; }
         IReadOnlyCollection<IIndex> Indexes { get; }
         Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true);
+        Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null);
         Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null);
         Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func < int, string, Task> progressCallbackAsync = null);
     }
@@ -51,6 +53,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             foreach (var idx in indexes) {
                 await idx.ConfigureAsync().AnyContext();
+                if (idx is IMaintainableIndex)
+                    await ((IMaintainableIndex)idx).MaintainAsync().AnyContext();
 
                 //IIndicesOperationResponse response = null;
                 //var templatedIndex = idx as ITimeSeriesIndex;
@@ -109,6 +113,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 //// enqueue reindex to new version
                 //_lockProvider.TryUsingAsync("enqueue-reindex", () => _workItemQueue.EnqueueAsync(reindexWorkItem), TimeSpan.Zero, CancellationToken.None).Wait();
             }
+        }
+
+        public async Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null) {
+            if (indexes == null)
+                indexes = Indexes;
+
+            foreach (var idx in indexes.OfType<IMaintainableIndex>())
+                await idx.MaintainAsync().AnyContext();
         }
 
         public async Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null) {
