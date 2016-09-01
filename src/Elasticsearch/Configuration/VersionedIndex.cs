@@ -34,7 +34,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected virtual async Task CreateAliasAsync(string index, string name) {
-            if (await AliasExistsAsync(Name).AnyContext())
+            if (await AliasExistsAsync(name).AnyContext())
                 return;
             
             var response = await _client.AliasAsync(a => a.Add(s => s.Index(index).Alias(name))).AnyContext();
