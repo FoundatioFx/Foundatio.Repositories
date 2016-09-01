@@ -9,7 +9,6 @@ using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Logging;
 using Foundatio.Messaging;
 using Foundatio.Repositories.Elasticsearch.Models;
-using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Repositories;
 using Foundatio.Repositories.Extensions;
@@ -491,6 +490,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             var savedDocs = modifiedDocs.Where(m => m.Original != null).ToList();
             if (savedDocs.Count == 0)
                 return;
+
+            if (SupportsSoftDeletes && IsCacheEnabled) {
+                foreach (var deletedDoc in modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Original).IsDeleted == false && ((ISupportSoftDeletes)d.Value).IsDeleted))
+                    await Cache.SetAddAsync("deleted", deletedDoc.Value.Id, TimeSpan.FromSeconds(30)).AnyContext();
+            }
 
             if (DocumentsSaved != null)
                 await DocumentsSaved.InvokeAsync(this, new ModifiedDocumentsEventArgs<T>(modifiedDocs, this)).AnyContext();

@@ -2,12 +2,13 @@
 using System.Collections.Generic;
 using System.Linq;
 using Foundatio.Repositories.Elasticsearch.Queries.Options;
+using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Queries;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IAggregationQuery {
-        List<AggregationField> AggregationFields { get; }
+        ICollection<AggregationField> AggregationFields { get; }
     }
 
     public class AggregationsQueryBuilder : IElasticQueryBuilder {

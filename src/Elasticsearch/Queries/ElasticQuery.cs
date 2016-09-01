@@ -9,7 +9,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
 
     public class ElasticQuery : Query, IElasticQuery, IElasticFilterQuery, IElasticIndexesQuery {
         public FilterContainer ElasticFilter { get; set; }
-        public List<string> Indexes { get; set; } = new List<string>();
+        public ICollection<string> Indexes { get; set; } = new List<string>();
         public DateTime? UtcStartIndex { get; set; }
         public DateTime? UtcEndIndex { get; set; }
     }

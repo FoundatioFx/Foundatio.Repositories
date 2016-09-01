@@ -4,7 +4,7 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IFieldConditionsQuery {
-        List<FieldCondition> FieldConditions { get; }
+        ICollection<FieldCondition> FieldConditions { get; }
     }
 
     public class FieldCondition {

@@ -6,7 +6,7 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IDateRangeQuery {
-        List<DateRange> DateRanges { get; }
+        ICollection<DateRange> DateRanges { get; }
     }
 
     public class DateRange {

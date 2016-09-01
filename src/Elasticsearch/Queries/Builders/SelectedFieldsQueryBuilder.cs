@@ -2,10 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Foundatio.Repositories.Elasticsearch.Queries.Options;
+using Foundatio.Repositories.Extensions;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface ISelectedFieldsQuery {
-        List<string> SelectedFields { get; }
+        ICollection<string> SelectedFields { get; }
     }
 
     public class SelectedFieldsQueryBuilder : IElasticQueryBuilder {

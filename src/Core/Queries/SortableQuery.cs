@@ -1,10 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Queries {
     public interface ISortableQuery : IRepositoryQuery {
-        List<FieldSort> SortBy { get; }
+        ICollection<FieldSort> SortBy { get; }
         bool SortByScore { get; set; }
     }
 

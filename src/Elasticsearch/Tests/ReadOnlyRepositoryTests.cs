@@ -435,16 +435,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _employeeRepository.SaveAsync(employee);
 
             var employees = await _employeeRepository.GetAllByAgeAsync(20);
-
             var employeeById = await _employeeRepository.GetByIdAsync(employee.Id);
-
-            employee = employees.Documents.FirstOrDefault();
 
             Assert.NotNull(employeeById);
             Assert.True(employeeById.IsDeleted);
 
-            Assert.NotNull(employee);
-            Assert.True(employee.IsDeleted);
+            Assert.Equal(0, employees.Total);
         }
     }
 }

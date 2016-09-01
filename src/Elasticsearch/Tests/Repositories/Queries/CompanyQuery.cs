@@ -8,7 +8,7 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Queries {
     public interface ICompanyQuery: IRepositoryQuery {
-        List<string> Companies { get; set; }
+        ICollection<string> Companies { get; set; }
     }
 
     public static class CompanyQueryExtensions {

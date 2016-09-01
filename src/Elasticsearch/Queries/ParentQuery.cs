@@ -4,16 +4,11 @@ using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries {
     public class ParentQuery : ISystemFilterQuery, IIdentityQuery, IDateRangeQuery, IFieldConditionsQuery, ISearchQuery, ITypeQuery, ISoftDeletesQuery {
-        public ParentQuery() {
-            DateRanges = new List<DateRange>();
-            FieldConditions = new List<FieldCondition>();
-            Ids = new List<string>();
-        }
-
-        public List<string> Ids { get; }
+        public ISet<string> Ids { get; } = new HashSet<string>();
+        public ISet<string> ExcludedIds { get; } = new HashSet<string>();
         public string Type { get; set; }
-        public List<DateRange> DateRanges { get; }
-        public List<FieldCondition> FieldConditions { get; }
+        public ICollection<DateRange> DateRanges { get; } = new List<DateRange>();
+        public ICollection<FieldCondition> FieldConditions { get; } = new List<FieldCondition>();
         public IRepositoryQuery SystemFilter { get; set; }
         public string Filter { get; set; }
         public string Criteria { get; set; }

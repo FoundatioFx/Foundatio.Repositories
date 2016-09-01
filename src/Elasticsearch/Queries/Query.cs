@@ -9,20 +9,21 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         IFieldConditionsQuery, IPagableQuery, ISearchQuery, IAggregationQuery,
         ISelectedFieldsQuery, ISortableQuery, IParentQuery, IChildQuery, ISoftDeletesQuery {
 
-        public List<string> Ids { get; } = new List<string>();
+        public ISet<string> Ids { get; } = new HashSet<string>();
+        public ISet<string> ExcludedIds { get; } = new HashSet<string>();
         public string CacheKey { get; set; }
         public TimeSpan? ExpiresIn { get; set; }
         public DateTime? ExpiresAt { get; set; }
-        public List<DateRange> DateRanges { get; } = new List<DateRange>();
-        public List<FieldCondition> FieldConditions { get; } = new List<FieldCondition>();
+        public ICollection<DateRange> DateRanges { get; } = new List<DateRange>();
+        public ICollection<FieldCondition> FieldConditions { get; } = new List<FieldCondition>();
         public IRepositoryQuery SystemFilter { get; set; }
         public string Filter { get; set; }
         public string Criteria { get; set; }
         public SearchOperator DefaultCriteriaOperator { get; set; }
-        public List<string> SelectedFields { get; } = new List<string>();
-        public List<FieldSort> SortBy { get; } = new List<FieldSort>();
+        public ICollection<string> SelectedFields { get; } = new List<string>();
+        public ICollection<FieldSort> SortBy { get; } = new List<FieldSort>();
         public bool SortByScore { get; set; }
-        public List<AggregationField> AggregationFields { get; } = new List<AggregationField>();
+        public ICollection<AggregationField> AggregationFields { get; } = new List<AggregationField>();
         public ITypeQuery ParentQuery { get; set; }
         public ITypeQuery ChildQuery { get; set; }
         public bool IncludeSoftDeletes { get; set; }
