@@ -10,66 +10,53 @@ using Foundatio.Repositories.Elasticsearch.Repositories;
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticIndexExtensions {
         public static ElasticFindResults<T> ToFindResults<T>(this ISearchResponse<T> response, int? limit = null) where T : class, new() {
-            var docs = response.Hits.ToFindHits().Take(limit ?? Int32.MaxValue).ToList();
-            docs.SetVersions();
-
-            var result = new ElasticFindResults<T>(docs, response.Total, response.ToAggregationResult(), response.ScrollId);
-
-            return result;
+            var docs = response.Hits.Take(limit ?? Int32.MaxValue).ToFindHits().ToList();
+            return new ElasticFindResults<T>(docs, response.Total, response.ToAggregationResult(), response.ScrollId);
         }
-
-        public static void SetVersions<T>(this IEnumerable<IFindHit<T>> hits) where T : class {
-            foreach (var hit in hits)
-                hit.SetVersion();
-        }
-
-        public static void SetVersion<T>(this IFindHit<T> hit) where T : class {
-            var versionedDoc = hit.Document as IVersioned;
-            if (versionedDoc != null && hit.Version.HasValue)
-                versionedDoc.Version = hit.Version.Value;
-        }
-
-        public static void SetVersion<T>(this IGetResponse<T> hit) where T : class {
-            var versionedDoc = hit.Source as IVersioned;
-            if (versionedDoc != null && hit.Version != null)
-                versionedDoc.Version = Int64.Parse(hit.Version);
-        }
-
+        
         public static IEnumerable<ElasticFindHit<T>> ToFindHits<T>(this IEnumerable<IHit<T>> hits) where T : class {
             return hits.Select(h => h.ToFindHit());
         }
 
         public static ElasticFindHit<T> ToFindHit<T>(this IGetResponse<T> hit) where T : class {
+            var versionedDoc = hit.Source as IVersioned;
+            if (versionedDoc != null && hit.Version != null)
+                versionedDoc.Version = Int64.Parse(hit.Version);
+
             return new ElasticFindHit<T> {
                 Document = hit.Source,
                 Id = hit.Id,
                 Index = hit.Index,
                 Type = hit.Type,
-                Version = hit.Version != null ? Int64.Parse(hit.Version) : (long?)null
+                Version = versionedDoc?.Version ?? null
             };
         }
 
         public static ElasticFindHit<T> ToFindHit<T>(this IHit<T> hit) where T : class {
+            var versionedDoc = hit.Source as IVersioned;
+            if (versionedDoc != null && hit.Version != null)
+                versionedDoc.Version = Int64.Parse(hit.Version);
+
             return new ElasticFindHit<T> {
                 Document = hit.Source,
                 Id = hit.Id,
                 Index = hit.Index,
                 Type = hit.Type,
                 Score = hit.Score,
-                Version = hit.Version != null ? Int64.Parse(hit.Version) : (long?)null
+                Version = versionedDoc?.Version ?? null
             };
         }
 
-        public static ElasticFindHit<T> ToFindHit<T>(this IMultiGetHit<T> response) where T : class {
-            var versionedDoc = response.Source as IVersioned;
-            if (versionedDoc != null && response.Version != null)
-                versionedDoc.Version = Int64.Parse(response.Version);
+        public static ElasticFindHit<T> ToFindHit<T>(this IMultiGetHit<T> hit) where T : class {
+            var versionedDoc = hit.Source as IVersioned;
+            if (versionedDoc != null && hit.Version != null)
+                versionedDoc.Version = Int64.Parse(hit.Version);
 
             return new ElasticFindHit<T> {
-                Document = response.Source,
-                Id = response.Id,
-                Index = response.Index,
-                Type = response.Type,
+                Document = hit.Source,
+                Id = hit.Id,
+                Index = hit.Index,
+                Type = hit.Type,
                 Version = versionedDoc?.Version ?? null
             };
         }
