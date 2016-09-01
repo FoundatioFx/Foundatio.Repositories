@@ -41,7 +41,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             // TODO: Check to make sure the docs have been added to the new index before changing alias
             if (workItem.OldIndex != workItem.NewIndex) {
-                var aliases = await GetIndexAliases(workItem.OldIndex);
+                var aliases = await GetIndexAliases(workItem.OldIndex).AnyContext();
                 if (!String.IsNullOrEmpty(workItem.Alias) && !aliases.Contains(workItem.Alias))
                     aliases.Add(workItem.Alias);
 
@@ -205,10 +205,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                         // put the document into an error index
                         response = await _client.IndexAsync<JObject>(errorDoc, d => {
-                            d
-                                .Index(workItem.NewIndex + "-error")
-                                .Id(h.Id);
-
+                            d.Index(workItem.NewIndex + "-error")
+                             .Id(h.Id);
                             return d;
                         }).AnyContext();
 

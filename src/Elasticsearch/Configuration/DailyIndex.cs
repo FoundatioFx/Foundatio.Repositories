@@ -201,7 +201,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 await CreateIndexAsync(reindexWorkItem.NewIndex, ConfigureDescriptor).AnyContext();
 
                 // TODO: progress callback will report 0-100% multiple times...
-                await reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
+                await reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync).AnyContext();
             }
         }
 

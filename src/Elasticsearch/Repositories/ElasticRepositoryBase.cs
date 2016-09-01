@@ -236,7 +236,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     updatedIdsCallback?.Invoke(results.Hits.Select(h => h.Id));
 
                     return true;
-                });
+                }).AnyContext();
 
                 return affectedRecords;
             }
@@ -282,7 +282,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 updatedIdsCallback?.Invoke(results.Hits.Select(h => h.Id));
 
                 return true;
-            });
+            }).AnyContext();
 
             if (sendNotifications)
                 await SendQueryNotificationsAsync(ChangeType.Saved, query).AnyContext();
@@ -374,14 +374,14 @@ namespace Foundatio.Repositories.Elasticsearch {
             return await BatchProcessAsync(query, async results => {
                 await RemoveAsync(results.Documents, sendNotifications).AnyContext();
                 return true;
-            });
+            }).AnyContext();
         }
 
-        protected Task<long> BatchProcessAsync<TQuery>(TQuery query, Func<IElasticFindResults<T>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery {
+        protected Task<long> BatchProcessAsync<TQuery>(TQuery query, Func<IFindResults<T>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery {
             return BatchProcessAsAsync(query, processAsync);
         }
 
-        protected async Task<long> BatchProcessAsAsync<TQuery, TResult>(TQuery query, Func<IElasticFindResults<TResult>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery where TResult : class, new() {
+        protected async Task<long> BatchProcessAsAsync<TQuery, TResult>(TQuery query, Func<IFindResults<TResult>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery where TResult : class, new() {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
