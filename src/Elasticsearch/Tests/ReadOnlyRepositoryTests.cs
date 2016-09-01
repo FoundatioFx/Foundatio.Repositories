@@ -423,5 +423,28 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             Assert.Equal(1, employees.Documents.Count);
         }
+
+        [Fact]
+        public async Task SearchShouldNotReturnDeletedDocuments() {
+            var employee = EmployeeGenerator.Generate(age: 20, name: "Deleted");
+            employee = await _employeeRepository.AddAsync(employee);
+
+            await _client.RefreshAsync();
+
+            employee.IsDeleted = true;
+            await _employeeRepository.SaveAsync(employee);
+
+            var employees = await _employeeRepository.GetAllByAgeAsync(20);
+
+            var employeeById = await _employeeRepository.GetByIdAsync(employee.Id);
+
+            employee = employees.Documents.FirstOrDefault();
+
+            Assert.NotNull(employeeById);
+            Assert.True(employeeById.IsDeleted);
+
+            Assert.NotNull(employee);
+            Assert.True(employee.IsDeleted);
+        }
     }
 }
