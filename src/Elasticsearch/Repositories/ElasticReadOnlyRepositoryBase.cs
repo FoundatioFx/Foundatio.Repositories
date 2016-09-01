@@ -151,15 +151,15 @@ namespace Foundatio.Repositories.Elasticsearch {
             return result;
         }
 
-        protected async Task<T> FindOneAsync(IRepositoryQuery query) {
+        protected async Task<IFindHit<T>> FindOneAsync(IRepositoryQuery query) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
             
-            var result = IsCacheEnabled ? await GetCachedQueryResultAsync<T>(query).AnyContext() : null;
+            var result = IsCacheEnabled ? await GetCachedQueryResultAsync<IFindHit<T>>(query).AnyContext() : null;
             if (result != null)
                 return result;
 
-            await OnBeforeQueryAsync(query, typeof(T)).AnyContext();
+            await OnBeforeQueryAsync(query, typeof(IFindHit<T>)).AnyContext();
 
             var searchDescriptor = CreateSearchDescriptor(query).Size(1);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
@@ -174,8 +174,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
             }
             
-            // Ensure document version is set.
-            result = response.Hits.ToFindHits().FirstOrDefault()?.Document;
+            result = response.Hits.FirstOrDefault()?.ToFindHit();
             if (IsCacheEnabled)
                 await SetCachedQueryResultAsync(query, result).AnyContext();
 
@@ -215,15 +214,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 hit = res.ToFindHit();
             } else {
                 // we don't have the parent id so we have to do a query
-                var document = await FindOneAsync(NewQuery().WithId(id)).AnyContext();
-                if (document != null) {
-                    hit = new ElasticFindHit<T> {
-                        Id = id,
-                        Document = document,
-                        Version = HasVersion ? ((IVersioned)document).Version : (long?)null,
-                        Type = ElasticType.Name
-                    };
-                }
+                hit = (ElasticFindHit<T>)await FindOneAsync(NewQuery().WithId(id)).AnyContext();
             }
 
             if (IsCacheEnabled && hit != null && useCache)
