@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Foundatio.Repositories.Elasticsearch.Repositories;
 using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.JsonPatch;
@@ -218,6 +219,31 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             }
         }
 
+        [Fact]
+        public async Task AddAndSaveWithCache() {
+            var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, addToCache: true);
+            Assert.Equal(1, _cache.Count);
+            Assert.Equal(0, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+            
+            string cacheKey = _cache.Keys.Single();
+            var cacheValue = await _cache.GetAsync<ElasticFindHit<Identity>>(cacheKey);
+            Assert.True(cacheValue.HasValue);
+            Assert.Equal(identity, cacheValue.Value.Document);
+
+            await _identityRepository.InvalidateCacheAsync(identity);
+            Assert.Equal(0, _cache.Count);
+            Assert.Equal(1, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            var result = await _identityRepository.SaveAsync(identity, addToCache: true);
+            Assert.Equal(1, _cache.Count);
+            Assert.Equal(1, _cache.Hits);
+            Assert.Equal(1, _cache.Misses);
+            cacheValue = await _cache.GetAsync<ElasticFindHit<Identity>>(cacheKey);
+            Assert.True(cacheValue.HasValue);
+            Assert.Equal(identity, cacheValue.Value.Document);
+        }
 
         [Fact]
         public async Task SaveWithNoIdentity() {
