@@ -210,11 +210,17 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return;
 
             var indexes = await GetIndexesAsync().AnyContext();
+            if (indexes.Count == 0)
+                return;
+
             await UpdateAliasesAsync(indexes).AnyContext();
             await DeleteOldIndexesAsync(indexes).AnyContext();
         }
 
         protected virtual async Task UpdateAliasesAsync(IList<IndexInfo> indexes) {
+            if (indexes.Count == 0)
+                return;
+
             var aliasDescriptor = new AliasDescriptor();
             foreach (var indexGroup in indexes.OrderBy(i => i.Version).GroupBy(i => i.DateUtc)) {
                 var indexExpirationDate = GetIndexExpirationDate(indexGroup.Key);
@@ -258,7 +264,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected virtual async Task DeleteOldIndexesAsync(IList<IndexInfo> indexes) {
-            if (!MaxIndexAge.HasValue || MaxIndexAge <= TimeSpan.Zero)
+            if (indexes.Count == 0 || !MaxIndexAge.HasValue || MaxIndexAge <= TimeSpan.Zero)
                 return;
 
             var sw = new Stopwatch();
