@@ -1,10 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using Exceptionless.DateTimeExtensions;
-using Foundatio.Caching;
-using Foundatio.Logging;
 using Foundatio.Utility;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class MonthlyIndexType<T> : TimeSeriesIndexType<T> where T : class {
@@ -13,8 +10,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
     }
 
     public class MonthlyIndex: DailyIndex {
-        public MonthlyIndex(IElasticClient client, string name, int version = 1, ICacheClient cache = null, ILoggerFactory loggerFactory = null) 
-            : base(client, name, version, cache, loggerFactory) {
+        public MonthlyIndex(IElasticConfiguration elasticConfiguration, string name, int version = 1) 
+            : base(elasticConfiguration, name, version) {
             DateFormat = "yyyy.MM";
         }
         

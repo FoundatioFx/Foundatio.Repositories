@@ -8,6 +8,7 @@ using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Logging;
 using Foundatio.Messaging;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Models;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Repositories;
@@ -23,11 +24,9 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected readonly IValidator<T> _validator;
         protected readonly IMessagePublisher _messagePublisher;
 
-        protected ElasticRepositoryBase(IElasticClient client) : this(client, null, null, null, null) { }
-
-        protected ElasticRepositoryBase(IElasticClient client, IValidator<T> validator, ICacheClient cache, IMessagePublisher messagePublisher, ILogger logger) : base(client, cache, logger) {
+        protected ElasticRepositoryBase(IElasticConfiguration elasticConfiguration, IValidator<T> validator = null) : base(elasticConfiguration) {
             _validator = validator;
-            _messagePublisher = messagePublisher;
+            _messagePublisher = elasticConfiguration.MessageBus;
             NotificationsEnabled = _messagePublisher != null;
 
             if (HasCreatedDate) {

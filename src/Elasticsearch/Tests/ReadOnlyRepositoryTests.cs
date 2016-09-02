@@ -2,8 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Foundatio.Caching;
-using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Repositories;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Models;
@@ -19,9 +17,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         private readonly EmployeeRepository _employeeRepository;
 
         public ReadOnlyRepositoryTests(ITestOutputHelper output) : base(output) {
-            _identityRepository = new IdentityRepository(_configuration, _cache, Log.CreateLogger<IdentityRepository>());
-            _dailyRepository = new DailyLogEventRepository(_configuration, _cache, Log.CreateLogger<DailyLogEventRepository>());
-            _employeeRepository = new EmployeeRepository(_configuration, _cache, Log.CreateLogger<EmployeeRepository>());
+            _identityRepository = new IdentityRepository(_configuration);
+            _dailyRepository = new DailyLogEventRepository(_configuration);
+            _employeeRepository = new EmployeeRepository(_configuration);
 
             RemoveDataAsync().GetAwaiter().GetResult();
         }

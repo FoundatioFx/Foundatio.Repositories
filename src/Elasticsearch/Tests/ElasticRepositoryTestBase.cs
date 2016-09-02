@@ -4,6 +4,7 @@ using Foundatio.Caching;
 using Foundatio.Jobs;
 using Foundatio.Logging;
 using Foundatio.Logging.Xunit;
+using Foundatio.Messaging;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Utility;
@@ -25,7 +26,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             _cache = new InMemoryCacheClient(Log);
             _workItemQueue = new InMemoryQueue<WorkItemData>(loggerFactory: Log);
-            _configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, Log);
+            _configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, new InMemoryMessageBus(), Log);
             _client = _configuration.Client;
         }
         
@@ -36,7 +37,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _workItemQueue.DeleteQueueAsync();
             await _configuration.DeleteIndexesAsync();
             if (configureIndexes)
-                await _configuration.ConfigureIndexesAsync();
+                await _configuration.ConfigureIndexesAsync(null, false);
 
             await _cache.RemoveAllAsync();
             await _client.RefreshAsync();

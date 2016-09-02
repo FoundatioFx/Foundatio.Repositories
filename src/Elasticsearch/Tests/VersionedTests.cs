@@ -6,7 +6,6 @@ using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Extensions;
-using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Xunit;
@@ -17,7 +16,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         private readonly EmployeeRepository _employeeRepository;
 
         public VersionedTests(ITestOutputHelper output) : base(output) {
-            _employeeRepository = new EmployeeRepository(_configuration, _cache, Log.CreateLogger<EmployeeRepository>());
+            _employeeRepository = new EmployeeRepository(_configuration);
             
             RemoveDataAsync().GetAwaiter().GetResult();
         }

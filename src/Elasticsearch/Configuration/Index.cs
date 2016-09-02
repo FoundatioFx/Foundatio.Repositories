@@ -6,7 +6,7 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class Index : IndexBase {
-        public Index(IElasticClient client, string name, ICacheClient cache = null, ILoggerFactory loggerFactory = null) : base(client, name, cache, loggerFactory) {}
+        public Index(IElasticConfiguration elasticConfiguration, string name) : base(elasticConfiguration, name) {}
 
         public override Task ConfigureAsync() {
             return CreateIndexAsync(Name, ConfigureDescriptor);
@@ -23,7 +23,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
     }
 
     public sealed class Index<T> : Index where T: class {
-        public Index(IElasticClient client, string name = null, ICacheClient cache = null, ILoggerFactory loggerFactory = null): base(client, name ?? typeof(T).Name.ToLower(), cache, loggerFactory) {
+        public Index(IElasticConfiguration elasticConfiguration, string name = null, ICacheClient cache = null, ILoggerFactory loggerFactory = null): base(elasticConfiguration, name ?? typeof(T).Name.ToLower()) {
             Type = AddDynamicType<T>(Name);
         }
 

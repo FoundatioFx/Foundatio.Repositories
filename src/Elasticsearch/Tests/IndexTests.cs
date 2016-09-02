@@ -24,19 +24,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public void CannotAddInvalidTypeToDailyIndex() {
-            Assert.Throws<ArgumentException>(() => new DailyEmployeeIndexWithWrongEmployeeType(_client, 1, _cache, Log));
+            Assert.Throws<ArgumentException>(() => new DailyEmployeeIndexWithWrongEmployeeType(_configuration, 1));
         }
 
         [Theory]
         [MemberData("AliasesDatesToCheck")]
         public async Task CanCreateDailyAliases(DateTime utcNow) {
             SystemClock.UtcNowFunc = () => utcNow;
-            var index = new DailyEmployeeIndex(_client, 1, _cache, Log);
+            var index = new DailyEmployeeIndex(_configuration, 1);
             await index.DeleteAsync();
             
             using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
                 await index.ConfigureAsync();
-                var repository = new EmployeeRepository(_client, index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                var repository = new EmployeeRepository(_configuration, index.Employee);
 
                 for (int i = 0; i < 35; i += 5) {
                     var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(i)));
@@ -65,12 +65,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [MemberData("AliasesDatesToCheck")]
         public async Task CanCreateMonthlyAliases(DateTime utcNow) {
             SystemClock.UtcNowFunc = () => utcNow;
-            var index = new MonthlyEmployeeIndex(_client, 1, _cache, Log);
+            var index = new MonthlyEmployeeIndex(_configuration, 1);
             await index.DeleteAsync();
             
             using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
                 await index.ConfigureAsync();
-                var repository = new EmployeeRepository(_client, index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                var repository = new EmployeeRepository(_configuration, index.Employee);
 
                 for (int i = 0; i < 4; i++) {
                     var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractMonths(i)));
@@ -104,14 +104,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact(Skip = "This will only work if the mapping is manually updated.")]
         public async Task CanReindexSameIndex() {
-            var index = new EmployeeIndex(_client, _cache, Log);
+            var index = new EmployeeIndex(_configuration);
             await index.DeleteAsync();
 
             using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
                 await index.ConfigureAsync();
                 Assert.True(_client.IndexExists(index.Name).Exists);
 
-                var repository = new EmployeeRepository(_client, index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                var repository = new EmployeeRepository(_configuration, index.Employee);
                 var employee = await repository.AddAsync(EmployeeGenerator.Default);
                 await _client.RefreshAsync();
                 Assert.NotNull(employee?.Id);
@@ -126,7 +126,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.True(mappingResponse.IsValid);
                 Assert.NotNull(mappingResponse.Mappings);
 
-                var newIndex = new EmployeeIndexWithYearsEmployed(_client, _cache, Log);
+                var newIndex = new EmployeeIndexWithYearsEmployed(_configuration);
                 await newIndex.ReindexAsync();
 
                 countResponse = await _client.CountAsync(d => d.Index(index.Name));
@@ -147,17 +147,17 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task CanResumeReindex() {
             const int numberOfEmployeesToCreate = 2000;
 
-            var version1Index = new VersionedEmployeeIndex(_client, 1, _cache, Log);
+            var version1Index = new VersionedEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
 
-            var version2Index = new VersionedEmployeeIndex(_client, 2, _cache, Log);
+            var version2Index = new VersionedEmployeeIndex(_configuration, 2);
             await version2Index.DeleteAsync();
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
                 Assert.True(_client.IndexExists(version1Index.VersionedName).Exists);
 
-                var version1Repository = new EmployeeRepository(_client, version1Index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                var version1Repository = new EmployeeRepository(_configuration, version1Index.Employee);
                 await version1Repository.AddAsync(EmployeeGenerator.GenerateEmployees(numberOfEmployeesToCreate));
                 await _client.RefreshAsync();
 
@@ -205,10 +205,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task CanReindexVersionedIndex() {
-            var version1Index = new VersionedEmployeeIndex(_client, 1, _cache, Log);
+            var version1Index = new VersionedEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
 
-            var version2Index = new VersionedEmployeeIndex(_client, 2, _cache, Log);
+            var version2Index = new VersionedEmployeeIndex(_configuration, 2);
             await version2Index.DeleteAsync();
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
@@ -224,7 +224,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.Equal(1, aliasResponse.Indices.Count);
                 Assert.Equal(version1Index.VersionedName, aliasResponse.Indices.First().Key);
 
-                var version1Repository = new EmployeeRepository(_client, version1Index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                var version1Repository = new EmployeeRepository(_configuration, version1Index.Employee);
                 var employee = await version1Repository.AddAsync(EmployeeGenerator.Default);
                 await _client.RefreshAsync();
                 Assert.NotNull(employee?.Id);
@@ -241,7 +241,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.True(_client.IndexExists(version2Index.VersionedName).Exists);
 
                     // Make sure we can write to the index still. Should go to the old index until after the reindex is complete.
-                    var version2Repository = new EmployeeRepository(_client, version2Index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                    var version2Repository = new EmployeeRepository(_configuration, version2Index.Employee);
                     await version2Repository.AddAsync(EmployeeGenerator.Generate());
                     await _client.RefreshAsync();
 
@@ -294,16 +294,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task CanReindexVersionedIndexWithCorrectMappings() {
-            var version1Index = new VersionedEmployeeIndex(_client, 1, _cache, Log);
+            var version1Index = new VersionedEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
 
-            var version2Index = new VersionedEmployeeIndex(_client, 2, _cache, Log);
+            var version2Index = new VersionedEmployeeIndex(_configuration, 2);
             version2Index.DiscardIndexesOnReindex = false;
             await version2Index.DeleteAsync();
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
-                var version1Repository = new EmployeeRepository(_client, version1Index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                var version1Repository = new EmployeeRepository(_configuration, version1Index.Employee);
 
                 var utcNow = SystemClock.UtcNow;
                 var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow));
@@ -342,17 +342,17 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task CanReindexVersionedIndexWithDataInBothIndexes() {
-            var version1Index = new VersionedEmployeeIndex(_client, 1, _cache, Log);
+            var version1Index = new VersionedEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
 
-            var version2Index = new VersionedEmployeeIndex(_client, 2, _cache, Log);
+            var version2Index = new VersionedEmployeeIndex(_configuration, 2);
             await version2Index.DeleteAsync();
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
                 Assert.True(_client.IndexExists(version1Index.VersionedName).Exists);
 
-                var version1Repository = new EmployeeRepository(_client, version1Index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                var version1Repository = new EmployeeRepository(_configuration, version1Index.Employee);
                 var employee = await version1Repository.AddAsync(EmployeeGenerator.Default);
                 Assert.NotNull(employee?.Id);
                 await _client.RefreshAsync();
@@ -366,7 +366,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                         .Remove(a => a.Alias(version1Index.Name).Index(version1Index.VersionedName))
                         .Add(a => a.Alias(version2Index.Name).Index(version2Index.VersionedName)));
 
-                    var version2Repository = new EmployeeRepository(_client, version2Index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                    var version2Repository = new EmployeeRepository(_configuration, version2Index.Employee);
                     await version2Repository.AddAsync(EmployeeGenerator.Generate());
                     await _client.RefreshAsync();
 
@@ -415,17 +415,17 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task CanReindexVersionedIndexWithUpdatedDocs() {
-            var version1Index = new VersionedEmployeeIndex(_client, 1, _cache, Log);
+            var version1Index = new VersionedEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
 
-            var version2Index = new VersionedEmployeeIndex(_client, 2, _cache, Log);
+            var version2Index = new VersionedEmployeeIndex(_configuration, 2);
             await version2Index.DeleteAsync();
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
                 Assert.True(_client.IndexExists(version1Index.VersionedName).Exists);
 
-                var repository = new EmployeeRepository(_client, version1Index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                var repository = new EmployeeRepository(_configuration, version1Index.Employee);
                 var employee = await repository.AddAsync(EmployeeGenerator.Default);
                 Assert.NotNull(employee?.Id);
                 await _client.RefreshAsync();
@@ -482,17 +482,17 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task CanReindexVersionedIndexWithDeletedDocs() {
-            var version1Index = new VersionedEmployeeIndex(_client, 1, _cache, Log);
+            var version1Index = new VersionedEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
 
-            var version2Index = new VersionedEmployeeIndex(_client, 2, _cache, Log);
+            var version2Index = new VersionedEmployeeIndex(_configuration, 2);
             await version2Index.DeleteAsync();
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
                 Assert.True(_client.IndexExists(version1Index.VersionedName).Exists);
 
-                var repository = new EmployeeRepository(_client, version1Index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                var repository = new EmployeeRepository(_configuration, version1Index.Employee);
                 var employee = await repository.AddAsync(EmployeeGenerator.Default);
                 Assert.NotNull(employee?.Id);
                 await _client.RefreshAsync();
@@ -553,15 +553,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task CanReindexTimeSeriesIndex() {
-            var version1Index = new DailyEmployeeIndex(_client, 1, _cache, Log);
+            var version1Index = new DailyEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
 
-            var version2Index = new DailyEmployeeIndex(_client, 2, _cache, Log);
+            var version2Index = new DailyEmployeeIndex(_configuration, 2);
             await version2Index.DeleteAsync();
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
-                var version1Repository = new EmployeeRepository(_client, version1Index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                var version1Repository = new EmployeeRepository(_configuration, version1Index.Employee);
 
                 var utcNow = SystemClock.UtcNow;
                 var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow));
@@ -588,7 +588,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult())) {
                     await version2Index.ConfigureAsync();
                     Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
-                    var version2Repository = new EmployeeRepository(_client, version2Index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                    var version2Repository = new EmployeeRepository(_configuration, version2Index.Employee);
 
                     // Make sure we write to the old index.
                     await version2Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow));
@@ -648,16 +648,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task CanReindexTimeSeriesIndexWithCorrectMappings() {
-            var version1Index = new DailyEmployeeIndex(_client, 1, _cache, Log);
+            var version1Index = new DailyEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
 
-            var version2Index = new DailyEmployeeIndex(_client, 2, _cache, Log);
+            var version2Index = new DailyEmployeeIndex(_configuration, 2);
             version2Index.DiscardIndexesOnReindex = false;
             await version2Index.DeleteAsync();
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
-                var version1Repository = new EmployeeRepository(_client, version1Index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                var version1Repository = new EmployeeRepository(_configuration, version1Index.Employee);
 
                 var utcNow = SystemClock.UtcNow;
                 var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow));
@@ -712,7 +712,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(0, alias.Indices.Count);
 
             var utcNow = SystemClock.UtcNow;
-            var repository = new DailyLogEventRepository(_configuration, _cache, Log.CreateLogger<DailyLogEventRepository>());
+            var repository = new DailyLogEventRepository(_configuration);
             var logEvent = await repository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow));
             Assert.NotNull(logEvent?.Id);
 
@@ -736,12 +736,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task MaintainDailyIndexes() {
-            var index = new DailyEmployeeIndex(_client, 1, _cache, Log);
+            var index = new DailyEmployeeIndex(_configuration, 1);
             await index.DeleteAsync();
 
             using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
                 await index.ConfigureAsync();
-                var repository = new EmployeeRepository(_client, index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                var repository = new EmployeeRepository(_configuration, index.Employee);
 
                 SystemClock.UtcNowFunc = () => DateTime.UtcNow.SubtractDays(15);
                 var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: SystemClock.UtcNow));
@@ -796,14 +796,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task MaintainMonthlyIndexes() {
             SystemClock.UtcNowFunc = () => new DateTime(2016, 8, 31, 0, 0, 0, DateTimeKind.Utc);
-            var index = new MonthlyEmployeeIndex(_client, 1, _cache, Log);
+            var index = new MonthlyEmployeeIndex(_configuration, 1);
             index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.SubtractMonths(4).StartOfMonth();
             await index.DeleteAsync();
 
             var utcNow = SystemClock.UtcNow;
             using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
                 await index.ConfigureAsync();
-                var repository = new EmployeeRepository(_client, index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                var repository = new EmployeeRepository(_configuration, index.Employee);
 
                 for (int i = 0; i < 4; i++) {
                     var created = utcNow.SubtractMonths(i);
@@ -857,13 +857,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [MemberData("AliasesDatesToCheck")]
         public async Task DailyAliasMaxAge(DateTime utcNow) {
             SystemClock.UtcNowFunc = () => utcNow;
-            var index = new DailyEmployeeIndex(_client, 1, _cache, Log);
+            var index = new DailyEmployeeIndex(_configuration, 1);
             index.MaxIndexAge = TimeSpan.FromDays(45);
             await index.DeleteAsync();
 
             using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
                 await index.ConfigureAsync();
-                var version1Repository = new EmployeeRepository(_client, index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                var version1Repository = new EmployeeRepository(_configuration, index.Employee);
                 
                 var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow));
                 Assert.NotNull(employee?.Id);
@@ -922,13 +922,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [MemberData("AliasesDatesToCheck")]
         public async Task MonthlyAliasMaxAge(DateTime utcNow) {
             SystemClock.UtcNowFunc = () => utcNow;
-            var index = new MonthlyEmployeeIndex(_client, 1, _cache, Log);
+            var index = new MonthlyEmployeeIndex(_configuration, 1);
             index.MaxIndexAge = TimeSpan.FromDays(90);
             await index.DeleteAsync();
 
             using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
                 await index.ConfigureAsync();
-                var repository = new EmployeeRepository(_client, index.Employee, _cache, Log.CreateLogger<EmployeeRepository>());
+                var repository = new EmployeeRepository(_configuration, index.Employee);
                 
                 var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow));
                 Assert.NotNull(employee?.Id);
@@ -988,7 +988,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task DailyIndexMaxAge(DateTime utcNow) {
             SystemClock.UtcNowFunc = () => utcNow;
 
-            var index = new DailyEmployeeIndex(_client, 1, _cache, Log);
+            var index = new DailyEmployeeIndex(_configuration, 1);
             index.MaxIndexAge = TimeSpan.FromDays(1);
             await index.DeleteAsync();
 
@@ -1014,7 +1014,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task MonthlyIndexMaxAge(DateTime utcNow) {
             SystemClock.UtcNowFunc = () => utcNow;
 
-            var index = new MonthlyEmployeeIndex(_client, 1, _cache, Log);
+            var index = new MonthlyEmployeeIndex(_configuration, 1);
             index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.StartOfMonth();
             await index.DeleteAsync();
 

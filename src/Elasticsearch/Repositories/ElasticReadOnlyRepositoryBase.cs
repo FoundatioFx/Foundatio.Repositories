@@ -34,12 +34,10 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         private ScopedCacheClient _scopedCacheClient;
 
-        protected ElasticReadOnlyRepositoryBase(IElasticClient client) : this(client, null, null) { }
-
-        protected ElasticReadOnlyRepositoryBase(IElasticClient client, ICacheClient cache, ILogger logger) {
-            _client = client;
-            SetCache(cache);
-            _logger = logger ?? NullLogger.Instance;
+        protected ElasticReadOnlyRepositoryBase(IElasticConfiguration elasticConfiguration) {
+            _client = elasticConfiguration.Client;
+            SetCache(elasticConfiguration.Cache);
+            _logger = elasticConfiguration.LoggerFactory.CreateLogger(GetType());
         }
 
         protected Task<IFindResults<T>> FindAsync(IRepositoryQuery query) {

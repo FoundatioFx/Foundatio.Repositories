@@ -7,37 +7,31 @@ using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Jobs;
 using Foundatio.Logging;
+using Foundatio.Messaging;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
-    public class MyAppElasticConfiguration : ElasticConfiguration {
-        public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, ILoggerFactory loggerFactory) : base(null, workItemQueue, cacheClient, loggerFactory) {
-            var connectionString = ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString;
-            var settings = new ConnectionSettings(new StaticConnectionPool(connectionString.Split(',').Select(url => new Uri(url))))
-                .EnableTcpKeepAlive(30 * 1000, 2000);
-            Client = new ElasticClient(settings);
-
+    public class MyAppElasticConfiguration : ElasticConfigurationBase {
+        public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, IMessageBus messageBus, ILoggerFactory loggerFactory) : base(workItemQueue, cacheClient, messageBus, loggerFactory) {
             // register our custom app query builders
             ElasticQueryBuilder.Default.RegisterDefaults();
             ElasticQueryBuilder.Default.Register(new ElasticMacroSearchQueryBuilder(new ElasticMacroProcessor(c => c.AddAnalyzedField("name"))));
             ElasticQueryBuilder.Default.Register<AgeQueryBuilder>();
             ElasticQueryBuilder.Default.Register<CompanyQueryBuilder>();
 
-            Identities = new IdentityIndex(Client, cacheClient, loggerFactory);
-            Employees = new EmployeeIndex(Client, cacheClient, loggerFactory);
-            DailyLogEvents = new DailyLogEventIndex(Client, cacheClient, loggerFactory);
-            MonthlyLogEvents = new MonthlyLogEventIndex(Client, cacheClient, loggerFactory);
-            ParentChild = new ParentChildIndex(Client, cacheClient, loggerFactory);
+            AddIndex(Identities = new IdentityIndex(this));
+            AddIndex(Employees = new EmployeeIndex(this));
+            AddIndex(DailyLogEvents = new DailyLogEventIndex(this));
+            AddIndex(MonthlyLogEvents = new MonthlyLogEventIndex(this));
+            AddIndex(ParentChild = new ParentChildIndex(this));
+        }
 
-            AddIndex(Identities);
-            AddIndex(Employees);
-            AddIndex(DailyLogEvents);
-            AddIndex(MonthlyLogEvents);
-            AddIndex(ParentChild);
+        protected override IConnectionPool CreateConnectionPool() {
+            var connectionString = ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString;
+            return new StaticConnectionPool(connectionString.Split(',').Select(url => new Uri(url)));
         }
 
         public IdentityIndex Identities { get; }

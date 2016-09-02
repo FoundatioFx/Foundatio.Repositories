@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Threading.Tasks;
-using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
@@ -16,8 +15,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         private readonly ChildRepository _childRepository;
 
         public ParentChildTests(ITestOutputHelper output) : base(output) {
-            _parentRepository = new ParentRepository(_configuration, _cache, Log.CreateLogger<ParentRepository>());
-            _childRepository = new ChildRepository(_configuration, _cache, Log.CreateLogger<ChildRepository>());
+            _parentRepository = new ParentRepository(_configuration);
+            _childRepository = new ChildRepository(_configuration);
 
             RemoveDataAsync().GetAwaiter().GetResult();
         }

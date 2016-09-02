@@ -24,11 +24,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private readonly Lazy<IReadOnlyCollection<IndexAliasAge>> _frozenAliases;
         private readonly ICacheClient _aliasCache;
 
-        public DailyIndex(IElasticClient client, string name, int version = 1, ICacheClient cache = null, ILoggerFactory loggerFactory = null) 
-            : base(client, name, version, cache, loggerFactory) {
+        public DailyIndex(IElasticConfiguration elasticConfiguration, string name, int version = 1) 
+            : base(elasticConfiguration, name, version) {
             AddAlias(Name);
             _frozenAliases = new Lazy<IReadOnlyCollection<IndexAliasAge>>(() => _aliases.AsReadOnly());
-            _aliasCache = _cache != null ? new ScopedCacheClient(_cache, "alias") : (ICacheClient)new InMemoryCacheClient(loggerFactory);
+            _aliasCache = new ScopedCacheClient(elasticConfiguration.Cache, "alias");
         }
 
         // TODO: Should we make this non nullable and do validation in the setter.
@@ -178,7 +178,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (indexes.Count == 0)
                 return;
 
-            var reindexer = new ElasticReindexer(_client, _cache, _logger);
+            var reindexer = new ElasticReindexer(_config.Client, _config.Cache, _logger);
             foreach (var index in indexes) {
                 if (SystemClock.UtcNow > GetIndexExpirationDate(index.DateUtc))
                     continue;
@@ -248,7 +248,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 }
             }
             
-            var response = await _client.AliasAsync(aliasDescriptor).AnyContext();
+            var response = await _config.Client.AliasAsync(aliasDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
@@ -297,13 +297,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 await _aliasCache.RemoveAllAsync().AnyContext();
             else
                 await _aliasCache.RemoveAsync(GetIndex(GetIndexDate(name))).AnyContext();
-        }
-
-        public override void Dispose() {
-            if (_shouldDisposeCache)
-                _aliasCache.Dispose();
-
-            base.Dispose();
         }
 
         [DebuggerDisplay("Name: {Name} Max Age: {MaxAge}")]

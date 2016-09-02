@@ -1,5 +1,4 @@
-﻿using Foundatio.Logging;
-using Foundatio.Repositories.Elasticsearch.Queries;
+﻿using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
@@ -23,8 +22,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests
         private readonly DailyLogEventRepository _dailyRepository;
 
         public SearchableRepositoryTests(ITestOutputHelper output) : base(output) {
-            _identityRepository = new IdentityRepository(_configuration, _cache, Log.CreateLogger<IdentityRepository>());
-            _dailyRepository = new DailyLogEventRepository(_configuration, _cache, Log.CreateLogger<DailyLogEventRepository>());
+            _identityRepository = new IdentityRepository(_configuration);
+            _dailyRepository = new DailyLogEventRepository(_configuration);
 
             RemoveDataAsync().GetAwaiter().GetResult();
         }

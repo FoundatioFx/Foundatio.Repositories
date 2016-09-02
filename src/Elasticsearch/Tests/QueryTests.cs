@@ -13,8 +13,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         private readonly EmployeeRepository _employeeRepository;
 
         public QueryTests(ITestOutputHelper output) : base(output) {
-            _dailyRepository = new DailyLogEventRepository(_configuration, _cache, Log.CreateLogger<DailyLogEventRepository>());
-            _employeeRepository = new EmployeeRepository(_configuration, _cache, Log.CreateLogger<EmployeeRepository>());
+            _dailyRepository = new DailyLogEventRepository(_configuration);
+            _employeeRepository = new EmployeeRepository(_configuration);
 
             RemoveDataAsync().GetAwaiter().GetResult();
         }

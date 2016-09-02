@@ -8,11 +8,13 @@ using Nest;
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface IIndexType : IDisposable {
         string Name { get; }
+        Type Type { get; }
         IIndex Index { get; }
         int DefaultCacheExpirationSeconds { get; set; }
         int BulkBatchSize { get; set; }
         ISet<string> AllowedAggregationFields { get; }
         CreateIndexDescriptor Configure(CreateIndexDescriptor idx);
+        void ConfigureSettings(ConnectionSettings settings);
     }
 
     public interface IIndexType<T>: IIndexType where T : class {
@@ -33,9 +35,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             Name = name ?? _typeName;
             Index = index;
+            Type = typeof(T);
         }
 
         public string Name { get; }
+        public Type Type { get; }
         public IIndex Index { get; }
         public ISet<string> AllowedAggregationFields { get; } = new HashSet<string>();
 
@@ -61,6 +65,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public virtual CreateIndexDescriptor Configure(CreateIndexDescriptor idx) {
             return idx.AddMapping<T>(BuildMapping);
         }
+
+        public virtual void ConfigureSettings(ConnectionSettings settings) {}
 
         public virtual PutMappingDescriptor<T> BuildMapping(PutMappingDescriptor<T> map) {
             return map.Type(Name).Properties(p => p.SetupDefaults());

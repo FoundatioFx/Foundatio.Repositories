@@ -2,8 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Foundatio.Caching;
-using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
@@ -12,15 +10,14 @@ using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class EmployeeRepository : ElasticRepositoryBase<Employee> {
-        public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration, ICacheClient cache, ILogger<EmployeeRepository> logger) : base(elasticConfiguration.Client, null, cache, null, logger) {
+        public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration) {
             ElasticType = elasticConfiguration.Employees.Employee;
         }
 
-        public EmployeeRepository(IElasticClient client, IIndexType<Employee> employeeType, ICacheClient cache, ILogger<EmployeeRepository> logger) : base(client, null, cache, null, logger) {
+        public EmployeeRepository(IElasticConfiguration elasticConfiguration, IIndexType<Employee> employeeType) : base(elasticConfiguration) {
             ElasticType = employeeType;
         }
         

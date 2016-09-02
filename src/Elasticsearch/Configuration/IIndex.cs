@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface IIndex : IDisposable {
@@ -9,6 +10,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         Task ConfigureAsync();
         Task DeleteAsync();
         Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null);
+        void ConfigureSettings(ConnectionSettings settings);
     }
 
     public interface IMaintainableIndex {

@@ -1,18 +1,12 @@
 ﻿using System;
-using Foundatio.Caching;
-using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Types;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes {
     public sealed class ParentChildIndex : VersionedIndex {
-        public ParentChildIndex(IElasticClient client, ICacheClient cache = null, ILoggerFactory loggerFactory = null): base(client, "parentchild", 1, cache, loggerFactory) {
-            Parent = new ParentType(this);
-            Child = new ChildType(this);
-
-            AddType(Parent);
-            AddType(Child);
+        public ParentChildIndex(IElasticConfiguration elasticConfiguration): base(elasticConfiguration, "parentchild", 1) {
+            AddType(Parent = new ParentType(this));
+            AddType(Child = new ChildType(this));
         }
 
         public ParentType Parent { get; }
