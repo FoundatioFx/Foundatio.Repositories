@@ -331,16 +331,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         
         [Fact]
         public async Task GetAll() {
-            var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default);
-            Assert.NotNull(identity1?.Id);
-
-            var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate());
-            Assert.NotNull(identity2?.Id);
+            var identities = IdentityGenerator.GenerateIdentities(25);
+            await _identityRepository.AddAsync(identities);
 
             await _client.RefreshAsync();
             var results = await _identityRepository.GetAllAsync();
             Assert.NotNull(results);
-            Assert.Equal(2, results.Total);
+            Assert.Equal(25, results.Total);
+            Assert.Equal(25, results.Documents.Count);
+            Assert.Equal(identities.OrderBy(i => i.Id), results.Documents.OrderBy(i => i.Id));
         }
 
         [Fact]

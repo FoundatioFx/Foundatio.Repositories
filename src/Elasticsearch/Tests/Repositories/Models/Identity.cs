@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 
@@ -42,6 +43,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
 
         public static Identity Generate(string id = null) {
             return new Identity { Id = id };
+        }
+        
+        public static List<Identity> GenerateIdentities(int count = 10) {
+            var results = new List<Identity>(count);
+            for (int index = 0; index < count; index++)
+                results.Add(Generate());
+
+            return results;
         }
     }
 }
