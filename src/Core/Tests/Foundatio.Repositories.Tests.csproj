@@ -38,12 +38,12 @@
       <HintPath>..\..\..\packages\Exceptionless.DateTimeExtensions.3.2.53\lib\net45\Exceptionless.DateTimeExtensions.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Foundatio, Version=4.2.1169.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\..\packages\Foundatio.4.2.1169\lib\net46\Foundatio.dll</HintPath>
+    <Reference Include="Foundatio, Version=4.2.1176.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\Foundatio.4.2.1176\lib\net46\Foundatio.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Foundatio.Logging.Xunit, Version=4.2.1169.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\..\packages\Foundatio.Logging.Xunit.4.2.1169\lib\net46\Foundatio.Logging.Xunit.dll</HintPath>
+    <Reference Include="Foundatio.Logging.Xunit, Version=4.2.1176.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\..\packages\Foundatio.Logging.Xunit.4.2.1176\lib\net46\Foundatio.Logging.Xunit.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Newtonsoft.Json, Version=9.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">

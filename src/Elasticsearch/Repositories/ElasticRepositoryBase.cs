@@ -491,8 +491,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return;
 
             if (SupportsSoftDeletes && IsCacheEnabled) {
-                foreach (var deletedDoc in modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Original).IsDeleted == false && ((ISupportSoftDeletes)d.Value).IsDeleted))
-                    await Cache.SetAddAsync("deleted", deletedDoc.Value.Id, TimeSpan.FromSeconds(30)).AnyContext();
+                var deletedIds = modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Original).IsDeleted == false && ((ISupportSoftDeletes)d.Value).IsDeleted).Select(m => m.Value.Id).ToArray();
+                if (deletedIds.Length > 0)
+                    await Cache.SetAddAsync("deleted", deletedIds, TimeSpan.FromSeconds(30)).AnyContext();
+
+                var undeletedIds = modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Original).IsDeleted && ((ISupportSoftDeletes)d.Value).IsDeleted == false).Select(m => m.Value.Id).ToArray();
+                if (undeletedIds.Length > 0)
+                    await Cache.SetRemoveAsync("deleted", undeletedIds, TimeSpan.FromSeconds(30)).AnyContext();
             }
 
             if (DocumentsSaved != null)

@@ -69,6 +69,23 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public ILoggerFactory LoggerFactory { get; }
         public IReadOnlyCollection<IIndex> Indexes => _frozenIndexes.Value;
 
+        public IIndexType<T> GetIndexType<T>() where T : class {
+            foreach (var index in Indexes)
+                foreach (var indexType in index.IndexTypes)
+                    if (indexType.Type == typeof(T))
+                        return indexType as IIndexType<T>;
+
+            return null;
+        }
+
+        public IIndex GetIndex(string name) {
+            foreach (var index in Indexes)
+                if (index.Name == name)
+                    return index;
+
+            return null;
+        }
+
         public void AddIndex(IIndex index) {
             if (_frozenIndexes.IsValueCreated)
                 throw new InvalidOperationException("Can't add indexes after the list has been frozen.");
