@@ -36,7 +36,7 @@ build:
   publish_nuget: true
 
 before_package:
-  - ps: if (-not $env:APPVEYOR_PULL_REQUEST_NUMBER) { & "GitLink" .\ -b $env:APPVEYOR_REPO_BRANCH }
+  - ps: if (-not $env:APPVEYOR_PULL_REQUEST_NUMBER) { & "GitLink" .\ }
 
 #on_failure:
 #  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
