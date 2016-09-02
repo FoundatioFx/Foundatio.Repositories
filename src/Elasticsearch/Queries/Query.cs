@@ -24,7 +24,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         public ICollection<FieldSort> SortBy { get; } = new List<FieldSort>();
         public bool SortByScore { get; set; }
         public ICollection<AggregationField> AggregationFields { get; } = new List<AggregationField>();
-        public ITypeQuery ParentQuery { get; set; }
+        public IRepositoryQuery ParentQuery { get; set; }
         public ITypeQuery ChildQuery { get; set; }
         public bool IncludeSoftDeletes { get; set; }
         public IPagingOptions Options { get; set; }

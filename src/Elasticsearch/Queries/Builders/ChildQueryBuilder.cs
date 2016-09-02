@@ -1,8 +1,9 @@
 ﻿using System;
+using Foundatio.Repositories.Queries;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public interface IChildQuery {
+    public interface IChildQuery : IRepositoryQuery {
         ITypeQuery ChildQuery { get; set; }
     }
 

@@ -5,7 +5,7 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IParentQuery: IRepositoryQuery {
-        ITypeQuery ParentQuery { get; set; }
+        IRepositoryQuery ParentQuery { get; set; }
     }
 
     public class ParentQueryBuilder : IElasticQueryBuilder {
@@ -57,7 +57,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public static class ParentQueryExtensions {
-        public static TQuery WithParentQuery<TQuery, TParentQuery>(this TQuery query, Func<TParentQuery, TParentQuery> parentQueryFunc) where TQuery : IParentQuery where TParentQuery : class, ITypeQuery, new() {
+        public static TQuery WithParentQuery<TQuery, TParentQuery>(this TQuery query, Func<TParentQuery, TParentQuery> parentQueryFunc) where TQuery : IParentQuery where TParentQuery : class, IRepositoryQuery, new() {
             if (parentQueryFunc == null)
                 throw new ArgumentNullException(nameof(parentQueryFunc));
 
@@ -67,7 +67,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             return query;
         }
 
-        public static Query WithParentQuery<T>(this Query query, Func<T, T> parentQueryFunc) where T : class, ITypeQuery, new() {
+        public static Query WithParentQuery<T>(this Query query, Func<T, T> parentQueryFunc) where T : class, IRepositoryQuery, new() {
             if (parentQueryFunc == null)
                 throw new ArgumentNullException(nameof(parentQueryFunc));
 
@@ -77,7 +77,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             return query;
         }
 
-        public static ElasticQuery WithParentQuery<T>(this ElasticQuery query, Func<T, T> parentQueryFunc) where T : class, ITypeQuery, new() {
+        public static ElasticQuery WithParentQuery<T>(this ElasticQuery query, Func<T, T> parentQueryFunc) where T : class, IRepositoryQuery, new() {
             if (parentQueryFunc == null)
                 throw new ArgumentNullException(nameof(parentQueryFunc));
 
