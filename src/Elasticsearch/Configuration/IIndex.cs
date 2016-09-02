@@ -6,6 +6,7 @@ using Nest;
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface IIndex : IDisposable {
         string Name { get; }
+        IElasticConfiguration Configuration { get; }
         IReadOnlyCollection<IIndexType> IndexTypes { get; }
         Task ConfigureAsync();
         Task DeleteAsync();

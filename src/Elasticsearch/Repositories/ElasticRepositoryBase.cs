@@ -24,9 +24,9 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected readonly IValidator<T> _validator;
         protected readonly IMessagePublisher _messagePublisher;
 
-        protected ElasticRepositoryBase(IElasticConfiguration elasticConfiguration, IValidator<T> validator = null) : base(elasticConfiguration) {
+        protected ElasticRepositoryBase(IIndexType<T> indexType, IValidator<T> validator = null) : base(indexType) {
             _validator = validator;
-            _messagePublisher = elasticConfiguration.MessageBus;
+            _messagePublisher = indexType.Index.Configuration.MessageBus;
             NotificationsEnabled = _messagePublisher != null;
 
             if (HasCreatedDate) {

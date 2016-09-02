@@ -26,7 +26,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func < int, string, Task> progressCallbackAsync = null);
     }
 
-    public abstract class ElasticConfigurationBase: IElasticConfiguration {
+    public class ElasticConfiguration: IElasticConfiguration {
         protected readonly IQueue<WorkItemData> _workItemQueue;
         protected readonly ILogger _logger;
         protected readonly ILockProvider _lockProvider;
@@ -35,7 +35,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private readonly Lazy<IElasticClient> _client;
         protected readonly bool _shouldDisposeCache;
 
-        public ElasticConfigurationBase(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, ILoggerFactory loggerFactory = null) {
+        public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, ILoggerFactory loggerFactory = null) {
             _workItemQueue = workItemQueue;
             _logger = loggerFactory.CreateLogger(GetType());
             LoggerFactory = loggerFactory;

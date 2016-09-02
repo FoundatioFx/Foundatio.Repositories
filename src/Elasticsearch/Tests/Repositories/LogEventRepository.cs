@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
@@ -13,10 +14,12 @@ using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent> {
-        public DailyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration) {
-            ElasticType = elasticConfiguration.DailyLogEvents.LogEvent;
+        public DailyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.DailyLogEvents.LogEvent) {
         }
-        
+
+        public DailyLogEventRepository(IIndexType<LogEvent> indexType) : base(indexType) {
+        }
+
         public Task<IFindResults<LogEvent>> GetByCompanyAsync(string company) {
             return FindAsync(new MyAppQuery().WithCompany(company));
         }
@@ -53,8 +56,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
     }
 
     public class MonthlyLogEventRepository : DailyLogEventRepository {
-        public MonthlyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration) {
-            ElasticType = elasticConfiguration.MonthlyLogEvents.LogEvent;
+        public MonthlyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.MonthlyLogEvents.LogEvent) {
         }
     }
 }

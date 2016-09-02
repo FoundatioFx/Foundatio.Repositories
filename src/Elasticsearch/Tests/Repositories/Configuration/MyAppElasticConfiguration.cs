@@ -14,7 +14,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
-    public class MyAppElasticConfiguration : ElasticConfigurationBase {
+    public class MyAppElasticConfiguration : ElasticConfiguration {
         public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, IMessageBus messageBus, ILoggerFactory loggerFactory) : base(workItemQueue, cacheClient, messageBus, loggerFactory) {
             // register our custom app query builders
             ElasticQueryBuilder.Default.RegisterDefaults();

@@ -178,7 +178,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (indexes.Count == 0)
                 return;
 
-            var reindexer = new ElasticReindexer(_config.Client, _config.Cache, _logger);
+            var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Cache, _logger);
             foreach (var index in indexes) {
                 if (SystemClock.UtcNow > GetIndexExpirationDate(index.DateUtc))
                     continue;
@@ -247,7 +247,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 }
             }
             
-            var response = await _config.Client.AliasAsync(aliasDescriptor).AnyContext();
+            var response = await Configuration.Client.AliasAsync(aliasDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {

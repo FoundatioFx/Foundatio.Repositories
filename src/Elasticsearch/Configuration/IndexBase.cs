@@ -13,7 +13,6 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public abstract class IndexBase : IIndex {
-        protected readonly IElasticConfiguration _config;
         protected readonly ILockProvider _lockProvider;
         protected readonly ILogger _logger;
         private readonly List<IIndexType> _types = new List<IIndexType>();
@@ -21,13 +20,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public IndexBase(IElasticConfiguration elasticConfiguration, string name) {
             Name = name;
-            _config = elasticConfiguration;
+            Configuration = elasticConfiguration;
             _lockProvider = new CacheLockProvider(elasticConfiguration.Cache, elasticConfiguration.MessageBus, elasticConfiguration.LoggerFactory);
             _logger = elasticConfiguration.LoggerFactory.CreateLogger(GetType());
             _frozenTypes = new Lazy<IReadOnlyCollection<IIndexType>>(() => _types.AsReadOnly());
         }
 
         public string Name { get; }
+        public IElasticConfiguration Configuration { get; }
         public IReadOnlyCollection<IIndexType> IndexTypes => _frozenTypes.Value;
 
         public virtual void AddType(IIndexType type) {
@@ -56,7 +56,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             bool result = await _lockProvider.TryUsingAsync("create-index:" + name, async t => {
                 if (await IndexExistsAsync(name).AnyContext()) {
-                    var healthResponse = await _config.Client.ClusterHealthAsync(h => h
+                    var healthResponse = await Configuration.Client.ClusterHealthAsync(h => h
                         .Index(name)
                         .WaitForStatus(WaitForStatus.Yellow)
                         .Timeout("10s")).AnyContext();
@@ -67,14 +67,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                     return;
                 }
 
-                var response = await _config.Client.CreateIndexAsync(name, descriptor).AnyContext();
+                var response = await Configuration.Client.CreateIndexAsync(name, descriptor).AnyContext();
                 _logger.Trace(() => response.GetRequest());
 
                 if (response.IsValid) {
                     while (!await IndexExistsAsync(name).AnyContext())
                         SystemClock.Sleep(100);
 
-                    var healthResponse = await _config.Client.ClusterHealthAsync(h => h
+                    var healthResponse = await Configuration.Client.ClusterHealthAsync(h => h
                         .Index(name)
                         .WaitForStatus(WaitForStatus.Yellow)
                         .Timeout("10s")).AnyContext();
@@ -101,7 +101,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (!await IndexExistsAsync(name).AnyContext())
                 return;
 
-            var response = await _config.Client.DeleteIndexAsync(i => i.Index(name)).AnyContext();
+            var response = await Configuration.Client.DeleteIndexAsync(i => i.Index(name)).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
             if (response.IsValid) {
@@ -120,7 +120,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (name == null)
                 throw new ArgumentNullException(nameof(name));
 
-            var response = await _config.Client.IndexExistsAsync(name).AnyContext();
+            var response = await Configuration.Client.IndexExistsAsync(name).AnyContext();
             if (response.IsValid)
                 return response.Exists;
 
@@ -139,7 +139,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             foreach (var type in IndexTypes.OfType<IChildIndexType>())
                 reindexWorkItem.ParentMaps.Add(new ParentMap { Type = type.Name, ParentPath = type.ParentPath });
 
-            var reindexer = new ElasticReindexer(_config.Client, _config.Cache, _logger);
+            var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Cache, _logger);
             return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
         }
 

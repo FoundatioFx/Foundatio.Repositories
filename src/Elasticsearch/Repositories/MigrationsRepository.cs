@@ -4,6 +4,6 @@ using Foundatio.Repositories.Migrations;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public class MigrationsRepository : ElasticRepositoryBase<Migration>, IMigrationRepository {
-        public MigrationsRepository(IElasticConfiguration elasticConfiguration) : base(elasticConfiguration) {}
+        public MigrationsRepository(IIndexType<Migration> indexType) : base(indexType) {}
     }
 }

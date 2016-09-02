@@ -36,7 +36,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (await AliasExistsAsync(name).AnyContext())
                 return;
             
-            var response = await _config.Client.AliasAsync(a => a.Add(s => s.Index(index).Alias(name))).AnyContext();
+            var response = await Configuration.Client.AliasAsync(a => a.Add(s => s.Index(index).Alias(name))).AnyContext();
             if (response.IsValid) {
                 while (!await AliasExistsAsync(name).AnyContext())
                     SystemClock.Sleep(100);
@@ -53,7 +53,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected async Task<bool> AliasExistsAsync(string alias) {
-            var response = await _config.Client.AliasExistsAsync(alias).AnyContext();
+            var response = await Configuration.Client.AliasExistsAsync(alias).AnyContext();
             if (response.IsValid)
                 return response.Exists;
             
@@ -94,7 +94,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return;
 
             var reindexWorkItem = CreateReindexWorkItem(currentVersion);
-            var reindexer = new ElasticReindexer(_config.Client, _config.Cache, _logger);
+            var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Cache, _logger);
             await reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync).AnyContext();
         }
         
@@ -126,7 +126,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected virtual async Task<int> GetVersionFromAliasAsync(string alias) {
-            var response = await  _config.Client.GetAliasAsync(a => a.Alias(alias)).AnyContext();
+            var response = await Configuration.Client.GetAliasAsync(a => a.Alias(alias)).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
             if (response.IsValid && response.Indices.Count > 0)
@@ -154,7 +154,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         protected virtual async Task<IList<IndexInfo>> GetIndexesAsync(int version = -1) {
             // TODO: Update this to use a index filter once we upgrade to elastic 2.x+
             var sw = Stopwatch.StartNew();
-            var response = await _config.Client.CatIndicesAsync(i => i.Pri().H("index").RequestConfiguration(r => r.RequestTimeout(5 * 60 * 1000))).AnyContext();
+            var response = await Configuration.Client.CatIndicesAsync(i => i.Pri().H("index").RequestConfiguration(r => r.RequestTimeout(5 * 60 * 1000))).AnyContext();
             sw.Stop();
             _logger.Trace(() => response.GetRequest());
 

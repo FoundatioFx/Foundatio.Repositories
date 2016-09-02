@@ -1,7 +1,5 @@
 ﻿using System;
 using System.Threading.Tasks;
-using Foundatio.Caching;
-using Foundatio.Logging;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
@@ -23,7 +21,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
     }
 
     public sealed class Index<T> : Index where T: class {
-        public Index(IElasticConfiguration elasticConfiguration, string name = null, ICacheClient cache = null, ILoggerFactory loggerFactory = null): base(elasticConfiguration, name ?? typeof(T).Name.ToLower()) {
+        public Index(IElasticConfiguration elasticConfiguration, string name = null): base(elasticConfiguration, name ?? typeof(T).Name.ToLower()) {
             Type = AddDynamicType<T>(Name);
         }
 

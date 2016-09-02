@@ -13,12 +13,10 @@ using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class EmployeeRepository : ElasticRepositoryBase<Employee> {
-        public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration) {
-            ElasticType = elasticConfiguration.Employees.Employee;
+        public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.Employees.Employee) {
         }
 
-        public EmployeeRepository(IElasticConfiguration elasticConfiguration, IIndexType<Employee> employeeType) : base(elasticConfiguration) {
-            ElasticType = employeeType;
+        public EmployeeRepository(IIndexType<Employee> employeeType) : base(employeeType) {
         }
         
         public Task<IFindResults<Employee>> GetAllByAgeAsync(int age) {

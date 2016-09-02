@@ -7,8 +7,7 @@ using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories {
     public class ChildRepository : ElasticRepositoryBase<Child> {
-        public ChildRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration) {
-            ElasticType = elasticConfiguration.ParentChild.Child;
+        public ChildRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.ParentChild.Child) {
         }
 
         public Task<IFindResults<Child>> QueryAsync(IRepositoryQuery query) {
