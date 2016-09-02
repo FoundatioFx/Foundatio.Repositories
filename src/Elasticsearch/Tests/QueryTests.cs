@@ -92,6 +92,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(0, results.Total);
         }
 
+        [Fact]
+        public async Task GetWithNoField() {
+            await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId, name: "Blake Niemyjski"));
+
+            await _client.RefreshAsync();
+            var results = await GetByFilterAsync("blake");
+            Assert.Equal(1, results.Total);
+            Assert.True(results.Documents.All(d => d.Name == "Blake Niemyjski"));
+        }
+
         /// <summary>
         /// Name field is Analyzed
         /// </summary>
@@ -116,6 +126,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             results = await GetByFilterAsync(null, "name:J*");
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeEric.Name));
+            
+            results = await GetByFilterAsync(null, "name:*");
+            Assert.Equal(2, results.Total);
+
+            results = await GetByFilterAsync(null, "name:");
+            Assert.Equal(0, results.Total);
         }
 
         /// <summary>
@@ -134,6 +150,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             results = await GetByFilterAsync("company_name:\"Exceptionless\"");
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
+
+            results = await GetByFilterAsync(null, "company_name:*");
+            Assert.Equal(0, results.Total);
+
+            results = await GetByFilterAsync(null, "company_name:");
+            Assert.Equal(0, results.Total);
         }
 
         private Task<IFindResults<Employee>> GetByFilterAsync(string filter, string criteria = null) {
