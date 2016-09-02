@@ -36,9 +36,9 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         protected ElasticReadOnlyRepositoryBase(IIndexType<T> indexType) {
             ElasticType = indexType;
-            _client = indexType.Index.Configuration.Client;
-            SetCache(indexType.Index.Configuration.Cache);
-            _logger = indexType.Index.Configuration.LoggerFactory.CreateLogger(GetType());
+            _client = indexType.Configuration.Client;
+            SetCache(indexType.Configuration.Cache);
+            _logger = indexType.Configuration.LoggerFactory.CreateLogger(GetType());
         }
 
         protected Task<IFindResults<T>> FindAsync(IRepositoryQuery query) {

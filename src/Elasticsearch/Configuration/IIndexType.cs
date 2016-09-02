@@ -10,6 +10,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         string Name { get; }
         Type Type { get; }
         IIndex Index { get; }
+        IElasticConfiguration Configuration { get; }
         int DefaultCacheExpirationSeconds { get; set; }
         int BulkBatchSize { get; set; }
         ISet<string> AllowedAggregationFields { get; }
@@ -41,6 +42,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public string Name { get; }
         public Type Type { get; }
         public IIndex Index { get; }
+        public IElasticConfiguration Configuration => Index.Configuration;
         public ISet<string> AllowedAggregationFields { get; } = new HashSet<string>();
 
         public virtual string CreateDocumentId(T document) {

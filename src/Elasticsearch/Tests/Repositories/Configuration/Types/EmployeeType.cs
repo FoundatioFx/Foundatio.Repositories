@@ -5,7 +5,7 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
     public class EmployeeType : IndexTypeBase<Employee> {
-        public EmployeeType(IIndex index) : base(index: index) { }
+        public EmployeeType(IIndex index) : base(index) { }
 
         public override PutMappingDescriptor<Employee> BuildMapping(PutMappingDescriptor<Employee> map) {
             return base.BuildMapping(map

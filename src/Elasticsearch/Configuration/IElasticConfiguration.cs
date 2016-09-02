@@ -20,6 +20,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         IMessageBus MessageBus { get; }
         ILoggerFactory LoggerFactory { get; }
         IReadOnlyCollection<IIndex> Indexes { get; }
+        IIndexType<T> GetIndexType<T>() where T : class;
+        IIndexType GetIndexType(Type type);
+        IIndex GetIndex(string name);
         Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true);
         Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null);
         Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null);
@@ -70,10 +73,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public IReadOnlyCollection<IIndex> Indexes => _frozenIndexes.Value;
 
         public IIndexType<T> GetIndexType<T>() where T : class {
+            return GetIndexType(typeof(T)) as IIndexType<T>;
+        }
+
+        public IIndexType GetIndexType(Type type) {
             foreach (var index in Indexes)
                 foreach (var indexType in index.IndexTypes)
-                    if (indexType.Type == typeof(T))
-                        return indexType as IIndexType<T>;
+                    if (indexType.Type == type)
+                        return indexType;
 
             return null;
         }

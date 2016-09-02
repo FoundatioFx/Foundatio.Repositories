@@ -29,7 +29,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Options {
             TimeSeriesType = indexType as ITimeSeriesIndexType;
             HasParent = ChildType != null;
             HasMultipleIndexes = TimeSeriesType != null;
-            ParentSupportsSoftDeletes = ChildType != null && typeof(ISupportSoftDeletes).IsAssignableFrom(ChildType.ParentType);
+            ParentSupportsSoftDeletes = ChildType != null && typeof(ISupportSoftDeletes).IsAssignableFrom(ChildType.GetParentIndexType().Type);
         }
 
         public IIndexType IndexType { get; }

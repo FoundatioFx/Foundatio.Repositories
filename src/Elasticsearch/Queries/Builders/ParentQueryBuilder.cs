@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Linq;
 using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Repositories.Queries;
 using Nest;
@@ -30,7 +29,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             if (parentQuery.ParentQuery == null && options != null && options.ParentSupportsSoftDeletes && hasIds == false) {
                 parentQuery.ParentQuery = new ParentQuery();
-                var parentType = options.ChildType.Index.IndexTypes.FirstOrDefault(i => i.Name == options.ChildType.ParentIndexTypeName);
+                var parentType = options.ChildType.GetParentIndexType();
                 if (parentType == null)
                     throw new ApplicationException("ParentIndexTypeName on child index type must match the name of the parent type.");
 
@@ -52,7 +51,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             ctx.Filter &= new HasParentFilter {
                 Query = parentContext.Query,
                 Filter = parentContext.Filter,
-                Type = options?.ChildType?.ParentIndexTypeName
+                Type = options?.ChildType?.GetParentIndexType().Name
             };
         }
     }

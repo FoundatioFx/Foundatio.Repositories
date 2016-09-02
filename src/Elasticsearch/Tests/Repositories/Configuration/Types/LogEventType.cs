@@ -4,7 +4,7 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
     public class LogEventType : TimeSeriesIndexType<LogEvent> {
-        public LogEventType(IIndex index) : base(index: index) { }
+        public LogEventType(IIndex index) : base(index) { }
 
         public override PutMappingDescriptor<LogEvent> BuildMapping(PutMappingDescriptor<LogEvent> map) {
             return map
