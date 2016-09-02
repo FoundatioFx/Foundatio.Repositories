@@ -132,6 +132,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             results = await GetByFilterAsync(null, "name:");
             Assert.Equal(0, results.Total);
+
+            // In this example we want to search a quoted string (E.G., GET /url).
+            results = await GetByFilterAsync(null, "name:\"Blake /profile.url\"");
+            Assert.Equal(0, results.Total);
         }
 
         /// <summary>
