@@ -216,18 +216,17 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual async Task UpdateAliasesAsync(IList<IndexInfo> indexes) {
             var aliasDescriptor = new AliasDescriptor();
-            var aliases = Aliases.Where(e => !String.Equals(e.Name, Name, StringComparison.InvariantCultureIgnoreCase)).ToList();
             foreach (var indexGroup in indexes.OrderBy(i => i.Version).GroupBy(i => i.DateUtc)) {
                 var indexExpirationDate = GetIndexExpirationDate(indexGroup.Key);
                 foreach (var index in indexGroup) {
                     if (SystemClock.UtcNow >= indexExpirationDate) {
-                        foreach (var alias in aliases)
+                        foreach (var alias in Aliases)
                             aliasDescriptor = aliasDescriptor.Remove(r => r.Index(index.Index).Alias(alias.Name));
 
                         continue;
                     }
 
-                    foreach (var alias in aliases) {
+                    foreach (var alias in Aliases) {
                         if (ShouldCreateAlias(indexGroup.Key, alias))
                             aliasDescriptor = aliasDescriptor.Add(r => r.Index(index.Index).Alias(alias.Name));
                         else
