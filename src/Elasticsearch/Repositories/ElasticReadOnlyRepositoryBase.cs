@@ -207,10 +207,10 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             string index = GetIndexById(id);
             if (!HasParent) {
-                var res = await _client.GetAsync<T>(id, index, ElasticType.Name).AnyContext();
-                _logger.Trace(() => res.GetRequest());
+                var response = await _client.GetAsync<T>(id, index, ElasticType.Name).AnyContext();
+                _logger.Trace(() => response.GetRequest());
 
-                hit = res.ToFindHit();
+                hit = response.ToFindHit();
             } else {
                 // we don't have the parent id so we have to do a query
                 hit = (ElasticFindHit<T>)await FindOneAsync(NewQuery().WithId(id)).AnyContext();

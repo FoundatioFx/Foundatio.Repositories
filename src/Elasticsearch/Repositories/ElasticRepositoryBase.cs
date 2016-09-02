@@ -142,7 +142,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 new JsonPatcher().Patch(ref target, patch);
 
                 var updateResponse = await _client.Raw.IndexPutAsync(response.Index, response.Type, id, target.ToString()).AnyContext();
-                
                 _logger.Trace(() => updateResponse.GetRequest());
 
                 if (!updateResponse.Success) {

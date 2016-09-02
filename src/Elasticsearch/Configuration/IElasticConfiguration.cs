@@ -51,16 +51,17 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected virtual IElasticClient CreateElasticClient() {
-            var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")))
-                .EnableTcpKeepAlive(30 * 1000, 2000);
-
+            var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")));
+            ConfigureSettings(settings);
             foreach (var index in Indexes)
                 index.ConfigureSettings(settings);
 
             return new ElasticClient(settings);
         }
 
-        protected virtual void ConfigureSettings(ConnectionSettings settings) { }
+        protected virtual void ConfigureSettings(ConnectionSettings settings) {
+            settings.EnableTcpKeepAlive(30 * 1000, 2000);
+        }
 
         protected virtual IConnectionPool CreateConnectionPool() {
             return null;
