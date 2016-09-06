@@ -335,7 +335,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _identityRepository.AddAsync(identities);
 
             await _client.RefreshAsync();
-            var results = await _identityRepository.GetAllAsync();
+            var results = await _identityRepository.GetAllAsync(paging: 100);
             Assert.NotNull(results);
             Assert.Equal(25, results.Total);
             Assert.Equal(25, results.Documents.Count);

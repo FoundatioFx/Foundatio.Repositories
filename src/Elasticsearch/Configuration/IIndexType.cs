@@ -16,6 +16,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         ISet<string> AllowedAggregationFields { get; }
         CreateIndexDescriptor Configure(CreateIndexDescriptor idx);
         void ConfigureSettings(ConnectionSettings settings);
+        bool IsAnalyzedField(string field);
+        bool IsNestedField(string field);
     }
 
     public interface IIndexType<T>: IIndexType where T : class {
@@ -69,6 +71,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public virtual void ConfigureSettings(ConnectionSettings settings) {}
+
+        public virtual bool IsAnalyzedField(string field) {
+            return false;
+        }
+
+        public virtual bool IsNestedField(string field) {
+            return false;
+        }
 
         public virtual PutMappingDescriptor<T> BuildMapping(PutMappingDescriptor<T> map) {
             return map.Type(Name).Properties(p => p.SetupDefaults());
