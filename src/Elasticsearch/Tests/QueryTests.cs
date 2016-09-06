@@ -174,7 +174,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
 
-            results = await GetByFilterAsync(null, "company_name:*");
+            results = await GetByFilterAsync(null, "company_name:e*");
             Assert.Equal(0, results.Total);
 
             await Assert.ThrowsAsync<FormatException>(async () => {

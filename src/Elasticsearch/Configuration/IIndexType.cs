@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
+using ElasticMacros;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Nest;
@@ -17,7 +20,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         CreateIndexDescriptor Configure(CreateIndexDescriptor idx);
         void ConfigureSettings(ConnectionSettings settings);
         bool IsAnalyzedField(string field);
+        IEnumerable<string> TransformTerm(string field, string term);
         bool IsNestedField(string field);
+        IElasticQueryBuilder QueryBuilder { get; }
     }
 
     public interface IIndexType<T>: IIndexType where T : class {
@@ -31,6 +36,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         protected static readonly bool HasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
         protected static readonly bool HasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
         private readonly string _typeName = typeof(T).Name.ToLower();
+        private readonly Lazy<IElasticQueryBuilder> _queryBuilder;
 
         public IndexTypeBase(IIndex index, string name = null) {
             if (index == null)
@@ -39,6 +45,21 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             Name = name ?? _typeName;
             Index = index;
             Type = typeof(T);
+            _queryBuilder = new Lazy<IElasticQueryBuilder>(CreateQueryBuilder);
+        }
+
+        protected virtual IElasticQueryBuilder CreateQueryBuilder() {
+            var builder = new ElasticQueryBuilder();
+
+            builder.RegisterDefaults();
+            builder.Register(new ElasticMacroSearchQueryBuilder(new ElasticMacroProcessor(c => c
+                .SetAnalyzedFieldFunc(IsAnalyzedField)
+                .SetNestedFieldFunc(IsNestedField)
+                .SetTransformTermFunc(TransformTerm))));
+
+            Configuration.ConfigureGlobalQueryBuilders(builder);
+
+            return builder;
         }
 
         public string Name { get; }
@@ -72,12 +93,18 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public virtual void ConfigureSettings(ConnectionSettings settings) {}
 
+        public virtual bool IsNestedField(string field) {
+            return false;
+        }
+
+        public IElasticQueryBuilder QueryBuilder => _queryBuilder.Value;
+
         public virtual bool IsAnalyzedField(string field) {
             return false;
         }
 
-        public virtual bool IsNestedField(string field) {
-            return false;
+        public virtual IEnumerable<string> TransformTerm(string field, string term) {
+            return term.Split(' ').Select(t => t.ToLower());
         }
 
         public virtual PutMappingDescriptor<T> BuildMapping(PutMappingDescriptor<T> map) {

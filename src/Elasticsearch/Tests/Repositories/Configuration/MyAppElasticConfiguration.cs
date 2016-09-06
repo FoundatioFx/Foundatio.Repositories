@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Configuration;
 using System.Linq;
-using ElasticMacros;
 using Elasticsearch.Net.ConnectionPool;
 using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Configuration;
@@ -32,6 +31,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
         protected override IConnectionPool CreateConnectionPool() {
             var connectionString = ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString;
             return new StaticConnectionPool(connectionString.Split(',').Select(url => new Uri(url)));
+        }
+
+        public override void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder) {
+            builder.Register<AgeQueryBuilder>();
+            builder.Register<CompanyQueryBuilder>();
         }
 
         public IdentityIndex Identities { get; }

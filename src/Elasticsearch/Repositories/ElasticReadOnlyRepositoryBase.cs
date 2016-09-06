@@ -31,7 +31,6 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         protected readonly ILogger _logger;
         protected readonly IElasticClient _client;
-        protected readonly IElasticQueryBuilder _queryBuilder = ElasticQueryBuilder.Default;
 
         private ScopedCacheClient _scopedCacheClient;
 
@@ -466,7 +465,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             search.IgnoreUnavailable();
 
-            _queryBuilder.ConfigureSearch(query, GetQueryOptions(), search);
+            ElasticType.QueryBuilder.ConfigureSearch(query, GetQueryOptions(), search);
 
             return search;
         }

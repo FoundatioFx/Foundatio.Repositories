@@ -21,6 +21,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                 ));
         }
 
+        public override bool IsAnalyzedField(string field) {
+            if (field == Fields.CompanyName)
+                return true;
+
+            return base.IsAnalyzedField(field);
+        }
+
         public class Fields {
             public const string Id = "id";
             public const string CompanyId = "company";
