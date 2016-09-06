@@ -112,7 +112,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     .Index(GetIndexById(id))
                     .Type(ElasticType.Name)
                     .Script(script)
-                    .RetryOnConflict(5)).AnyContext();
+                    .RetryOnConflict(10)).AnyContext();
 
                 _logger.Trace(() => response.GetRequest());
 
