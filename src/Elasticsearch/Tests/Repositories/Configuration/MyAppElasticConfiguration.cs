@@ -16,17 +16,17 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Inde
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
     public class MyAppElasticConfiguration : ElasticConfiguration {
         public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, IMessageBus messageBus, ILoggerFactory loggerFactory) : base(workItemQueue, cacheClient, messageBus, loggerFactory) {
-            // register our custom app query builders
-            ElasticQueryBuilder.Default.RegisterDefaults();
-            ElasticQueryBuilder.Default.Register(new ElasticMacroSearchQueryBuilder(new ElasticMacroProcessor(c => c.AddAnalyzedField("name"))));
-            ElasticQueryBuilder.Default.Register<AgeQueryBuilder>();
-            ElasticQueryBuilder.Default.Register<CompanyQueryBuilder>();
-
             AddIndex(Identities = new IdentityIndex(this));
             AddIndex(Employees = new EmployeeIndex(this));
             AddIndex(DailyLogEvents = new DailyLogEventIndex(this));
             AddIndex(MonthlyLogEvents = new MonthlyLogEventIndex(this));
             AddIndex(ParentChild = new ParentChildIndex(this));
+
+            // register our custom app query builders
+            ElasticQueryBuilder.Default.RegisterDefaults();
+            ElasticQueryBuilder.Default.Register(new ElasticMacroSearchQueryBuilder(new ElasticMacroProcessor(c => c.AddAnalyzedField("name"))));
+            ElasticQueryBuilder.Default.Register<AgeQueryBuilder>();
+            ElasticQueryBuilder.Default.Register<CompanyQueryBuilder>();
         }
 
         protected override IConnectionPool CreateConnectionPool() {

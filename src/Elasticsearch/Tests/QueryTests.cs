@@ -56,6 +56,22 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
         
         [Fact]
+        public async Task GetByMissingFieldAsync() {
+            var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: EmployeeGenerator.DefaultCompanyId));
+            var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyName: "Acme", name: "blake", companyId: EmployeeGenerator.DefaultCompanyId));
+
+            await _client.RefreshAsync();
+
+            // non analyzed field 
+            var results = await _employeeRepository.GetNumberOfEmployeesWithMissingCompanyName(employee1.CompanyId);
+            Assert.Equal(1, results.Total);
+
+            // analyzed field
+            results = await _employeeRepository.GetNumberOfEmployeesWithMissingName(employee1.CompanyId);
+            Assert.Equal(1, results.Total);
+        }
+        
+        [Fact]
         public async Task GetByCompanyWithIncludedFields() {
             var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"));
             Assert.NotNull(log?.Id);
