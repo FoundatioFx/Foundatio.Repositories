@@ -226,25 +226,24 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public async Task<IReadOnlyCollection<T>> GetByIdsAsync(IEnumerable<string> ids, bool useCache = false, TimeSpan? expiresIn = null) {
-            var hits = new List<T>();
             var idList = ids?.Distinct().Where(i => !String.IsNullOrEmpty(i)).ToList();
-
             if (idList == null || idList.Count == 0)
                 return EmptyList;
 
             if (!HasIdentity)
                 throw new NotSupportedException("Model type must implement IIdentity.");
 
+            var hits = new List<T>();
             if (IsCacheEnabled && useCache) {
                 var cacheHits = await Cache.GetAllAsync<T>(idList).AnyContext();
                 hits.AddRange(cacheHits.Where(kvp => kvp.Value.HasValue).Select(kvp => kvp.Value.Value));
 
                 var notCachedIds = idList.Except(hits.OfType<IIdentity>().Select(i => i.Id)).ToArray();
                 if (notCachedIds.Length == 0)
-                    return new List<T>(hits).AsReadOnly();
+                    return hits.AsReadOnly();
             }
 
-            var itemsToFind = new List<string>(idList.Except(hits.OfType<IIdentity>().Select(i => i.Id)));
+            var itemsToFind = idList.Except(hits.OfType<IIdentity>().Select(i => i.Id)).ToList();
             var multiGet = new MultiGetDescriptor();
 
             if (!HasParent) {
@@ -256,10 +255,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 foreach (var doc in multiGetResults.Documents) {
                     if (!doc.Found)
                         continue;
-
-                    if (!doc.Found)
-                        continue;
-
+                    
                     hits.Add(((IMultiGetHit<T>)doc).ToFindHit().Document);
                     itemsToFind.Remove(doc.Id);
                 }
@@ -267,7 +263,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             // fallback to doing a find
             if (itemsToFind.Count > 0 && (HasParent || HasMultipleIndexes))
-                hits.AddRange((await FindAsync(NewQuery().WithIds(itemsToFind)).AnyContext()).Hits.Where(h => h.Document != null).Cast<ElasticFindHit<T>>().Select(h => h.Document));
+                hits.AddRange((await FindAsync(NewQuery().WithIds(itemsToFind)).AnyContext()).Hits.Where(h => h.Document != null).Select(h => h.Document));
 
             if (IsCacheEnabled && useCache) {
                 foreach (var item in hits.OfType<IIdentity>())

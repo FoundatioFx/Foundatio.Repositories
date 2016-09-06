@@ -85,7 +85,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (ids.Length < docs.Count)
                 throw new ApplicationException("Id must be set when calling Save.");
 
-            var originalDocuments = ids.Length > 0 ? (await GetByIdsAsync(ids, useCache: true).AnyContext()) : new List<T>();
+            var originalDocuments = ids.Length > 0 ? (await GetByIdsAsync(ids, useCache: true).AnyContext()) : EmptyList;
             // TODO: What should we do if original document count differs from document count?
 
             await OnDocumentsSavingAsync(docs, originalDocuments).AnyContext();
@@ -632,7 +632,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public bool BatchNotifications { get; set; }
 
         private Task SendNotificationsAsync(ChangeType changeType) {
-            return SendNotificationsAsync(changeType, new List<T>());
+            return SendNotificationsAsync(changeType, EmptyList);
         }
 
         private Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<T> documents) {
