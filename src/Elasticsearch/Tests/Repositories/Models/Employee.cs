@@ -77,10 +77,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
         public static Employee Generate(string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
             return new Employee {
                 Id = id,
-                Name = name ?? RandomData.GetAlphaString(),
+                Name = name,
                 Age = age ?? RandomData.GetInt(18, 100),
                 YearsEmployed = yearsEmployed ?? RandomData.GetInt(0, 1),
-                CompanyName = companyName ?? RandomData.GetAlphaString(),
+                CompanyName = companyName,
                 CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
                 CreatedUtc = createdUtc.GetValueOrDefault(),
                 UpdatedUtc = updatedUtc.GetValueOrDefault()

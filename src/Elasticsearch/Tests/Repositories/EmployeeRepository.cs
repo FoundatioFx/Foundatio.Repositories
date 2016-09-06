@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Queries;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
@@ -29,6 +30,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         
         public Task<CountResult> GetCountByCompanyAsync(string company) {
             return CountAsync(new MyAppQuery().WithCompany(company).WithCacheKey(company));
+        }
+
+        public Task<CountResult> GetNumberOfEmployeesWithMissingCompanyName(string company) {
+            return CountAsync(new MyAppQuery().WithCompany(company).WithFilter($"_missing_:{EmployeeType.Fields.CompanyName}"));
+        }
+
+        public Task<CountResult> GetNumberOfEmployeesWithMissingName(string company) {
+            return CountAsync(new MyAppQuery().WithCompany(company).WithFilter($"_missing_:{EmployeeType.Fields.Name}"));
         }
 
         /// <summary>

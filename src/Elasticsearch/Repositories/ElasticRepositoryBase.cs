@@ -85,7 +85,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (ids.Length < docs.Count)
                 throw new ApplicationException("Id must be set when calling Save.");
 
-            var originalDocuments = ids.Length > 0 ? (await GetByIdsAsync(ids, useCache: true).AnyContext()) : new List<T>();
+            var originalDocuments = ids.Length > 0 ? (await GetByIdsAsync(ids, useCache: true).AnyContext()) : EmptyList;
             // TODO: What should we do if original document count differs from document count?
 
             await OnDocumentsSavingAsync(docs, originalDocuments).AnyContext();
@@ -107,13 +107,12 @@ namespace Foundatio.Repositories.Elasticsearch {
             var patch = update as PatchDocument;
 
             if (script != null) {
-                var response = await _client.UpdateAsync<T>(u => {
-                    u.Id(id);
-                    u.Index(GetIndexById(id));
-                    u.Type(ElasticType.Name);
-                    u.Script(script);
-                    return u;
-                }).AnyContext();
+                var response = await _client.UpdateAsync<T>(u => u
+                    .Id(id)
+                    .Index(GetIndexById(id))
+                    .Type(ElasticType.Name)
+                    .Script(script)
+                    .RetryOnConflict(long.MaxValue)).AnyContext();
 
                 _logger.Trace(() => response.GetRequest());
 
@@ -123,12 +122,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
                 }
             } else if (patch != null) {
-                var response = await _client.GetAsync<JObject>(u => {
-                    u.Id(id);
-                    u.Index(GetIndexById(id));
-                    u.Type(ElasticType.Name);
-                    return u;
-                }).AnyContext();
+                var response = await _client.GetAsync<JObject>(u => u
+                    .Id(id)
+                    .Index(GetIndexById(id))
+                    .Type(ElasticType.Name)).AnyContext();
 
                 _logger.Trace(() => response.GetRequest());
 
@@ -150,13 +147,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ApplicationException(message, updateResponse.OriginalException);
                 }
             } else {
-                var response = await _client.UpdateAsync<T, object>(u => {
-                    u.Id(id);
-                    u.Index(GetIndexById(id));
-                    u.Type(ElasticType.Name);
-                    u.Doc(update);
-                    return u;
-                }).AnyContext();
+                var response = await _client.UpdateAsync<T, object>(u => u
+                    .Id(id)
+                    .Index(GetIndexById(id))
+                    .Type(ElasticType.Name)
+                    .Doc(update)).AnyContext();
 
                 _logger.Trace(() => response.GetRequest());
 
@@ -246,14 +241,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                                 .Id(h.Id)
                                 .Index(h.Index)
                                 .Type(h.Type)
-                                .Version(h.Version.HasValue ? h.Version.ToString() : null)
-                                .Script(script));
+                                .Script(script)
+                                .RetriesOnConflict(int.MaxValue));
                         else
                             b
                                 .Update<T, object>(u => u.Id(h.Id)
                                 .Index(h.Index)
                                 .Type(h.Type)
-                                .Version(h.Version.HasValue ? h.Version.ToString() : null)
                                 .Doc(update));
                     }
 
@@ -632,7 +626,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public bool BatchNotifications { get; set; }
 
         private Task SendNotificationsAsync(ChangeType changeType) {
-            return SendNotificationsAsync(changeType, new List<T>());
+            return SendNotificationsAsync(changeType, EmptyList);
         }
 
         private Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<T> documents) {
