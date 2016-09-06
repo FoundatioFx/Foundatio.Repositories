@@ -9,7 +9,7 @@ namespace Foundatio.Repositories {
         Task InvalidateCacheAsync(IEnumerable<T> documents);
         Task<long> CountAsync();
         Task<T> GetByIdAsync(string id, bool useCache = false, TimeSpan? expiresIn = null);
-        Task<IFindResults<T>> GetByIdsAsync(IEnumerable<string> ids, bool useCache = false, TimeSpan? expiresIn = null);
+        Task<IReadOnlyCollection<T>> GetByIdsAsync(IEnumerable<string> ids, bool useCache = false, TimeSpan? expiresIn = null);
         Task<IFindResults<T>> GetAllAsync(SortingOptions sorting = null, PagingOptions paging = null);
         Task<bool> ExistsAsync(string id);
 

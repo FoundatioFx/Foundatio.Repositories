@@ -85,7 +85,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (ids.Length < docs.Count)
                 throw new ApplicationException("Id must be set when calling Save.");
 
-            var originalDocuments = ids.Length > 0 ? (await GetByIdsAsync(ids, useCache: true).AnyContext()).Documents : new List<T>();
+            var originalDocuments = ids.Length > 0 ? (await GetByIdsAsync(ids, useCache: true).AnyContext()) : new List<T>();
             // TODO: What should we do if original document count differs from document count?
 
             await OnDocumentsSavingAsync(docs, originalDocuments).AnyContext();

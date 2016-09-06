@@ -29,8 +29,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             employee = await _employeeRepository.AddAsync(employee);
             Assert.NotNull(employee?.Id);
             Assert.Equal(1, employee.Version);
-            
-            Assert.Equal(employee, await _employeeRepository.GetByIdAsync(employee.Id));
+
+            var employee2 = await _employeeRepository.GetByIdAsync(employee.Id);
+            Assert.Equal(employee, employee2);
         }
 
         [Fact]
@@ -55,10 +56,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, employee.Version);
 
             var result = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToList());
-            Assert.Equal(2, result.Documents.Count);
-            Assert.Equal(employees, result.Documents);
+            Assert.Equal(2, result.Count);
+            Assert.Equal(employees[0], result.First());
+            Assert.Equal(employees[1], result.Last());
         }
-        
+
         [Fact]
         public async Task Save() {
             var employee = EmployeeGenerator.Default;

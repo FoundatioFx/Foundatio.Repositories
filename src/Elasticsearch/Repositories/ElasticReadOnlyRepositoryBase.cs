@@ -27,6 +27,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected static readonly bool SupportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(typeof(T));
         protected static readonly bool HasVersion = typeof(IVersioned).IsAssignableFrom(typeof(T));
         protected static readonly string EntityTypeName = typeof(T).Name;
+        protected static readonly IReadOnlyCollection<T> EmptyList = new List<T>().AsReadOnly();
 
         protected readonly ILogger _logger;
         protected readonly IElasticClient _client;
@@ -196,13 +197,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (String.IsNullOrEmpty(id))
                 return null;
 
-            ElasticFindHit<T> hit = null;
+            T hit = null;
             if (IsCacheEnabled && useCache)
-                hit = await Cache.GetAsync<ElasticFindHit<T>>(id, null).AnyContext();
+                hit = await Cache.GetAsync<T>(id, null).AnyContext();
 
-            if (hit?.Document != null) {
+            if (hit != null) {
                 _logger.Trace(() => $"Cache hit: type={ElasticType.Name} key={id}");
-                return hit.Document;
+                return hit;
             }
 
             string index = GetIndexById(id);
@@ -210,38 +211,40 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var response = await _client.GetAsync<T>(id, index, ElasticType.Name).AnyContext();
                 _logger.Trace(() => response.GetRequest());
 
-                hit = response.ToFindHit();
+                hit = response.Found ? response.ToFindHit().Document : null;
             } else {
                 // we don't have the parent id so we have to do a query
-                hit = (ElasticFindHit<T>)await FindOneAsync(NewQuery().WithId(id)).AnyContext();
+                var findResult = await FindOneAsync(NewQuery().WithId(id)).AnyContext();
+                if (findResult != null)
+                    hit = findResult.Document;
             }
 
             if (IsCacheEnabled && hit != null && useCache)
                 await Cache.SetAsync(id, hit, expiresIn ?? TimeSpan.FromSeconds(RepositoryConstants.DEFAULT_CACHE_EXPIRATION_SECONDS)).AnyContext();
 
-            return hit?.Document;
+            return hit;
         }
 
-        public async Task<IFindResults<T>> GetByIdsAsync(IEnumerable<string> ids, bool useCache = false, TimeSpan? expiresIn = null) {
-            var hits = new List<ElasticFindHit<T>>();
+        public async Task<IReadOnlyCollection<T>> GetByIdsAsync(IEnumerable<string> ids, bool useCache = false, TimeSpan? expiresIn = null) {
+            var hits = new List<T>();
             var idList = ids?.Distinct().Where(i => !String.IsNullOrEmpty(i)).ToList();
 
             if (idList == null || idList.Count == 0)
-                return new ElasticFindResults<T>();
+                return EmptyList;
 
             if (!HasIdentity)
                 throw new NotSupportedException("Model type must implement IIdentity.");
 
             if (IsCacheEnabled && useCache) {
-                var cacheHits = await Cache.GetAllAsync<ElasticFindHit<T>>(idList).AnyContext();
+                var cacheHits = await Cache.GetAllAsync<T>(idList).AnyContext();
                 hits.AddRange(cacheHits.Where(kvp => kvp.Value.HasValue).Select(kvp => kvp.Value.Value));
 
-                var notCachedIds = idList.Except(hits.Select(i => i.Id)).ToArray();
+                var notCachedIds = idList.Except(hits.OfType<IIdentity>().Select(i => i.Id)).ToArray();
                 if (notCachedIds.Length == 0)
-                    return new ElasticFindResults<T>(hits, hits.Count);
+                    return new List<T>(hits).AsReadOnly();
             }
 
-            var itemsToFind = new List<string>(idList.Except(hits.Select(i => i.Id)));
+            var itemsToFind = new List<string>(idList.Except(hits.OfType<IIdentity>().Select(i => i.Id)));
             var multiGet = new MultiGetDescriptor();
 
             if (!HasParent) {
@@ -254,21 +257,24 @@ namespace Foundatio.Repositories.Elasticsearch {
                     if (!doc.Found)
                         continue;
 
-                    hits.Add(((IMultiGetHit<T>)doc).ToFindHit());
+                    if (!doc.Found)
+                        continue;
+
+                    hits.Add(((IMultiGetHit<T>)doc).ToFindHit().Document);
                     itemsToFind.Remove(doc.Id);
                 }
             }
 
             // fallback to doing a find
             if (itemsToFind.Count > 0 && (HasParent || HasMultipleIndexes))
-                hits.AddRange((await FindAsync(NewQuery().WithIds(itemsToFind)).AnyContext()).Hits.Cast<ElasticFindHit<T>>());
+                hits.AddRange((await FindAsync(NewQuery().WithIds(itemsToFind)).AnyContext()).Hits.Where(h => h.Document != null).Cast<ElasticFindHit<T>>().Select(h => h.Document));
 
             if (IsCacheEnabled && useCache) {
-                foreach (var item in hits)
+                foreach (var item in hits.OfType<IIdentity>())
                     await Cache.SetAsync(item.Id, item, expiresIn.HasValue ? SystemClock.UtcNow.Add(expiresIn.Value) : SystemClock.UtcNow.AddSeconds(ElasticType.DefaultCacheExpirationSeconds)).AnyContext();
             }
 
-            return new ElasticFindResults<T>(hits, hits.Count);
+            return new List<T>(hits).AsReadOnly();
         }
 
         public Task<IFindResults<T>> GetAllAsync(SortingOptions sorting = null, PagingOptions paging = null) {

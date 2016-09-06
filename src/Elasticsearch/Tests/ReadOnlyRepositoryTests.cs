@@ -151,19 +151,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, _cache.Misses);
 
             string cacheKey = _cache.Keys.Single();
-            var cacheValue = await _cache.GetAsync<ElasticFindHit<Identity>>(cacheKey);
+            var cacheValue = await _cache.GetAsync<Identity>(cacheKey);
             Assert.True(cacheValue.HasValue);
-            Assert.Equal(identity, cacheValue.Value.Document);
+            Assert.Equal(identity, cacheValue.Value);
             
             var results = await _identityRepository.GetByIdsAsync(new[] { identity.Id }, useCache: true);
-            Assert.Equal(1, results.Documents.Count);
-            Assert.Equal(identity, results.Documents.First());
+            Assert.Equal(1, results.Count);
+            Assert.Equal(identity, results.First());
             Assert.Equal(1, _cache.Count);
             Assert.Equal(2, _cache.Hits);
             Assert.Equal(1, _cache.Misses);
-            cacheValue = await _cache.GetAsync<ElasticFindHit<Identity>>(cacheKey);
+            cacheValue = await _cache.GetAsync<Identity>(cacheKey);
             Assert.True(cacheValue.HasValue);
-            Assert.Equal(identity, cacheValue.Value.Document);
+            Assert.Equal(identity, cacheValue.Value);
 
             await _identityRepository.InvalidateCacheAsync(identity);
             Assert.Equal(0, _cache.Count);
@@ -171,22 +171,22 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, _cache.Misses);
 
             results = await _identityRepository.GetByIdsAsync(new[] { identity.Id }, useCache: true);
-            Assert.Equal(1, results.Documents.Count);
-            Assert.Equal(identity, results.Documents.First());
+            Assert.Equal(1, results.Count);
+            Assert.Equal(identity, results.First());
             Assert.Equal(1, _cache.Count);
             Assert.Equal(3, _cache.Hits);
             Assert.Equal(2, _cache.Misses);
-            cacheValue = await _cache.GetAsync<ElasticFindHit<Identity>>(cacheKey);
+            cacheValue = await _cache.GetAsync<Identity>(cacheKey);
             Assert.True(cacheValue.HasValue);
-            Assert.Equal(identity, cacheValue.Value.Document);
+            Assert.Equal(identity, cacheValue.Value);
 
             Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, useCache: true));
             Assert.Equal(1, _cache.Count);
             Assert.Equal(5, _cache.Hits);
             Assert.Equal(2, _cache.Misses);
-            cacheValue = await _cache.GetAsync<ElasticFindHit<Identity>>(cacheKey);
+            cacheValue = await _cache.GetAsync<Identity>(cacheKey);
             Assert.True(cacheValue.HasValue);
-            Assert.Equal(identity, cacheValue.Value.Document);
+            Assert.Equal(identity, cacheValue.Value);
         }
 
         [Fact]
@@ -221,7 +221,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             
             var results = await _identityRepository.GetByIdsAsync(new[] { identity1.Id, identity2.Id });
             Assert.NotNull(results);
-            Assert.Equal(2, results.Total);
+            Assert.Equal(2, results.Count);
         }
         
         [Fact]
@@ -230,13 +230,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(identity?.Id);
 
             var result = await _identityRepository.GetByIdsAsync(null);
-            Assert.Equal(0, result.Total);
+            Assert.Equal(0, result.Count);
 
             result = await _identityRepository.GetByIdsAsync(new string[] { null });
-            Assert.Equal(0, result.Total);
+            Assert.Equal(0, result.Count);
 
             result = await _identityRepository.GetByIdsAsync(new [] { IdentityGenerator.Default.Id, identity.Id });
-            Assert.Equal(1, result.Total);
+            Assert.Equal(1, result.Count);
         }
         
         [Fact]
@@ -253,22 +253,22 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             
             var results = await _identityRepository.GetByIdsAsync(new[] { identity1.Id }, useCache: true);
             Assert.NotNull(results);
-            Assert.Equal(1, results.Total);
-            Assert.Equal(identity1, results.Documents.First());
+            Assert.Equal(1, results.Count);
+            Assert.Equal(identity1, results.First());
             Assert.Equal(1, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(1, _cache.Misses);
 
             results = await _identityRepository.GetByIdsAsync(new[] { identity1.Id, identity2.Id }, useCache: true);
             Assert.NotNull(results);
-            Assert.Equal(2, results.Total);
+            Assert.Equal(2, results.Count);
             Assert.Equal(2, _cache.Count);
             Assert.Equal(1, _cache.Hits);
             Assert.Equal(2, _cache.Misses);
             
             results = await _identityRepository.GetByIdsAsync(new[] { identity1.Id, identity2.Id }, useCache: true);
             Assert.NotNull(results);
-            Assert.Equal(2, results.Total);
+            Assert.Equal(2, results.Count);
             Assert.Equal(2, _cache.Count);
             Assert.Equal(3, _cache.Hits);
             Assert.Equal(2, _cache.Misses);
@@ -286,19 +286,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(identity?.Id);
 
             var result = await _identityRepository.GetByIdsAsync(null, useCache: true);
-            Assert.Equal(0, result.Total);
+            Assert.Equal(0, result.Count);
             Assert.Equal(0, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
             
             result = await _identityRepository.GetByIdsAsync(new string[] { null }, useCache: true);
-            Assert.Equal(0, result.Total);
+            Assert.Equal(0, result.Count);
             Assert.Equal(0, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
             
             result = await _identityRepository.GetByIdsAsync(new[] { IdentityGenerator.Default.Id, identity.Id }, useCache: true);
-            Assert.Equal(1, result.Total);
+            Assert.Equal(1, result.Count);
             Assert.Equal(1, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(2, _cache.Misses);
@@ -315,7 +315,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             
             var results = await _dailyRepository.GetByIdsAsync(new[] { yesterdayLog.Id, nowLog.Id });
             Assert.NotNull(results);
-            Assert.Equal(2, results.Total);
+            Assert.Equal(2, results.Count);
         }
 
         [Fact(Skip = "We need to look into how we want to handle this.")]
@@ -326,7 +326,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             
             var results = await _dailyRepository.GetByIdsAsync(new[] { yesterdayLog.Id });
             Assert.NotNull(results);
-            Assert.Equal(1, results.Total);
+            Assert.Equal(1, results.Count);
         }
         
         [Fact]

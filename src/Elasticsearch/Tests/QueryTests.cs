@@ -119,7 +119,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
 
-            results = await GetByFilterAsync(null, "name:\"Niemy* eric\"");
+            results = await GetByFilterAsync(null, "name:Niemy* name:eric");
             Assert.Equal(2, results.Total);
             Assert.True(results.Hits.All(h => h.Score < 1));
 
@@ -130,8 +130,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             results = await GetByFilterAsync(null, "name:*");
             Assert.Equal(2, results.Total);
 
-            results = await GetByFilterAsync(null, "name:");
-            Assert.Equal(0, results.Total);
+            await Assert.ThrowsAsync<FormatException>(async () => {
+                await GetByFilterAsync(null, "name:");
+            });
 
             // In this example we want to search a quoted string (E.G., GET /url).
             results = await GetByFilterAsync(null, "name:\"Blake /profile.url\"");
@@ -146,6 +147,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var employeeEric = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith", companyName: "Exceptionless Test Company"));
             var employeeBlake = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake Niemyjski", companyName: "Exceptionless"));
 
+            Log.SetLogLevel<EmployeeRepository>(LogLevel.Trace);
+
             await _client.RefreshAsync();
             var results = await GetByFilterAsync("company_name:Exceptionless");
             Assert.Equal(1, results.Total);
@@ -158,8 +161,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             results = await GetByFilterAsync(null, "company_name:*");
             Assert.Equal(0, results.Total);
 
-            results = await GetByFilterAsync(null, "company_name:");
-            Assert.Equal(0, results.Total);
+            await Assert.ThrowsAsync<FormatException>(async () => {
+                await GetByFilterAsync(null, "company_name:");
+            });
         }
 
         private Task<IFindResults<Employee>> GetByFilterAsync(string filter, string criteria = null) {

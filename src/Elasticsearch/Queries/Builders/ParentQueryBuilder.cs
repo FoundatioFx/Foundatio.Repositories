@@ -27,8 +27,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (options != null && options.HasParent == false)
                 return;
 
-            if (parentQuery.ParentQuery == null && options != null && options.ParentSupportsSoftDeletes && hasIds == false) {
-                parentQuery.ParentQuery = new ParentQuery();
+            if (options != null && options.ParentSupportsSoftDeletes && hasIds == false) {
+                if (parentQuery.ParentQuery == null)
+                    parentQuery.ParentQuery = new ParentQuery();
+
                 var parentType = options.ChildType.GetParentIndexType();
                 if (parentType == null)
                     throw new ApplicationException("ParentIndexTypeName on child index type must match the name of the parent type.");
@@ -41,7 +43,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (parentQuery.ParentQuery == null)
                 return;
 
-            var parentContext = new QueryBuilderContext<T>(parentQuery.ParentQuery, parentOptions);
+            var parentContext = new QueryBuilderContext<object>(parentQuery.ParentQuery, parentOptions);
             _queryBuilder.Build(parentContext);
 
             if ((parentContext.Query == null || parentContext.Query.IsConditionless)

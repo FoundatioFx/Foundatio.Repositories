@@ -107,20 +107,20 @@ namespace Foundatio.Repositories.Elasticsearch.Tests
 
             var results = await _dailyRepository.GetByIdsAsync(new[] { yesterdayLog.Id, nowLog.Id });
             Assert.NotNull(results);
-            Assert.Equal(2, results.Total);
+            Assert.Equal(2, results.Count);
 
             await _client.RefreshAsync();
-            results = await _dailyRepository.SearchAsync(new MyAppQuery().WithCompany("test"));
-            Assert.Equal(0, results.Documents.Count);
+            var searchResults = await _dailyRepository.SearchAsync(new MyAppQuery().WithCompany("test"));
+            Assert.Equal(0, searchResults.Total);
 
-            results = await _dailyRepository.SearchAsync(new MyAppQuery().WithCompany(yesterdayLog.CompanyId));
-            Assert.Equal(1, results.Documents.Count);
+            searchResults = await _dailyRepository.SearchAsync(new MyAppQuery().WithCompany(yesterdayLog.CompanyId));
+            Assert.Equal(1, searchResults.Total);
 
-            results = await _dailyRepository.SearchAsync(new MyAppQuery().WithCompany(yesterdayLog.CompanyId).WithDateRange(utcNow.Subtract(TimeSpan.FromHours(1)), utcNow, "created"));
-            Assert.Equal(0, results.Documents.Count);
+            searchResults = await _dailyRepository.SearchAsync(new MyAppQuery().WithCompany(yesterdayLog.CompanyId).WithDateRange(utcNow.Subtract(TimeSpan.FromHours(1)), utcNow, "created"));
+            Assert.Equal(0, searchResults.Total);
 
-            results = await _dailyRepository.SearchAsync(new ElasticQuery().WithId(yesterdayLog.Id));
-            Assert.Equal(1, results.Documents.Count);
+            searchResults = await _dailyRepository.SearchAsync(new ElasticQuery().WithId(yesterdayLog.Id));
+            Assert.Equal(1, searchResults.Total);
         }
 
         //[Fact]
