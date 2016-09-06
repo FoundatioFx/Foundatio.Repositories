@@ -151,8 +151,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     .Id(id)
                     .Index(GetIndexById(id))
                     .Type(ElasticType.Name)
-                    .Doc(update)
-                    .RetryOnConflict(long.MaxValue)).AnyContext();
+                    .Doc(update)).AnyContext();
 
                 _logger.Trace(() => response.GetRequest());
 
@@ -203,7 +202,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                                 .Document(target as JObject)
                                 .Id(h.Id)
                                 .Index(h.Index)
-                                .Type(h.Type));
+                                .Type(h.Type)
+                                .Version(h.Version.HasValue ? h.Version.ToString() : null));
                         }
 
                         return b;
@@ -248,8 +248,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                                 .Update<T, object>(u => u.Id(h.Id)
                                 .Index(h.Index)
                                 .Type(h.Type)
-                                .Doc(update)
-                                .RetriesOnConflict(int.MaxValue));
+                                .Doc(update));
                     }
 
                     return b;
