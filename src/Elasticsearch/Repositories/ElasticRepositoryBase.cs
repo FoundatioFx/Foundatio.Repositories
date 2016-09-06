@@ -112,7 +112,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     .Index(GetIndexById(id))
                     .Type(ElasticType.Name)
                     .Script(script)
-                    .RetryOnConflict(long.MaxValue)).AnyContext();
+                    .RetryOnConflict(10)).AnyContext();
 
                 _logger.Trace(() => response.GetRequest());
 
@@ -242,7 +242,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                                 .Index(h.Index)
                                 .Type(h.Type)
                                 .Script(script)
-                                .RetriesOnConflict(int.MaxValue));
+                                .RetriesOnConflict(10));
                         else
                             b
                                 .Update<T, object>(u => u.Id(h.Id)
