@@ -18,7 +18,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return;
 
             var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
-            if (opt?.AllowedAggregationFields?.Length > 0 && !FlattenedFields(aggregationQuery.AggregationFields).All(f => opt.AllowedAggregationFields.Contains(f.Field)))
+            if (opt?.AllowedAggregationFields?.Count > 0 && !FlattenedFields(aggregationQuery.AggregationFields).All(f => opt.AllowedAggregationFields.Contains(f.Field)))
                 throw new InvalidOperationException("All aggregation fields must be allowed.");
 
             ctx.Search.Aggregations(agg => GetAggregationDescriptor<T>(aggregationQuery.AggregationFields));

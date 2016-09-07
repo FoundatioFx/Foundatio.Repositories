@@ -472,9 +472,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         protected virtual IQueryOptions GetQueryOptions() {
             return new ElasticQueryOptions(ElasticType) {
-                SupportsSoftDeletes = SupportsSoftDeletes,
-                HasIdentity = HasIdentity,
-                DefaultExcludes = DefaultExcludes.ToArray()
+                DefaultExcludes = DefaultExcludes
             };
         }
 

@@ -35,9 +35,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 if (parentType == null)
                     throw new ApplicationException("ParentIndexTypeName on child index type must match the name of the parent type.");
 
-                parentOptions = new ElasticQueryOptions(parentType) {
-                    SupportsSoftDeletes = true
-                };
+                parentOptions = new ElasticQueryOptions(parentType);
             }
 
             if (parentQuery.ParentQuery == null)

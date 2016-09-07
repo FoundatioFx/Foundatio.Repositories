@@ -18,8 +18,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             }
 
             var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
-            if (opt?.DefaultExcludes?.Length > 0)
-                ctx.Search.Source(s => s.Exclude(opt.DefaultExcludes));
+            if (opt?.DefaultExcludes?.Count > 0)
+                ctx.Search.Source(s => s.Exclude(opt.DefaultExcludes.ToArray()));
         }
     }
 

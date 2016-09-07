@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Repositories.Queries;
@@ -17,9 +18,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                     .Order(sort.Order == Foundatio.Repositories.Models.SortOrder.Ascending ? SortOrder.Ascending : SortOrder.Descending));
         }
 
-        protected bool CanSortByField(string[] allowedFields, string field) {
+        protected bool CanSortByField(ISet<string> allowedFields, string field) {
             // allow all fields if an allowed list isn't specified
-            if (allowedFields == null || allowedFields.Length == 0)
+            if (allowedFields == null || allowedFields.Count == 0)
                 return true;
 
             return allowedFields.Contains(field, StringComparer.OrdinalIgnoreCase);
