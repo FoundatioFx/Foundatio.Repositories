@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using ElasticMacros;
+using Exceptionless.LuceneQueryParser.Visitor;
 using Foundatio.Repositories.Elasticsearch.Repositories.Queries.Builders;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
@@ -30,6 +32,26 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             _partBuilders.Add(builder);
         }
 
+        public bool Unregister<T>() where T : IElasticQueryBuilder {
+            int existing = _partBuilders.FindIndex(b => b.GetType() == typeof(T));
+            if (existing < 0)
+                return false;
+
+            _partBuilders.RemoveAt(existing);
+
+            return true;
+        }
+
+        public void UseMacros(Action<ElasticMacrosConfiguration> configure) {
+            Unregister<SearchQueryBuilder>();
+            Register(new ElasticMacroSearchQueryBuilder(new ElasticMacroProcessor(configure)));
+        }
+
+        public void UseAliases(AliasMap aliasMap) {
+            Unregister<SearchQueryBuilder>();
+            Register(new AliasedSearchQueryBuilder(aliasMap));
+        }
+
         public void RegisterDefaults() {
             Register<PagableQueryBuilder>();
             Register<SelectedFieldsQueryBuilder>();
@@ -40,7 +62,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             Register<IdentityQueryBuilder>();
             Register<SoftDeletesQueryBuilder>();
             Register<DateRangeQueryBuilder>();
-            Register(new ElasticMacroSearchQueryBuilder());
+            Register(new SearchQueryBuilder());
             Register(new SystemFilterQueryBuilder(this));
             Register<ElasticFilterQueryBuilder>();
             Register<FieldConditionsQueryBuilder>();

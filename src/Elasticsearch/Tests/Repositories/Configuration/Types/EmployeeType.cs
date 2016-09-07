@@ -1,5 +1,7 @@
+using Exceptionless.LuceneQueryParser.Visitor;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Nest;
 
@@ -21,11 +23,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                 ));
         }
 
-        public override bool IsAnalyzedField(string field) {
+        protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
+            builder.UseMacros(c => c
+                .SetAnalyzedFieldFunc(IsAnalyzedField));
+        }
+
+        public bool IsAnalyzedField(string field) {
             if (field == Fields.CompanyName || field == Fields.Name)
                 return true;
 
-            return base.IsAnalyzedField(field);
+            return false;
         }
 
         public class Fields {

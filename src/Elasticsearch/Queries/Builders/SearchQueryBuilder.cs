@@ -1,5 +1,7 @@
 ﻿using System;
 using ElasticMacros;
+using Exceptionless.LuceneQueryParser;
+using Exceptionless.LuceneQueryParser.Visitor;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
@@ -12,6 +14,45 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public enum SearchOperator {
         And,
         Or
+    }
+
+    public class AliasedSearchQueryBuilder : IElasticQueryBuilder {
+        private readonly AliasMap _aliasMap;
+        private readonly QueryParser _parser = new QueryParser();
+
+        public AliasedSearchQueryBuilder(AliasMap aliasMap) {
+            _aliasMap = aliasMap;
+        }
+
+        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            var searchQuery = ctx.GetSourceAs<ISearchQuery>();
+            if (searchQuery == null)
+                return;
+
+            if (!String.IsNullOrEmpty(searchQuery.Filter)) {
+                var result = _parser.Parse(searchQuery.Filter);
+                searchQuery.Filter = GenerateQueryVisitor.Run(AliasedQueryVisitor.Run(result, _aliasMap));
+
+                ctx.Filter &= new QueryFilter {
+                    Query = new QueryStringQuery {
+                        Query = searchQuery.Filter,
+                        DefaultOperator = Operator.And,
+                        AnalyzeWildcard = false
+                    }.ToContainer()
+                };
+            }
+
+            if (!String.IsNullOrEmpty(searchQuery.Criteria)) {
+                var result = _parser.Parse(searchQuery.Criteria);
+                searchQuery.Criteria = GenerateQueryVisitor.Run(AliasedQueryVisitor.Run(result, _aliasMap));
+
+                ctx.Query &= new QueryStringQuery {
+                    Query = searchQuery.Criteria,
+                    DefaultOperator = searchQuery.DefaultCriteriaOperator == SearchOperator.Or ? Operator.Or : Operator.And,
+                    AnalyzeWildcard = true
+                };
+            }
+        }
     }
 
     public class SearchQueryBuilder : IElasticQueryBuilder {
