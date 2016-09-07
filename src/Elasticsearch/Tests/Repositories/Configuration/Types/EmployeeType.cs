@@ -22,7 +22,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
         }
 
         public override bool IsAnalyzedField(string field) {
-            if (field == Fields.CompanyName)
+            if (field == Fields.CompanyName || field == Fields.Name)
                 return true;
 
             return base.IsAnalyzedField(field);
