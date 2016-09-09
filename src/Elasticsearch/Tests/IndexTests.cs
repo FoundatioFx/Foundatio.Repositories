@@ -743,7 +743,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 await index.ConfigureAsync();
                 var repository = new EmployeeRepository(index.Employee);
 
-                SystemClock.UtcNowFunc = () => DateTime.UtcNow.SubtractDays(15);
+                SystemClock.AdjustTime(TimeSpan.FromDays(15));
                 var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: SystemClock.UtcNow));
                 Assert.NotNull(employee?.Id);
                 await _client.RefreshAsync();
@@ -763,7 +763,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 aliases.Sort();
                 Assert.Equal(GetExpectedEmployeeDailyAliases(index, SystemClock.UtcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
-                SystemClock.UtcNowFunc = () => DateTime.UtcNow.SubtractDays(9);
+                SystemClock.AdjustTime(TimeSpan.FromDays(9));
                 index.MaxIndexAge = TimeSpan.FromDays(10);
                 await index.MaintainAsync();
                 existsResponse = await _client.IndexExistsAsync(index.GetIndex(employee.CreatedUtc));
