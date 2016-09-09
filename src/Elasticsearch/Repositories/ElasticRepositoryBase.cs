@@ -645,7 +645,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     await PublishMessageAsync(new EntityChanged {
                         ChangeType = changeType,
                         Id = id,
-                        Type = ElasticType.Name
+                        Type = EntityTypeName
                     }, delay).AnyContext();
                 }
 
@@ -654,7 +654,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             await PublishMessageAsync(new EntityChanged {
                 ChangeType = changeType,
-                Type = ElasticType.Name
+                Type = EntityTypeName
             }, delay).AnyContext();
         }
 
@@ -713,7 +713,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return PublishMessageAsync(new EntityChanged {
                 ChangeType = changeType,
                 Id = id,
-                Type = ElasticType.Name,
+                Type = EntityTypeName,
                 Data = new DataDictionary(data ?? new Dictionary<string, object>())
             }, delay);
         }
