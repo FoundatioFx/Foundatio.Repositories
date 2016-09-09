@@ -27,7 +27,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected static readonly bool SupportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(typeof(T));
         protected static readonly bool HasVersion = typeof(IVersioned).IsAssignableFrom(typeof(T));
         protected static readonly string EntityTypeName = typeof(T).Name;
-        protected static readonly IReadOnlyCollection<T> EmptyList = new List<T>().AsReadOnly();
+        protected static readonly IReadOnlyCollection<T> EmptyList = new List<T>(0).AsReadOnly();
 
         protected readonly ILogger _logger;
         protected readonly IElasticClient _client;
@@ -166,7 +166,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (!response.IsValid) {
                 if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
-                    return null;
+                    return new ElasticFindHit<T>();
 
                 string message = response.GetErrorMessage();
                 _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
@@ -269,7 +269,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     await Cache.SetAsync(item.Id, item, expiresIn.HasValue ? SystemClock.UtcNow.Add(expiresIn.Value) : SystemClock.UtcNow.AddSeconds(ElasticType.DefaultCacheExpirationSeconds)).AnyContext();
             }
 
-            return new List<T>(hits).AsReadOnly();
+            return hits.AsReadOnly();
         }
 
         public Task<IFindResults<T>> GetAllAsync(SortingOptions sorting = null, PagingOptions paging = null) {

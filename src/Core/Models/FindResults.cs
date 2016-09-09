@@ -6,8 +6,8 @@ using Foundatio.Repositories.Extensions;
 
 namespace Foundatio.Repositories.Models {
     public class FindResults<T> : CountResult, IGetNextPage<T>, IFindResults<T> where T : class {
-        protected static readonly IReadOnlyCollection<IFindHit<T>> EmptyFindHits = new List<IFindHit<T>>().AsReadOnly();
-        protected static readonly IReadOnlyCollection<T> EmptyDocuments = new List<T>().AsReadOnly();
+        protected static readonly IReadOnlyCollection<IFindHit<T>> EmptyFindHits = new List<IFindHit<T>>(0).AsReadOnly();
+        protected static readonly IReadOnlyCollection<T> EmptyDocuments = new List<T>(0).AsReadOnly();
 
         public FindResults(IEnumerable<IFindHit<T>> hits = null, long total = 0, IEnumerable<AggregationResult> aggregationResults = null, Func<IFindResults<T>, Task<IFindResults<T>>> getNextPage = null) {
             Hits = new List<IFindHit<T>>(hits ?? new IFindHit<T>[] {});
@@ -67,7 +67,7 @@ namespace Foundatio.Repositories.Models {
     }
 
     public class CountResult {
-        protected static readonly IReadOnlyCollection<AggregationResult> EmptyAggregations = new List<AggregationResult>().AsReadOnly();
+        protected static readonly IReadOnlyCollection<AggregationResult> EmptyAggregations = new List<AggregationResult>(0).AsReadOnly();
 
         public CountResult(long total = 0, IEnumerable<AggregationResult> aggregations = null) {
             Aggregations = aggregations == null ? EmptyAggregations : new List<AggregationResult>(aggregations);
