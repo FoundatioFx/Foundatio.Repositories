@@ -183,13 +183,8 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected async Task<long> PatchAllAsync<TQuery>(TQuery query, object update, bool sendNotifications = true, Action<IEnumerable<string>> updatedIdsCallback = null) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery {
-            string script = update as string;
-            var patch = update as PatchDocument;
-
-            if (patch == null && query.SelectedFields.Count == 0)
-                query.SelectedFields.Add("id");
-
             long affectedRecords = 0;
+            var patch = update as PatchDocument;
             if (patch != null) {
                 var patcher = new JsonPatcher();
                 affectedRecords += await BatchProcessAsAsync<TQuery, JObject>(query, async results => {
@@ -221,59 +216,68 @@ namespace Foundatio.Repositories.Elasticsearch {
                         return false;
                     }
 
+                    var updatedIds = results.Hits.Select(h => h.Id).ToList();
                     if (IsCacheEnabled)
-                        foreach (var d in results.Documents)
-                            await Cache.RemoveAsync(d["id"].Value<string>()).AnyContext();
+                        await Cache.RemoveAllAsync(updatedIds).AnyContext();
 
-                    updatedIdsCallback?.Invoke(results.Hits.Select(h => h.Id));
+                    try {
+                        updatedIdsCallback?.Invoke(updatedIds);
+                    } catch (Exception ex) {
+                        _logger.Error(ex, "Error calling updated ids callback.");
+                    }
 
                     return true;
                 }).AnyContext();
+            } else {
+                string script = update as string;
+                if (query.SelectedFields.Count == 0)
+                    query.SelectedFields.Add("id");
 
-                return affectedRecords;
-            }
-            
-            affectedRecords += await BatchProcessAsync(query, async results => {
-                var bulkResult = await _client.BulkAsync(b => {
-                    foreach (var h in results.Hits.Cast<IElasticFindHit<T>>()) {
-                        if (script != null)
-                            b.Update<T>(u => u
-                                .Id(h.Id)
-                                .Index(h.Index)
-                                .Type(h.Type)
-                                .Script(script)
-                                .RetriesOnConflict(10));
-                        else
-                            b
-                                .Update<T, object>(u => u.Id(h.Id)
-                                .Index(h.Index)
-                                .Type(h.Type)
-                                .Doc(update));
+                affectedRecords += await BatchProcessAsync(query, async results => {
+                    var bulkResult = await _client.BulkAsync(b => {
+                        foreach (var h in results.Hits.Cast<IElasticFindHit<T>>()) {
+                            if (script != null)
+                                b.Update<T>(u => u
+                                    .Id(h.Id)
+                                    .Index(h.Index)
+                                    .Type(h.Type)
+                                    .Script(script)
+                                    .RetriesOnConflict(10));
+                            else
+                                b.Update<T, object>(u => u.Id(h.Id)
+                                    .Index(h.Index)
+                                    .Type(h.Type)
+                                    .Doc(update));
+                        }
+
+                        return b;
+                    }).AnyContext();
+                    _logger.Trace(() => bulkResult.GetRequest());
+
+                    if (!bulkResult.IsValid) {
+                        _logger.Error()
+                            .Exception(bulkResult.ConnectionStatus.OriginalException)
+                            .Message($"Error occurred while bulk updating: {bulkResult.GetErrorMessage()}")
+                            .Property("Query", query)
+                            .Property("Update", update)
+                            .Write();
+
+                        return false;
                     }
 
-                    return b;
+                    var updatedIds = results.Hits.Select(h => h.Id).ToList();
+                    if (IsCacheEnabled)
+                        await Cache.RemoveAllAsync(updatedIds).AnyContext();
+
+                    try {
+                        updatedIdsCallback?.Invoke(updatedIds);
+                    } catch (Exception ex) {
+                        _logger.Error(ex, "Error calling updated ids callback.");
+                    }
+
+                    return true;
                 }).AnyContext();
-                _logger.Trace(() => bulkResult.GetRequest());
-
-                if (!bulkResult.IsValid) {
-                    _logger.Error()
-                        .Exception(bulkResult.ConnectionStatus.OriginalException)
-                        .Message($"Error occurred while bulk updating: {bulkResult.GetErrorMessage()}")
-                        .Property("Query", query)
-                        .Property("Update", update)
-                        .Write();
-
-                    return false;
-                }
-
-                if (IsCacheEnabled)
-                    foreach (var d in results.Documents)
-                        await Cache.RemoveAsync(d.Id).AnyContext();
-
-                updatedIdsCallback?.Invoke(results.Hits.Select(h => h.Id));
-
-                return true;
-            }).AnyContext();
+            }
 
             if (sendNotifications)
                 await SendQueryNotificationsAsync(ChangeType.Saved, query).AnyContext();
@@ -381,6 +385,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 elasticPagingOptions = ElasticPagingOptions.FromOptions(query.Options);
                 query.Options = elasticPagingOptions;
             }
+
             elasticPagingOptions.UseSnapshotPaging = true;
             if (!elasticPagingOptions.SnapshotLifetime.HasValue)
                 elasticPagingOptions.SnapshotLifetime = TimeSpan.FromMinutes(5);

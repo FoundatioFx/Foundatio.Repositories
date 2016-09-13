@@ -236,15 +236,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (IsCacheEnabled && useCache) {
                 var cacheHits = await Cache.GetAllAsync<T>(idList).AnyContext();
                 hits.AddRange(cacheHits.Where(kvp => kvp.Value.HasValue).Select(kvp => kvp.Value.Value));
-
-                var notCachedIds = idList.Except(hits.OfType<IIdentity>().Select(i => i.Id)).ToArray();
-                if (notCachedIds.Length == 0)
-                    return hits.AsReadOnly();
             }
 
             var itemsToFind = idList.Except(hits.OfType<IIdentity>().Select(i => i.Id)).ToList();
-            var multiGet = new MultiGetDescriptor();
+            if (itemsToFind.Count == 0)
+                return hits.AsReadOnly();
 
+            var multiGet = new MultiGetDescriptor();
             if (!HasParent) {
                 itemsToFind.ForEach(id => multiGet.Get<T>(f => f.Id(id).Index(GetIndexById(id)).Type(ElasticType.Name)));
 
