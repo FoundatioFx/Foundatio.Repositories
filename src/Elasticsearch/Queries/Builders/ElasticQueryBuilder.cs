@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
-using ElasticMacros;
-using Exceptionless.LuceneQueryParser.Visitor;
 using Foundatio.Repositories.Elasticsearch.Repositories.Queries.Builders;
+using Foundatio.Parsers.ElasticQueries;
+using Foundatio.Parsers.LuceneQueries.Visitors;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class ElasticQueryBuilder : IElasticQueryBuilder {
@@ -42,9 +42,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             return true;
         }
 
-        public void UseMacros(Action<ElasticMacrosConfiguration> configure) {
+        public void UseMacros(Action<ElasticQueryParserConfiguration> configure) {
             Unregister<SearchQueryBuilder>();
-            Register(new ElasticMacroSearchQueryBuilder(new ElasticMacroProcessor(configure)));
+            Register(new ElasticMacroSearchQueryBuilder(new ElasticQueryParser(configure)));
         }
 
         public void UseAliases(AliasMap aliasMap) {

@@ -1,7 +1,7 @@
 ﻿using System;
-using ElasticMacros;
-using Exceptionless.LuceneQueryParser;
-using Exceptionless.LuceneQueryParser.Visitor;
+using Foundatio.Parsers.ElasticQueries;
+using Foundatio.Parsers.LuceneQueries;
+using Foundatio.Parsers.LuceneQueries.Visitors;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
@@ -18,7 +18,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
     public class AliasedSearchQueryBuilder : IElasticQueryBuilder {
         private readonly AliasMap _aliasMap;
-        private readonly QueryParser _parser = new QueryParser();
+        private readonly LuceneQueryParser _parser = new LuceneQueryParser();
 
         public AliasedSearchQueryBuilder(AliasMap aliasMap) {
             _aliasMap = aliasMap;
@@ -80,10 +80,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public class ElasticMacroSearchQueryBuilder : IElasticQueryBuilder {
-        private readonly ElasticMacroProcessor _processor;
+        private readonly ElasticQueryParser _parser;
 
-        public ElasticMacroSearchQueryBuilder(ElasticMacroProcessor processor = null) {
-            _processor = processor ?? new ElasticMacroProcessor();
+        public ElasticMacroSearchQueryBuilder(ElasticQueryParser parser = null) {
+            _parser = parser ?? new ElasticQueryParser();
         }
 
         public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
@@ -93,10 +93,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             // TODO: Use default search operator and wildcards
             if (!String.IsNullOrEmpty(searchQuery.Criteria))
-                ctx.Query &= _processor.BuildQuery(searchQuery.Criteria);
+                ctx.Query &= _parser.BuildQuery(searchQuery.Criteria);
 
             if (!String.IsNullOrEmpty(searchQuery.Filter))
-                ctx.Filter &= _processor.BuildFilter(searchQuery.Filter);
+                ctx.Filter &= _parser.BuildFilter(searchQuery.Filter);
         }
     }
 
