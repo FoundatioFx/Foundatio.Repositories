@@ -735,6 +735,114 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task MaintainWillCreateAliasOnVersionedIndex() {
+            var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+            await version1Index.DeleteAsync();
+
+            var version2Index = new VersionedEmployeeIndex(_configuration, 2);
+            await version2Index.DeleteAsync();
+
+            // Indexes don't exist yet so the current version will be the index version.
+            Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+            Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+            using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
+                await version1Index.ConfigureAsync();
+                Assert.True(_client.IndexExists(version1Index.VersionedName).Exists);
+                Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+
+                using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult())) {
+                    await version2Index.ConfigureAsync();
+                    Assert.True(_client.IndexExists(version2Index.VersionedName).Exists);
+                    Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
+
+                    // delete all aliases
+                    await _configuration.Cache.RemoveAllAsync();
+                    await DeleteAliases(version1Index.VersionedName);
+                    await DeleteAliases(version2Index.VersionedName);
+
+                    await _client.RefreshAsync();
+                    var aliasesResponse = await _client.GetAliasesAsync(a => a.Indices(version1Index.VersionedName, version2Index.VersionedName));
+                    Assert.Equal(0, aliasesResponse.Indices.SelectMany(i => i.Value).Count());
+
+                    // Indexes exist but no alias so the oldest index version will be used.
+                    Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+                    Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
+
+                    await version1Index.MaintainAsync();
+                    aliasesResponse = await _client.GetAliasesAsync(a => a.Indices(version1Index.VersionedName));
+                    Assert.Equal(1, aliasesResponse.Indices.Single().Value.Count);
+                    aliasesResponse = await _client.GetAliasesAsync(a => a.Indices(version2Index.VersionedName));
+                    Assert.Equal(0, aliasesResponse.Indices.Single().Value.Count);
+
+                    Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+                    Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
+                }
+            }
+        }
+
+        [Fact]
+        public async Task MaintainWillCreateAliasesOnTimeSeriesIndex() {
+            SystemClock.SetFixedTime(SystemClock.UtcNow);
+            var version1Index = new DailyEmployeeIndex(_configuration, 1);
+            await version1Index.DeleteAsync();
+
+            var version2Index = new DailyEmployeeIndex(_configuration, 2);
+            await version2Index.DeleteAsync();
+
+            // Indexes don't exist yet so the current version will be the index version.
+            Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+            Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+            using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
+                await version1Index.ConfigureAsync();
+                await version1Index.EnsureIndexAsync(SystemClock.UtcNow);
+                Assert.True(_client.IndexExists(version1Index.GetVersionedIndex(SystemClock.UtcNow)).Exists);
+                Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+
+                // delete all aliases
+                await _configuration.Cache.RemoveAllAsync();
+                await DeleteAliases(version1Index.GetVersionedIndex(SystemClock.UtcNow));
+
+                using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult())) {
+                    await version2Index.ConfigureAsync();
+                    await version2Index.EnsureIndexAsync(SystemClock.UtcNow);
+                    Assert.True(_client.IndexExists(version2Index.GetVersionedIndex(SystemClock.UtcNow)).Exists);
+                    Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+                    // delete all aliases
+                    await _configuration.Cache.RemoveAllAsync();
+                    await DeleteAliases(version2Index.GetVersionedIndex(SystemClock.UtcNow));
+
+                    await _client.RefreshAsync();
+                    var aliasesResponse = await _client.GetAliasesAsync(a => a.Indices(version1Index.GetVersionedIndex(SystemClock.UtcNow), version2Index.GetVersionedIndex(SystemClock.UtcNow)));
+                    Assert.Equal(0, aliasesResponse.Indices.SelectMany(i => i.Value).Count());
+
+                    // Indexes exist but no alias so the oldest index version will be used.
+                    Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+                    Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
+
+                    await version1Index.MaintainAsync();
+                    aliasesResponse = await _client.GetAliasesAsync(a => a.Indices(version1Index.GetVersionedIndex(SystemClock.UtcNow)));
+                    Assert.Equal(version1Index.Aliases.Count + 1, aliasesResponse.Indices.Single().Value.Count);
+                    aliasesResponse = await _client.GetAliasesAsync(a => a.Indices(version2Index.GetVersionedIndex(SystemClock.UtcNow)));
+                    Assert.Equal(0, aliasesResponse.Indices.Single().Value.Count);
+
+                    Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+                    Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
+                }
+            }
+        }
+
+        private async Task DeleteAliases(string index) {
+            var aliasesResponse = await _client.GetAliasesAsync(a => a.Indices(index));
+            var aliases = aliasesResponse.Indices.Single(a => a.Key == index).Value.Select(a => a.Name).ToList();
+            foreach (var alias in aliases) {
+                await _client.DeleteAliasAsync(new DeleteAliasRequest(index, alias));
+            }
+        }
+
+        [Fact]
         public async Task MaintainDailyIndexes() {
             var index = new DailyEmployeeIndex(_configuration, 1);
             await index.DeleteAsync();

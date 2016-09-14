@@ -10,8 +10,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
     }
 
     public class MonthlyIndex: DailyIndex {
-        public MonthlyIndex(IElasticConfiguration elasticConfiguration, string name, int version = 1) 
-            : base(elasticConfiguration, name, version) {
+        public MonthlyIndex(IElasticConfiguration configuration, string name, int version = 1) 
+            : base(configuration, name, version) {
             DateFormat = "yyyy.MM";
         }
         

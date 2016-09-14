@@ -24,11 +24,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private readonly Lazy<IReadOnlyCollection<IndexAliasAge>> _frozenAliases;
         private readonly ICacheClient _aliasCache;
 
-        public DailyIndex(IElasticConfiguration elasticConfiguration, string name, int version = 1) 
-            : base(elasticConfiguration, name, version) {
+        public DailyIndex(IElasticConfiguration configuration, string name, int version = 1) 
+            : base(configuration, name, version) {
             AddAlias(Name);
             _frozenAliases = new Lazy<IReadOnlyCollection<IndexAliasAge>>(() => _aliases.AsReadOnly());
-            _aliasCache = new ScopedCacheClient(elasticConfiguration.Cache, "alias");
+            _aliasCache = new ScopedCacheClient(configuration.Cache, "alias");
         }
 
         // TODO: Should we make this non nullable and do validation in the setter.
@@ -206,15 +206,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public override async Task MaintainAsync() {
-            if (!MaxIndexAge.HasValue || MaxIndexAge <= TimeSpan.Zero)
-                return;
-
             var indexes = await GetIndexesAsync().AnyContext();
             if (indexes.Count == 0)
                 return;
 
             await UpdateAliasesAsync(indexes).AnyContext();
-            await DeleteOldIndexesAsync(indexes).AnyContext();
+
+            if (MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero)
+                await DeleteOldIndexesAsync(indexes).AnyContext();
         }
 
         protected virtual async Task UpdateAliasesAsync(IList<IndexInfo> indexes) {
@@ -224,8 +223,24 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var aliasDescriptor = new AliasDescriptor();
             foreach (var indexGroup in indexes.OrderBy(i => i.Version).GroupBy(i => i.DateUtc)) {
                 var indexExpirationDate = GetIndexExpirationDate(indexGroup.Key);
+
+                // Ensure the current version is always set.
+                if (SystemClock.UtcNow < indexExpirationDate) {
+                    var oldestIndex = indexGroup.First();
+                    if (oldestIndex.CurrentVersion < 0) {
+                        try {
+                            await CreateAliasAsync(oldestIndex.Index, GetIndex(indexGroup.Key)).AnyContext();
+                        } catch (Exception ex) {
+                            _logger.Error(ex, $"Error setting current index version. Will use oldest index version: {oldestIndex.Version}");
+                        }
+
+                        foreach (var indexInfo in indexGroup)
+                            indexInfo.CurrentVersion = oldestIndex.Version;
+                    }
+                }
+
                 foreach (var index in indexGroup) {
-                    if (SystemClock.UtcNow >= indexExpirationDate) {
+                    if (SystemClock.UtcNow >= indexExpirationDate || index.Version != index.CurrentVersion) {
                         foreach (var alias in Aliases)
                             aliasDescriptor = aliasDescriptor.Remove(r => r.Index(index.Index).Alias(alias.Name));
 
@@ -238,18 +253,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                         else
                             aliasDescriptor = aliasDescriptor.Remove(r => r.Index(index.Index).Alias(alias.Name));
                     }
-                }
-
-                if (SystemClock.UtcNow >= indexExpirationDate)
-                    continue;
-
-                var oldestIndex = indexGroup.First();
-                if (oldestIndex.CurrentVersion < 0) {
-                    try {
-                        await CreateAliasAsync(oldestIndex.Index, GetIndex(indexGroup.Key)).AnyContext();
-                        foreach (var indexInfo in indexGroup)
-                            indexInfo.CurrentVersion = oldestIndex.CurrentVersion;
-                    } catch (Exception) {}
                 }
             }
             

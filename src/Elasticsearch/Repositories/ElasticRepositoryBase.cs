@@ -349,11 +349,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             await OnDocumentsRemovedAsync(docs, sendNotification).AnyContext();
         }
 
-        public async Task RemoveAllAsync() {
+        public async Task<long> RemoveAllAsync(bool sendNotification = true) {
             if (IsCacheEnabled)
                 await Cache.RemoveAllAsync().AnyContext();
 
-            await RemoveAllAsync(NewQuery(), false).AnyContext();
+            return await RemoveAllAsync(NewQuery(), sendNotification).AnyContext();
         }
 
         protected List<string> FieldsRequiredForRemove { get; } = new List<string>();
@@ -367,6 +367,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     if (!query.SelectedFields.Contains(field))
                         query.SelectedFields.Add(field);
 
+                // TODO: What if you only want to send one notification?
                 return await BatchProcessAsync(query, async results => {
                     await RemoveAsync(results.Documents, sendNotifications).AnyContext();
                     return true;
@@ -391,7 +392,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
             }
 
-            if (affectedRecords > 0 && sendNotifications)
+            if (sendNotifications)
                 await SendQueryNotificationsAsync(ChangeType.Removed, query).AnyContext();
 
             return affectedRecords;
@@ -424,6 +425,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (results.Hits.Count == 0)
                     break;
 
+                // TODO: We need a generic way to do bulk operations and do exponential backoffs when we encounter on 429's (bulk queue is full). https://github.com/elastic/elasticsearch-net/pull/2162
                 if (await processAsync(results).AnyContext()) {
                     recordsProcessed += results.Documents.Count;
                     continue;
@@ -751,11 +753,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             }, delay);
         }
 
-        protected async Task PublishMessageAsync<TMessageType>(TMessageType message, TimeSpan? delay = null) where TMessageType : class {
+        protected Task PublishMessageAsync<TMessageType>(TMessageType message, TimeSpan? delay = null) where TMessageType : class {
             if (_messagePublisher == null)
-                return;
+                return Task.CompletedTask;
 
-            await _messagePublisher.PublishAsync(message, delay).AnyContext();
+            return _messagePublisher.PublishAsync(message, delay);
         }
     }
 }

@@ -36,7 +36,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return CountAsync(new MyAppQuery().WithCompany(company).WithCacheKey(company));
         }
 
-        public Task<long> IncrementValue(string[] ids, int value = 1) {
+        public Task<long> IncrementValueAsync(string[] ids, int value = 1) {
             string script = $"ctx._source.value += {value};";
             return PatchAllAsync(new MyAppQuery().WithIds(ids), script);
         }

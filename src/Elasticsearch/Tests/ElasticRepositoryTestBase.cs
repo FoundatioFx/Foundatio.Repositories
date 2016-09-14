@@ -32,7 +32,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         
         protected virtual async Task RemoveDataAsync(bool configureIndexes = true) {
             var minimumLevel = Log.MinimumLevel;
-            Log.MinimumLevel = LogLevel.Trace;
+            Log.MinimumLevel = LogLevel.Warning;
 
             await _workItemQueue.DeleteQueueAsync();
             await _configuration.DeleteIndexesAsync();

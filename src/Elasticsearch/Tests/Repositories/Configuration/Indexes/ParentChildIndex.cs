@@ -4,7 +4,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Type
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes {
     public sealed class ParentChildIndex : VersionedIndex {
-        public ParentChildIndex(IElasticConfiguration elasticConfiguration): base(elasticConfiguration, "parentchild", 1) {
+        public ParentChildIndex(IElasticConfiguration configuration): base(configuration, "parentchild", 1) {
             AddType(Parent = new ParentType(this));
             AddType(Child = new ChildType(this));
         }
