@@ -229,10 +229,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                     return true;
                 }).AnyContext();
             } else {
-                string script = update as string;
-                if (query.SelectedFields.Count == 0)
+                if (!query.SelectedFields.Contains("id"))
                     query.SelectedFields.Add("id");
 
+                string script = update as string;
                 affectedRecords += await BatchProcessAsync(query, async results => {
                     var bulkResult = await _client.BulkAsync(b => {
                         foreach (var h in results.Hits.Cast<IElasticFindHit<T>>()) {
@@ -279,7 +279,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }).AnyContext();
             }
 
-            if (sendNotifications)
+            if (affectedRecords > 0 && sendNotifications)
                 await SendQueryNotificationsAsync(ChangeType.Saved, query).AnyContext();
 
             return affectedRecords;
@@ -310,7 +310,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (docs.Count == 0)
                 return;
-            
+
             if (HasMultipleIndexes) {
                 foreach (var documentGroup in docs.GroupBy(TimeSeriesType.GetDocumentIndex))
                     await TimeSeriesType.EnsureIndexAsync(documentGroup.First()).AnyContext();
@@ -362,14 +362,39 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
-            foreach (var field in FieldsRequiredForRemove.Union(new[] { "id" }))
-                if (!query.SelectedFields.Contains(field))
-                    query.SelectedFields.Add(field);
+            if (IsCacheEnabled) {
+                foreach (var field in FieldsRequiredForRemove.Union(new[] { "id" }))
+                    if (!query.SelectedFields.Contains(field))
+                        query.SelectedFields.Add(field);
 
-            return await BatchProcessAsync(query, async results => {
-                await RemoveAsync(results.Documents, sendNotifications).AnyContext();
-                return true;
+                return await BatchProcessAsync(query, async results => {
+                    await RemoveAsync(results.Documents, sendNotifications).AnyContext();
+                    return true;
+                }).AnyContext();
+            }
+
+            // Delete by query if no caching options.
+            long affectedRecords = await CountAsync(query).AnyContext();
+            if (affectedRecords == 0)
+                return 0;
+
+            var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest {
+                Query = ElasticType.QueryBuilder.BuildQuery(query, GetQueryOptions(), new SearchDescriptor<T>()),
+                Indices =  new List<IndexNameMarker> { ElasticType.Index.Name },
+                Types = new List<TypeNameMarker> { ElasticType.Name }
             }).AnyContext();
+            _logger.Trace(() => response.GetRequest());
+
+            if (!response.IsValid) {
+                string message = response.GetErrorMessage();
+                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+            }
+
+            if (affectedRecords > 0 && sendNotifications)
+                await SendQueryNotificationsAsync(ChangeType.Removed, query).AnyContext();
+
+            return affectedRecords;
         }
 
         protected Task<long> BatchProcessAsync<TQuery>(TQuery query, Func<IFindResults<T>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery {
@@ -379,6 +404,9 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected async Task<long> BatchProcessAsAsync<TQuery, TResult>(TQuery query, Func<IFindResults<TResult>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery where TResult : class, new() {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
+
+            if (processAsync == null)
+                throw new ArgumentNullException(nameof(processAsync));
 
             var elasticPagingOptions = query.Options as ElasticPagingOptions;
             if (query.Options == null || elasticPagingOptions == null) {
@@ -669,7 +697,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var delay = TimeSpan.FromSeconds(1.5);
 
-            if (!documents.Any()) {
+            if (documents.Count == 0) {
                 await PublishChangeTypeMessageAsync(changeType, null, delay).AnyContext();
             } else if (BatchNotifications && documents.Count > 1) {
                 // TODO: This needs to support batch notifications
