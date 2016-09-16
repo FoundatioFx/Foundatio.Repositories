@@ -213,6 +213,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 hit = response.Found ? response.ToFindHit().Document : null;
             } else {
                 // we don't have the parent id so we have to do a query
+                // TODO: Ensure this is find one query is not cached.
                 var findResult = await FindOneAsync(NewQuery().WithId(id)).AnyContext();
                 if (findResult != null)
                     hit = findResult.Document;

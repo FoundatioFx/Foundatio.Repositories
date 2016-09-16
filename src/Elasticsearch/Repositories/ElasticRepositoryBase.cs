@@ -80,7 +80,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (docs.Count == 0)
                 return;
-            
+
             string[] ids = docs.Where(d => !String.IsNullOrEmpty(d.Id)).Select(d => d.Id).ToArray();
             if (ids.Length < docs.Count)
                 throw new ApplicationException("Id must be set when calling Save.");
@@ -103,6 +103,12 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public async Task PatchAsync(string id, object update, bool sendNotification = true) {
+            if (String.IsNullOrEmpty(id))
+                throw new ArgumentNullException(nameof(id));
+
+            if (update == null)
+                throw new ArgumentNullException(nameof(update));
+
             string script = update as string;
             var patch = update as PatchDocument;
 
@@ -169,20 +175,73 @@ namespace Foundatio.Repositories.Elasticsearch {
                 await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
         }
 
-        public async Task PatchAsync(IEnumerable<string> ids, object update, bool sendNotification = true) {
-            var idList = ids?.ToList() ?? new List<string>();
+        public async Task PatchAsync(IEnumerable<string> ids, object update, bool sendNotifications = true) {
+            if (ids == null)
+                throw new ArgumentNullException(nameof(ids));
+
+            if (update == null)
+                throw new ArgumentNullException(nameof(update));
+
+            var idList = ids.ToList();
             if (idList.Count == 0)
                 return;
 
             if (idList.Count == 1) {
-                await PatchAsync(idList[0], update, sendNotification).AnyContext();
+                await PatchAsync(idList[0], update, sendNotifications).AnyContext();
                 return;
             }
 
-            await PatchAllAsync(NewQuery().WithIds(idList), update, sendNotification).AnyContext();
+            var patch = update as PatchDocument;
+            if (patch != null) {
+                await PatchAllAsync(NewQuery().WithIds(idList), update, sendNotifications).AnyContext();
+                return;
+            }
+
+            var script = update as string;
+            var bulkResponse = await _client.BulkAsync(b => {
+                foreach (var id in idList) {
+                    if (script != null)
+                        b.Update<T>(u => u
+                            .Id(id)
+                            .Index(GetIndexById(id))
+                            .Type(ElasticType.Name)
+                            .Script(script)
+                            .RetriesOnConflict(10));
+                    else
+                        b.Update<T, object>(u => u
+                            .Id(id)
+                            .Index(GetIndexById(id))
+                            .Type(ElasticType.Name)
+                            .Doc(update));
+                }
+
+                return b;
+            }).AnyContext();
+            _logger.Trace(() => bulkResponse.GetRequest());
+
+            // TODO: Is there a better way to handle failures?
+            if (!bulkResponse.IsValid) {
+                string message = bulkResponse.GetErrorMessage();
+                _logger.Error().Exception(bulkResponse.ConnectionStatus.OriginalException).Message(message).Property("request", bulkResponse.GetRequest()).Write();
+                throw new ApplicationException(message, bulkResponse.ConnectionStatus.OriginalException);
+            }
+
+            // TODO: Find a better way to clear the cache.
+            if (IsCacheEnabled)
+                await Cache.RemoveAllAsync(idList).AnyContext();
+
+            if (sendNotifications)
+                foreach (var id in idList)
+                    await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
         }
 
         protected async Task<long> PatchAllAsync<TQuery>(TQuery query, object update, bool sendNotifications = true, Action<IEnumerable<string>> updatedIdsCallback = null) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery {
+            if (query == null)
+                throw new ArgumentNullException(nameof(query));
+
+            if (update == null)
+                throw new ArgumentNullException(nameof(update));
+
             long affectedRecords = 0;
             var patch = update as PatchDocument;
             if (patch != null) {

@@ -439,7 +439,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task PatchAll() {
+        public async Task ScriptPatchAll() {
             var utcNow = SystemClock.UtcNow;
             var logs = new List<LogEvent> {
                 LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),
@@ -448,24 +448,24 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             };
 
             await _dailyRepository.AddAsync(logs, addToCache: true);
-            await _client.RefreshAsync();
             Assert.Equal(5, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
-            
-            Assert.Equal(3, await _dailyRepository.IncrementValueAsync(logs.Select(l => l.Id).ToArray()));
+
             await _client.RefreshAsync();
+            Assert.Equal(3, await _dailyRepository.IncrementValueAsync(logs.Select(l => l.Id).ToArray()));
             Assert.Equal(2, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
 
+            await _client.RefreshAsync();
             var results = await _dailyRepository.GetAllByCompanyAsync("1");
             Assert.Equal(2, results.Documents.Count);
             foreach (var document in results.Documents) {
                 Assert.Equal("1", document.CompanyId);
                 Assert.Equal(1, document.Value);
             }
-            
+
             await _dailyRepository.SaveAsync(logs, addToCache: true);
             await _client.RefreshAsync();
 
