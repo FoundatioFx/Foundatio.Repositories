@@ -85,7 +85,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return await FindAsAsync<TResult>(query).AnyContext();
             };
 
-            string cacheSuffix = pagableQuery?.ShouldUseLimit() == true ? pagingOptions.Page?.ToString() ?? "1" : String.Empty;
+            string cacheSuffix = pagableQuery?.ShouldUseLimit() == true ? String.Concat(pagingOptions.Page?.ToString() ?? "1", ":", pagableQuery.GetLimit().ToString()) : String.Empty;
 
             ElasticFindResults<TResult> result;
             if (allowCaching) {
@@ -219,7 +219,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             if (IsCacheEnabled && hit != null && useCache)
-                await Cache.SetAsync(id, hit, expiresIn ?? TimeSpan.FromSeconds(RepositoryConstants.DEFAULT_CACHE_EXPIRATION_SECONDS)).AnyContext();
+                await Cache.SetAsync(id, hit, expiresIn ?? TimeSpan.FromSeconds(ElasticType.DefaultCacheExpirationSeconds)).AnyContext();
 
             return hit;
         }
@@ -271,10 +271,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public Task<IFindResults<T>> GetAllAsync(SortingOptions sorting = null, PagingOptions paging = null) {
-            var search = NewQuery()
-                .WithPaging(paging)
-                .WithSort(sorting);
-
+            var search = NewQuery().WithSort(sorting).WithPaging(paging);
             return FindAsync(search);
         }
 
@@ -505,7 +502,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             string cacheKey = cachePrefix != null ? cachePrefix + ":" + cachedQuery.CacheKey : cachedQuery.CacheKey;
             cacheKey = cacheSuffix != null ? cacheKey + ":" + cacheSuffix : cacheKey;
-            await Cache.SetAsync(cacheKey, result, cachedQuery.GetCacheExpirationDateUtc()).AnyContext();
+            await Cache.SetAsync(cacheKey, result, cachedQuery.GetCacheExpirationDateUtc() ?? SystemClock.UtcNow.AddSeconds(ElasticType.DefaultCacheExpirationSeconds)).AnyContext();
             _logger.Trace(() => $"Set cache: type={ElasticType.Name} key={cacheKey}");
         }
 

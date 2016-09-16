@@ -653,7 +653,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return;
 
             foreach (var document in documents)
-                await Cache.SetAsync(document.Id, document, expiresIn ?? TimeSpan.FromSeconds(RepositoryConstants.DEFAULT_CACHE_EXPIRATION_SECONDS)).AnyContext();
+                await Cache.SetAsync(document.Id, document, expiresIn ?? TimeSpan.FromSeconds(ElasticType.DefaultCacheExpirationSeconds)).AnyContext();
         }
 
         protected bool NotificationsEnabled { get; set; }
