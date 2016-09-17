@@ -58,7 +58,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             // don't use caching with snapshot paging.
             bool allowCaching = IsCacheEnabled && (elasticPagingOptions == null || elasticPagingOptions.UseSnapshotPaging == false);
 
-            await OnBeforeQueryAsync(query, typeof(TResult)).AnyContext();
+            await OnBeforeQueryAsync(query, typeof(FindResults<TResult>)).AnyContext();
 
             Func<FindResults<TResult>, Task<FindResults<TResult>>> getNextPageFunc = async r => {
                 var previousResults = r;
@@ -84,7 +84,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return await FindAsAsync<TResult>(query).AnyContext();
             };
 
-            string cacheSuffix = pagableQuery?.ShouldUseLimit() == true ? pagingOptions.Page?.ToString() ?? "1" : String.Empty;
+            string cacheSuffix = pagableQuery?.ShouldUseLimit() == true ? String.Concat(pagingOptions.Page?.ToString() ?? "1", ":", pagableQuery.GetLimit().ToString()) : String.Empty;
 
             FindResults<TResult> result;
             if (allowCaching) {
@@ -197,7 +197,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             T hit = null;
             if (IsCacheEnabled && useCache)
-                hit = await Cache.GetAsync<T>(id, null).AnyContext();
+                hit = await Cache.GetAsync<T>(id, default(T)).AnyContext();
 
             if (hit != null) {
                 _logger.Trace(() => $"Cache hit: type={ElasticType.Name} key={id}");
@@ -212,13 +212,14 @@ namespace Foundatio.Repositories.Elasticsearch {
                 hit = response.Found ? response.ToFindHit().Document : null;
             } else {
                 // we don't have the parent id so we have to do a query
+                // TODO: Ensure this is find one query is not cached.
                 var findResult = await FindOneAsync(NewQuery().WithId(id)).AnyContext();
                 if (findResult != null)
                     hit = findResult.Document;
             }
 
             if (IsCacheEnabled && hit != null && useCache)
-                await Cache.SetAsync(id, hit, expiresIn ?? TimeSpan.FromSeconds(RepositoryConstants.DEFAULT_CACHE_EXPIRATION_SECONDS)).AnyContext();
+                await Cache.SetAsync(id, hit, expiresIn ?? TimeSpan.FromSeconds(ElasticType.DefaultCacheExpirationSeconds)).AnyContext();
 
             return hit;
         }
@@ -504,7 +505,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             string cacheKey = cachePrefix != null ? cachePrefix + ":" + cachedQuery.CacheKey : cachedQuery.CacheKey;
             cacheKey = cacheSuffix != null ? cacheKey + ":" + cacheSuffix : cacheKey;
-            await Cache.SetAsync(cacheKey, result, cachedQuery.GetCacheExpirationDateUtc()).AnyContext();
+            await Cache.SetAsync(cacheKey, result, cachedQuery.GetCacheExpirationDateUtc() ?? SystemClock.UtcNow.AddSeconds(ElasticType.DefaultCacheExpirationSeconds)).AnyContext();
             _logger.Trace(() => $"Set cache: type={ElasticType.Name} key={cacheKey}");
         }
 

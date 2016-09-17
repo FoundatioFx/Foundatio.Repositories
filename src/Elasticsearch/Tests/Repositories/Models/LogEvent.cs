@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using Exceptionless;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Models;
@@ -68,6 +69,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
                 CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
                 CreatedUtc = createdUtc ?? RandomData.GetDateTime(SystemClock.UtcNow.StartOfMonth(), SystemClock.UtcNow)
             };
+        }
+        public static List<LogEvent> GenerateLogs(int count = 10) {
+            var results = new List<LogEvent>(count);
+            for (int index = 0; index < count; index++)
+                results.Add(Generate());
+
+            return results;
         }
     }
 }

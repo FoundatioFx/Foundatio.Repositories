@@ -25,7 +25,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
             return query;
         }
 
-        public static DateTime GetCacheExpirationDateUtc<T>(this T query) where T : ICachableQuery {
+        public static DateTime? GetCacheExpirationDateUtc<T>(this T query) where T : ICachableQuery {
             if (query.ExpiresAt.HasValue && query.ExpiresAt.Value < SystemClock.UtcNow)
                 throw new ArgumentException("ExpiresAt can't be in the past.");
 
@@ -35,7 +35,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
             if (query.ExpiresIn.HasValue)
                 return SystemClock.UtcNow.Add(query.ExpiresIn.Value);
 
-            return SystemClock.UtcNow.AddSeconds(RepositoryConstants.DEFAULT_CACHE_EXPIRATION_SECONDS);
+            return null;
         }
 
         public static bool ShouldUseCache<T>(this T query) where T : ICachableQuery => !String.IsNullOrEmpty(query.CacheKey);

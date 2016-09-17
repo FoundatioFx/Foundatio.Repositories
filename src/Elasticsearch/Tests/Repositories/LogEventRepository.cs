@@ -36,9 +36,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return CountAsync(new MyAppQuery().WithCompany(company).WithCacheKey(company));
         }
 
-        public Task<long> IncrementValue(string[] ids, int value = 1) {
+        public async Task<long> IncrementValueAsync(string[] ids, int value = 1) {
+            if (ids == null)
+                throw new ArgumentNullException(nameof(ids));
+
             string script = $"ctx._source.value += {value};";
-            return PatchAllAsync(new MyAppQuery().WithIds(ids), script);
+            if (ids.Length == 0)
+                return await PatchAllAsync(new Query(), script);
+
+            await PatchAsync(ids, script);
+            return ids.Length;
         }
 
         protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents) {

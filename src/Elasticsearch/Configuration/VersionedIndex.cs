@@ -13,8 +13,8 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class VersionedIndex : IndexBase, IMaintainableIndex {
-        public VersionedIndex(IElasticConfiguration elasticConfiguration, string name, int version = 1)
-            : base(elasticConfiguration, name) {
+        public VersionedIndex(IElasticConfiguration configuration, string name, int version = 1)
+            : base(configuration, name) {
             Version = version;
             VersionedName = String.Concat(Name, "-v", Version);
         }

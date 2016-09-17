@@ -18,11 +18,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private readonly List<IIndexType> _types = new List<IIndexType>();
         private readonly Lazy<IReadOnlyCollection<IIndexType>> _frozenTypes;
 
-        public IndexBase(IElasticConfiguration elasticConfiguration, string name) {
+        public IndexBase(IElasticConfiguration configuration, string name) {
             Name = name;
-            Configuration = elasticConfiguration;
-            _lockProvider = new CacheLockProvider(elasticConfiguration.Cache, elasticConfiguration.MessageBus, elasticConfiguration.LoggerFactory);
-            _logger = elasticConfiguration.LoggerFactory.CreateLogger(GetType());
+            Configuration = configuration;
+            _lockProvider = new CacheLockProvider(configuration.Cache, configuration.MessageBus, configuration.LoggerFactory);
+            _logger = configuration.LoggerFactory.CreateLogger(GetType());
             _frozenTypes = new Lazy<IReadOnlyCollection<IIndexType>>(() => _types.AsReadOnly());
         }
 

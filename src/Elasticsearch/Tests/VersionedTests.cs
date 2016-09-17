@@ -182,10 +182,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task CanUsePaging() {
             const int NUMBER_OF_EMPLOYEES = 1000;
             const int PAGE_SIZE = 100;
-            Log.MinimumLevel = LogLevel.Warning;
 
+            Log.MinimumLevel = LogLevel.Warning;
             var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
             await _employeeRepository.AddAsync(employees);
+            Log.MinimumLevel = LogLevel.Trace;
 
             await _client.RefreshAsync();
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
@@ -207,6 +208,45 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.False(results.HasMore);
             Assert.True(employees.All(e => viewedIds.Contains(e.Id)));
             Assert.Equal(NUMBER_OF_EMPLOYEES, pagedRecords);
+        }
+
+        [Fact]
+        public async Task CanUsePagingWithCaching() {
+            const int NUMBER_OF_EMPLOYEES = 100;
+            const int PAGE_SIZE = 50;
+
+            Log.MinimumLevel = LogLevel.Warning;
+            var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
+            await _employeeRepository.AddAsync(employees);
+            Log.MinimumLevel = LogLevel.Trace;
+
+            await _client.RefreshAsync();
+            Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
+
+            Assert.Equal(0, _cache.Count);
+            Assert.Equal(0, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            var results = await _employeeRepository.GetAllByCompanyAsync("1", PAGE_SIZE, useCache:true);
+            Assert.True(results.HasMore);
+            Assert.Equal(PAGE_SIZE, results.Documents.Count);
+            Assert.Equal(1, _cache.Count);
+            Assert.Equal(0, _cache.Hits);
+            Assert.Equal(2, _cache.Misses);
+            
+            results = await _employeeRepository.GetAllByCompanyAsync("1", PAGE_SIZE, useCache: true);
+            Assert.True(results.HasMore);
+            Assert.Equal(PAGE_SIZE, results.Documents.Count);
+            Assert.Equal(1, _cache.Count);
+            Assert.Equal(1, _cache.Hits);
+            Assert.Equal(3, _cache.Misses); // Supports soft deletes check increments misses.
+            
+            results = await _employeeRepository.GetAllByCompanyAsync("1", 20, useCache: true);
+            Assert.True(results.HasMore);
+            Assert.Equal(20, results.Documents.Count);
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(1, _cache.Hits);
+            Assert.Equal(5, _cache.Misses); // Supports soft deletes check increments misses.
         }
 
         [Fact]

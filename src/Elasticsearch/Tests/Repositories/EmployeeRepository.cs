@@ -24,10 +24,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return FindAsync(new MyAppQuery().WithAge(age));
         }
 
-        public Task<FindResults<Employee>> GetAllByCompanyAsync(string company, PagingOptions paging = null) {
-            return FindAsync(new MyAppQuery().WithCompany(company).WithPaging(paging));
+        public Task<FindResults<Employee>> GetAllByCompanyAsync(string company, PagingOptions paging = null, bool useCache = false) {
+            return FindAsync(new MyAppQuery().WithCompany(company).WithPaging(paging).WithCacheKey(useCache ? "by-company" : null));
         }
-        
+
         public Task<CountResult> GetCountByCompanyAsync(string company) {
             return CountAsync(new MyAppQuery().WithCompany(company).WithCacheKey(company));
         }

@@ -79,7 +79,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (docs.Count == 0)
                 return;
-            
+
             string[] ids = docs.Where(d => !String.IsNullOrEmpty(d.Id)).Select(d => d.Id).ToArray();
             if (ids.Length < docs.Count)
                 throw new ApplicationException("Id must be set when calling Save.");
@@ -102,6 +102,12 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public async Task PatchAsync(string id, object update, bool sendNotification = true) {
+            if (String.IsNullOrEmpty(id))
+                throw new ArgumentNullException(nameof(id));
+
+            if (update == null)
+                throw new ArgumentNullException(nameof(update));
+
             string script = update as string;
             var patch = update as PatchDocument;
 
@@ -168,20 +174,73 @@ namespace Foundatio.Repositories.Elasticsearch {
                 await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
         }
 
-        public async Task PatchAsync(IEnumerable<string> ids, object update, bool sendNotification = true) {
-            var idList = ids?.ToList() ?? new List<string>();
+        public async Task PatchAsync(IEnumerable<string> ids, object update, bool sendNotifications = true) {
+            if (ids == null)
+                throw new ArgumentNullException(nameof(ids));
+
+            if (update == null)
+                throw new ArgumentNullException(nameof(update));
+
+            var idList = ids.ToList();
             if (idList.Count == 0)
                 return;
 
             if (idList.Count == 1) {
-                await PatchAsync(idList[0], update, sendNotification).AnyContext();
+                await PatchAsync(idList[0], update, sendNotifications).AnyContext();
                 return;
             }
 
-            await PatchAllAsync(NewQuery().WithIds(idList), update, sendNotification).AnyContext();
+            var patch = update as PatchDocument;
+            if (patch != null) {
+                await PatchAllAsync(NewQuery().WithIds(idList), update, sendNotifications).AnyContext();
+                return;
+            }
+
+            var script = update as string;
+            var bulkResponse = await _client.BulkAsync(b => {
+                foreach (var id in idList) {
+                    if (script != null)
+                        b.Update<T>(u => u
+                            .Id(id)
+                            .Index(GetIndexById(id))
+                            .Type(ElasticType.Name)
+                            .Script(script)
+                            .RetriesOnConflict(10));
+                    else
+                        b.Update<T, object>(u => u
+                            .Id(id)
+                            .Index(GetIndexById(id))
+                            .Type(ElasticType.Name)
+                            .Doc(update));
+                }
+
+                return b;
+            }).AnyContext();
+            _logger.Trace(() => bulkResponse.GetRequest());
+
+            // TODO: Is there a better way to handle failures?
+            if (!bulkResponse.IsValid) {
+                string message = bulkResponse.GetErrorMessage();
+                _logger.Error().Exception(bulkResponse.ConnectionStatus.OriginalException).Message(message).Property("request", bulkResponse.GetRequest()).Write();
+                throw new ApplicationException(message, bulkResponse.ConnectionStatus.OriginalException);
+            }
+
+            // TODO: Find a better way to clear the cache.
+            if (IsCacheEnabled)
+                await Cache.RemoveAllAsync(idList).AnyContext();
+
+            if (sendNotifications)
+                foreach (var id in idList)
+                    await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
         }
 
         protected async Task<long> PatchAllAsync<TQuery>(TQuery query, object update, bool sendNotifications = true, Action<IEnumerable<string>> updatedIdsCallback = null) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery {
+            if (query == null)
+                throw new ArgumentNullException(nameof(query));
+
+            if (update == null)
+                throw new ArgumentNullException(nameof(update));
+
             long affectedRecords = 0;
             var patch = update as PatchDocument;
             if (patch != null) {
@@ -228,10 +287,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                     return true;
                 }).AnyContext();
             } else {
-                string script = update as string;
-                if (query.SelectedFields.Count == 0)
+                if (!query.SelectedFields.Contains("id"))
                     query.SelectedFields.Add("id");
 
+                string script = update as string;
                 affectedRecords += await BatchProcessAsync(query, async results => {
                     var bulkResult = await _client.BulkAsync(b => {
                         foreach (var h in results.Hits) {
@@ -278,7 +337,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }).AnyContext();
             }
 
-            if (sendNotifications)
+            if (affectedRecords > 0 && sendNotifications)
                 await SendQueryNotificationsAsync(ChangeType.Saved, query).AnyContext();
 
             return affectedRecords;
@@ -309,7 +368,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (docs.Count == 0)
                 return;
-            
+
             if (HasMultipleIndexes) {
                 foreach (var documentGroup in docs.GroupBy(TimeSeriesType.GetDocumentIndex))
                     await TimeSeriesType.EnsureIndexAsync(documentGroup.First()).AnyContext();
@@ -348,11 +407,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             await OnDocumentsRemovedAsync(docs, sendNotification).AnyContext();
         }
 
-        public async Task RemoveAllAsync() {
+        public async Task<long> RemoveAllAsync(bool sendNotification = true) {
             if (IsCacheEnabled)
                 await Cache.RemoveAllAsync().AnyContext();
 
-            await RemoveAllAsync(NewQuery(), false).AnyContext();
+            return await RemoveAllAsync(NewQuery(), sendNotification).AnyContext();
         }
 
         protected List<string> FieldsRequiredForRemove { get; } = new List<string>();
@@ -361,14 +420,40 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
-            foreach (var field in FieldsRequiredForRemove.Union(new[] { "id" }))
-                if (!query.SelectedFields.Contains(field))
-                    query.SelectedFields.Add(field);
+            if (IsCacheEnabled) {
+                foreach (var field in FieldsRequiredForRemove.Union(new[] { "id" }))
+                    if (!query.SelectedFields.Contains(field))
+                        query.SelectedFields.Add(field);
 
-            return await BatchProcessAsync(query, async results => {
-                await RemoveAsync(results.Documents, sendNotifications).AnyContext();
-                return true;
+                // TODO: What if you only want to send one notification?
+                return await BatchProcessAsync(query, async results => {
+                    await RemoveAsync(results.Documents, sendNotifications).AnyContext();
+                    return true;
+                }).AnyContext();
+            }
+
+            // Delete by query if no caching options.
+            long affectedRecords = await CountAsync(query).AnyContext();
+            if (affectedRecords == 0)
+                return 0;
+
+            var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest {
+                Query = ElasticType.QueryBuilder.BuildQuery(query, GetQueryOptions(), new SearchDescriptor<T>()),
+                Indices =  new List<IndexNameMarker> { ElasticType.Index.Name },
+                Types = new List<TypeNameMarker> { ElasticType.Name }
             }).AnyContext();
+            _logger.Trace(() => response.GetRequest());
+
+            if (!response.IsValid) {
+                string message = response.GetErrorMessage();
+                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+            }
+
+            if (sendNotifications)
+                await SendQueryNotificationsAsync(ChangeType.Removed, query).AnyContext();
+
+            return affectedRecords;
         }
 
         protected Task<long> BatchProcessAsync<TQuery>(TQuery query, Func<FindResults<T>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery {
@@ -378,6 +463,9 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected async Task<long> BatchProcessAsAsync<TQuery, TResult>(TQuery query, Func<FindResults<TResult>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery where TResult : class, new() {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
+
+            if (processAsync == null)
+                throw new ArgumentNullException(nameof(processAsync));
 
             var elasticPagingOptions = query.Options as ElasticPagingOptions;
             if (query.Options == null || elasticPagingOptions == null) {
@@ -395,6 +483,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (results.Hits.Count == 0)
                     break;
 
+                // TODO: We need a generic way to do bulk operations and do exponential backoffs when we encounter on 429's (bulk queue is full). https://github.com/elastic/elasticsearch-net/pull/2162
                 if (await processAsync(results).AnyContext()) {
                     recordsProcessed += results.Documents.Count;
                     continue;
@@ -622,7 +711,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return;
 
             foreach (var document in documents)
-                await Cache.SetAsync(document.Id, document, expiresIn ?? TimeSpan.FromSeconds(RepositoryConstants.DEFAULT_CACHE_EXPIRATION_SECONDS)).AnyContext();
+                await Cache.SetAsync(document.Id, document, expiresIn ?? TimeSpan.FromSeconds(ElasticType.DefaultCacheExpirationSeconds)).AnyContext();
         }
 
         protected bool NotificationsEnabled { get; set; }
@@ -668,7 +757,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var delay = TimeSpan.FromSeconds(1.5);
 
-            if (!documents.Any()) {
+            if (documents.Count == 0) {
                 await PublishChangeTypeMessageAsync(changeType, null, delay).AnyContext();
             } else if (BatchNotifications && documents.Count > 1) {
                 // TODO: This needs to support batch notifications
@@ -722,11 +811,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             }, delay);
         }
 
-        protected async Task PublishMessageAsync<TMessageType>(TMessageType message, TimeSpan? delay = null) where TMessageType : class {
+        protected Task PublishMessageAsync<TMessageType>(TMessageType message, TimeSpan? delay = null) where TMessageType : class {
             if (_messagePublisher == null)
-                return;
+                return Task.CompletedTask;
 
-            await _messagePublisher.PublishAsync(message, delay).AnyContext();
+            return _messagePublisher.PublishAsync(message, delay);
         }
     }
 }
