@@ -154,7 +154,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
-            var result = IsCacheEnabled ? await GetCachedQueryResultAsync<IFindHit<T>>(query).AnyContext() : null;
+            var result = IsCacheEnabled ? await GetCachedQueryResultAsync<ElasticFindHit<T>>(query).AnyContext() : null;
             if (result != null)
                 return result;
 
@@ -198,7 +198,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             T hit = null;
             if (IsCacheEnabled && useCache)
-                hit = await Cache.GetAsync<T>(id, null).AnyContext();
+                hit = await Cache.GetAsync<T>(id, default(T)).AnyContext();
 
             if (hit != null) {
                 _logger.Trace(() => $"Cache hit: type={ElasticType.Name} key={id}");
