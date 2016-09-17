@@ -23,15 +23,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
         }
 
         protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
-            builder.UseMacros(c => c
-                .SetAnalyzedFieldFunc(IsAnalyzedField));
-        }
-
-        public bool IsAnalyzedField(string field) {
-            if (field == Fields.CompanyName || field == Fields.Name)
-                return true;
-
-            return false;
+            builder.UseQueryParser(this);
         }
 
         public class Fields {

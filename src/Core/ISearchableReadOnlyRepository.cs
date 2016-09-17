@@ -17,7 +17,7 @@ namespace Foundatio.Repositories {
         /// <param name="paging">Paging options like page size and page number</param>
         /// <param name="aggregations"></param>
         /// <returns></returns>
-        Task<IFindResults<T>> SearchAsync(IRepositoryQuery systemFilter, string filter = null, string criteria = null, SortingOptions sorting = null, PagingOptions paging = null, AggregationOptions aggregations = null);
+        Task<FindResults<T>> SearchAsync(IRepositoryQuery systemFilter, string filter = null, string criteria = null, SortingOptions sorting = null, PagingOptions paging = null, AggregationOptions aggregations = null);
         Task<IReadOnlyCollection<AggregationResult>> GetAggregationsAsync(IRepositoryQuery systemFilter, AggregationOptions aggregations, string filter = null);
     }
 }

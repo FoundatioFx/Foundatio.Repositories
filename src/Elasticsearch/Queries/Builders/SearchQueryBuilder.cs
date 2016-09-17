@@ -79,10 +79,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
     }
 
-    public class ElasticMacroSearchQueryBuilder : IElasticQueryBuilder {
+    public class ParsedSearchQueryBuilder : IElasticQueryBuilder {
         private readonly ElasticQueryParser _parser;
 
-        public ElasticMacroSearchQueryBuilder(ElasticQueryParser parser = null) {
+        public ParsedSearchQueryBuilder(ElasticQueryParser parser = null) {
             _parser = parser ?? new ElasticQueryParser();
         }
 

@@ -182,7 +182,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             });
         }
 
-        private Task<IFindResults<Employee>> GetByFilterAsync(string filter, string criteria = null) {
+        private Task<FindResults<Employee>> GetByFilterAsync(string filter, string criteria = null) {
             Log.SetLogLevel<EmployeeRepository>(LogLevel.Trace);
             return _employeeRepository.SearchAsync(null, filter, criteria);
         }

@@ -11,7 +11,6 @@ using Foundatio.Messaging;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Models;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Foundatio.Repositories.Elasticsearch.Repositories;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.JsonPatch;
 using Foundatio.Repositories.Models;
@@ -189,15 +188,15 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var patcher = new JsonPatcher();
                 affectedRecords += await BatchProcessAsAsync<TQuery, JObject>(query, async results => {
                     var bulkResult = await _client.BulkAsync(b => {
-                        foreach (var h in results.Hits.Cast<IElasticFindHit<T>>()) {
+                        foreach (var h in results.Hits) {
                             var target = h.Document as JToken;
                             patcher.Patch(ref target, patch);
 
                             b.Index<JObject>(i => i
                                 .Document(target as JObject)
                                 .Id(h.Id)
-                                .Index(h.Index)
-                                .Type(h.Type)
+                                .Index(h.GetIndex())
+                                .Type(h.GetIndexType())
                                 .Version(h.Version.HasValue ? h.Version.ToString() : null));
                         }
 
@@ -235,18 +234,18 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 affectedRecords += await BatchProcessAsync(query, async results => {
                     var bulkResult = await _client.BulkAsync(b => {
-                        foreach (var h in results.Hits.Cast<IElasticFindHit<T>>()) {
+                        foreach (var h in results.Hits) {
                             if (script != null)
                                 b.Update<T>(u => u
                                     .Id(h.Id)
-                                    .Index(h.Index)
-                                    .Type(h.Type)
+                                    .Index(h.GetIndex())
+                                    .Type(h.GetIndexType())
                                     .Script(script)
                                     .RetriesOnConflict(10));
                             else
                                 b.Update<T, object>(u => u.Id(h.Id)
-                                    .Index(h.Index)
-                                    .Type(h.Type)
+                                    .Index(h.GetIndex())
+                                    .Type(h.GetIndexType())
                                     .Doc(update));
                         }
 
@@ -372,11 +371,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             }).AnyContext();
         }
 
-        protected Task<long> BatchProcessAsync<TQuery>(TQuery query, Func<IFindResults<T>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery {
+        protected Task<long> BatchProcessAsync<TQuery>(TQuery query, Func<FindResults<T>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery {
             return BatchProcessAsAsync(query, processAsync);
         }
 
-        protected async Task<long> BatchProcessAsAsync<TQuery, TResult>(TQuery query, Func<IFindResults<TResult>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery where TResult : class, new() {
+        protected async Task<long> BatchProcessAsAsync<TQuery, TResult>(TQuery query, Func<FindResults<TResult>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery where TResult : class, new() {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 

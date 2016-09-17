@@ -20,15 +20,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public DailyLogEventRepository(IIndexType<LogEvent> indexType) : base(indexType) {
         }
 
-        public Task<IFindResults<LogEvent>> GetByCompanyAsync(string company) {
+        public Task<FindResults<LogEvent>> GetByCompanyAsync(string company) {
             return FindAsync(new MyAppQuery().WithCompany(company));
         }
         
-        public Task<IFindResults<LogEvent>> GetPartialByCompanyAsync(string company) {
+        public Task<FindResults<LogEvent>> GetPartialByCompanyAsync(string company) {
             return FindAsync(new MyAppQuery().WithCompany(company).WithSelectedFields("id", "createdUtc"));
         }
 
-        public Task<IFindResults<LogEvent>> GetAllByCompanyAsync(string company) {
+        public Task<FindResults<LogEvent>> GetAllByCompanyAsync(string company) {
             return FindAsync(new MyAppQuery().WithCompany(company));
         }
 

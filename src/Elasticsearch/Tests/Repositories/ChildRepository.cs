@@ -10,7 +10,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories {
         public ChildRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.ParentChild.Child) {
         }
 
-        public Task<IFindResults<Child>> QueryAsync(IRepositoryQuery query) {
+        public Task<FindResults<Child>> QueryAsync(IRepositoryQuery query) {
             return FindAsync(query);
         }
     }

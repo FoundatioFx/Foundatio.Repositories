@@ -1,5 +1,5 @@
 ﻿using System;
-using Foundatio.Repositories.Elasticsearch.Repositories;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Models {
@@ -42,13 +42,9 @@ namespace Foundatio.Repositories.Elasticsearch.Models {
             return options;
         }
 
-        public static ElasticPagingOptions WithScrollId<T>(this ElasticPagingOptions options, IFindResults<T> results) where T : class {
-            var elasticResults = results as IElasticFindResults<T>;
-            if (elasticResults == null)
-                return options;
-
+        public static ElasticPagingOptions WithScrollId<T>(this ElasticPagingOptions options, FindResults<T> results) where T : class {
             options.UseSnapshotPaging = true;
-            options.ScrollId = elasticResults.ScrollId;
+            options.ScrollId = results.GetScrollId();
             return options;
         }
 

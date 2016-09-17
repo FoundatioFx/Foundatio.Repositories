@@ -20,11 +20,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public EmployeeRepository(IIndexType<Employee> employeeType) : base(employeeType) {
         }
         
-        public Task<IFindResults<Employee>> GetAllByAgeAsync(int age) {
+        public Task<FindResults<Employee>> GetAllByAgeAsync(int age) {
             return FindAsync(new MyAppQuery().WithAge(age));
         }
 
-        public Task<IFindResults<Employee>> GetAllByCompanyAsync(string company, PagingOptions paging = null) {
+        public Task<FindResults<Employee>> GetAllByCompanyAsync(string company, PagingOptions paging = null) {
             return FindAsync(new MyAppQuery().WithCompany(company).WithPaging(paging));
         }
         

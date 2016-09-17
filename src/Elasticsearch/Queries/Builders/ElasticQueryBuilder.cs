@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using Foundatio.Repositories.Elasticsearch.Repositories.Queries.Builders;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
+using Foundatio.Repositories.Elasticsearch.Configuration;
+using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class ElasticQueryBuilder : IElasticQueryBuilder {
@@ -42,9 +44,15 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             return true;
         }
 
-        public void UseMacros(Action<ElasticQueryParserConfiguration> configure) {
+        public void UseQueryParser(Action<ElasticQueryParserConfiguration> configure) {
             Unregister<SearchQueryBuilder>();
-            Register(new ElasticMacroSearchQueryBuilder(new ElasticQueryParser(configure)));
+            Register(new ParsedSearchQueryBuilder(new ElasticQueryParser(configure)));
+        }
+
+        public void UseQueryParser<T>(IndexTypeBase<T> indexType) where T : class {
+            UseQueryParser(c => c
+                .UseMappings<T>(indexType.BuildMapping,
+                () => indexType.Configuration.Client.GetMapping(new GetMappingRequest(indexType.Index.Name, indexType.Name)).Mapping));
         }
 
         public void UseAliases(AliasMap aliasMap) {

@@ -18,6 +18,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         protected readonly InMemoryCacheClient _cache;
         protected readonly IElasticClient _client;
         protected readonly IQueue<WorkItemData> _workItemQueue;
+        protected readonly InMemoryMessageBus _messgeBus;
 
         public ElasticRepositoryTestBase(ITestOutputHelper output) : base(output) {
             SystemClock.Reset();
@@ -25,8 +26,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Log.SetLogLevel<ScheduledTimer>(LogLevel.Warning);
 
             _cache = new InMemoryCacheClient(Log);
+            _messgeBus = new InMemoryMessageBus(Log);
             _workItemQueue = new InMemoryQueue<WorkItemData>(loggerFactory: Log);
-            _configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, new InMemoryMessageBus(), Log);
+            _configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messgeBus, Log);
             _client = _configuration.Client;
         }
         

@@ -5,60 +5,44 @@ using System.Threading.Tasks;
 using Foundatio.Repositories.Models;
 using Nest;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Foundatio.Repositories.Elasticsearch.Repositories;
+using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticIndexExtensions {
-        public static ElasticFindResults<T> ToFindResults<T>(this ISearchResponse<T> response, int? limit = null) where T : class, new() {
+        public static FindResults<T> ToFindResults<T>(this ISearchResponse<T> response, int? limit = null) where T : class, new() {
             var docs = response.Hits.Take(limit ?? Int32.MaxValue).ToFindHits().ToList();
-            return new ElasticFindResults<T>(docs, response.Total, response.ToAggregationResult(), response.ScrollId);
+            return new FindResults<T>(docs, response.Total, response.ToAggregationResult(), null, new DataDictionary { { ElasticDataKeys.ScrollId, response.ScrollId } });
         }
         
-        public static IEnumerable<ElasticFindHit<T>> ToFindHits<T>(this IEnumerable<IHit<T>> hits) where T : class {
+        public static IEnumerable<FindHit<T>> ToFindHits<T>(this IEnumerable<IHit<T>> hits) where T : class {
             return hits.Select(h => h.ToFindHit());
         }
 
-        public static ElasticFindHit<T> ToFindHit<T>(this IGetResponse<T> hit) where T : class {
+        public static FindHit<T> ToFindHit<T>(this IGetResponse<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
             if (versionedDoc != null && hit.Version != null)
                 versionedDoc.Version = Int64.Parse(hit.Version);
 
-            return new ElasticFindHit<T> {
-                Document = hit.Source,
-                Id = hit.Id,
-                Index = hit.Index,
-                Type = hit.Type,
-                Version = versionedDoc?.Version ?? null
-            };
+            var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index }, { ElasticDataKeys.IndexType, hit.Type } };
+            return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, data);
         }
 
-        public static ElasticFindHit<T> ToFindHit<T>(this IHit<T> hit) where T : class {
+        public static FindHit<T> ToFindHit<T>(this IHit<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
             if (versionedDoc != null && hit.Version != null)
                 versionedDoc.Version = Int64.Parse(hit.Version);
 
-            return new ElasticFindHit<T> {
-                Document = hit.Source,
-                Id = hit.Id,
-                Index = hit.Index,
-                Type = hit.Type,
-                Score = hit.Score,
-                Version = versionedDoc?.Version ?? null
-            };
+            var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index }, { ElasticDataKeys.IndexType, hit.Type } };
+            return new FindHit<T>(hit.Id, hit.Source, hit.Score, versionedDoc?.Version ?? null, data);
         }
 
-        public static ElasticFindHit<T> ToFindHit<T>(this IMultiGetHit<T> hit) where T : class {
+        public static FindHit<T> ToFindHit<T>(this IMultiGetHit<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
             if (versionedDoc != null && hit.Version != null)
                 versionedDoc.Version = Int64.Parse(hit.Version);
 
-            return new ElasticFindHit<T> {
-                Document = hit.Source,
-                Id = hit.Id,
-                Index = hit.Index,
-                Type = hit.Type,
-                Version = versionedDoc?.Version ?? null
-            };
+            var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index }, { ElasticDataKeys.IndexType, hit.Type } };
+            return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, data);
         }
 
         private static AggregationResult ToAggregationResult(this Bucket bucket, string field) {
