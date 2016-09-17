@@ -35,8 +35,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         // This should never be be negative or less than the index time period (day or a month)
         public TimeSpan? MaxIndexAge { get; set; }
 
+        public bool DiscardExpiredIndexes { get; set; } = true;
+
         protected virtual DateTime GetIndexExpirationDate(DateTime utcDate) {
-            return MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero ? utcDate.Date.Add(MaxIndexAge.Value) : DateTime.MaxValue;
+            return MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero ? utcDate.EndOfDay().Add(MaxIndexAge.Value) : DateTime.MaxValue;
         }
 
         public IReadOnlyCollection<IndexAliasAge> Aliases => _frozenAliases.Value;
@@ -212,7 +214,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             await UpdateAliasesAsync(indexes).AnyContext();
 
-            if (MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero)
+            if (DiscardExpiredIndexes && MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero)
                 await DeleteOldIndexesAsync(indexes).AnyContext();
         }
 

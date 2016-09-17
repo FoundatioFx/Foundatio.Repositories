@@ -36,13 +36,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected override DateTime GetIndexExpirationDate(DateTime utcDate) {
-            return MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero ? utcDate.StartOfMonth().Add(MaxIndexAge.Value) : DateTime.MaxValue;
+            return MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero ? utcDate.EndOfMonth().Add(MaxIndexAge.Value) : DateTime.MaxValue;
         }
 
         protected override bool ShouldCreateAlias(DateTime documentDateUtc, IndexAliasAge alias) {
             if (alias.MaxAge == TimeSpan.MaxValue)
                 return true;
-            
+
             return SystemClock.UtcNow.Date.SafeSubtract(alias.MaxAge) <= documentDateUtc.EndOfMonth();
         }
     }
