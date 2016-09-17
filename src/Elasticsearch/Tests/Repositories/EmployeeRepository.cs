@@ -27,7 +27,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public Task<IFindResults<Employee>> GetAllByCompanyAsync(string company, PagingOptions paging = null, bool useCache = false) {
             return FindAsync(new MyAppQuery().WithCompany(company).WithPaging(paging).WithCacheKey(useCache ? "by-company" : null));
         }
-        
+
         public Task<CountResult> GetCountByCompanyAsync(string company) {
             return CountAsync(new MyAppQuery().WithCompany(company).WithCacheKey(company));
         }

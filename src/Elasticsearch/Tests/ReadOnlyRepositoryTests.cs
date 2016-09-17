@@ -7,6 +7,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
+using Newtonsoft.Json;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -389,6 +390,18 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _client.RefreshAsync();
             Assert.True(await _identityRepository.ExistsAsync(identity.Id));
+        }
+
+        [Fact]
+        public async Task CanCacheFindResult() {
+            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20));
+
+            await _client.RefreshAsync();
+            var employees = await _employeeRepository.GetAllByAgeAsync(20);
+            Assert.Equal(1, employees.Documents.Count);
+
+            var json = JsonConvert.SerializeObject(employees);
+            Assert.NotNull(JsonConvert.DeserializeObject<ElasticFindResults<Employee>>(json));
         }
 
         [Fact]

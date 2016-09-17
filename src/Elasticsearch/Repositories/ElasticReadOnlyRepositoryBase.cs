@@ -59,7 +59,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             // don't use caching with snapshot paging.
             bool allowCaching = IsCacheEnabled && (elasticPagingOptions == null || elasticPagingOptions.UseSnapshotPaging == false);
 
-            await OnBeforeQueryAsync(query, typeof(TResult)).AnyContext();
+            await OnBeforeQueryAsync(query, typeof(IFindResults<TResult>)).AnyContext();
 
             Func<IFindResults<TResult>, Task<IFindResults<TResult>>> getNextPageFunc = async r => {
                 var previousResults = r as IElasticFindResults<TResult>;
