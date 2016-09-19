@@ -17,6 +17,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
         public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, IMessageBus messageBus, ILoggerFactory loggerFactory) : base(workItemQueue, cacheClient, messageBus, loggerFactory) {
             AddIndex(Identities = new IdentityIndex(this));
             AddIndex(Employees = new EmployeeIndex(this));
+            AddIndex(MonthlyEmployees = new MonthlyEmployeeIndex(this, 1));
             AddIndex(DailyLogEvents = new DailyLogEventIndex(this));
             AddIndex(MonthlyLogEvents = new MonthlyLogEventIndex(this));
             AddIndex(ParentChild = new ParentChildIndex(this));
@@ -34,6 +35,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
 
         public IdentityIndex Identities { get; }
         public EmployeeIndex Employees { get; }
+        public MonthlyEmployeeIndex MonthlyEmployees { get; }
         public DailyLogEventIndex DailyLogEvents { get; }
         public MonthlyLogEventIndex MonthlyLogEvents { get; }
         public ParentChildIndex ParentChild { get; }

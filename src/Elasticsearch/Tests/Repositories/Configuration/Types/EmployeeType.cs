@@ -88,7 +88,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
             public const string Age = "age";
         }
     }
-    
+
     public class MonthlyEmployeeType : MonthlyIndexType<Employee> {
         public MonthlyEmployeeType(IIndex index) : base(index: index) { }
 

@@ -123,7 +123,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }).AnyContext();
 
             if (!await AliasExistsAsync(alias).AnyContext())
-                throw new ApplicationException($"Unable to create alias {alias} for index {index}");
+                throw new ApplicationException($"Unable to create alias {alias} for index {index}.");
 
             await _aliasCache.AddAsync(alias, alias, expires).AnyContext();
         }
@@ -257,11 +257,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                     }
                 }
             }
-            
+
             var response = await Configuration.Client.AliasAsync(aliasDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
+                if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
+                    return;
+
                 string message = $"Error updating aliases: {response.GetErrorMessage()}";
                 _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
                 throw new ApplicationException(message, response.ConnectionStatus.OriginalException);

@@ -961,6 +961,75 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             }
         }
 
+        [Fact]
+        public async Task MaintainOnlyOldIndexes() {
+            SystemClock.SetFixedTime(SystemClock.UtcNow.EndOfYear());
+
+            var index = new MonthlyEmployeeIndex(_configuration, 1);
+            index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.SubtractMonths(12).StartOfMonth();
+
+            await index.EnsureIndexAsync(SystemClock.UtcNow.SubtractMonths(12));
+            var existsResponse = await _client.IndexExistsAsync(index.GetIndex(SystemClock.UtcNow.SubtractMonths(12)));
+            _logger.Trace(() => existsResponse.GetRequest());
+            Assert.True(existsResponse.IsValid);
+            Assert.True(existsResponse.Exists);
+
+            index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.StartOfMonth();
+
+            await index.MaintainAsync();
+            existsResponse = await _client.IndexExistsAsync(index.GetIndex(SystemClock.UtcNow.SubtractMonths(12)));
+            _logger.Trace(() => existsResponse.GetRequest());
+            Assert.True(existsResponse.IsValid);
+            Assert.False(existsResponse.Exists);
+        }
+        
+        [Fact]
+        public async Task MaintainOnlyOldIndexesWithNoExistingAliases() {
+            SystemClock.SetFixedTime(SystemClock.UtcNow.EndOfYear());
+
+            var index = new MonthlyEmployeeIndex(_configuration, 1);
+            index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.SubtractMonths(12).StartOfMonth();
+
+            await index.EnsureIndexAsync(SystemClock.UtcNow.SubtractMonths(12));
+            var existsResponse = await _client.IndexExistsAsync(index.GetIndex(SystemClock.UtcNow.SubtractMonths(12)));
+            _logger.Trace(() => existsResponse.GetRequest());
+            Assert.True(existsResponse.IsValid);
+            Assert.True(existsResponse.Exists);
+
+            index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.StartOfMonth();
+            await DeleteAliases(index.GetVersionedIndex(SystemClock.UtcNow.SubtractMonths(12)));
+
+            await index.MaintainAsync();
+            existsResponse = await _client.IndexExistsAsync(index.GetIndex(SystemClock.UtcNow.SubtractMonths(12)));
+            _logger.Trace(() => existsResponse.GetRequest());
+            Assert.True(existsResponse.IsValid);
+            Assert.False(existsResponse.Exists);
+        }
+        
+        [Fact]
+        public async Task MaintainOnlyOldIndexesWithPartialAliases() {
+            SystemClock.SetFixedTime(SystemClock.UtcNow.EndOfYear());
+
+            var index = new MonthlyEmployeeIndex(_configuration, 1);
+            index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.SubtractMonths(12).StartOfMonth();
+
+            await index.EnsureIndexAsync(SystemClock.UtcNow.SubtractMonths(11));
+            await index.EnsureIndexAsync(SystemClock.UtcNow.SubtractMonths(12));
+            var existsResponse = await _client.IndexExistsAsync(index.GetIndex(SystemClock.UtcNow.SubtractMonths(12)));
+            _logger.Trace(() => existsResponse.GetRequest());
+            Assert.True(existsResponse.IsValid);
+            Assert.True(existsResponse.Exists);
+
+            index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.StartOfMonth();
+            await DeleteAliases(index.GetVersionedIndex(SystemClock.UtcNow.SubtractMonths(12)));
+
+            await index.MaintainAsync();
+            existsResponse = await _client.IndexExistsAsync(index.GetIndex(SystemClock.UtcNow.SubtractMonths(12)));
+            _logger.Trace(() => existsResponse.GetRequest());
+            Assert.True(existsResponse.IsValid);
+            Assert.False(existsResponse.Exists);
+        }
+
         [Theory]
         [MemberData("AliasesDatesToCheck")]
         public async Task DailyAliasMaxAge(DateTime utcNow) {
