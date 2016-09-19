@@ -56,7 +56,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             bool useSnapshotPaging = elasticPagingOptions?.UseSnapshotPaging ?? false;
 
             // don't use caching with snapshot paging.
-            bool allowCaching = IsCacheEnabled && (elasticPagingOptions == null || elasticPagingOptions.UseSnapshotPaging == false);
+            bool allowCaching = IsCacheEnabled && useSnapshotPaging == false;
 
             await OnBeforeQueryAsync(query, typeof(FindResults<TResult>)).AnyContext();
 
@@ -115,6 +115,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             if (useSnapshotPaging) {
+                // The response might have returned 0 search results.
+                if (response?.Total == 0)
+                    return response.ToFindResults();
+
                 var scrollResponse = await _client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), response?.ScrollId ?? elasticPagingOptions?.ScrollId).AnyContext();
                 _logger.Trace(() => scrollResponse.GetRequest());
 
