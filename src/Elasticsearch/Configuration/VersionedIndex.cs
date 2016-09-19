@@ -97,8 +97,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Cache, _logger);
             await reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync).AnyContext();
         }
-        
-        public virtual async Task MaintainAsync() {
+
+        public virtual async Task MaintainAsync(bool includeOptionalTasks = true) {
             if (await AliasExistsAsync(Name).AnyContext())
                 return;
 

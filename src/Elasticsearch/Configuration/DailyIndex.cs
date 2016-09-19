@@ -207,14 +207,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
         }
 
-        public override async Task MaintainAsync() {
+        public override async Task MaintainAsync(bool includeOptionalTasks = true) {
             var indexes = await GetIndexesAsync().AnyContext();
             if (indexes.Count == 0)
                 return;
 
             await UpdateAliasesAsync(indexes).AnyContext();
 
-            if (DiscardExpiredIndexes && MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero)
+            if (includeOptionalTasks && DiscardExpiredIndexes && MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero)
                 await DeleteOldIndexesAsync(indexes).AnyContext();
         }
 

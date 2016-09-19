@@ -113,7 +113,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 await idx.ConfigureAsync().AnyContext();
                 var maintainableIndex = idx as IMaintainableIndex;
                 if (maintainableIndex != null)
-                    await maintainableIndex.MaintainAsync().AnyContext();
+                    await maintainableIndex.MaintainAsync(includeOptionalTasks: false).AnyContext();
 
                 if (!beginReindexingOutdated)
                     continue;

@@ -15,7 +15,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
     }
 
     public interface IMaintainableIndex {
-        Task MaintainAsync();
+        Task MaintainAsync(bool includeOptionalTasks = true);
     }
 
     public interface ITimeSeriesIndex : IIndex, IMaintainableIndex {
