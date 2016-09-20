@@ -799,7 +799,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, T document, IDictionary<string, object> data = null, TimeSpan? delay = null) {
-            return PublishChangeTypeMessageAsync(changeType, document?.Id, null, delay);
+            return PublishChangeTypeMessageAsync(changeType, document?.Id, data, delay);
         }
 
         protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, string id, IDictionary<string, object> data = null, TimeSpan? delay = null) {
