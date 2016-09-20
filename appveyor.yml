@@ -17,7 +17,7 @@ init:
 
 install:
   - choco install gitlink
-  - ps: .\Build\Start-ElasticSearch.ps1
+  - ps: .\build\Start-ElasticSearch.ps1
 
 assembly_info:
   patch: true
@@ -28,7 +28,7 @@ assembly_info:
 
 before_build:
   - nuget restore
-  - ps: .\Build\Replace-FileString -Pattern '\$version\$' -Replacement "$($env:appveyor_build_version)$($env:VERSION_SUFFIX)" -Path src\**\*.nuspec -Overwrite
+  - ps: .\build\Replace-FileString -Pattern '\$version\$' -Replacement "$($env:appveyor_build_version)$($env:VERSION_SUFFIX)" -Path src\**\*.nuspec -Overwrite
 
 build:
   project: Foundatio.Repositories.sln

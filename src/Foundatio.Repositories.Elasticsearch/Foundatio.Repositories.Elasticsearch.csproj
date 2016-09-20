@@ -91,10 +91,10 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="..\Core\Extensions\TaskExtensions.cs">
+    <Compile Include="..\Foundatio.Repositories\Extensions\TaskExtensions.cs">
       <Link>Extensions\TaskExtensions.cs</Link>
     </Compile>
-    <Compile Include="..\Core\Utility\TaskHelper.cs">
+    <Compile Include="..\Foundatio.Repositories\Utility\TaskHelper.cs">
       <Link>Utility\TaskHelper.cs</Link>
     </Compile>
     <Compile Include="Configuration\ChildIndexType.cs" />
@@ -155,7 +155,7 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Core\Foundatio.Repositories.csproj">
+    <ProjectReference Include="..\Foundatio.Repositories\Foundatio.Repositories.csproj">
       <Project>{F5B6C2B5-485F-4A4B-8E00-D5F77676CD6E}</Project>
       <Name>Foundatio.Repositories</Name>
     </ProjectReference>

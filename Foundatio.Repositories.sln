@@ -3,9 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 14
 VisualStudioVersion = 14.0.25420.1
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Foundatio.Repositories", "src\Core\Foundatio.Repositories.csproj", "{F5B6C2B5-485F-4A4B-8E00-D5F77676CD6E}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Foundatio.Repositories", "src\Foundatio.Repositories\Foundatio.Repositories.csproj", "{F5B6C2B5-485F-4A4B-8E00-D5F77676CD6E}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Foundatio.Repositories.Tests", "src\Core\Tests\Foundatio.Repositories.Tests.csproj", "{23002BA4-8663-460B-8D67-3AA941B0322A}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Foundatio.Repositories.Tests", "tests\Foundatio.Repositories.Tests\Foundatio.Repositories.Tests.csproj", "{23002BA4-8663-460B-8D67-3AA941B0322A}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{70515E66-DAF8-4D18-8F8F-8A2934171AA9}"
 EndProject
@@ -16,9 +16,9 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		Build\Replace-FileString.ps1 = Build\Replace-FileString.ps1
 	EndProjectSection
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Foundatio.Repositories.Elasticsearch", "src\Elasticsearch\Foundatio.Repositories.Elasticsearch.csproj", "{3BFBD4C1-3F2C-46A4-9400-2CB9803644BE}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Foundatio.Repositories.Elasticsearch", "src\Foundatio.Repositories.Elasticsearch\Foundatio.Repositories.Elasticsearch.csproj", "{3BFBD4C1-3F2C-46A4-9400-2CB9803644BE}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Foundatio.Repositories.Elasticsearch.Tests", "src\Elasticsearch\Tests\Foundatio.Repositories.Elasticsearch.Tests.csproj", "{93E138E9-D06C-4B78-B62D-317786025013}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Foundatio.Repositories.Elasticsearch.Tests", "tests\Foundatio.Repositories.Elasticsearch.Tests\Foundatio.Repositories.Elasticsearch.Tests.csproj", "{93E138E9-D06C-4B78-B62D-317786025013}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
