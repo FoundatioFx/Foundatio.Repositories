@@ -11,9 +11,10 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticIndexExtensions {
         public static FindResults<T> ToFindResults<T>(this ISearchResponse<T> response, int? limit = null) where T : class, new() {
             var docs = response.Hits.Take(limit ?? Int32.MaxValue).ToFindHits().ToList();
-            return new FindResults<T>(docs, response.Total, response.ToAggregationResult(), null, new DataDictionary { { ElasticDataKeys.ScrollId, response.ScrollId } });
+            var data = response.ScrollId != null ? new DataDictionary { { ElasticDataKeys.ScrollId, response.ScrollId } } : null;
+            return new FindResults<T>(docs, response.Total, response.ToAggregationResult(), null, data);
         }
-        
+
         public static IEnumerable<FindHit<T>> ToFindHits<T>(this IEnumerable<IHit<T>> hits) where T : class {
             return hits.Select(h => h.ToFindHit());
         }

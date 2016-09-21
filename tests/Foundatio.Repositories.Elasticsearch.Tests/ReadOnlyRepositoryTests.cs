@@ -33,7 +33,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, employees.Documents.Count);
 
             var json = JsonConvert.SerializeObject(employees);
-            Assert.NotNull(JsonConvert.DeserializeObject<FindResults<Employee>>(json));
+            var results = JsonConvert.DeserializeObject<FindResults<Employee>>(json);
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
         }
 
         [Fact]

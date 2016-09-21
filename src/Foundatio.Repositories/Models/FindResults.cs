@@ -13,13 +13,15 @@ namespace Foundatio.Repositories.Models {
 
         public FindResults(IEnumerable<FindHit<T>> hits = null, long total = 0, IEnumerable<AggregationResult> aggregations = null, Func<FindResults<T>, Task<FindResults<T>>> getNextPage = null, DataDictionary data = null)
             : base(total, aggregations, data) {
-            Hits = new List<FindHit<T>>(hits ?? new FindHit<T>[] {});
-            Documents = hits?.Select(r => r.Document).ToList() ?? new List<T>();
             ((IGetNextPage<T>)this).GetNextPageFunc = getNextPage;
+            if (hits != null) {
+                Hits = new List<FindHit<T>>(hits).AsReadOnly();
+                Documents = Hits.Select(r => r.Document).ToList().AsReadOnly();
+            }
         }
 
-        public IReadOnlyCollection<T> Documents { get; protected set; }
-        public IReadOnlyCollection<FindHit<T>> Hits { get; protected set; }
+        public IReadOnlyCollection<T> Documents { get; protected set; } = EmptyDocuments;
+        public IReadOnlyCollection<FindHit<T>> Hits { get; protected set; } = EmptyFindHits;
         public int Page { get; set; } = 1;
         public bool HasMore { get; set; }
         Func<FindResults<T>, Task<FindResults<T>>> IGetNextPage<T>.GetNextPageFunc { get; set; }
