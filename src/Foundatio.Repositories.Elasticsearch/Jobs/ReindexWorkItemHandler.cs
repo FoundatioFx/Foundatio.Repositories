@@ -24,7 +24,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             if (reindexWorkItem == null)
                 return null;
 
-            return _lockProvider.AcquireAsync(String.Concat("reindex:", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex), TimeSpan.FromMinutes(20), cancellationToken);
+            return _lockProvider.AcquireAsync(String.Join(":", "reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex), TimeSpan.FromMinutes(20), cancellationToken);
         }
 
         public override async Task HandleItemAsync(WorkItemContext context) {

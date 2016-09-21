@@ -34,6 +34,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class ElasticConfiguration: IElasticConfiguration {
         protected readonly IQueue<WorkItemData> _workItemQueue;
         protected readonly ILogger _logger;
+        protected readonly ILockProvider _beginReindexLockProvider;
         protected readonly ILockProvider _lockProvider;
         private readonly List<IIndex> _indexes = new List<IIndex>();
         private readonly Lazy<IReadOnlyCollection<IIndex>> _frozenIndexes;
@@ -45,7 +46,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _logger = loggerFactory.CreateLogger(GetType());
             LoggerFactory = loggerFactory;
             Cache = cacheClient ?? new InMemoryCacheClient(loggerFactory);
-            _lockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(5));
+            _lockProvider = new CacheLockProvider(Cache, messageBus, loggerFactory);
+            _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15));
             _shouldDisposeCache = cacheClient == null;
             MessageBus = messageBus ?? new InMemoryMessageBus(loggerFactory);
             _frozenIndexes = new Lazy<IReadOnlyCollection<IIndex>>(() => _indexes.AsReadOnly());
@@ -118,7 +120,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 if (!beginReindexingOutdated)
                     continue;
 
-                if (_workItemQueue == null || _lockProvider == null)
+                if (_workItemQueue == null || _beginReindexLockProvider == null)
                     throw new InvalidOperationException("Must specify work item queue and lock provider in order to reindex.");
 
                 var versionedIndex = idx as VersionedIndex;
@@ -130,13 +132,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                     continue;
 
                 var reindexWorkItem = versionedIndex.CreateReindexWorkItem(currentVersion);
-                bool isReindexing = await _lockProvider.IsLockedAsync(String.Concat("reindex:", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex)).AnyContext();
+                bool isReindexing = await _lockProvider.IsLockedAsync(String.Join(":", "reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex)).AnyContext();
                 // already reindexing
                 if (isReindexing)
                     continue;
 
-                // enqueue reindex to new version
-                await _lockProvider.TryUsingAsync("enqueue-reindex", () => _workItemQueue.EnqueueAsync(reindexWorkItem), TimeSpan.Zero, CancellationToken.None).AnyContext();
+                // enqueue reindex to new version, only allowed every 15 minutes
+                await _beginReindexLockProvider.TryUsingAsync(String.Join(":", "enqueue-reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex), () => _workItemQueue.EnqueueAsync(reindexWorkItem), TimeSpan.Zero, new CancellationToken(true)).AnyContext();
             }
         }
 
