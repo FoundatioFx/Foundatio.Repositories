@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Runtime.Serialization;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
@@ -20,6 +21,7 @@ namespace Foundatio.Repositories.Models {
             }
         }
 
+        [IgnoreDataMember]
         public IReadOnlyCollection<T> Documents { get; protected set; } = EmptyDocuments;
         public IReadOnlyCollection<FindHit<T>> Hits { get; protected set; } = EmptyFindHits;
         public int Page { get; set; } = 1;
