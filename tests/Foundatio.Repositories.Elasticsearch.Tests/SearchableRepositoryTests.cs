@@ -12,6 +12,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Nest;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -36,7 +37,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests
             var result = await _identityRepository.AddAsync(identity);
             Assert.Equal(identity, result);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.Equal(0, await _identityRepository.CountBySearchAsync(null, "id:test"));
             Assert.Equal(1, await _identityRepository.CountBySearchAsync(null, $"id:{identity.Id}"));
         }
@@ -52,7 +53,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests
             var nowLog = await _dailyRepository.AddAsync(LogEventGenerator.Default);
             Assert.NotNull(nowLog?.Id);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.Equal(0, await _dailyRepository.CountBySearchAsync(null, "id:test"));
             Assert.Equal(1, await _dailyRepository.CountBySearchAsync(null, $"id:{nowLog.Id}"));
             Assert.Equal(1, await _dailyRepository.CountBySearchAsync(new ElasticQuery().WithDateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "created"), $"id:{nowLog.Id}"));
@@ -67,7 +68,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests
             var result = await _identityRepository.AddAsync(identity);
             Assert.Equal(identity, result);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             var results = await _identityRepository.SearchAsync(null, "id:test");
             Assert.Equal(0, results.Documents.Count);
 
@@ -109,7 +110,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests
             Assert.NotNull(results);
             Assert.Equal(2, results.Count);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             var searchResults = await _dailyRepository.SearchAsync(new MyAppQuery().WithCompany("test"));
             Assert.Equal(0, searchResults.Total);
 

@@ -95,42 +95,30 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
             }
 
-            ISearchResponse<TResult> response = null;
-
-            if (useSnapshotPaging == false || String.IsNullOrEmpty(elasticPagingOptions?.ScrollId)) {
+            ISearchResponse<TResult> response;
+            if (useSnapshotPaging == false || String.IsNullOrEmpty(elasticPagingOptions.ScrollId)) {
                 SearchDescriptor<T> searchDescriptor = CreateSearchDescriptor(query);
                 if (useSnapshotPaging)
-                    searchDescriptor.SearchType(SearchType.Scan).Scroll(pagableQuery.GetLifetime());
+                    searchDescriptor.Scroll(pagableQuery.GetLifetime());
 
                 response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
-                _logger.Trace(() => response.GetRequest());
-                if (!response.IsValid) {
-                    if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
-                        return new FindResults<TResult>();
+            } else {
+                response = await _client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), elasticPagingOptions.ScrollId).AnyContext();
+            }
 
-                    string message = response.GetErrorMessage();
-                    _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                    throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
-                }
+            _logger.Trace(() => response.GetRequest());
+            if (!response.IsValid) {
+                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+                    return new FindResults<TResult>();
+
+                string message = response.GetErrorMessage();
+                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.OriginalException);
             }
 
             if (useSnapshotPaging) {
-                // The response might have returned 0 search results.
-                if (response?.Total == 0)
-                    return response.ToFindResults();
-
-                var scrollResponse = await _client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), response?.ScrollId ?? elasticPagingOptions?.ScrollId).AnyContext();
-                _logger.Trace(() => scrollResponse.GetRequest());
-
-                if (!scrollResponse.IsValid) {
-                    string message = scrollResponse.GetErrorMessage();
-                    _logger.Error().Exception(scrollResponse.ConnectionStatus.OriginalException).Message(message).Property("request", scrollResponse.GetRequest()).Write();
-                    throw new ApplicationException(message, scrollResponse.ConnectionStatus.OriginalException);
-                }
-
-                result = scrollResponse.ToFindResults();
-                result.HasMore = scrollResponse.Hits.Count() >= pagableQuery.GetLimit();
-
+                result = response.ToFindResults();
+                result.HasMore = response.Hits.Count() >= pagableQuery.GetLimit();
                 ((IGetNextPage<TResult>)result).GetNextPageFunc = getNextPageFunc;
             } else if (pagableQuery?.ShouldUseLimit() == true) {
                 result = response.ToFindResults(pagableQuery.GetLimit());
@@ -168,12 +156,12 @@ namespace Foundatio.Repositories.Elasticsearch {
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
-                if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
+                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return FindHit<T>.Empty;
 
                 string message = response.GetErrorMessage();
-                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.OriginalException);
             }
 
             result = response.Hits.FirstOrDefault()?.ToFindHit();
@@ -294,17 +282,17 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ArgumentNullException(nameof(query));
 
             var searchDescriptor = CreateSearchDescriptor(query).Size(1);
-            searchDescriptor.Fields("id");
+            searchDescriptor.DocvalueFields("id");
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
-                if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
+                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return false;
 
                 string message = response.GetErrorMessage();
-                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.OriginalException);
             }
 
             return response.HitsMetaData.Total > 0;
@@ -319,18 +307,18 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return result;
 
             var searchDescriptor = CreateSearchDescriptor(query);
-            searchDescriptor.SearchType(SearchType.Count);
+            searchDescriptor.Size(0);
 
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
-                if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
+                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return new CountResult();
 
                 string message = response.GetErrorMessage();
-                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.OriginalException);
             }
 
             result = new CountResult(response.Total, response.ToAggregationResult());
@@ -341,16 +329,16 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public async Task<long> CountAsync() {
-            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Indices(GetIndexesByQuery(null)).Type(ElasticType.Name)).AnyContext();
+            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null))).Type(ElasticType.Name)).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
-                if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
+                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return 0;
 
                 string message = response.GetErrorMessage();
-                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.OriginalException);
             }
 
             return response.Count;
@@ -374,14 +362,14 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (ElasticType.AllowedAggregationFields.Count > 0 && !aggregationQuery.AggregationFields.All(f => ElasticType.AllowedAggregationFields.Contains(f.Field)))
                 throw new ArgumentException("All aggregation fields must be allowed.", nameof(query));
 
-            var searchDescriptor = CreateSearchDescriptor(query).SearchType(SearchType.Count);
+            var searchDescriptor = CreateSearchDescriptor(query).Size(0);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
                 string message = $"Retrieving aggregations failed: {response.GetErrorMessage()}";
-                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.OriginalException);
             }
 
             return response.ToAggregationResult();
@@ -461,7 +449,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             search.Type(ElasticType.Name);
             var indices = GetIndexesByQuery(query);
             if (indices?.Length > 0)
-                search.Indices(indices);
+                search.Index(String.Join(",", indices));
             if (HasVersion)
                 search.Version(HasVersion);
 

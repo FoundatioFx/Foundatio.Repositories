@@ -42,7 +42,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 await _configuration.ConfigureIndexesAsync(null, false);
 
             await _cache.RemoveAllAsync();
-            await _client.RefreshAsync();
+            await _clientRefreshAsync(Indices.All);
 
             Log.MinimumLevel = minimumLevel;
         }

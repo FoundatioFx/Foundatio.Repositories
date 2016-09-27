@@ -37,13 +37,13 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                         Repository,
                         snapshotName,
                         d => d
-                            .Indices(IncludedIndexes.Count > 0 ? IncludedIndexes.ToArray() : new[] { "*" })
+                            .Indices(IncludedIndexes.Count > 0 ? String.Join(",", IncludedIndexes) : "*")
                             .IgnoreUnavailable()
                             .IncludeGlobalState(false)
-                            .WaitForCompletion()).AnyContext();
+                            .WaitForCompletion(), cancellationToken).AnyContext();
 
                     if (!response.IsValid)
-                        throw new ApplicationException($"Snapshot failed: {response.GetErrorMessage()}", response.ConnectionStatus.OriginalException);
+                        throw new ApplicationException($"Snapshot failed: {response.GetErrorMessage()}", response.OriginalException);
 
                     return response;
                 },

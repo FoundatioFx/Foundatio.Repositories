@@ -6,6 +6,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
+using Nest;
 using Newtonsoft.Json;
 using Xunit;
 using Xunit.Abstractions;
@@ -28,7 +29,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task CanCacheFindResult() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20));
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             var employees = await _employeeRepository.GetAllByAgeAsync(20);
             Assert.Equal(1, employees.Documents.Count);
 
@@ -103,7 +104,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var result = await _identityRepository.AddAsync(identity);
             Assert.Equal(identity, result);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.Equal(1, await _identityRepository.CountAsync());
         }
 
@@ -118,7 +119,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var result = await _dailyRepository.AddAsync(nowLog);
             Assert.Equal(nowLog, result);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.Equal(2, await _dailyRepository.CountAsync());
         }
 
@@ -348,7 +349,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var identities = IdentityGenerator.GenerateIdentities(25);
             await _identityRepository.AddAsync(identities);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             var results = await _identityRepository.GetAllAsync(paging: 100);
             Assert.NotNull(results);
             Assert.Equal(25, results.Total);
@@ -364,7 +365,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate());
             Assert.NotNull(identity2?.Id);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             var results = await _identityRepository.GetAllAsync(paging: new PagingOptions().WithLimit(1));
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
@@ -401,7 +402,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var result = await _identityRepository.AddAsync(identity);
             Assert.Equal(identity, result);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.True(await _identityRepository.ExistsAsync(identity.Id));
         }
 
@@ -416,7 +417,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var nowLog = await _dailyRepository.AddAsync(LogEventGenerator.Default);
             Assert.NotNull(nowLog?.Id);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.True(await _dailyRepository.ExistsAsync(yesterdayLog.Id));
             Assert.True(await _dailyRepository.ExistsAsync(nowLog.Id));
         }
@@ -428,7 +429,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _employeeRepository.AddAsync(deletedEmployee);
 
             var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20));
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
 
             var employees = await _employeeRepository.GetAllByAgeAsync(20);
 
@@ -440,7 +441,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var employee = EmployeeGenerator.Generate(age: 20, name: "Deleted");
             employee = await _employeeRepository.AddAsync(employee);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
 
             employee.IsDeleted = true;
             await _employeeRepository.SaveAsync(employee);

@@ -115,9 +115,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             // Try creating the index.
             var index = GetVersionedIndex(utcDate);
             await CreateIndexAsync(index, descriptor => {
-                var d = ConfigureDescriptor(descriptor).AddAlias(alias);
+                var d = ConfigureDescriptor(descriptor).Aliases(ad => ad.Alias(alias));
                 foreach (var a in Aliases.Where(a => ShouldCreateAlias(utcDate, a)))
-                    d.AddAlias(a.Name);
+                    d.Aliases(ad => ad.Alias(a.Name));
 
                 return d;
             }).AnyContext();
@@ -222,7 +222,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (indexes.Count == 0)
                 return;
 
-            var aliasDescriptor = new AliasDescriptor();
+            var aliasDescriptor = new BulkAliasDescriptor();
             foreach (var indexGroup in indexes.OrderBy(i => i.Version).GroupBy(i => i.DateUtc)) {
                 var indexExpirationDate = GetIndexExpirationDate(indexGroup.Key);
 
@@ -262,12 +262,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
-                if (response.ConnectionStatus.HttpStatusCode.GetValueOrDefault() == 404)
+                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return;
 
                 string message = $"Error updating aliases: {response.GetErrorMessage()}";
-                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.OriginalException);
             }
         }
 

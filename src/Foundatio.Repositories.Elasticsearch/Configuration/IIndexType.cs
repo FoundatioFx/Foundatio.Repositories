@@ -80,15 +80,15 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public virtual CreateIndexDescriptor Configure(CreateIndexDescriptor idx) {
-            return idx.AddMapping<T>(BuildMapping);
+            return idx.Mappings(BuildMapping);
         }
 
         public virtual void ConfigureSettings(ConnectionSettings settings) {}
 
         public IElasticQueryBuilder QueryBuilder => _queryBuilder.Value;
 
-        public virtual PutMappingDescriptor<T> BuildMapping(PutMappingDescriptor<T> map) {
-            return map.Type(Name).Properties(p => p.SetupDefaults());
+        public virtual IPromise<IMappings> BuildMapping(MappingsDescriptor map) {
+            return map.Map<T>(Name, d => d.Properties(p => p.SetupDefaults()));
         }
 
         public virtual void Dispose() {}

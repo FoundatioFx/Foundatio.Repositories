@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Elasticsearch.Net.ConnectionPool;
 using Foundatio.Caching;
 using Foundatio.Jobs;
 using Foundatio.Lock;
@@ -12,6 +11,7 @@ using Foundatio.Queues;
 using Foundatio.Repositories.Extensions;
 using Nest;
 using System.Threading;
+using Elasticsearch.Net;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
@@ -66,7 +66,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public virtual void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder) {}
 
         protected virtual void ConfigureSettings(ConnectionSettings settings) {
-            settings.EnableTcpKeepAlive(30 * 1000, 2000);
+            settings.EnableTcpKeepAlive(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2));
         }
 
         protected virtual IConnectionPool CreateConnectionPool() {

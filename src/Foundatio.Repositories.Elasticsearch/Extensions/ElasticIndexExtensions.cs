@@ -21,8 +21,8 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
         public static FindHit<T> ToFindHit<T>(this IGetResponse<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
-            if (versionedDoc != null && hit.Version != null)
-                versionedDoc.Version = Int64.Parse(hit.Version);
+            if (versionedDoc != null)
+                versionedDoc.Version = hit.Version;
 
             var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index }, { ElasticDataKeys.IndexType, hit.Type } };
             return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, data);
@@ -30,8 +30,8 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
         public static FindHit<T> ToFindHit<T>(this IHit<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
-            if (versionedDoc != null && hit.Version != null)
-                versionedDoc.Version = Int64.Parse(hit.Version);
+            if (versionedDoc != null && hit.Version.HasValue)
+                versionedDoc.Version = hit.Version.Value;
 
             var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index }, { ElasticDataKeys.IndexType, hit.Type } };
             return new FindHit<T>(hit.Id, hit.Source, hit.Score, versionedDoc?.Version ?? null, data);
@@ -39,8 +39,8 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
         public static FindHit<T> ToFindHit<T>(this IMultiGetHit<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
-            if (versionedDoc != null && hit.Version != null)
-                versionedDoc.Version = Int64.Parse(hit.Version);
+            if (versionedDoc != null)
+                versionedDoc.Version = hit.Version;
 
             var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index }, { ElasticDataKeys.IndexType, hit.Type } };
             return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, data);
@@ -86,7 +86,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
             return result;
         }
-        
+
         public static Task<IBulkResponse> IndexManyAsync<T>(this IElasticClient client, IEnumerable<T> objects, Func<T, string> getParent, Func<T, string> getIndex = null, string type = null) where T : class {
             if (objects == null)
                 throw new ArgumentNullException(nameof(objects));
@@ -100,10 +100,8 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
         private static BulkRequest CreateIndexBulkRequest<T>(IEnumerable<T> objects, Func<T, string> getIndex, string type, Func<T, string> getParent) where T : class {
             var bulkRequest = new BulkRequest();
-            TypeNameMarker typeNameMarker = type;
-            bulkRequest.Type = typeNameMarker;
             var list = objects.Select(o => {
-                var doc = new BulkIndexOperation<T>(o);
+                var doc = new BulkIndexOperation<T>(o) { Type = type };
                 if (getParent != null)
                     doc.Parent = getParent(o);
 
@@ -112,7 +110,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
                 var versionedDoc = o as IVersioned;
                 if (versionedDoc != null)
-                    doc.Version = versionedDoc.Version.ToString();
+                    doc.Version = versionedDoc.Version;
 
                 return doc;
             }).Cast<IBulkOperation>().ToList();
@@ -128,7 +126,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             var supportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(typeof(T));
 
             if (hasIdentity)
-                pd.String(p => p.Name(d => (d as IIdentity).Id).IndexName("id").Index(FieldIndexOption.NotAnalyzed));
+                pd.Keyword(p => p.Name(d => (d as IIdentity).Id).IndexName("id"));
 
             if (supportsSoftDeletes)
                 pd.Boolean(p => p.Name(d => (d as ISupportSoftDeletes).IsDeleted).IndexName(SoftDeletesQueryBuilder.Fields.Deleted));

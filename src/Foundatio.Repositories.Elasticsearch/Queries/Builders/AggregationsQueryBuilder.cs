@@ -21,17 +21,17 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (opt?.AllowedAggregationFields?.Count > 0 && !FlattenedFields(aggregationQuery.AggregationFields).All(f => opt.AllowedAggregationFields.Contains(f.Field)))
                 throw new InvalidOperationException("All aggregation fields must be allowed.");
 
-            ctx.Search.Aggregations(agg => GetAggregationDescriptor<T>(aggregationQuery.AggregationFields));
+            ctx.Search.Aggregations(agg => GetAggregationContainerDescriptor<T>(aggregationQuery.AggregationFields));
         }
 
-        private AggregationDescriptor<T> GetAggregationDescriptor<T>(IEnumerable<AggregationField> fields) where T : class {
-            var descriptor = new AggregationDescriptor<T>();
+        private AggregationContainerDescriptor<T> GetAggregationContainerDescriptor<T>(IEnumerable<AggregationField> fields) where T : class {
+            var descriptor = new AggregationContainerDescriptor<T>();
             foreach (var t in fields)
                 descriptor = descriptor.Terms(t.Field, s =>
                 {
                     s = s.Field(t.Field).Size(t.Size ?? 100);
                     if (t.Nested?.Fields.Count > 0)
-                        s = s.Aggregations(a => GetAggregationDescriptor<T>(t.Nested.Fields));
+                        s = s.Aggregations(a => GetAggregationContainerDescriptor<T>(t.Nested.Fields));
                     return s;
                 });
 

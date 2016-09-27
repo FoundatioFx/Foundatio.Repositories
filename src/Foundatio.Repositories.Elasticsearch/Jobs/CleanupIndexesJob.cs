@@ -52,8 +52,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         private async Task DeleteOldIndexesAsync() {
             var sw = Stopwatch.StartNew();
             var result = await _client.CatIndicesAsync(
-                d => d.RequestConfiguration(r =>
-                    r.RequestTimeout(5 * 60 * 1000))).AnyContext();
+                d => d.RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5)))).AnyContext();
 
             sw.Stop();
             var indexes = new List<IndexDate>();

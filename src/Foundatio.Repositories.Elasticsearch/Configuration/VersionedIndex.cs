@@ -26,7 +26,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public override async Task ConfigureAsync() {
             if (!await IndexExistsAsync(VersionedName).AnyContext()) {
                 if (!await AliasExistsAsync(Name).AnyContext())
-                    await CreateIndexAsync(VersionedName, d => ConfigureDescriptor(d).AddAlias(Name)).AnyContext();
+                    await CreateIndexAsync(VersionedName, d => ConfigureDescriptor(d).Aliases(ad => ad.Alias(Name))).AnyContext();
                 else
                     await CreateIndexAsync(VersionedName, ConfigureDescriptor).AnyContext();
             }
@@ -48,18 +48,18 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return;
 
             string message = $"Error creating alias {name}: {response.GetErrorMessage()}";
-            _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-            throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+            _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            throw new ApplicationException(message, response.OriginalException);
         }
 
         protected async Task<bool> AliasExistsAsync(string alias) {
-            var response = await Configuration.Client.AliasExistsAsync(alias).AnyContext();
+            var response = await Configuration.Client.AliasExistsAsync(a => a.Name(alias)).AnyContext();
             if (response.IsValid)
                 return response.Exists;
             
             string message = $"Error checking to see if alias {alias} exists: {response.GetErrorMessage()}";
-            _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-            throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+            _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            throw new ApplicationException(message, response.OriginalException);
         }
 
         public virtual CreateIndexDescriptor ConfigureDescriptor(CreateIndexDescriptor idx) {
@@ -126,7 +126,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected virtual async Task<int> GetVersionFromAliasAsync(string alias) {
-            var response = await Configuration.Client.GetAliasAsync(a => a.Alias(alias)).AnyContext();
+            var response = await Configuration.Client.GetAliasAsync(a => a.Name(alias)).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
             if (response.IsValid && response.Indices.Count > 0)
@@ -152,16 +152,16 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected virtual async Task<IList<IndexInfo>> GetIndexesAsync(int version = -1) {
-            // TODO: Update this to use a index filter once we upgrade to elastic 2.x+
+            // TODO: Update this to use a index filter once we upgrade to elastic 2.x+ and change the request timeout..
             var sw = Stopwatch.StartNew();
-            var response = await Configuration.Client.CatIndicesAsync(i => i.Pri().H("index").RequestConfiguration(r => r.RequestTimeout(5 * 60 * 1000))).AnyContext();
+            var response = await Configuration.Client.CatIndicesAsync(i => i.Pri().H("index").RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5)))).AnyContext();
             sw.Stop();
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
                 string message = $"Error getting indices: {response.GetErrorMessage()}";
-                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.OriginalException);
             }
 
             string index = version < 0 ? $"{Name}-v" : $"{Name}-v{version}";

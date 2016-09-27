@@ -62,7 +62,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                         .Timeout("10s")).AnyContext();
 
                     if (!healthResponse.IsValid || (healthResponse.Status != "green" && healthResponse.Status != "yellow") || healthResponse.TimedOut)
-                        throw new ApplicationException($"Index {name} exists but is unhealthy: {healthResponse.Status}.", healthResponse.ConnectionStatus.OriginalException);
+                        throw new ApplicationException($"Index {name} exists but is unhealthy: {healthResponse.Status}.", healthResponse.OriginalException);
 
                     return;
                 }
@@ -80,14 +80,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                         .Timeout("10s")).AnyContext();
 
                     if (!healthResponse.IsValid || (healthResponse.Status != "green" && healthResponse.Status != "yellow") || healthResponse.TimedOut)
-                        throw new ApplicationException($"Index {name} is unhealthy: {healthResponse.Status}.", healthResponse.ConnectionStatus.OriginalException);
+                        throw new ApplicationException($"Index {name} is unhealthy: {healthResponse.Status}.", healthResponse.OriginalException);
 
                     return;
                 }
 
                 string message = $"Error creating the index {name}: {response.GetErrorMessage()}";
-                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.OriginalException);
             }, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
 
             if (!result)
@@ -101,7 +101,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (!await IndexExistsAsync(name).AnyContext())
                 return;
 
-            var response = await Configuration.Client.DeleteIndexAsync(i => i.Index(name)).AnyContext();
+            var response = await Configuration.Client.DeleteIndexAsync(name).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
             if (response.IsValid) {
@@ -110,10 +110,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 
                 return;
             }
-            
+
             string message = $"Error deleting index {name}: {response.GetErrorMessage()}";
-            _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-            throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+            _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            throw new ApplicationException(message, response.OriginalException);
         }
         
         protected async Task<bool> IndexExistsAsync(string name) {
@@ -125,8 +125,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return response.Exists;
 
             string message = $"Error checking to see if index {name} exists: {response.GetErrorMessage()}";
-            _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-            throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+            _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            throw new ApplicationException(message, response.OriginalException);
         }
 
         public virtual Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {

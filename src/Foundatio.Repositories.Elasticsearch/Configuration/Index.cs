@@ -11,7 +11,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
         
         public virtual CreateIndexDescriptor ConfigureDescriptor(CreateIndexDescriptor idx) {
-            idx.AddAlias(Name);
+            idx.Aliases(ad => ad.Alias(Name));
 
             foreach (var t in IndexTypes)
                 t.Configure(idx);

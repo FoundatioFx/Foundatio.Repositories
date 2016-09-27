@@ -4,8 +4,10 @@ using System.Threading.Tasks;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Models;
+using Nest;
 using Xunit;
 using Xunit.Abstractions;
+using LogLevel = Foundatio.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class QueryTests : ElasticRepositoryTestBase {
@@ -23,7 +25,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task GetByAgeAsync() {
             var employee19 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19));
             var employee20 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20));
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
 
             var results = await _employeeRepository.GetAllByAgeAsync(employee19.Age);
             Assert.Equal(1, results.Total);
@@ -38,7 +40,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task GetByCompanyAsync() {
             var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId));
             var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20));
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             
             var results = await _employeeRepository.GetAllByCompanyAsync(employee1.CompanyId);
             Assert.Equal(1, results.Total);
@@ -50,7 +52,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             Assert.Equal(1, await _employeeRepository.GetCountByCompanyAsync(employee1.CompanyId));
             await _employeeRepository.RemoveAsync(employee1, false);
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.Equal(1, await _employeeRepository.CountAsync());
             Assert.Equal(0, await _employeeRepository.GetCountByCompanyAsync(employee1.CompanyId));
         }
@@ -60,7 +62,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: EmployeeGenerator.DefaultCompanyId));
             var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyName: "Acme", name: "blake", companyId: EmployeeGenerator.DefaultCompanyId));
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
 
             // non analyzed field 
             var results = await _employeeRepository.GetNumberOfEmployeesWithMissingCompanyName(employee1.CompanyId);
@@ -76,7 +78,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"));
             Assert.NotNull(log?.Id);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             var results = await _dailyRepository.GetByCompanyAsync(log.CompanyId);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(log, results.Documents.First());
@@ -95,7 +97,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId));
             await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20));
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             var results = await GetByFilterAsync("age:19");
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Age == 19));
@@ -112,7 +114,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task GetWithNoField() {
             await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId, name: "Blake Niemyjski"));
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             var results = await GetByFilterAsync("blake");
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == "Blake Niemyjski"));
@@ -126,7 +128,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var employeeEric = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith"));
             var employeeBlake = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake Niemyjski"));
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             var results = await GetByFilterAsync(null, "name:blake");
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
@@ -165,7 +167,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             Log.SetLogLevel<EmployeeRepository>(LogLevel.Trace);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             var results = await GetByFilterAsync("company_name:Exceptionless");
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));

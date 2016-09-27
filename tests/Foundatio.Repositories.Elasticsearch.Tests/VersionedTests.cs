@@ -2,14 +2,15 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
+using Nest;
 using Xunit;
 using Xunit.Abstractions;
+using LogLevel = Foundatio.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class VersionedTests : ElasticRepositoryTestBase {
@@ -143,11 +144,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             };
 
             await _employeeRepository.AddAsync(employees);
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.True(employees.All(e => e.Version == 1));
             
             Assert.Equal(2, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company"));
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
 
             var results = await _employeeRepository.GetAllByCompanyAsync("1");
             Assert.Equal(2, results.Documents.Count);
@@ -164,7 +165,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var company2Employees = results.Documents.ToList();
             long company2EmployeesVersion = company2Employees.First().Version;
             Assert.Equal(1, await _employeeRepository.IncrementYearsEmployeed(company2Employees.Select(e => e.Id).ToArray()));
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
 
             results = await _employeeRepository.GetAllByCompanyAsync("2");
             Assert.Equal(company2Employees.First().YearsEmployed + 1, results.Documents.First().YearsEmployed);
@@ -188,7 +189,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _employeeRepository.AddAsync(employees);
             Log.MinimumLevel = LogLevel.Trace;
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
             var results = await _employeeRepository.GetAllAsync(null, PAGE_SIZE);
@@ -220,7 +221,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _employeeRepository.AddAsync(employees);
             Log.MinimumLevel = LogLevel.Trace;
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
             Assert.Equal(0, _cache.Count);
@@ -259,7 +260,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _employeeRepository.AddAsync(employees);
             Log.MinimumLevel = LogLevel.Trace;
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
             var results = await _employeeRepository.GetAllAsync(null, new ElasticPagingOptions().WithLimit(PAGE_SIZE).UseSnapshotPaging());
@@ -278,7 +279,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                 pagedRecords += results.Documents.Count;
                 newEmployees.Add(await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: "1")));
-                await _client.RefreshAsync();
+                await _client.RefreshAsync(Indices.All);
             } while (await results.NextPageAsync());
 
             Assert.False(results.HasMore);
@@ -296,7 +297,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _employeeRepository.AddAsync(employees);
             Log.MinimumLevel = LogLevel.Trace;
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
             var results = await _employeeRepository.GetAllAsync(null, new ElasticPagingOptions().WithLimit(PAGE_SIZE).UseSnapshotPaging());
@@ -315,7 +316,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                 pagedRecords += results.Documents.Count;
                 newEmployees.Add(await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: "1")));
-                await _client.RefreshAsync();
+                await _client.RefreshAsync(Indices.All);
 
                 results = await _employeeRepository.GetAllAsync(null, new ElasticPagingOptions().WithScrollId(results));
             } while (results != null && results.Hits.Count > 0);
@@ -334,7 +335,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
             await _employeeRepository.AddAsync(employees);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
             var results = await _employeeRepository.GetAllAsync(null, PAGE_SIZE);
@@ -363,10 +364,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1"));
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company", limit: 100));
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             var results = await _employeeRepository.GetAllByCompanyAsync("1", NUMBER_OF_EMPLOYEES);
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Documents.Count);
             foreach (var document in results.Documents) {
@@ -381,10 +382,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             const int NUMBER_OF_EMPLOYEES = 100;
             await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1"));
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company"));
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             var results = await _employeeRepository.GetAllByCompanyAsync("1", paging: NUMBER_OF_EMPLOYEES);
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Documents.Count);
             foreach (var document in results.Documents) {

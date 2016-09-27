@@ -6,6 +6,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Queries;
+using Nest;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -31,7 +32,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             child = await _childRepository.AddAsync(child);
             Assert.NotNull(child?.Id);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             child = await _childRepository.GetByIdAsync(child.Id);
             Assert.NotNull(child?.Id);
         }
@@ -49,13 +50,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             parent.IsDeleted = true;
             await _parentRepository.SaveAsync(parent);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.Equal(0, await _childRepository.CountBySearchAsync(null));
 
             parent.IsDeleted = false;
             await _parentRepository.SaveAsync(parent);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.Equal(1, await _childRepository.CountBySearchAsync(null));
         }
 
@@ -71,7 +72,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             child = await _childRepository.AddAsync(child);
             Assert.NotNull(child?.Id);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             var childResults = await _childRepository.QueryAsync(new MyAppQuery().WithParentQuery(q => q.WithId(parent.Id)));
             Assert.Equal(1, childResults.Total);
         }
@@ -87,10 +88,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(child?.Id);
 
             await _childRepository.AddAsync(ChildGenerator.Generate(parentId: parent.Id));
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             Assert.Equal(2, await _childRepository.CountAsync());
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             var parentResults = await _parentRepository.QueryAsync(new MyAppQuery().WithChildQuery(q => q.WithType("child").WithFilter("id:" + child.Id)));
             Assert.Equal(1, parentResults.Total);
         }

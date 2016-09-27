@@ -123,8 +123,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
-                    _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                    throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                    _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                    throw new ApplicationException(message, response.OriginalException);
                 }
             } else if (patch != null) {
                 var response = await _client.GetAsync<JObject>(u => u
@@ -136,8 +136,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
-                    _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                    throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                    _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                    throw new ApplicationException(message, response.OriginalException);
                 }
                 
                 var target = response.Source as JToken;
@@ -162,8 +162,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
-                    _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                    throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                    _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                    throw new ApplicationException(message, response.OriginalException);
                 }
             }
 
@@ -221,8 +221,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             // TODO: Is there a better way to handle failures?
             if (!bulkResponse.IsValid) {
                 string message = bulkResponse.GetErrorMessage();
-                _logger.Error().Exception(bulkResponse.ConnectionStatus.OriginalException).Message(message).Property("request", bulkResponse.GetRequest()).Write();
-                throw new ApplicationException(message, bulkResponse.ConnectionStatus.OriginalException);
+                _logger.Error().Exception(bulkResponse.OriginalException).Message(message).Property("request", bulkResponse.GetRequest()).Write();
+                throw new ApplicationException(message, bulkResponse.OriginalException);
             }
 
             // TODO: Find a better way to clear the cache.
@@ -265,7 +265,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     if (!bulkResult.IsValid) {
                         _logger.Error()
-                            .Exception(bulkResult.ConnectionStatus.OriginalException)
+                            .Exception(bulkResult.OriginalException)
                             .Message($"Error occurred while bulk updating: {bulkResult.GetErrorMessage()}")
                             .Property("Query", query)
                             .Property("Update", update)
@@ -314,7 +314,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     if (!bulkResult.IsValid) {
                         _logger.Error()
-                            .Exception(bulkResult.ConnectionStatus.OriginalException)
+                            .Exception(bulkResult.OriginalException)
                             .Message($"Error occurred while bulk updating: {bulkResult.GetErrorMessage()}")
                             .Property("Query", query)
                             .Property("Update", update)
@@ -384,8 +384,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
-                    _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                    throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                    _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                    throw new ApplicationException(message, response.OriginalException);
                 }
             } else {
                 var documentsByIndex = docs.GroupBy(d => GetDocumentIndexFunc?.Invoke(d));
@@ -399,8 +399,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
-                    _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                    throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                    _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                    throw new ApplicationException(message, response.OriginalException);
                 }
             }
             
@@ -437,17 +437,15 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (affectedRecords == 0)
                 return 0;
 
-            var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest {
-                Query = ElasticType.QueryBuilder.BuildQuery(query, GetQueryOptions(), new SearchDescriptor<T>()),
-                Indices =  new List<IndexNameMarker> { ElasticType.Index.Name },
-                Types = new List<TypeNameMarker> { ElasticType.Name }
+            var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(ElasticType.Index.Name, ElasticType.Name) {
+                Query = ElasticType.QueryBuilder.BuildQuery(query, GetQueryOptions(), new SearchDescriptor<T>())
             }).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
             if (!response.IsValid) {
                 string message = response.GetErrorMessage();
-                _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                throw new ApplicationException(message, response.OriginalException);
             }
 
             if (sendNotifications)
@@ -674,8 +672,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 _logger.Trace(() => response.GetRequest());
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
-                    _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                    throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                    _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                    throw new ApplicationException(message, response.OriginalException);
                 }
 
                 if (HasVersion) {
@@ -700,8 +698,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
-                    _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                    throw new ApplicationException(message, response.ConnectionStatus.OriginalException);
+                    _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                    throw new ApplicationException(message, response.OriginalException);
                 }
             }
         }
