@@ -1,4 +1,4 @@
-﻿$es_version = "1.7.5"
+﻿$es_version = "5.0.0-beta1"
 If ($env:ES_VERSION) {
     $es_version = $env:ES_VERSION
 }
@@ -19,7 +19,6 @@ If ((Test-Path -Path "elasticsearch-$es_version.zip") -And !(Test-Path -Path "el
     [io.compression.zipfile]::ExtractToDirectory("$PSScriptRoot\elasticsearch-$es_version.zip", $PSScriptRoot)
     cp .\elasticsearch.yml .\elasticsearch-$es_version\config -Force
     rm elasticsearch-$es_version.zip
-    & ".\elasticsearch-$es_version\bin\plugin.bat" install elasticsearch/marvel/latest
 
     cp .\elasticsearch-$es_version .\elasticsearch-node1 -Recurse
     cp .\elasticsearch-$es_version .\elasticsearch-node2 -Recurse
