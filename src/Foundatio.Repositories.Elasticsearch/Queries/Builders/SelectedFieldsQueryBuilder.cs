@@ -13,13 +13,13 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var selectedFieldsQuery = ctx.GetSourceAs<ISelectedFieldsQuery>();
             if (selectedFieldsQuery?.SelectedFields?.Count > 0) {
-                ctx.Search.Source(s => s.Include(selectedFieldsQuery.SelectedFields.ToArray()));
+                ctx.Search.Source(s => s.Includes(f => f.Fields(selectedFieldsQuery.SelectedFields.ToArray())));
                 return;
             }
 
             var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
             if (opt?.DefaultExcludes?.Count > 0)
-                ctx.Search.Source(s => s.Exclude(opt.DefaultExcludes.ToArray()));
+                ctx.Search.Source(s => s.Excludes(f => f.Fields(opt.DefaultExcludes.ToArray())));
         }
     }
 

@@ -15,8 +15,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
             if (opt == null || !opt.SupportsSoftDeletes || (idsQuery != null && idsQuery.Ids.Count > 0))
                 return;
-            
-            ctx.Filter &= new TermFilter { Field = Fields.Deleted, Value = softDeletesQuery.IncludeSoftDeletes };
+
+            ctx.Filter &= new TermQuery { Field = Fields.Deleted, Value = softDeletesQuery.IncludeSoftDeletes };
         }
 
         internal class Fields {

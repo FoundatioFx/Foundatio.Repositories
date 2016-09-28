@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Elasticsearch.Net;
 using FluentValidation;
 using Nest;
 using Foundatio.Caching;
@@ -29,7 +30,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             NotificationsEnabled = _messagePublisher != null;
 
             if (HasCreatedDate) {
-                var propertyName = _client.Infer.PropertyName(typeof(T).GetMember(nameof(IHaveCreatedDate.CreatedUtc)).Single());
+                var propertyName = _client.Infer.PropertyName(typeof(T).GetProperty(nameof(IHaveCreatedDate.CreatedUtc)));
                 FieldsRequiredForRemove.Add(propertyName);
             }
         }
@@ -112,13 +113,12 @@ namespace Foundatio.Repositories.Elasticsearch {
             var patch = update as PatchDocument;
 
             if (script != null) {
-                var response = await _client.UpdateAsync<T>(u => u
-                    .Id(id)
-                    .Index(GetIndexById(id))
-                    .Type(ElasticType.Name)
-                    .Script(script)
-                    .RetryOnConflict(10)).AnyContext();
+                var request = new UpdateRequest<T, T>(GetIndexById(id), ElasticType.Name, id) {
+                    Script = script,
+                    RetryOnConflict = 10
+                };
 
+                var response = await _client.UpdateAsync<T>(request).AnyContext();
                 _logger.Trace(() => response.GetRequest());
 
                 if (!response.IsValid) {
@@ -127,10 +127,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ApplicationException(message, response.OriginalException);
                 }
             } else if (patch != null) {
-                var response = await _client.GetAsync<JObject>(u => u
-                    .Id(id)
-                    .Index(GetIndexById(id))
-                    .Type(ElasticType.Name)).AnyContext();
+                var request = new GetRequest(GetIndexById(id), ElasticType.Name, id);
+                var response = await _client.GetAsync<JObject>(request).AnyContext();
 
                 _logger.Trace(() => response.GetRequest());
 
@@ -139,11 +137,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                     _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
                     throw new ApplicationException(message, response.OriginalException);
                 }
-                
+
                 var target = response.Source as JToken;
                 new JsonPatcher().Patch(ref target, patch);
 
-                var updateResponse = await _client.Raw.IndexPutAsync(response.Index, response.Type, id, target.ToString()).AnyContext();
+                var updateResponse = await _client.LowLevel.IndexPutAsync<JToken>(response.Index, response.Type, id, new PostData<JToken>(target)).AnyContext();
                 _logger.Trace(() => updateResponse.GetRequest());
 
                 if (!updateResponse.Success) {
@@ -152,12 +150,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ApplicationException(message, updateResponse.OriginalException);
                 }
             } else {
-                var response = await _client.UpdateAsync<T, object>(u => u
-                    .Id(id)
-                    .Index(GetIndexById(id))
-                    .Type(ElasticType.Name)
-                    .Doc(update)).AnyContext();
+                var request = new UpdateRequest<T, object>(GetIndexById(id), ElasticType.Name, id) {
+                    Doc = update,
+                    RetryOnConflict = 10
+                };
 
+                var response = await _client.UpdateAsync<T, object>(request).AnyContext();
                 _logger.Trace(() => response.GetRequest());
 
                 if (!response.IsValid) {
@@ -256,7 +254,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                                 .Id(h.Id)
                                 .Index(h.GetIndex())
                                 .Type(h.GetIndexType())
-                                .Version(h.Version.HasValue ? h.Version.ToString() : null));
+                                .Version(h.Version));
                         }
 
                         return b;
@@ -378,8 +376,9 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             // TODO: support Parent and child docs.
             if (docs.Count == 1) {
-                var document = docs.First();
-                var response = await _client.DeleteAsync(document, descriptor => descriptor.Index(GetDocumentIndexFunc?.Invoke(document)).Type(ElasticType.Name)).AnyContext();
+                var document = docs.Single();
+                var request = new DeleteRequest(GetDocumentIndexFunc?.Invoke(document), ElasticType.Name, document.Id);
+                var response = await _client.DeleteAsync(request).AnyContext();
                 _logger.Trace(() => response.GetRequest());
 
                 if (!response.IsValid) {
@@ -678,7 +677,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 if (HasVersion) {
                     var versionDoc = (IVersioned)document;
-                    versionDoc.Version = response.Version != null ? Int64.Parse(response.Version) : -1;
+                    versionDoc.Version = response.Version;
                 }
             } else {
                 var response = await _client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc, ElasticType.Name).AnyContext();
@@ -691,8 +690,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                             continue;
 
                         var versionDoc = (IVersioned)document;
-                        if (hit.Version != null)
-                            versionDoc.Version = Int64.Parse(hit.Version);
+                        versionDoc.Version = hit.Version;
                     }
                 }
 

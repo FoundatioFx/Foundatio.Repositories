@@ -34,12 +34,12 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             var dateRangeQuery = ctx.GetSourceAs<IDateRangeQuery>();
             if (dateRangeQuery?.DateRanges == null || dateRangeQuery.DateRanges.Count <= 0)
                 return;
-            
+
             foreach (var dateRange in dateRangeQuery.DateRanges.Where(dr => dr.UseDateRange)) {
-                ctx.Filter &= new RangeFilter {
+                ctx.Filter &= new DateRangeQuery {
                     Field = dateRange.Field,
-                    GreaterThanOrEqualTo = dateRange.GetStartDate().ToString("o"),
-                    LowerThanOrEqualTo = dateRange.GetEndDate().ToString("O")
+                    GreaterThanOrEqualTo = dateRange.GetStartDate(),
+                    LessThanOrEqualTo = dateRange.GetEndDate()
                 };
             }
         }

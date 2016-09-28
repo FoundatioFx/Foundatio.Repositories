@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using Foundatio.Repositories.Queries;
 using Nest;
 
@@ -10,10 +11,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return; 
 
             if (identityQuery.Ids != null && identityQuery.Ids.Count > 0)
-                ctx.Filter &= new IdsFilter { Values = identityQuery.Ids };
+                ctx.Filter &= new IdsQuery { Values = identityQuery.Ids.Select(id => new Id(id)) };
 
             if (identityQuery.ExcludedIds != null && identityQuery.ExcludedIds.Count > 0)
-                ctx.Filter &= !new IdsFilter { Values = identityQuery.ExcludedIds }.ToContainer();
+                ctx.Filter &= !new IdsQuery { Values = identityQuery.ExcludedIds.Select(id => new Id(id)) };
         }
     }
 }

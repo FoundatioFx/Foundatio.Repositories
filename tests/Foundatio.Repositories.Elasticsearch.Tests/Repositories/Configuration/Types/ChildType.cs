@@ -7,11 +7,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
     public class ChildType : ChildIndexType<Child, Parent> {
         public ChildType(IIndex index): base("parentId", d => d.ParentId, index) {}
 
-        public override PutMappingDescriptor<Child> BuildMapping(PutMappingDescriptor<Child> map) {
+        public override TypeMappingDescriptor<Child> BuildMapping(TypeMappingDescriptor<Child> map) {
             return base.BuildMapping(map
-                .SetParent<Parent>()
+                .Parent<Parent>()
                 .Properties(p => p
-                    .String(c => c.Name(f => f.ParentId).Index(FieldIndexOption.NotAnalyzed))
+                    .Keyword(c => c.Name(f => f.ParentId))
                 ));
         }
     }

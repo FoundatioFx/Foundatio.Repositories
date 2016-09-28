@@ -196,9 +196,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return hit;
             }
 
-            string index = GetIndexById(id);
             if (!HasParent) {
-                var response = await _client.GetAsync<T>(id, index, ElasticType.Name).AnyContext();
+                var request = new GetRequest(GetIndexById(id), ElasticType.Name, id);
+                var response = await _client.GetAsync<T>(request).AnyContext();
                 _logger.Trace(() => response.GetRequest());
 
                 hit = response.Found ? response.ToFindHit().Document : null;

@@ -44,14 +44,16 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             var parentContext = new QueryBuilderContext<object>(parentQuery.ParentQuery, parentOptions);
             _queryBuilder.Build(parentContext);
 
-            if ((parentContext.Query == null || parentContext.Query.IsConditionless)
-                && (parentContext.Filter == null || parentContext.Filter.IsConditionless))
+            if ((parentContext.Query == null || ((IQueryContainer)parentContext.Query).IsConditionless)
+                && (parentContext.Filter == null || ((IQueryContainer)parentContext.Filter).IsConditionless))
                 return;
 
-            ctx.Filter &= new HasParentFilter {
-                Query = parentContext.Query,
-                Filter = parentContext.Filter,
-                Type = options?.ChildType?.GetParentIndexType().Name
+            ctx.Filter &= new HasParentQuery {
+                Type = options?.ChildType?.GetParentIndexType().Name,
+                Query = new BoolQuery {
+                    Must = new QueryContainer[] { parentContext.Query },
+                    Filter = new QueryContainer[] { parentContext.Filter },
+                }
             };
         }
     }

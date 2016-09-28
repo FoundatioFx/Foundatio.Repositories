@@ -31,9 +31,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Queries {
                 return;
 
             if (ageQuery.Ages.Count == 1)
-                ctx.Filter &= Filter<T>.Term(EmployeeType.Fields.Age, ageQuery.Ages.First());
+                ctx.Filter &= Query<T>.Term(EmployeeType.Fields.Age, ageQuery.Ages.First());
             else
-                ctx.Filter &= Filter<T>.Terms(EmployeeType.Fields.Age, ageQuery.Ages.Select(a => a.ToString()));
+                ctx.Filter &= Query<T>.Terms(d => d.Field(EmployeeType.Fields.Age).Terms(ageQuery.Ages));
         }
     }
 }

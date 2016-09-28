@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Configuration;
 using System.Linq;
+using Elasticsearch.Net;
 using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Jobs;

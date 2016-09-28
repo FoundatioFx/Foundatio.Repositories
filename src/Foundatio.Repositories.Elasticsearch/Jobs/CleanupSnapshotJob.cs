@@ -51,7 +51,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 repo,
                 "_all",
                 d => d.RequestConfiguration(r =>
-                    r.RequestTimeout(5 * 60 * 1000))).AnyContext();
+                    r.RequestTimeout(TimeSpan.FromMinutes(5)))).AnyContext();
 
             sw.Stop();
             var snapshots = new List<SnapshotDate>();
@@ -107,3 +107,4 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         }
     }
 }
+

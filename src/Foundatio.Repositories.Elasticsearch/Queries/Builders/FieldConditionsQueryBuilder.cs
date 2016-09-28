@@ -29,16 +29,16 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             foreach (var fieldValue in fieldValuesQuery.FieldConditions) {
                 switch (fieldValue.Operator) {
                     case ComparisonOperator.Equals:
-                        ctx.Filter &= new TermFilter { Field = fieldValue.Field, Value = fieldValue.Value };
+                        ctx.Filter &= new TermQuery { Field = fieldValue.Field, Value = fieldValue.Value };
                         break;
                     case ComparisonOperator.NotEquals:
-                        ctx.Filter &= new NotFilter { Filter = FilterContainer.From(new TermFilter { Field = fieldValue.Field, Value = fieldValue.Value }) };
+                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { new TermQuery { Field = fieldValue.Field, Value = fieldValue.Value } } };
                         break;
                     case ComparisonOperator.IsEmpty:
-                        ctx.Filter &= new MissingFilter { Field = fieldValue.Field };
+                        ctx.Filter &= new MissingQuery { Field = fieldValue.Field };
                         break;
                     case ComparisonOperator.HasValue:
-                        ctx.Filter &= new ExistsFilter { Field = fieldValue.Field };
+                        ctx.Filter &= new ExistsQuery { Field = fieldValue.Field };
                         break;
                 }
             }

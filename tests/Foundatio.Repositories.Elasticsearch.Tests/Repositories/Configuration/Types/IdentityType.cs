@@ -7,12 +7,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
     public class IdentityType : IndexTypeBase<Identity> {
         public IdentityType(IIndex index) : base(index) { }
 
-        public override PutMappingDescriptor<Identity> BuildMapping(PutMappingDescriptor<Identity> map) {
+        public override TypeMappingDescriptor<Identity> BuildMapping(TypeMappingDescriptor<Identity> map) {
             return map
-                .Type(Name)
                 .Dynamic(false)
                 .Properties(p => p
-                    .String(f => f.Name(e => e.Id).IndexName(Fields.Id).Index(FieldIndexOption.NotAnalyzed))
+                    .Keyword(f => f.Name(e => e.Id).IndexName(Fields.Id))
                 );
         }
 

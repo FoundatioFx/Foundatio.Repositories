@@ -46,18 +46,18 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, data);
         }
 
-        private static AggregationResult ToAggregationResult(this Bucket bucket, string field) {
+        private static AggregationResult ToAggregationResult(this BucketAggregate bucket, string field) {
             return new AggregationResult {
                 Field = field,
-                Terms = new AggregationDictionary<AggregationResult>(bucket.Items.OfType<KeyItem>().ToDictionary(t => t.Key, t => {
+                Terms = new AggregationDictionary<AggregationResult>(bucket.Items.OfType<KeyedBucket>().ToDictionary(t => t.Key, t => {
                     var termRes = new AggregationResult<AggregationResult> {
-                        Total = t.DocCount
+                        Total = t.DocCount.GetValueOrDefault()
                     };
 
                     if (t.Aggregations?.Count > 0) {
                         termRes.Aggregations = new List<AggregationResult>();
                         foreach (var key in t.Aggregations.Keys) {
-                            var nestedBucket = t.Aggregations[key] as Bucket;
+                            var nestedBucket = t.Aggregations[key] as BucketAggregate;
                             if (nestedBucket == null)
                                 continue;
 
@@ -76,7 +76,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 return result;
 
             foreach (var key in res.Aggregations.Keys) {
-                var bucket = res.Aggregations[key] as Bucket;
+                var bucket = res.Aggregations[key] as BucketAggregate;
 
                 if (bucket == null)
                     continue;

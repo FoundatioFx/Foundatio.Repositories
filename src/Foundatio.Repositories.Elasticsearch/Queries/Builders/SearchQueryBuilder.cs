@@ -33,12 +33,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 var result = _parser.Parse(searchQuery.Filter);
                 searchQuery.Filter = GenerateQueryVisitor.Run(AliasedQueryVisitor.Run(result, _aliasMap));
 
-                ctx.Filter &= new QueryFilter {
-                    Query = new QueryStringQuery {
-                        Query = searchQuery.Filter,
-                        DefaultOperator = Operator.And,
-                        AnalyzeWildcard = false
-                    }.ToContainer()
+                ctx.Filter &= new QueryStringQuery {
+                    Query = searchQuery.Filter,
+                    DefaultOperator = Operator.And,
+                    AnalyzeWildcard = false
                 };
             }
 
@@ -62,12 +60,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return;
 
             if (!String.IsNullOrEmpty(searchQuery.Filter))
-                ctx.Filter &= new QueryFilter {
-                    Query = new QueryStringQuery {
-                        Query = searchQuery.Filter,
-                        DefaultOperator = Operator.And,
-                        AnalyzeWildcard = false
-                    }.ToContainer()
+                ctx.Filter &= new QueryStringQuery {
+                    Query = searchQuery.Filter,
+                    DefaultOperator = Operator.And,
+                    AnalyzeWildcard = false
                 };
 
             if (!String.IsNullOrEmpty(searchQuery.Criteria))
@@ -93,10 +89,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             // TODO: Use default search operator and wildcards
             if (!String.IsNullOrEmpty(searchQuery.Criteria))
-                ctx.Query &= _parser.BuildQuery(searchQuery.Criteria);
+                ctx.Query &= _parser.BuildQuery(searchQuery.Criteria, defaultOperator: Operator.Or, scoreResults: true);
 
             if (!String.IsNullOrEmpty(searchQuery.Filter))
-                ctx.Filter &= _parser.BuildFilter(searchQuery.Filter);
+                ctx.Filter &= _parser.BuildQuery(searchQuery.Filter);
         }
     }
 

@@ -8,16 +8,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
     public class EmployeeType : IndexTypeBase<Employee> {
         public EmployeeType(IIndex index) : base(index) { }
 
-        public override PutMappingDescriptor<Employee> BuildMapping(PutMappingDescriptor<Employee> map) {
+        public override TypeMappingDescriptor<Employee> BuildMapping(TypeMappingDescriptor<Employee> map) {
             return base.BuildMapping(map
                 .Dynamic(false)
-                .TimestampField(ts => ts.Enabled().Path(u => u.UpdatedUtc).IgnoreMissing(false))
                 .Properties(p => p
                     .SetupDefaults()
-                    .String(f => f.Name(e => e.Id).IndexName(Fields.Id).Index(FieldIndexOption.NotAnalyzed))
-                    .String(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId).Index(FieldIndexOption.NotAnalyzed))
-                    .String(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName).Index(FieldIndexOption.NotAnalyzed))
-                    .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.Analyzed))
+                    .Keyword(f => f.Name(e => e.Id).IndexName(Fields.Id))
+                    .Keyword(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId))
+                    .Keyword(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName))
+                    .Text(f => f.Name(e => e.Name).IndexName(Fields.Name))
                     .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
                 ));
         }
@@ -38,16 +37,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
     public class EmployeeTypeWithYearsEmployed : IndexTypeBase<Employee> {
         public EmployeeTypeWithYearsEmployed(IIndex index) : base(index: index) { }
 
-        public override PutMappingDescriptor<Employee> BuildMapping(PutMappingDescriptor<Employee> map) {
+        public override TypeMappingDescriptor<Employee> BuildMapping(TypeMappingDescriptor<Employee> map) {
             return base.BuildMapping(map
                 .Dynamic(false)
-                .TimestampField(ts => ts.Enabled().Path(u => u.UpdatedUtc).IgnoreMissing(false))
                 .Properties(p => p
                     .SetupDefaults()
-                    .String(f => f.Name(e => e.Id).IndexName(Fields.Id).Index(FieldIndexOption.NotAnalyzed))
-                    .String(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId).Index(FieldIndexOption.NotAnalyzed))
-                    .String(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName).Index(FieldIndexOption.NotAnalyzed))
-                    .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.Analyzed))
+                    .Keyword(f => f.Name(e => e.Id).IndexName(Fields.Id))
+                    .Keyword(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId))
+                    .Keyword(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName))
+                    .Text(f => f.Name(e => e.Name).IndexName(Fields.Name))
                     .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
                     .Number(f => f.Name(e => e.YearsEmployed).IndexName(Fields.YearsEmployed))
                 ));
@@ -66,16 +64,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
     public class DailyEmployeeType : DailyIndexType<Employee> {
         public DailyEmployeeType(IIndex index) : base(index: index) { }
 
-        public override PutMappingDescriptor<Employee> BuildMapping(PutMappingDescriptor<Employee> map) {
+        public override TypeMappingDescriptor<Employee> BuildMapping(TypeMappingDescriptor<Employee> map) {
             return base.BuildMapping(map
                 .Dynamic(false)
-                .TimestampField(ts => ts.Enabled().Path(u => u.UpdatedUtc).IgnoreMissing(false))
                 .Properties(p => p
                     .SetupDefaults()
-                    .String(f => f.Name(e => e.Id).IndexName(Fields.Id).Index(FieldIndexOption.NotAnalyzed))
-                    .String(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId).Index(FieldIndexOption.NotAnalyzed))
-                    .String(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName).Index(FieldIndexOption.NotAnalyzed))
-                    .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.Analyzed))
+                    .Keyword(f => f.Name(e => e.Id).IndexName(Fields.Id))
+                    .Keyword(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId))
+                    .Keyword(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName))
+                    .Text(f => f.Name(e => e.Name).IndexName(Fields.Name))
                     .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
                 ));
         }
@@ -92,16 +89,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
     public class MonthlyEmployeeType : MonthlyIndexType<Employee> {
         public MonthlyEmployeeType(IIndex index) : base(index: index) { }
 
-        public override PutMappingDescriptor<Employee> BuildMapping(PutMappingDescriptor<Employee> map) {
+        public override TypeMappingDescriptor<Employee> BuildMapping(TypeMappingDescriptor<Employee> map) {
             return base.BuildMapping(map
                 .Dynamic(false)
-                .TimestampField(ts => ts.Enabled().Path(u => u.UpdatedUtc).IgnoreMissing(false))
                 .Properties(p => p
                     .SetupDefaults()
-                    .String(f => f.Name(e => e.Id).IndexName(Fields.Id).Index(FieldIndexOption.NotAnalyzed))
-                    .String(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId).Index(FieldIndexOption.NotAnalyzed))
-                    .String(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName).Index(FieldIndexOption.NotAnalyzed))
-                    .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.Analyzed))
+                    .Keyword(f => f.Name(e => e.Id).IndexName(Fields.Id))
+                    .Keyword(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId))
+                    .Keyword(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName))
+                    .Text(f => f.Name(e => e.Name).IndexName(Fields.Name))
                     .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
                 ));
         }

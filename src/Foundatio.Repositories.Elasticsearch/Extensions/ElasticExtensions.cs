@@ -8,7 +8,26 @@ using Nest;
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticExtensions {
         private static readonly Lazy<PropertyInfo> _connectionSettingsProperty = new Lazy<PropertyInfo>(() => typeof(HttpConnection).GetProperty("ConnectionSettings", BindingFlags.NonPublic | BindingFlags.Instance));
-        
+
+        public static string GetErrorMessage(this IApiCallDetails response) {
+            var sb = new StringBuilder();
+
+            if (response.OriginalException != null)
+                sb.AppendLine($"Original: ({response.HttpStatusCode} - {response.OriginalException.GetType().Name}) {response.OriginalException.Message}");
+
+            if (response.ServerError != null)
+                sb.AppendLine($"Server: ({response.ServerError.Status}) {response.ServerError.Error}");
+
+            var bulkResponse = response as IBulkResponse;
+            if (bulkResponse != null)
+                sb.AppendLine($"Bulk: {String.Join("\r\n", bulkResponse.ItemsWithErrors.Select(i => i.Error))}");
+
+            if (sb.Length == 0)
+                sb.AppendLine("Unknown error.");
+
+            return sb.ToString();
+        }
+
         public static string GetErrorMessage(this IResponse response) {
             var sb = new StringBuilder();
 
@@ -28,13 +47,17 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return sb.ToString();
         }
 
-        public static string GetRequest(this IResponse response) {
+        public static string GetRequest(this IApiCallDetails response) {
             if (response == null)
                 return String.Empty;
 
-            return response.ApiCall.RequestBodyInBytes != null ?
-                $"{response.ApiCall.HttpMethod} {response.ApiCall.Uri.PathAndQuery}\r\n{Encoding.UTF8.GetString(response.ApiCall.RequestBodyInBytes)}\r\n"
-                : $"{response.ApiCall.HttpMethod} {response.ApiCall.Uri.PathAndQuery}\r\n";
+            return response.RequestBodyInBytes != null ?
+                $"{response.HttpMethod} {response.Uri.PathAndQuery}\r\n{Encoding.UTF8.GetString(response.RequestBodyInBytes)}\r\n"
+                : $"{response.HttpMethod} {response.Uri.PathAndQuery}\r\n";
+        }
+
+        public static string GetRequest(this IResponse response) {
+            return GetRequest(response?.ApiCall);
         }
     }
 }

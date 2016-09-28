@@ -25,9 +25,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Queries {
                 return;
 
             if (companyQuery.Companies.Count == 1)
-                ctx.Filter &= Filter<T>.Term(EmployeeType.Fields.CompanyId, companyQuery.Companies.First());
+                ctx.Filter &= Query<T>.Term(EmployeeType.Fields.CompanyId, companyQuery.Companies.Single());
             else
-                ctx.Filter &= Filter<T>.Terms(EmployeeType.Fields.CompanyId, companyQuery.Companies.Select(a => a.ToString()));
+                ctx.Filter &= Query<T>.Terms(d => d.Field(EmployeeType.Fields.CompanyId).Terms(companyQuery.Companies));
         }
     }
 }

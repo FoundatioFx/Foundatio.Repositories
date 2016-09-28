@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using Foundatio.Repositories.Queries;
 using Nest;
 
@@ -25,14 +26,16 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             var childContext = new QueryBuilderContext<T>(childQuery.ChildQuery, ctx.Options);
             _queryBuilder.Build(childContext);
 
-            if ((childContext.Query == null || childContext.Query.IsConditionless)
-                && (childContext.Filter == null || childContext.Filter.IsConditionless))
+            if ((childContext.Query == null || ((IQueryContainer)childContext.Query).IsConditionless)
+                && (childContext.Filter == null || ((IQueryContainer)childContext.Filter).IsConditionless))
                 return;
 
-            ctx.Filter &= new HasChildFilter {
-                Query = childContext.Query,
-                Filter = childContext.Filter,
-                Type = childQuery.ChildQuery.Type
+            ctx.Filter &= new HasChildQuery {
+                Type = childQuery.ChildQuery.Type,
+                Query = new BoolQuery {
+                    Must = new QueryContainer[] { childContext.Query },
+                    Filter = new QueryContainer[] { childContext.Filter },
+                }
             };
         }
     }

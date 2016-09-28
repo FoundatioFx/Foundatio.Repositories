@@ -3,11 +3,11 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IElasticFilterQuery {
-        FilterContainer ElasticFilter { get; set; }
+        QueryBase ElasticFilter { get; set; }
     }
 
     public static class ElasticFilterQueryExtensions {
-        public static T WithElasticFilter<T>(this T query, FilterContainer filter) where T : IElasticFilterQuery {
+        public static T WithElasticFilter<T>(this T query, QueryBase filter) where T : IElasticFilterQuery {
             query.ElasticFilter = filter;
             return query;
         }

@@ -17,7 +17,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         public IRepositoryQuery Source { get; }
         public IQueryOptions Options { get; }
         public QueryContainer Query { get; set; }
-        public FilterContainer Filter { get; set; }
+        public QueryContainer Filter { get; set; }
         public SearchDescriptor<T> Search { get; }
 
         public TQuery GetSourceAs<TQuery>() where TQuery : class {
@@ -34,9 +34,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             var ctx = new QueryBuilderContext<T>(query, options, search);
             builder.Build(ctx);
 
-            return new FilteredQuery {
-                Filter = ctx.Filter,
-                Query = ctx.Query
+            return new BoolQuery {
+                Must = new QueryContainer[] { ctx.Query },
+                Filter = new QueryContainer[] { ctx.Filter }
             };
         }
 
@@ -44,7 +44,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (search == null)
                 throw new ArgumentNullException(nameof(search));
 
-            search.Query(builder.BuildQuery(query, options, search));
+            search.Query(d => builder.BuildQuery(query, options, search));
         }
     }
 }

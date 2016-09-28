@@ -14,8 +14,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
             foreach (var sort in sortableQuery.SortBy.Where(s => CanSortByField(opt?.AllowedSortFields, s.Field)))
-                ctx.Search.Sort(s => s.OnField(sort.Field)
-                    .Order(sort.Order == Foundatio.Repositories.Models.SortOrder.Ascending ? SortOrder.Ascending : SortOrder.Descending));
+                ctx.Search.Sort(s => s.Field(sort.Field, sort.Order == Foundatio.Repositories.Models.SortOrder.Ascending ? SortOrder.Ascending : SortOrder.Descending));
         }
 
         protected bool CanSortByField(ISet<string> allowedFields, string field) {

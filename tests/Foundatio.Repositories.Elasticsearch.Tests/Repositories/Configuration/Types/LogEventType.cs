@@ -6,13 +6,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
     public class LogEventType : TimeSeriesIndexType<LogEvent> {
         public LogEventType(IIndex index) : base(index) { }
 
-        public override PutMappingDescriptor<LogEvent> BuildMapping(PutMappingDescriptor<LogEvent> map) {
+        public override TypeMappingDescriptor<LogEvent> BuildMapping(TypeMappingDescriptor<LogEvent> map) {
             return map
-                .Type(Name)
                 .Dynamic(false)
                 .Properties(p => p
-                    .String(f => f.Name(e => e.Id).IndexName(Fields.Id).Index(FieldIndexOption.NotAnalyzed))
-                    .String(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId).Index(FieldIndexOption.NotAnalyzed))
+                    .Keyword(f => f.Name(e => e.Id).IndexName(Fields.Id))
+                    .Keyword(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId))
                     .Date(f => f.Name(e => e.CreatedUtc).IndexName(Fields.CreatedUtc))
                 );
         }
