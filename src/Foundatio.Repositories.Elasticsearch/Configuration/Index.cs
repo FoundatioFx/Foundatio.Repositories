@@ -9,15 +9,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public override Task ConfigureAsync() {
             return CreateIndexAsync(Name, ConfigureDescriptor);
         }
-        
-        public virtual CreateIndexDescriptor ConfigureDescriptor(CreateIndexDescriptor idx) {
-            idx.Aliases(ad => ad.Alias(Name));
-
-            foreach (var t in IndexTypes)
-                t.Configure(idx);
-
-            return idx;
-        }
     }
 
     public sealed class Index<T> : Index where T: class {

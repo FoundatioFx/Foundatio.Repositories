@@ -11,12 +11,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
             return map
                 .Dynamic(false)
                 .Properties(p => p
-                    .Keyword(f => f.Name(e => e.Id).IndexName(Fields.Id))
+                    .Keyword(f => f.Name(e => e.Id))
                 );
-        }
-
-        public class Fields {
-            public const string Id = "id";
         }
     }
 }

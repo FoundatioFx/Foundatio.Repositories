@@ -109,7 +109,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     doc.Index = getIndex(o);
 
                 var versionedDoc = o as IVersioned;
-                if (versionedDoc != null)
+                if (versionedDoc != null && versionedDoc.Version > 0)
                     doc.Version = versionedDoc.Version;
 
                 return doc;
@@ -126,16 +126,16 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             var supportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(typeof(T));
 
             if (hasIdentity)
-                pd.Keyword(p => p.Name(d => (d as IIdentity).Id).IndexName("id"));
+                pd.Keyword(p => p.Name(d => (d as IIdentity).Id));
 
             if (supportsSoftDeletes)
-                pd.Boolean(p => p.Name(d => (d as ISupportSoftDeletes).IsDeleted).IndexName(SoftDeletesQueryBuilder.Fields.Deleted));
+                pd.Boolean(p => p.Name(d => (d as ISupportSoftDeletes).IsDeleted));
 
             if (hasCreatedDate)
-                pd.Date(p => p.Name(d => (d as IHaveCreatedDate).CreatedUtc).IndexName("created"));
+                pd.Date(p => p.Name(d => (d as IHaveCreatedDate).CreatedUtc));
 
             if (hasDates)
-                pd.Date(p => p.Name(d => (d as IHaveDates).UpdatedUtc).IndexName("updated"));
+                pd.Date(p => p.Name(d => (d as IHaveDates).UpdatedUtc));
 
             return pd;
         }

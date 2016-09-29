@@ -49,7 +49,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public virtual Task DeleteAsync() {
             return DeleteIndexAsync(Name);
         }
-        
+
         protected virtual async Task CreateIndexAsync(string name, Func<CreateIndexDescriptor, CreateIndexDescriptor> descriptor) {
             if (name == null)
                 throw new ArgumentNullException(nameof(name));
@@ -94,6 +94,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ApplicationException($"Unable to acquire index creation lock for \"{name}\".");
         }
 
+        public virtual CreateIndexDescriptor ConfigureDescriptor(CreateIndexDescriptor idx) {
+            foreach (var t in IndexTypes)
+                t.Configure(idx);
+
+            return idx;
+        }
+
         protected virtual async Task DeleteIndexAsync(string name) {
             if (name == null)
                 throw new ArgumentNullException(nameof(name));
@@ -115,7 +122,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
             throw new ApplicationException(message, response.OriginalException);
         }
-        
+
         protected async Task<bool> IndexExistsAsync(string name) {
             if (name == null)
                 throw new ArgumentNullException(nameof(name));

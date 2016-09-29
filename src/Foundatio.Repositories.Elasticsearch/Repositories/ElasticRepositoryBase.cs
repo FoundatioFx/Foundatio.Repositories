@@ -28,9 +28,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             _validator = validator;
             _messagePublisher = indexType.Configuration.MessageBus;
             NotificationsEnabled = _messagePublisher != null;
-
+            
             if (HasCreatedDate) {
-                var propertyName = _client.Infer.PropertyName(typeof(T).GetProperty(nameof(IHaveCreatedDate.CreatedUtc)));
+                var propertyName = GetPropertyName(nameof(IHaveCreatedDate.CreatedUtc));
                 FieldsRequiredForRemove.Add(propertyName);
             }
         }
@@ -662,7 +662,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     if (HasVersion) {
                         var versionDoc = (IVersioned)document;
-                        i.Version(versionDoc.Version);
+                        if (versionDoc.Version > 0)
+                            i.Version(versionDoc.Version);
                     }
 
                     return i;
@@ -681,8 +682,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
             } else {
                 var response = await _client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc, ElasticType.Name).AnyContext();
-
                 _logger.Trace(() => response.GetRequest());
+
                 if (HasVersion) {
                     foreach (var hit in response.Items) {
                         var document = documents.FirstOrDefault(d => d.Id == hit.Id);

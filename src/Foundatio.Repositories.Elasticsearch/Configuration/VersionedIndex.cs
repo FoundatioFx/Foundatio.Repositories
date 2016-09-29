@@ -62,13 +62,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             throw new ApplicationException(message, response.OriginalException);
         }
 
-        public virtual CreateIndexDescriptor ConfigureDescriptor(CreateIndexDescriptor idx) {
-            foreach (var t in IndexTypes)
-                t.Configure(idx);
-
-            return idx;
-        }
-
         public override Task DeleteAsync() {
             return DeleteIndexAsync(VersionedName);
         }

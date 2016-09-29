@@ -10,16 +10,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
             return map
                 .Dynamic(false)
                 .Properties(p => p
-                    .Keyword(f => f.Name(e => e.Id).IndexName(Fields.Id))
-                    .Keyword(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId))
-                    .Date(f => f.Name(e => e.CreatedUtc).IndexName(Fields.CreatedUtc))
+                    .Keyword(f => f.Name(e => e.Id))
+                    .Keyword(f => f.Name(e => e.CompanyId))
+                    .Date(f => f.Name(e => e.CreatedUtc))
                 );
-        }
-
-        public class Fields {
-            public const string Id = "id";
-            public const string CompanyId = "company";
-            public const string CreatedUtc = "created";
         }
     }
 }

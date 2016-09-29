@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Configuration;
+using System.Diagnostics;
 using System.Linq;
 using Elasticsearch.Net;
 using Foundatio.Caching;
@@ -11,6 +12,7 @@ using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
+using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
     public class MyAppElasticConfiguration : ElasticConfiguration {
@@ -25,7 +27,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
 
         protected override IConnectionPool CreateConnectionPool() {
             var connectionString = ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString;
-            return new StaticConnectionPool(connectionString.Split(',').Select(url => new Uri(url)));
+            bool fiddlerIsRunning = Process.GetProcessesByName("fiddler").Length > 0;
+            return new StaticConnectionPool(connectionString.Split(',')
+                .Select(url => new Uri(fiddlerIsRunning ? url.Replace("localhost", "ipv4.fiddler") : url)));
+        }
+
+        protected override void ConfigureSettings(ConnectionSettings settings) {
+            // Allow us to log out the responses.
+            settings.DisableDirectStreaming(); //.PrettyJson();
+            base.ConfigureSettings(settings);
         }
 
         public override void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder) {

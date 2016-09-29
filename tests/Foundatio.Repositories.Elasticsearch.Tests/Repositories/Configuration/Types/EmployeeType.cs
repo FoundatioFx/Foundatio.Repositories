@@ -13,24 +13,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                 .Dynamic(false)
                 .Properties(p => p
                     .SetupDefaults()
-                    .Keyword(f => f.Name(e => e.Id).IndexName(Fields.Id))
-                    .Keyword(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId))
-                    .Keyword(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName))
-                    .Text(f => f.Name(e => e.Name).IndexName(Fields.Name))
-                    .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
+                    .Keyword(f => f.Name(e => e.Id))
+                    .Keyword(f => f.Name(e => e.CompanyId))
+                    .Keyword(f => f.Name(e => e.CompanyName))
+                    .Text(f => f.Name(e => e.Name))
+                    .Number(f => f.Name(e => e.Age))
                 ));
         }
 
         protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
             builder.UseQueryParser(this);
-        }
-
-        public class Fields {
-            public const string Id = "id";
-            public const string CompanyId = "company";
-            public const string CompanyName = "company_name";
-            public const string Name = "name";
-            public const string Age = "age";
         }
     }
     
@@ -42,22 +34,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                 .Dynamic(false)
                 .Properties(p => p
                     .SetupDefaults()
-                    .Keyword(f => f.Name(e => e.Id).IndexName(Fields.Id))
-                    .Keyword(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId))
-                    .Keyword(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName))
-                    .Text(f => f.Name(e => e.Name).IndexName(Fields.Name))
-                    .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
-                    .Number(f => f.Name(e => e.YearsEmployed).IndexName(Fields.YearsEmployed))
+                    .Keyword(f => f.Name(e => e.Id))
+                    .Keyword(f => f.Name(e => e.CompanyId))
+                    .Keyword(f => f.Name(e => e.CompanyName))
+                    .Text(f => f.Name(e => e.Name))
+                    .Number(f => f.Name(e => e.Age))
+                    .Number(f => f.Name(e => e.YearsEmployed))
                 ));
-        }
-
-        public class Fields {
-            public const string Id = "id";
-            public const string CompanyId = "company";
-            public const string CompanyName = "company_name";
-            public const string Name = "name";
-            public const string Age = "age";
-            public const string YearsEmployed = "years_employed";
         }
     }
 
@@ -69,20 +52,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                 .Dynamic(false)
                 .Properties(p => p
                     .SetupDefaults()
-                    .Keyword(f => f.Name(e => e.Id).IndexName(Fields.Id))
-                    .Keyword(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId))
-                    .Keyword(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName))
-                    .Text(f => f.Name(e => e.Name).IndexName(Fields.Name))
-                    .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
+                    .Keyword(f => f.Name(e => e.Id))
+                    .Keyword(f => f.Name(e => e.CompanyId))
+                    .Keyword(f => f.Name(e => e.CompanyName))
+                    .Text(f => f.Name(e => e.Name))
+                    .Number(f => f.Name(e => e.Age))
                 ));
-        }
-
-        public class Fields {
-            public const string Id = "id";
-            public const string CompanyId = "company";
-            public const string CompanyName = "company_name";
-            public const string Name = "name";
-            public const string Age = "age";
         }
     }
 
@@ -94,20 +69,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                 .Dynamic(false)
                 .Properties(p => p
                     .SetupDefaults()
-                    .Keyword(f => f.Name(e => e.Id).IndexName(Fields.Id))
-                    .Keyword(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId))
-                    .Keyword(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName))
-                    .Text(f => f.Name(e => e.Name).IndexName(Fields.Name))
-                    .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
+                    .Keyword(f => f.Name(e => e.Id))
+                    .Keyword(f => f.Name(e => e.CompanyId))
+                    .Keyword(f => f.Name(e => e.CompanyName))
+                    .Text(f => f.Name(e => e.Name))
+                    .Number(f => f.Name(e => e.Age))
                 ));
-        }
-
-        public class Fields {
-            public const string Id = "id";
-            public const string CompanyId = "company";
-            public const string CompanyName = "company_name";
-            public const string Name = "name";
-            public const string Age = "age";
         }
     }
 }

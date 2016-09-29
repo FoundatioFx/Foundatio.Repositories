@@ -115,11 +115,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             // Try creating the index.
             var index = GetVersionedIndex(utcDate);
             await CreateIndexAsync(index, descriptor => {
-                var d = ConfigureDescriptor(descriptor).Aliases(ad => ad.Alias(alias));
+                var aliasesDescriptor = new AliasesDescriptor().Alias(alias);
                 foreach (var a in Aliases.Where(a => ShouldCreateAlias(utcDate, a)))
-                    d.Aliases(ad => ad.Alias(a.Name));
+                    aliasesDescriptor.Alias(a.Name);
 
-                return d;
+                return ConfigureDescriptor(descriptor).Aliases(a => aliasesDescriptor);
             }).AnyContext();
 
             if (!await AliasExistsAsync(alias).AnyContext())
