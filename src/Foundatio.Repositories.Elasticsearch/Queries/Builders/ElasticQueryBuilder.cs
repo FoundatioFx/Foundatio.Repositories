@@ -48,12 +48,13 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             Unregister<SearchQueryBuilder>();
             Register(new ParsedSearchQueryBuilder(new ElasticQueryParser(configure)));
         }
-
-        public void UseQueryParser<T>(IndexTypeBase<T> indexType) where T : class {
-            UseQueryParser(c => c
-                .UseMappings<T>(indexType.BuildMapping,
-                () => indexType.Configuration.Client.GetMapping(new GetMappingRequest(indexType.Index.Name, indexType.Name)).Mapping)
-                .UseNested());
+        
+        public void UseQueryParser<T>(IndexTypeBase<T> indexType, Action<ElasticQueryParserConfiguration> configure = null) where T : class {
+            UseQueryParser(c => {
+                c.UseMappings<T>(indexType.BuildMapping, () => indexType.Configuration.Client.GetMapping(new GetMappingRequest(indexType.Index.Name, indexType.Name)).Mapping);
+                c.UseNested();
+                configure?.Invoke(c);
+            });
         }
 
         public void UseAliases(AliasMap aliasMap) {

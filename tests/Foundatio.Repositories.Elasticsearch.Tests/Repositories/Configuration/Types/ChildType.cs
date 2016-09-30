@@ -5,7 +5,7 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Types {
     public class ChildType : ChildIndexType<Child, Parent> {
-        public ChildType(IIndex index): base("parentId", d => d.ParentId, index) {}
+        public ChildType(IIndex index): base(d => d.ParentId, index) {}
 
         public override PutMappingDescriptor<Child> BuildMapping(PutMappingDescriptor<Child> map) {
             return base.BuildMapping(map
