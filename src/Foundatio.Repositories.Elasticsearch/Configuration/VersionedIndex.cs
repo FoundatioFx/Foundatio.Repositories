@@ -37,12 +37,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return;
             
             var response = await Configuration.Client.AliasAsync(a => a.Add(s => s.Index(index).Alias(name))).AnyContext();
-            if (response.IsValid) {
-                while (!await AliasExistsAsync(name).AnyContext())
-                    SystemClock.Sleep(100);
-
+            if (response.IsValid)
                 return;
-            }
 
             if (await AliasExistsAsync(name).AnyContext())
                 return;

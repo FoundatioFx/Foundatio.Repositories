@@ -712,7 +712,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var alias = await _client.GetAliasAsync(descriptor => descriptor.Name(_configuration.DailyLogEvents.Name));
             _logger.Trace(() => alias.GetRequest());
             Assert.False(alias.IsValid);
-            Assert.Equal(0, alias.Indices.Count);
 
             var utcNow = SystemClock.UtcNow;
             var repository = new DailyLogEventRepository(_configuration);

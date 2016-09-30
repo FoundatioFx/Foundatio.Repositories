@@ -652,6 +652,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (documents.Count == 1) {
                 var document = documents.Single();
                 var response = await _client.IndexAsync(document, i => {
+                    // TODO: See if there is a better ay to specify type only once.
                     i.Type(ElasticType.Name);
 
                     if (GetParentIdFunc != null)

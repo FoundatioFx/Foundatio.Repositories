@@ -9,8 +9,6 @@ using Foundatio.Jobs;
 using Foundatio.Logging;
 using Foundatio.Messaging;
 using Foundatio.Queues;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Nest;
 
@@ -36,11 +34,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
             // Allow us to log out the responses.
             settings.DisableDirectStreaming(); //.PrettyJson();
             base.ConfigureSettings(settings);
-        }
-
-        public override void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder) {
-            builder.Register<AgeQueryBuilder>();
-            builder.Register<CompanyQueryBuilder>();
         }
 
         public IdentityIndex Identities { get; }

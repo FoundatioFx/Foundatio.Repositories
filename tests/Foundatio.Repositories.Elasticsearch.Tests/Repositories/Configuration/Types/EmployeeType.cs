@@ -2,6 +2,7 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
@@ -22,6 +23,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
         }
 
         protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
+            builder.Register<AgeQueryBuilder>();
+            builder.Register<CompanyQueryBuilder>();
             builder.UseQueryParser(this);
         }
     }

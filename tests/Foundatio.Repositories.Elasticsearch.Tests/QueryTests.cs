@@ -168,19 +168,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Log.SetLogLevel<EmployeeRepository>(LogLevel.Trace);
 
             await _client.RefreshAsync(Indices.All);
-            var results = await GetByFilterAsync("company_name:Exceptionless");
+            var results = await GetByFilterAsync("companyName:Exceptionless");
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
 
-            results = await GetByFilterAsync("company_name:\"Exceptionless\"");
+            results = await GetByFilterAsync("companyName:\"Exceptionless\"");
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
 
-            results = await GetByFilterAsync(null, "company_name:e*");
+            results = await GetByFilterAsync(null, "companyName:e*");
             Assert.Equal(0, results.Total);
 
             await Assert.ThrowsAsync<FormatException>(async () => {
-                await GetByFilterAsync(null, "company_name:");
+                await GetByFilterAsync(null, "companyName:");
             });
         }
 

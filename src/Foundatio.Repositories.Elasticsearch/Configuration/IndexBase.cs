@@ -67,23 +67,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                     return;
                 }
 
+                // NOTE: Create index should wait for all active shards to be available.
                 var response = await Configuration.Client.CreateIndexAsync(name, descriptor).AnyContext();
                 _logger.Trace(() => response.GetRequest());
 
-                if (response.IsValid) {
-                    while (!await IndexExistsAsync(name).AnyContext())
-                        SystemClock.Sleep(100);
-
-                    var healthResponse = await Configuration.Client.ClusterHealthAsync(h => h
-                        .Index(name)
-                        .WaitForStatus(WaitForStatus.Yellow)
-                        .Timeout("10s")).AnyContext();
-
-                    if (!healthResponse.IsValid || (healthResponse.Status != "green" && healthResponse.Status != "yellow") || healthResponse.TimedOut)
-                        throw new ApplicationException($"Index {name} is unhealthy: {healthResponse.Status}.", healthResponse.OriginalException);
-
+                if (response.IsValid)
                     return;
-                }
 
                 string message = $"Error creating the index {name}: {response.GetErrorMessage()}";
                 _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
@@ -98,7 +87,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             foreach (var t in IndexTypes)
                 t.Configure(idx);
 
-            return idx;
+            return idx.WaitForActiveShards("all");
         }
 
         protected virtual async Task DeleteIndexAsync(string name) {
@@ -111,12 +100,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var response = await Configuration.Client.DeleteIndexAsync(name).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
-            if (response.IsValid) {
-                while (await IndexExistsAsync(name).AnyContext())
-                    SystemClock.Sleep(100);
-                
+            if (response.IsValid)
                 return;
-            }
 
             string message = $"Error deleting index {name}: {response.GetErrorMessage()}";
             _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();

@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
+using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Extensions;
 using Nest;
 
@@ -31,9 +31,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Queries {
                 return;
 
             if (ageQuery.Ages.Count == 1)
-                ctx.Filter &= Query<T>.Term(EmployeeType.Fields.Age, ageQuery.Ages.First());
+                ctx.Filter &= Query<Employee>.Term(f => f.Age, ageQuery.Ages.First());
             else
-                ctx.Filter &= Query<T>.Terms(d => d.Field(EmployeeType.Fields.Age).Terms(ageQuery.Ages));
+                ctx.Filter &= Query<Employee>.Terms(d => d.Field(f => f.Age).Terms(ageQuery.Ages));
         }
     }
 }

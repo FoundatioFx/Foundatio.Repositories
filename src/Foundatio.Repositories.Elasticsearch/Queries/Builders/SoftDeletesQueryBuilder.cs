@@ -16,11 +16,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (opt == null || !opt.SupportsSoftDeletes || (idsQuery != null && idsQuery.Ids.Count > 0))
                 return;
 
-            ctx.Filter &= new TermQuery { Field = Fields.Deleted, Value = softDeletesQuery.IncludeSoftDeletes };
-        }
-
-        internal class Fields {
-            public const string Deleted = "deleted";
+            // TODO: This needs to support different inferred names.
+            ctx.Filter &= new TermQuery {  Field = "isDeleted", Value = softDeletesQuery.IncludeSoftDeletes };
         }
     }
 }

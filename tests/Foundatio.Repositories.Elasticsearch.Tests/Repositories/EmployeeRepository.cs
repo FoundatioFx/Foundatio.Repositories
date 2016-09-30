@@ -11,6 +11,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
+using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class EmployeeRepository : ElasticRepositoryBase<Employee> {
@@ -33,11 +34,25 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public Task<CountResult> GetNumberOfEmployeesWithMissingCompanyName(string company) {
-            return CountAsync(new MyAppQuery().WithCompany(company).WithFilter($"_missing_:{EmployeeType.Fields.CompanyName}"));
+            var query = new BoolQuery {
+                MustNot = new QueryContainer[] {
+                    new ExistsQuery {
+                        Field = GetPropertyName(nameof(Employee.CompanyName))
+                    }
+                }
+            };
+            return CountAsync(new MyAppQuery().WithCompany(company).WithElasticFilter(query));
         }
 
         public Task<CountResult> GetNumberOfEmployeesWithMissingName(string company) {
-            return CountAsync(new MyAppQuery().WithCompany(company).WithFilter($"_missing_:{EmployeeType.Fields.Name}"));
+            var query = new BoolQuery {
+                MustNot = new QueryContainer[] {
+                    new ExistsQuery {
+                        Field = GetPropertyName(nameof(Employee.Name))
+                    }
+                }
+            };
+            return CountAsync(new MyAppQuery().WithCompany(company).WithElasticFilter(query));
         }
 
         /// <summary>

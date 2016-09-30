@@ -35,7 +35,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                         ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { new TermQuery { Field = fieldValue.Field, Value = fieldValue.Value } } };
                         break;
                     case ComparisonOperator.IsEmpty:
-                        ctx.Filter &= new MissingQuery { Field = fieldValue.Field };
+                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { new ExistsQuery { Field = fieldValue.Field } } };
                         break;
                     case ComparisonOperator.HasValue:
                         ctx.Filter &= new ExistsQuery { Field = fieldValue.Field };
