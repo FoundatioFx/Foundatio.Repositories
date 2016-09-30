@@ -37,12 +37,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             var startTime = SystemClock.UtcNow.AddSeconds(-1);
             await progressCallbackAsync(0, "Starting reindex...").AnyContext();
             var result = await InternalReindexAsync(workItem, progressCallbackAsync, 0, 90, workItem.StartUtc).AnyContext();
+            await progressCallbackAsync(95, $"Total: {result.Total} Completed: {result.Completed}").AnyContext();
 
-            await progressCallbackAsync(0, "Starting pass 2 reindex...").AnyContext();
-            var secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 90, 95, startTime).AnyContext();
-            await progressCallbackAsync(95, $"Pass 2 - Total: {secondPassResult.Total} Completed: {secondPassResult.Completed}").AnyContext();
-            await _client.RefreshAsync().AnyContext();
-
+            // TODO: Check to make sure the docs have been added to the new index before changing alias
             if (workItem.OldIndex != workItem.NewIndex) {
                 var aliases = await GetIndexAliases(workItem.OldIndex).AnyContext();
                 if (!String.IsNullOrEmpty(workItem.Alias) && !aliases.Contains(workItem.Alias))
@@ -61,8 +58,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             await _client.RefreshAsync().AnyContext();
-            var finalPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 95, 98, startTime).AnyContext();
-            await progressCallbackAsync(98, $"Total: {finalPassResult.Total} Completed: {finalPassResult.Completed}").AnyContext();
+            var secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 90, 98, startTime).AnyContext();
+            await progressCallbackAsync(98, $"Total: {secondPassResult.Total} Completed: {secondPassResult.Completed}").AnyContext();
 
             if (workItem.DeleteOld && workItem.OldIndex != workItem.NewIndex) {
                 await _client.RefreshAsync().AnyContext();
