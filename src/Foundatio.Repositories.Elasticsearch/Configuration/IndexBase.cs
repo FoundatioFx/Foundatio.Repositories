@@ -136,9 +136,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 DeleteOld = false
             };
 
-            foreach (var type in IndexTypes.OfType<IChildIndexType>())
-                reindexWorkItem.ParentMaps.Add(new ParentMap { Type = type.Name, ParentPath = type.ParentPath });
-
             var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Cache, _logger);
             return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
         }

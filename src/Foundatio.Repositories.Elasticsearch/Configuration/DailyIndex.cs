@@ -196,9 +196,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
                 reindexWorkItem.DeleteOld = DiscardIndexesOnReindex && reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;
 
-                foreach (var type in IndexTypes.OfType<IChildIndexType>())
-                    reindexWorkItem.ParentMaps.Add(new ParentMap { Type = type.Name, ParentPath = type.ParentPath });
-
                 // attempt to create the index. If it exists the index will not be created.
                 await CreateIndexAsync(reindexWorkItem.NewIndex, ConfigureDescriptor).AnyContext();
 
