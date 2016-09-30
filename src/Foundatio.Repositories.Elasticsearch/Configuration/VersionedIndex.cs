@@ -71,9 +71,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             reindexWorkItem.DeleteOld = DiscardIndexesOnReindex && reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;
 
-            foreach (var type in IndexTypes.OfType<IChildIndexType>())
-                reindexWorkItem.ParentMaps.Add(new ParentMap { Type = type.Name, ParentPath = type.ParentPath });
-
             return reindexWorkItem;
         }
 

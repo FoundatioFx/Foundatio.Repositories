@@ -2,7 +2,6 @@
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface IChildIndexType : IIndexType {
-        string ParentPath { get; }
         IIndexType GetParentIndexType();
     }
 
@@ -18,16 +17,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         protected readonly Func<TChild, string> _getParentId;
         private readonly Lazy<IIndexType<TParent>> _parentIndexType;
 
-        public ChildIndexType(string parentPath, Func<TChild, string> getParentId, IIndex index, string name = null): base(index, name) {
+        public ChildIndexType(Func<TChild, string> getParentId, IIndex index, string name = null): base(index, name) {
             if (getParentId == null)
                 throw new ArgumentNullException(nameof(getParentId));
 
-            ParentPath = parentPath;
             _getParentId = getParentId;
             _parentIndexType = new Lazy<IIndexType<TParent>>(() => Configuration.GetIndexType<TParent>());
         }
 
-        public string ParentPath { get; }
         public IIndexType GetParentIndexType() => _parentIndexType.Value;
         public IIndexType<TParent> ParentIndexType => _parentIndexType.Value;
 

@@ -138,7 +138,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                     continue;
 
                 // enqueue reindex to new version, only allowed every 15 minutes
-                await _beginReindexLockProvider.TryUsingAsync(String.Join(":", "enqueue-reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex), () => _workItemQueue.EnqueueAsync(reindexWorkItem), TimeSpan.Zero, new CancellationToken(true)).AnyContext();
+                await _beginReindexLockProvider.TryUsingAsync(String.Join(":", "enqueue-reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex), () => {
+                    return _workItemQueue.EnqueueAsync(reindexWorkItem);
+                }, TimeSpan.Zero, new CancellationToken(true)).AnyContext();
             }
         }
 

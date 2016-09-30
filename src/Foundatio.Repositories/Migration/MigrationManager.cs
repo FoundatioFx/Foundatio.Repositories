@@ -13,11 +13,20 @@ namespace Foundatio.Repositories.Migrations {
         private readonly IServiceProvider _container;
         private readonly IMigrationRepository _migrationRepository;
         protected readonly ILogger _logger;
+        private readonly IList<Assembly> _assemblies = new List<Assembly>();
 
         public MigrationManager(IServiceProvider container, IMigrationRepository migrationRepository, ILogger<MigrationManager> logger = null) {
             _container = container;
             _migrationRepository = migrationRepository;
             _logger = logger ?? NullLogger.Instance;
+        }
+
+        public void RegisterAssemblyMigrations(Assembly assembly) {
+            _assemblies.Add(assembly);
+        }
+
+        public void RegisterAssemblyMigrations<T>() {
+            _assemblies.Add(typeof(T).Assembly);
         }
 
         public async Task RunAsync() {
@@ -30,17 +39,22 @@ namespace Foundatio.Repositories.Migrations {
         }
 
         private async Task MarkMigrationStartedAsync(int version) {
+            _logger.Info($"Starting migration for version {version}...");
             await _migrationRepository.AddAsync(new Migration { Version = version, StartedUtc = SystemClock.UtcNow }).AnyContext();
         }
 
         private async Task MarkMigrationCompleteAsync(int version) {
             var m = await _migrationRepository.GetByIdAsync("migration-" + version).AnyContext();
+            if (m == null)
+                m = new Migration { Version = version };
+
             m.CompletedUtc = SystemClock.UtcNow;
             await _migrationRepository.SaveAsync(m).AnyContext();
+            _logger.Info($"Completed migration for version {version}.");
         }
 
         private ICollection<IMigration> GetAllMigrations() {
-            var migrationTypes = GetDerivedTypes<IMigration>(new[] { typeof(IMigration).Assembly });
+            var migrationTypes = GetDerivedTypes<IMigration>(_assemblies.Count > 0 ? _assemblies : new[] { typeof(IMigration).Assembly });
             return migrationTypes
                 .Select(migrationType => (IMigration)_container.GetService(migrationType))
                 .OrderBy(m => m.Version)
@@ -50,7 +64,16 @@ namespace Foundatio.Repositories.Migrations {
         private async Task<ICollection<IMigration>> GetPendingMigrationsAsync() {
             var allMigrations = GetAllMigrations();
             var completedMigrations = await _migrationRepository.GetAllAsync(paging: 1000).AnyContext();
-            var currentVersion = completedMigrations.Documents.Count > 0 ? completedMigrations.Documents.Max(m => m.Version) : 0;
+
+            // if migrations have never run before, mark the up to date with the most recent migration
+            if (completedMigrations.Documents.Count == 0) {
+                var max = allMigrations.Max(m => m.Version);
+                await MarkMigrationCompleteAsync(max);
+
+                return new List<IMigration>();
+            }
+
+            var currentVersion = completedMigrations.Documents.Max(m => m.Version);
             return allMigrations.Where(m => m.Version > currentVersion).ToList();
         }
 
