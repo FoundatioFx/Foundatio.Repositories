@@ -87,7 +87,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             foreach (var t in IndexTypes)
                 t.Configure(idx);
 
-            return idx.WaitForActiveShards("all");
+            return idx;
         }
 
         protected virtual async Task DeleteIndexAsync(string name) {
