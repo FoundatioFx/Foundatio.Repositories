@@ -139,7 +139,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             results = await GetByFilterAsync(null, "name:Niemy* name:eric");
             Assert.Equal(2, results.Total);
-            Assert.True(results.Hits.All(h => h.Score < 1));
 
             results = await GetByFilterAsync(null, "name:J*");
             Assert.Equal(1, results.Total);
@@ -147,6 +146,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             
             results = await GetByFilterAsync(null, "name:*");
             Assert.Equal(2, results.Total);
+            Assert.Equal(2, results.Hits.Sum(h => h.Score));
 
             await Assert.ThrowsAsync<FormatException>(async () => {
                 await GetByFilterAsync(null, "name:");

@@ -381,7 +381,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var response = await _client.DeleteAsync(request).AnyContext();
                 _logger.Trace(() => response.GetRequest());
 
-                if (!response.IsValid) {
+                if (!response.IsValid && response.Found) {
                     string message = response.GetErrorMessage();
                     _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
                     throw new ApplicationException(message, response.OriginalException);
@@ -687,6 +687,9 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 if (HasVersion) {
                     foreach (var hit in response.Items) {
+                        if (!hit.IsValid)
+                            continue;
+
                         var document = documents.FirstOrDefault(d => d.Id == hit.Id);
                         if (document == null)
                             continue;

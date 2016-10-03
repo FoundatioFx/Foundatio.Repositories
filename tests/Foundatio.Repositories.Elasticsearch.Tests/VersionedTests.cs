@@ -112,23 +112,23 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, employee1.Version);
             Assert.Equal(1, employee2.Version);
 
-            employee1 = await _employeeRepository.GetByIdAsync(employee1.Id);
-            var employeeCopy = await _employeeRepository.GetByIdAsync(employee1.Id);
-            Assert.Equal(employee1, employeeCopy);
-            Assert.Equal(1, employee1.Version);
+            var employee1Version1Copy = await _employeeRepository.GetByIdAsync(employee1.Id);
+            Assert.Equal(1, employee1Version1Copy.Version);
+            Assert.Equal(employee1, employee1Version1Copy);
 
-            employee1.CompanyName = employeeCopy.CompanyName = "updated";
-            
+            employee1.CompanyName = employee1Version1Copy.CompanyName = "updated";
             await _employeeRepository.SaveAsync(new List<Employee> { employee1, employee2 });
-            Assert.Equal(employeeCopy.Version + 1, employee1.Version);
+            Assert.Equal(2, employee1.Version);
             Assert.Equal(2, employee2.Version);
 
-            await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(new List<Employee> { employeeCopy, employee2 }));
-            Assert.NotEqual(employeeCopy.Version, employee1.Version);
+            await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(new List<Employee> { employee1Version1Copy, employee2 }));
+            Assert.Equal(1, employee1Version1Copy.Version);
+            Assert.Equal(2, employee1.Version);
             Assert.Equal(3, employee2.Version);
 
-            await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(new List<Employee> { employeeCopy, employee2 }));
-            Assert.NotEqual(employeeCopy.Version, employee1.Version);
+            await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(new List<Employee> { employee1Version1Copy, employee2 }));
+            Assert.Equal(1, employee1Version1Copy.Version);
+            Assert.Equal(2, employee1.Version);
             Assert.Equal(4, employee2.Version);
 
             Assert.Equal(employee2, await _employeeRepository.GetByIdAsync(employee2.Id));
