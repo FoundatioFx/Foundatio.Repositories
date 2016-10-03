@@ -898,8 +898,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                 aliasesResponse = await _client.GetAliasAsync(a => a.Index(index.GetIndex(employee.CreatedUtc)));
                 _logger.Trace(() => aliasesResponse.GetRequest());
-                Assert.True(aliasesResponse.IsValid);
-                Assert.Equal(0, aliasesResponse.Indices.Count);
+                Assert.False(aliasesResponse.IsValid);
             }
         }
 
