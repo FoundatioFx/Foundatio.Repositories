@@ -1,5 +1,7 @@
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
@@ -14,6 +16,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                     .Keyword(f => f.Name(e => e.CompanyId))
                     .Date(f => f.Name(e => e.CreatedUtc))
                 );
+        }
+
+        protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
+            builder.Register<CompanyQueryBuilder>();
         }
     }
 }
