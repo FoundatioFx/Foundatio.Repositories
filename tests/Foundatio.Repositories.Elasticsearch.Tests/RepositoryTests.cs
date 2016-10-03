@@ -421,11 +421,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task JsonPatch() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
-
             var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
             await _employeeRepository.PatchAsync(employee.Id, patch);
 
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
+            Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
             Assert.Equal("Patched", employee.Name);
             Assert.Equal(2, employee.Version);
         }
@@ -433,10 +433,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task PartialPatch() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
-
             await _employeeRepository.PatchAsync(employee.Id, new { name = "Patched" });
 
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
+            Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
             Assert.Equal("Patched", employee.Name);
             Assert.Equal(2, employee.Version);
         }
@@ -444,10 +444,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task ScriptPatch() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
-
             await _employeeRepository.PatchAsync(employee.Id, "ctx._source.name = 'Patched';");
 
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
+            Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
             Assert.Equal("Patched", employee.Name);
             Assert.Equal(2, employee.Version);
         }

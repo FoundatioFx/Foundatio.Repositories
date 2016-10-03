@@ -141,7 +141,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var target = response.Source as JToken;
                 new JsonPatcher().Patch(ref target, patch);
 
-                var updateResponse = await _client.LowLevel.IndexPutAsync<JToken>(response.Index, response.Type, id, new PostData<JToken>(target)).AnyContext();
+                var updateResponse = await _client.LowLevel.IndexPutAsync<object>(response.Index, response.Type, id, new PostData<object>(target.ToString())).AnyContext();
                 _logger.Trace(() => updateResponse.GetRequest());
 
                 if (!updateResponse.Success) {
