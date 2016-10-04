@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using Elasticsearch.Net;
 using Exceptionless.DateTimeExtensions;
@@ -447,7 +445,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     var countdown = new AsyncCountdownEvent(1);
                     var reindexTask = version2Index.ReindexAsync((progress, message) => {
                         _logger.Info($"Reindex Progress {progress}%: {message}");
-                        if (progress == 95) {
+                        if (progress == 91) {
                             countdown.Signal();
                             SystemClock.Sleep(1000);
                         }
@@ -514,7 +512,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     var countdown = new AsyncCountdownEvent(1);
                     var reindexTask = version2Index.ReindexAsync((progress, message) => {
                         _logger.Info($"Reindex Progress {progress}%: {message}");
-                        if (progress == 95) {
+                        if (progress == 91) {
                             countdown.Signal();
                             SystemClock.Sleep(1000);
                         }
