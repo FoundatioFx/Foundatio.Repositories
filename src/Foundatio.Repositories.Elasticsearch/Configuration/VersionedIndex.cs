@@ -35,7 +35,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         protected virtual async Task CreateAliasAsync(string index, string name) {
             if (await AliasExistsAsync(name).AnyContext())
                 return;
-            
+
             var response = await Configuration.Client.AliasAsync(a => a.Add(s => s.Index(index).Alias(name))).AnyContext();
             if (response.IsValid)
                 return;
@@ -52,7 +52,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var response = await Configuration.Client.AliasExistsAsync(a => a.Name(alias)).AnyContext();
             if (response.IsValid)
                 return response.Exists;
-            
+
             string message = $"Error checking to see if alias {alias} exists: {response.GetErrorMessage()}";
             _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
             throw new ApplicationException(message, response.OriginalException);
@@ -120,7 +120,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             return -1;
         }
-        
+
         protected virtual int GetIndexVersion(string name) {
             if (String.IsNullOrEmpty(name))
                 throw new ArgumentNullException(nameof(name));
@@ -138,9 +138,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected virtual async Task<IList<IndexInfo>> GetIndexesAsync(int version = -1) {
-            // TODO: Update this to use a index filter once we upgrade to elastic 2.x+ and change the request timeout..
+            string filter = version < 0 ? $"{Name}-v*" : $"{Name}-v{version}";
+            if (this is ITimeSeriesIndex)
+                filter += "-*";
+
             var sw = Stopwatch.StartNew();
-            var response = await Configuration.Client.CatIndicesAsync(i => i.Pri().H("index").RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5)))).AnyContext();
+            var response = await Configuration.Client.CatIndicesAsync(i => i.Pri().H("index").Index(Indices.Index(filter))).AnyContext();
             sw.Stop();
             _logger.Trace(() => response.GetRequest());
 
@@ -150,12 +153,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ApplicationException(message, response.OriginalException);
             }
 
-            string index = version < 0 ? $"{Name}-v" : $"{Name}-v{version}";
             var indices = response.Records
-                .Where(i => i.Index.StartsWith(index) && (version < 0 || GetIndexVersion(i.Index) == version))
+                .Where(i => version < 0 || GetIndexVersion(i.Index) == version)
                 .Select(i => new IndexInfo { DateUtc = GetIndexDate(i.Index), Index = i.Index, Version = GetIndexVersion(i.Index) })
                 .ToList();
-            
+
             _logger.Info($"Retrieved list of {indices.Count} indexes in {sw.Elapsed.ToWords(true)}");
             return indices;
         }
