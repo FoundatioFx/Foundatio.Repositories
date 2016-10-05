@@ -7,8 +7,10 @@ using System.Threading.Tasks;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.JsonPatch;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Queries;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Nest;
@@ -21,18 +23,20 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class RepositoryTests : ElasticRepositoryTestBase {
         private readonly EmployeeRepository _employeeRepository;
         private readonly DailyLogEventRepository _dailyRepository;
+        private readonly DailyLogEventRepository _dailyRepositoryWithNoCaching;
         private readonly IdentityRepository _identityRepository;
         private readonly IdentityRepository _identityRepositoryWithNoCaching;
 
         public RepositoryTests(ITestOutputHelper output) : base(output) {
             _dailyRepository = new DailyLogEventRepository(_configuration);
+            _dailyRepositoryWithNoCaching = new DailyLogEventWithNoCachingRepository(_configuration);
             _employeeRepository = new EmployeeRepository(_configuration);
             _identityRepository = new IdentityRepository(_configuration);
             _identityRepositoryWithNoCaching = new IdentityWithNoCachingRepository(_configuration);
 
             RemoveDataAsync().GetAwaiter().GetResult();
         }
-        
+
         [Fact]
         public async Task Add() {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Generate());
@@ -65,12 +69,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 disposables.Clear();
             }
         }
-        
+
         [Fact]
         public async Task AddDuplicate() {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default);
             Assert.NotNull(identity1?.Id);
-            
+
             var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Default);
             Assert.NotNull(identity2?.Id);
 
@@ -110,13 +114,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id));
         }
-        
+
         [Fact]
         public async Task AddCollectionWithTimeSeries() {
             var utcNow = SystemClock.UtcNow;
             var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
             var nowLog = LogEventGenerator.Default;
-            
+
             var logs = new List<LogEvent> { yesterdayLog, nowLog };
             await _dailyRepository.AddAsync(logs);
 
@@ -127,7 +131,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var getAllResults = await _dailyRepository.GetAllAsync();
             Assert.Equal(logs, getAllResults.Documents.OrderBy(d => d.CreatedUtc).ToList());
         }
-        
+
         [Fact]
         public async Task AddCollectionWithCaching() {
             var identity = IdentityGenerator.Generate();
@@ -147,7 +151,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task Save() {
             var log = await _dailyRepository.AddAsync(LogEventGenerator.Default, sendNotification: false);
             Assert.NotNull(log?.Id);
-            
+
             var disposables = new List<IDisposable>();
             var countdownEvent = new AsyncCountdownEvent(5);
 
@@ -194,7 +198,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task AddAndSave() {
             var log = await _dailyRepository.AddAsync(LogEventGenerator.Default, sendNotification: false);
             Assert.NotNull(log?.Id);
-            
+
             var disposables = new List<IDisposable>(4);
             var countdownEvent = new AsyncCountdownEvent(5);
             // Save requires an id to be set.
@@ -243,7 +247,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
-            
+
             string cacheKey = _cache.Keys.Single();
             var cacheValue = await _cache.GetAsync<Identity>(cacheKey);
             Assert.True(cacheValue.HasValue);
@@ -252,7 +256,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             identity = await _identityRepository.GetByIdAsync(identity.Id, useCache: true);
             Assert.NotNull(identity);
             Assert.Equal(2, _cache.Hits);
-            
+
             cacheValue = await _cache.GetAsync<Identity>(cacheKey);
             Assert.True(cacheValue.HasValue);
             Assert.Equal(identity, cacheValue.Value);
@@ -263,9 +267,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(0, _cache.Misses);
 
             var result = await _identityRepository.SaveAsync(identity, addToCache: true);
+            Assert.NotNull(result);
             Assert.Equal(1, _cache.Count);
             Assert.Equal(3, _cache.Hits);
             Assert.Equal(1, _cache.Misses);
+
             cacheValue = await _cache.GetAsync<Identity>(cacheKey);
             Assert.True(cacheValue.HasValue);
             Assert.Equal(identity, cacheValue.Value);
@@ -276,7 +282,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var identity = IdentityGenerator.Generate();
             await Assert.ThrowsAsync<ApplicationException>(async () => await _identityRepository.SaveAsync(new List<Identity> { identity }, addToCache: true));
         }
-        
+
         [Fact]
         public async Task SaveWithOutOfSyncIndex() {
             var utcNow = SystemClock.UtcNow;
@@ -285,7 +291,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _client.RefreshAsync(Indices.All);
             Assert.Equal(1, await _dailyRepository.CountAsync());
-            
+
             yesterdayLog.Message = "updated";
             await _dailyRepository.SaveAsync(yesterdayLog);
 
@@ -322,7 +328,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
 
-            identity = await _identityRepository.SaveAsync(identity, addToCache: true); 
+            identity = await _identityRepository.SaveAsync(identity, addToCache: true);
             Assert.NotNull(identity?.Id);
             Assert.Equal(1, _cache.Count);
             Assert.Equal(0, _cache.Hits);
@@ -342,7 +348,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var results = await _identityRepository.GetByIdsAsync(identities.Select(i => i.Id).ToList());
             Assert.Equal(2, results.Count);
         }
-        
+
         [Fact]
         public async Task SaveCollectionWithTimeSeries() {
             var utcNow = SystemClock.UtcNow;
@@ -360,7 +366,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var results = await _dailyRepository.GetByIdsAsync(new List<string> { yesterdayLog.Id, nowLog.Id });
             Assert.Equal(logs, results.OrderBy(d => d.CreatedUtc).ToList());
         }
-        
+
         [Fact]
         public async Task SaveCollectionWithCaching() {
             var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
@@ -385,7 +391,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(2, _cache.Hits);
             Assert.Equal(2, _cache.Misses);
         }
-        
+
         [Fact]
         public async Task SetCreatedAndModifiedTimes() {
             SystemClock.AdjustTime(TimeSpan.FromMilliseconds(100));
@@ -492,6 +498,39 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task ScriptPatchAllWithNoCache() {
+            var utcNow = SystemClock.UtcNow;
+            var logs = new List<LogEvent> {
+                LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),
+                LogEventGenerator.Generate(createdUtc: utcNow, companyId: "1"),
+                LogEventGenerator.Generate(createdUtc: utcNow, companyId: "2"),
+            };
+
+            await _dailyRepositoryWithNoCaching.AddAsync(logs);
+
+            await _client.RefreshAsync(Indices.All);
+            Assert.Equal(3, await _dailyRepositoryWithNoCaching.IncrementValueAsync(new MyAppQuery().WithIds(logs.Select(l => l.Id).ToArray())));
+
+            await _client.RefreshAsync(Indices.All);
+            var results = await _dailyRepositoryWithNoCaching.GetAllByCompanyAsync("1");
+            Assert.Equal(2, results.Documents.Count);
+            foreach (var document in results.Documents) {
+                Assert.Equal("1", document.CompanyId);
+                Assert.Equal(1, document.Value);
+            }
+
+            await _dailyRepositoryWithNoCaching.SaveAsync(logs);
+            await _client.RefreshAsync(Indices.All);
+
+            results = await _dailyRepositoryWithNoCaching.GetAllByCompanyAsync("1");
+            Assert.Equal(2, results.Documents.Count);
+            foreach (var document in results.Documents) {
+                Assert.Equal("1", document.CompanyId);
+                Assert.Equal(0, document.Value);
+            }
+        }
+
+        [Fact]
         public async Task PatchAllBulk() {
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Warning);
             const int COUNT = 1000 * 10;
@@ -555,7 +594,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 disposables.Clear();
             }
         }
-        
+
         [Fact]
         public async Task RemoveWithTimeSeries() {
             var log = LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString());
@@ -578,7 +617,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _client.RefreshAsync(Indices.All);
             Assert.Equal(1, await _dailyRepository.CountAsync());
-            
+
             await _dailyRepository.RemoveAsync(yesterdayLog);
 
             await _client.RefreshAsync(Indices.All);
@@ -610,7 +649,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
-            
+
             await _identityRepository.RemoveAsync(identities);
             Assert.Equal(0, _cache.Count);
             Assert.Equal(0, _cache.Hits);
@@ -629,7 +668,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.All);
             Assert.Equal(0, await _identityRepository.CountAsync());
         }
-        
+
         [Fact]
         public async Task RemoveCollectionWithTimeSeries() {
             var utcNow = SystemClock.UtcNow;
@@ -655,7 +694,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(2, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
-            
+
             await _identityRepository.RemoveAsync(identities);
             Assert.Equal(0, _cache.Count);
             Assert.Equal(0, _cache.Hits);
@@ -687,7 +726,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var identities = new List<Identity> { IdentityGenerator.Default };
             await _identityRepository.AddAsync(identities);
             await _client.RefreshAsync(Indices.All);
-            
+
             var disposables = new List<IDisposable>(2);
             var countdownEvent = new AsyncCountdownEvent(2);
 
@@ -716,22 +755,39 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task RemoveAllWithBatching() {
-            const int COUNT = 10000;
+            const int COUNT = 1000;
             Log.SetLogLevel<IdentityRepository>(LogLevel.Information);
             await _identityRepository.AddAsync(IdentityGenerator.GenerateIdentities(COUNT));
-            await _client.RefreshAsync(Indices.All);
             Log.SetLogLevel<IdentityRepository>(LogLevel.Trace);
-
-            var sw = Stopwatch.StartNew();
-            Assert.Equal(COUNT, await _identityRepository.RemoveAllAsync());
-            sw.Stop();
-
-            _logger.Info($"Deleted {COUNT} documents in {sw.ElapsedMilliseconds}ms");
-
             await _client.RefreshAsync(Indices.All);
-            Assert.Equal(0, await _identityRepository.CountAsync());
 
-            // TODO: Ensure only one removed notification is sent out.
+            var disposables = new List<IDisposable>(2);
+            var countdownEvent = new AsyncCountdownEvent(200);
+
+            try {
+                disposables.Add(_identityRepository.DocumentsRemoving.AddSyncHandler((o, args) => {
+                    countdownEvent.Signal();
+                }));
+                disposables.Add(_identityRepository.DocumentsRemoved.AddSyncHandler((o, args) => {
+                    countdownEvent.Signal();
+                }));
+
+                var sw = Stopwatch.StartNew();
+                Assert.Equal(COUNT, await _identityRepository.RemoveAllAsync());
+                sw.Stop();
+                _logger.Info($"Deleted {COUNT} documents in {sw.ElapsedMilliseconds}ms");
+
+                await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
+                Assert.Equal(0, countdownEvent.CurrentCount);
+
+                await _client.RefreshAsync(Indices.All);
+                Assert.Equal(0, await _identityRepository.CountAsync());
+            } finally {
+                foreach (var disposable in disposables)
+                    disposable.Dispose();
+
+                disposables.Clear();
+            }
         }
 
         [Fact]
@@ -739,19 +795,36 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             const int COUNT = 10000;
             Log.SetLogLevel<IdentityWithNoCachingRepository>(LogLevel.Information);
             await _identityRepositoryWithNoCaching.AddAsync(IdentityGenerator.GenerateIdentities(COUNT));
-            await _client.RefreshAsync(Indices.All);
             Log.SetLogLevel<IdentityWithNoCachingRepository>(LogLevel.Trace);
-
-            var sw = Stopwatch.StartNew();
-            Assert.Equal(COUNT, await _identityRepositoryWithNoCaching.RemoveAllAsync());
-            sw.Stop();
-
-            _logger.Info($"Deleted {COUNT} documents in {sw.ElapsedMilliseconds}ms");
-
             await _client.RefreshAsync(Indices.All);
-            Assert.Equal(0, await _identityRepositoryWithNoCaching.CountAsync());
 
-            // TODO: Ensure only one removed notification is sent out.
+            var disposables = new List<IDisposable>(2);
+            var countdownEvent = new AsyncCountdownEvent(1);
+
+            try {
+                disposables.Add(_identityRepositoryWithNoCaching.DocumentsRemoving.AddSyncHandler((o, args) => {
+                    countdownEvent.Signal();
+                }));
+                disposables.Add(_identityRepositoryWithNoCaching.DocumentsRemoved.AddSyncHandler((o, args) => {
+                    countdownEvent.Signal();
+                }));
+
+                var sw = Stopwatch.StartNew();
+                Assert.Equal(COUNT, await _identityRepositoryWithNoCaching.RemoveAllAsync());
+                sw.Stop();
+                _logger.Info($"Deleted {COUNT} documents in {sw.ElapsedMilliseconds}ms");
+
+                await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
+                Assert.Equal(0, countdownEvent.CurrentCount);
+
+                await _client.RefreshAsync(Indices.All);
+                Assert.Equal(0, await _identityRepositoryWithNoCaching.CountAsync());
+            } finally {
+                foreach (var disposable in disposables)
+                    disposable.Dispose();
+
+                disposables.Clear();
+            }
         }
 
         [Fact]
@@ -771,7 +844,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.All);
             Assert.Equal(0, await _identityRepository.CountAsync());
         }
-        
+
         [Fact]
         public async Task RemoveAllWithTimeSeries() {
             var utcNow = SystemClock.UtcNow;
