@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Foundatio.Repositories.Elasticsearch.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
@@ -388,8 +389,39 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             var secondPageResults = await _identityRepository.GetAllAsync(paging: new PagingOptions().WithPage(2).WithLimit(1));
             Assert.Equal(secondDoc, secondPageResults.Documents.First());
+        }
 
-            //TODO Ensure we are using snapshot paging...
+        [Fact]
+        public async Task GetAllWithSnapshotPaging() {
+            var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default);
+            Assert.NotNull(identity1?.Id);
+
+            var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate());
+            Assert.NotNull(identity2?.Id);
+
+            await _client.RefreshAsync(Indices.All);
+            var results = await _identityRepository.GetAllAsync(paging: new ElasticPagingOptions().WithLimit(1).WithSnapshotLifetime(TimeSpan.FromMinutes(1)));
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.True(results.HasMore);
+            Assert.Equal(2, results.Total);
+
+            Assert.True(await results.NextPageAsync());
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(2, results.Page);
+            Assert.Equal(2, results.Total);
+            Assert.True(results.HasMore);
+            var secondDoc = results.Documents.First();
+
+            Assert.False(await results.NextPageAsync());
+            Assert.Equal(0, results.Documents.Count);
+            Assert.Equal(2, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(2, results.Total);
+
+            var secondPageResults = await _identityRepository.GetAllAsync(paging: new PagingOptions().WithPage(2).WithLimit(1));
+            Assert.Equal(secondDoc, secondPageResults.Documents.First());
         }
 
         [Fact]

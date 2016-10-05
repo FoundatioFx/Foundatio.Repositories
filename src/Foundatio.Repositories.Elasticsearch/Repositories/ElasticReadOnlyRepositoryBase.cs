@@ -118,6 +118,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (useSnapshotPaging) {
                 result = response.ToFindResults();
+                // TODO: Is there a better way to figure out if you are done scrolling?
                 result.HasMore = response.Hits.Count() >= pagableQuery.GetLimit();
                 ((IGetNextPage<TResult>)result).GetNextPageFunc = getNextPageFunc;
             } else if (pagableQuery?.ShouldUseLimit() == true) {
@@ -244,7 +245,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 foreach (var doc in multiGetResults.Documents) {
                     if (!doc.Found)
                         continue;
-                    
+
                     hits.Add(((IMultiGetHit<T>)doc).ToFindHit().Document);
                     itemsToFind.Remove(doc.Id);
                 }

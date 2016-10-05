@@ -23,7 +23,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public Task<FindResults<LogEvent>> GetByCompanyAsync(string company) {
             return FindAsync(new MyAppQuery().WithCompany(company));
         }
-        
+
         public Task<FindResults<LogEvent>> GetPartialByCompanyAsync(string company) {
             return FindAsync(new MyAppQuery().WithCompany(company).WithSelectedFields("id", "createdUtc"));
         }
@@ -48,6 +48,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return ids.Length;
         }
 
+        public async Task<long> IncrementValueAsync(MyAppQuery query, int value = 1) {
+            if (query == null)
+                throw new ArgumentNullException(nameof(query));
+
+            string script = $"ctx._source.value += {value};";
+            return await PatchAllAsync(query, script);
+        }
+
         protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents) {
             if (!IsCacheEnabled)
                 return;
@@ -59,6 +67,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             }
 
             await base.InvalidateCacheAsync(documents);
+        }
+    }
+
+    public class DailyLogEventWithNoCachingRepository : DailyLogEventRepository {
+        public DailyLogEventWithNoCachingRepository(MyAppElasticConfiguration configuration) : base(configuration) {
+            DisableCache();
         }
     }
 

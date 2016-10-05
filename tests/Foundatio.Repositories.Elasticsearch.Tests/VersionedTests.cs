@@ -18,10 +18,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         public VersionedTests(ITestOutputHelper output) : base(output) {
             _employeeRepository = new EmployeeRepository(_configuration);
-            
+
             RemoveDataAsync().GetAwaiter().GetResult();
         }
-        
+
         [Fact]
         public async Task Add() {
             var employee = EmployeeGenerator.Default;
@@ -89,7 +89,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             Assert.Equal(employee, await _employeeRepository.GetByIdAsync(employee.Id));
         }
-        
+
         [Fact]
         public async Task SaveWithHigherVersion() {
             var employee = EmployeeGenerator.Default;
@@ -135,6 +135,18 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public void SaveCollectionWithNoIndexOrParent() {
+            // verify index many works when when getParent & getindex == null;
+            throw new NotImplementedException();
+        }
+
+        [Fact]
+        public void SaveWithVersionedParentChild() {
+            // need versioning tests for parent / child docs.
+            throw new NotImplementedException();
+        }
+
+        [Fact]
         public async Task UpdateAllWithSinglePageOfData() {
             var utcNow = SystemClock.UtcNow;
             var employees = new List<Employee> {
@@ -146,7 +158,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _employeeRepository.AddAsync(employees);
             await _client.RefreshAsync(Indices.All);
             Assert.True(employees.All(e => e.Version == 1));
-            
+
             Assert.Equal(2, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company"));
             await _client.RefreshAsync(Indices.All);
 
@@ -169,7 +181,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             results = await _employeeRepository.GetAllByCompanyAsync("2");
             Assert.Equal(company2Employees.First().YearsEmployed + 1, results.Documents.First().YearsEmployed);
-            
+
             await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(company2Employees));
             Assert.Equal(company2EmployeesVersion, company2Employees.First().Version);
         }
@@ -177,6 +189,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task UpdateAllWithNoData() {
             Assert.Equal(0, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company"));
+        }
+
+        [Fact]
+        public void CanQuery() {
+            //FindAs version tests
+            throw new NotImplementedException();
         }
 
         [Fact]
@@ -234,14 +252,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(2, _cache.Misses);
-            
+
             results = await _employeeRepository.GetAllByCompanyAsync("1", PAGE_SIZE, useCache: true);
             Assert.True(results.HasMore);
             Assert.Equal(PAGE_SIZE, results.Documents.Count);
             Assert.Equal(1, _cache.Count);
             Assert.Equal(1, _cache.Hits);
             Assert.Equal(3, _cache.Misses); // Supports soft deletes check increments misses.
-            
+
             results = await _employeeRepository.GetAllByCompanyAsync("1", 20, useCache: true);
             Assert.True(results.HasMore);
             Assert.Equal(20, results.Documents.Count);
@@ -376,7 +394,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.Equal("Test Company", document.CompanyName);
             }
         }
-        
+
         [Fact]
         public async Task UpdateAllWithNoPageLimit() {
             const int NUMBER_OF_EMPLOYEES = 100;
@@ -394,9 +412,5 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.Equal("Test Company", document.CompanyName);
             }
         }
-
-        // TODO: need versioning tests for index many when getParent & getindex == null; // This should never be the case.
-        // TODO: need versioning tests for parent / child docs.
-        // TODO: FindAs version tests
     }
 }

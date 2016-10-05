@@ -20,7 +20,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         public EmployeeRepository(IIndexType<Employee> employeeType) : base(employeeType) {
         }
-        
+
         public Task<FindResults<Employee>> GetAllByAgeAsync(int age) {
             return FindAsync(new MyAppQuery().WithAge(age));
         }
