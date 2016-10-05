@@ -23,17 +23,27 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private readonly List<IndexAliasAge> _aliases = new List<IndexAliasAge>();
         private readonly Lazy<IReadOnlyCollection<IndexAliasAge>> _frozenAliases;
         private readonly ICacheClient _aliasCache;
+        private TimeSpan? _maxIndexAge;
 
-        public DailyIndex(IElasticConfiguration configuration, string name, int version = 1) 
+        public DailyIndex(IElasticConfiguration configuration, string name, int version = 1)
             : base(configuration, name, version) {
             AddAlias(Name);
             _frozenAliases = new Lazy<IReadOnlyCollection<IndexAliasAge>>(() => _aliases.AsReadOnly());
             _aliasCache = new ScopedCacheClient(configuration.Cache, "alias");
         }
 
-        // TODO: Should we make this non nullable and do validation in the setter.
-        // This should never be be negative or less than the index time period (day or a month)
-        public TimeSpan? MaxIndexAge { get; set; }
+        /// <summary>
+        /// This should never be be negative or less than the index time period (day or a month)
+        /// </summary>
+        public TimeSpan? MaxIndexAge {
+            get { return _maxIndexAge; }
+            set {
+                if (value.HasValue && value.Value <= TimeSpan.Zero)
+                    throw new ArgumentException($"{nameof(MaxIndexAge)} cannot be negative. ");
+
+                _maxIndexAge = value;
+            }
+        }
 
         public bool DiscardExpiredIndexes { get; set; } = true;
 
@@ -83,7 +93,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             return $"{Name}-v{version}-{utcDate.ToString(DateFormat)}";
         }
-        
+
         protected override DateTime GetIndexDate(string index) {
             var version = GetIndexVersion(index);
             if (version < 0)
@@ -283,12 +293,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 sw.Stop();
             }
         }
-        
+
         protected override async Task<IList<IndexInfo>> GetIndexesAsync(int version = -1) {
             var indexes = await base.GetIndexesAsync(version).AnyContext();
             if (indexes.Count == 0)
                 return indexes;
-            
+
             // TODO: Optimize with cat aliases.
             // TODO: Should this return indexes that fall outside of the max age?
             foreach (var indexGroup in indexes.GroupBy(i => GetIndex(i.DateUtc))) {
@@ -296,7 +306,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 foreach (var indexInfo in indexGroup)
                     indexInfo.CurrentVersion = v;
             }
-            
+
             return indexes;
         }
 
