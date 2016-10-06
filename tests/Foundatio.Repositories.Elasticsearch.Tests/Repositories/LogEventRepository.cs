@@ -10,7 +10,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Models;
-using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent> {

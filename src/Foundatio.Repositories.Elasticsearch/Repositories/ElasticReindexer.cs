@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Elasticsearch.Net;
-using Foundatio.Caching;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
@@ -15,16 +14,23 @@ using Newtonsoft.Json.Linq;
 namespace Foundatio.Repositories.Elasticsearch {
     public class ElasticReindexer {
         private readonly IElasticClient _client;
-        private readonly ICacheClient _cache;
         private readonly ILogger _logger;
 
-        public ElasticReindexer(IElasticClient client, ICacheClient cache = null, ILogger logger = null) {
+        public ElasticReindexer(IElasticClient client, ILogger logger = null) {
             _client = client;
-            _cache = new ScopedCacheClient(cache ?? new NullCacheClient(), "reindex");
             _logger = logger ?? NullLogger.Instance;
         }
 
         public async Task ReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync = null) {
+            if (String.IsNullOrEmpty(workItem?.TimestampField))
+                throw new ArgumentNullException(nameof(workItem.TimestampField));
+
+            if (String.IsNullOrEmpty(workItem.OldIndex))
+                throw new ArgumentNullException(nameof(workItem.OldIndex));
+
+            if (String.IsNullOrEmpty(workItem.NewIndex))
+                throw new ArgumentNullException(nameof(workItem.NewIndex));
+
             if (progressCallbackAsync == null) {
                 progressCallbackAsync = (progress, message) => {
                     _logger.Info("Reindex Progress {0}%: {1}", progress, message);
@@ -75,6 +81,30 @@ namespace Foundatio.Repositories.Elasticsearch {
             await progressCallbackAsync(100, null).AnyContext();
         }
 
+        private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync, int startProgress = 0, int endProgress = 100, DateTime? startTime = null) {
+            var query = await GetResumeQueryAsync(workItem.NewIndex, workItem.TimestampField, startTime).AnyContext();
+            var response = await _client.ReindexOnServerAsync(d => d
+                .Source(src => src
+                    .Index(workItem.OldIndex)
+                    .Query<object>(q => query)
+                    .Sort<object>(s => s.Ascending(new Field(workItem.TimestampField))))
+                .Destination(dest => dest.Index(workItem.NewIndex))
+                .Conflicts(Conflicts.Proceed)).AnyContext();
+
+            _logger.Trace(() => response.GetRequest());
+            if (!response.IsValid) {
+                _logger.Error().Exception(response.OriginalException).Message("Error while reindexing result: {0}", response.GetErrorMessage()).Write();
+                return new ReindexResult();
+            }
+
+            // TODO: Store invalid documents into a new index.
+            // TODO: Second pass on object id redose everything..
+            long completed = response.Created + response.Updated + response.Noops;
+            string message = $"Total: {response.Total} Completed: {completed} VersionConflicts: {response.VersionConflicts}";
+            await progressCallbackAsync(CalculateProgress(response.Total, completed, startProgress, endProgress), message).AnyContext();
+            return new ReindexResult { Total = response.Total, Completed = completed };
+        }
+
         private async Task<List<string>> GetIndexAliases(string index) {
             var aliasesResponse = await _client.GetAliasAsync(a => a.Index(index)).AnyContext();
             _logger.Trace(() => aliasesResponse.GetRequest());
@@ -87,40 +117,41 @@ namespace Foundatio.Repositories.Elasticsearch {
             return new List<string>();
         }
 
-        private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync, int startProgress = 0, int endProgress = 100, DateTime? startTime = null) {
-            if (!startTime.HasValue) {
-                var newestDocumentResponse = await _client.SearchAsync<JObject>(d => d
-                    .Index(Indices.Index(workItem.NewIndex))
-                    .AllTypes()
-                    .Sort(s => s.Descending(new Field(workItem.TimestampField)))
-                    .Source(s => s.Includes(f => f.Field(workItem.TimestampField)))
-                    .Size(1)
-                ).AnyContext();
+        private async Task<QueryContainer> GetResumeQueryAsync(string newIndex, string timestampField, DateTime? startTime) {
+            var descriptor = new QueryContainerDescriptor<object>();
+            if (startTime.HasValue)
+                return descriptor.DateRange(dr => dr.Field(timestampField).GreaterThanOrEquals(startTime));
 
-                _logger.Trace(() => newestDocumentResponse.GetRequest());
-                if (newestDocumentResponse.IsValid && newestDocumentResponse.Total > 0)
-                    startTime = newestDocumentResponse.Documents.FirstOrDefault()?[workItem.TimestampField]?.ToObject<DateTime?>();
-            }
+            var startingPoint = await GetResumeStartingPointAsync(newIndex, timestampField).AnyContext();
+            if (startingPoint is DateTime)
+                return descriptor.DateRange(dr => dr.Field(timestampField).GreaterThanOrEquals((DateTime)startingPoint));
+            if (startingPoint is string) // TODO: Change this to use a range query: https://github.com/elastic/elasticsearch-net/issues/2307
+                return descriptor.QueryString(qs => qs.DefaultField(timestampField).Query($">={(string)startingPoint}"));
 
-            var response = await _client.ReindexOnServerAsync(d => d
-                .Source(src => src
-                    .Index(workItem.OldIndex)
-                    .Query<object>(q => startTime.HasValue ? q.DateRange(dr => dr.Field(workItem.TimestampField).GreaterThan(startTime.Value)) : q)
-                    .Sort<object>(s => s.Ascending(new Field(workItem.TimestampField))))
-                .Destination(dest => dest.Index(workItem.NewIndex))
-                .Conflicts(Conflicts.Proceed)).AnyContext();
+            return descriptor;
+        }
 
-            if (!response.IsValid) {
-                _logger.Error().Exception(response.OriginalException).Message("Error while reindexing result: {0}", response.GetErrorMessage()).Write();
-                return new ReindexResult();
-            }
+        private async Task<object> GetResumeStartingPointAsync(string newIndex, string timestampField) {
+            var newestDocumentResponse = await _client.SearchAsync<JObject>(d => d
+                .Index(Indices.Index(newIndex))
+                .AllTypes()
+                .Sort(s => s.Descending(new Field(timestampField)))
+                .Source(s => s.Includes(f => f.Field(timestampField)))
+                .Size(1)
+            ).AnyContext();
 
-            // TODO: Store invalid documents into a new index.
+            _logger.Trace(() => newestDocumentResponse.GetRequest());
+            if (!newestDocumentResponse.IsValid || !newestDocumentResponse.Documents.Any())
+                return null;
 
-            long completed = response.Created + response.Updated + response.Noops;
-            string message = $"Total: {response.Total} Completed: {completed} VersionConflicts: {response.VersionConflicts}";
-            await progressCallbackAsync(CalculateProgress(response.Total, completed, startProgress, endProgress), message).AnyContext();
-            return new ReindexResult { Total = response.Total, Completed = completed };
+            var token = newestDocumentResponse.Documents.FirstOrDefault()?[timestampField];
+            if (token == null)
+                return null;
+
+            if (token.Type == JTokenType.Date)
+                return token.ToObject<DateTime>();
+
+            return token.ToString();
         }
 
         private int CalculateProgress(long total, long completed, int startProgress = 0, int endProgress = 100) {

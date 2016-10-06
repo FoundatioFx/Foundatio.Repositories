@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Elasticsearch.Net;
 using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Logging;

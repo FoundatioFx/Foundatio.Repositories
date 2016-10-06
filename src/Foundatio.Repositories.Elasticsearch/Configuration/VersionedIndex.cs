@@ -8,7 +8,6 @@ using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
-using Foundatio.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
@@ -66,7 +65,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var reindexWorkItem = new ReindexWorkItem {
                 OldIndex = String.Concat(Name, "-v", currentVersion),
                 NewIndex = VersionedName,
-                Alias = Name
+                Alias = Name,
+                TimestampField = GetTimeStampField()
             };
 
             reindexWorkItem.DeleteOld = DiscardIndexesOnReindex && reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;
@@ -74,13 +74,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return reindexWorkItem;
         }
 
+
         public override async Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
             int currentVersion = await GetCurrentVersionAsync().AnyContext();
             if (currentVersion < 0 || currentVersion >= Version)
                 return;
 
             var reindexWorkItem = CreateReindexWorkItem(currentVersion);
-            var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Cache, _logger);
+            var reindexer = new ElasticReindexer(Configuration.Client, _logger);
             await reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync).AnyContext();
         }
 

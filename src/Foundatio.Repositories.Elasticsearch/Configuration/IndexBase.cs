@@ -8,7 +8,7 @@ using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
-using Foundatio.Utility;
+using Foundatio.Repositories.Models;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
@@ -125,11 +125,30 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var reindexWorkItem = new ReindexWorkItem {
                 OldIndex = Name,
                 NewIndex = Name,
-                DeleteOld = false
+                DeleteOld = false,
+                TimestampField = GetTimeStampField()
             };
 
-            var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Cache, _logger);
+            var reindexer = new ElasticReindexer(Configuration.Client, _logger);
             return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
+        }
+
+        /// <summary>
+        /// Attempt to get the document modified date for reindexing.
+        /// NOTE: We make the assumption that all types implement the same date interfaces.
+        /// </summary>
+        protected virtual string GetTimeStampField() {
+            if (IndexTypes.Count == 0)
+                return null;
+
+            var type = IndexTypes.First().Type;
+            if (IndexTypes.All(i => i.Type.IsAssignableFrom(typeof(IHaveDates))))
+                return Configuration.Client.Infer.PropertyName(type.GetProperty(nameof(IHaveDates.UpdatedUtc)));
+
+            if (IndexTypes.All(i => i.Type.IsAssignableFrom(typeof(IHaveCreatedDate))))
+                return Configuration.Client.Infer.PropertyName(type.GetProperty(nameof(IHaveCreatedDate.CreatedUtc)));
+
+            return Configuration.Client.Infer.PropertyName(type.GetProperty(nameof(IIdentity.Id)));
         }
 
         public virtual void ConfigureSettings(ConnectionSettings settings) {

@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Threading.Tasks;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class Index : IndexBase {

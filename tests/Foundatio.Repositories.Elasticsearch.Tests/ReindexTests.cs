@@ -8,6 +8,7 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Models;
+using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Nest;
 using Nito.AsyncEx;
@@ -92,19 +93,23 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     await version2Index.ConfigureAsync();
                     Assert.True(_client.IndexExists(version2Index.VersionedName).Exists);
 
+                    // Throw error before second repass.
                     await Assert.ThrowsAsync<ApplicationException>(async () => await version2Index.ReindexAsync((progress, message) => {
                         _logger.Info("Reindex Progress {0}%: {1}", progress, message);
-                        // TODO: Need to make this so it happens randomly in the middle of a batch
-                        if (progress >= 45)
+                        if (progress == 91)
                             throw new ApplicationException("Random Error");
 
                         return Task.CompletedTask;
                     }));
 
                     Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+
+                    // Add a document and ensure it resumes from this document.
+                    await version1Repository.AddAsync(EmployeeGenerator.Generate(ObjectId.GenerateNewId(SystemClock.UtcNow.AddMinutes(1)).ToString()));
+                    await _client.RefreshAsync(Indices.All);
                     await version2Index.ReindexAsync();
 
-                    var aliasResponse = await _client.GetAliasAsync(descriptor => descriptor.Name(version2Index.Name));
+                    var aliasResponse = await _client.GetAliasAsync(d => d.Name(version2Index.Name));
                     Assert.True(aliasResponse.IsValid);
                     Assert.Equal(1, aliasResponse.Indices.Count);
                     Assert.Equal(version2Index.VersionedName, aliasResponse.Indices.First().Key);
@@ -115,7 +120,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     countResponse = await _client.CountAsync<Employee>(d => d.Index(version2Index.VersionedName));
                     _logger.Trace(() => countResponse.GetRequest());
                     Assert.True(countResponse.IsValid);
-                    Assert.Equal(numberOfEmployeesToCreate, countResponse.Count);
+                    Assert.Equal(numberOfEmployeesToCreate + 1, countResponse.Count);
 
                     Assert.False((await _client.IndexExistsAsync(version1Index.VersionedName)).Exists);
                 }

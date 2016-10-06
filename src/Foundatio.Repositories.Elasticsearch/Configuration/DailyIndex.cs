@@ -190,7 +190,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (indexes.Count == 0)
                 return;
 
-            var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Cache, _logger);
+            var reindexer = new ElasticReindexer(Configuration.Client, _logger);
             foreach (var index in indexes) {
                 if (SystemClock.UtcNow > GetIndexExpirationDate(index.DateUtc))
                     continue;
@@ -201,7 +201,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 var reindexWorkItem = new ReindexWorkItem {
                     OldIndex = index.Index,
                     NewIndex = GetVersionedIndex(GetIndexDate(index.Index), Version),
-                    Alias = Name
+                    Alias = Name,
+                    TimestampField = GetTimeStampField()
                 };
 
                 reindexWorkItem.DeleteOld = DiscardIndexesOnReindex && reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;

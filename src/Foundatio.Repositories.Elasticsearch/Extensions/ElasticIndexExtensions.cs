@@ -4,7 +4,6 @@ using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Models;
 using Nest;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {

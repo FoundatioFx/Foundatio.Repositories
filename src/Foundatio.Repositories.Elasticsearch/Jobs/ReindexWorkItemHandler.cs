@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Foundatio.Caching;
 using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Logging;
@@ -13,8 +12,8 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         private readonly ElasticReindexer _reindexer;
         private readonly ILockProvider _lockProvider;
 
-        public ReindexWorkItemHandler(IElasticClient client, ILockProvider lockProvider, ICacheClient cache = null, ILoggerFactory loggerFactory = null) {
-            _reindexer = new ElasticReindexer(client, cache, loggerFactory.CreateLogger<ReindexWorkItemHandler>());
+        public ReindexWorkItemHandler(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory = null) {
+            _reindexer = new ElasticReindexer(client, loggerFactory.CreateLogger<ReindexWorkItemHandler>());
             _lockProvider = lockProvider;
             AutoRenewLockOnProgress = true;
         }

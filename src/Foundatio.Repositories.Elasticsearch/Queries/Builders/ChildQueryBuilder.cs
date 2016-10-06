@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using Foundatio.Repositories.Queries;
 using Nest;
 
