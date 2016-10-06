@@ -148,7 +148,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (IndexTypes.All(i => i.Type.IsAssignableFrom(typeof(IHaveCreatedDate))))
                 return Configuration.Client.Infer.PropertyName(type.GetProperty(nameof(IHaveCreatedDate.CreatedUtc)));
 
-            return Configuration.Client.Infer.PropertyName(type.GetProperty(nameof(IIdentity.Id)));
+            return null;
         }
 
         public virtual void ConfigureSettings(ConnectionSettings settings) {

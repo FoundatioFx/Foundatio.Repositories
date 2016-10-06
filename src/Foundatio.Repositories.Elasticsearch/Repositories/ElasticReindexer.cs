@@ -7,6 +7,7 @@ using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Nest;
 using Newtonsoft.Json.Linq;
@@ -15,6 +16,7 @@ namespace Foundatio.Repositories.Elasticsearch {
     public class ElasticReindexer {
         private readonly IElasticClient _client;
         private readonly ILogger _logger;
+        private const string ID_FIELD = "id";
 
         public ElasticReindexer(IElasticClient client, ILogger logger = null) {
             _client = client;
@@ -22,9 +24,6 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public async Task ReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync = null) {
-            if (String.IsNullOrEmpty(workItem?.TimestampField))
-                throw new ArgumentNullException(nameof(workItem.TimestampField));
-
             if (String.IsNullOrEmpty(workItem.OldIndex))
                 throw new ArgumentNullException(nameof(workItem.OldIndex));
 
@@ -87,22 +86,32 @@ namespace Foundatio.Repositories.Elasticsearch {
                 .Source(src => src
                     .Index(workItem.OldIndex)
                     .Query<object>(q => query)
-                    .Sort<object>(s => s.Ascending(new Field(workItem.TimestampField))))
+                    .Sort<object>(s => s.Ascending(new Field(workItem.TimestampField ?? ID_FIELD))))
                 .Destination(dest => dest.Index(workItem.NewIndex))
                 .Conflicts(Conflicts.Proceed)).AnyContext();
 
             _logger.Trace(() => response.GetRequest());
-            if (!response.IsValid) {
+            if (!response.IsValid)
                 _logger.Error().Exception(response.OriginalException).Message("Error while reindexing result: {0}", response.GetErrorMessage()).Write();
-                return new ReindexResult();
+
+            long failures = 0;
+            foreach (var failure in response.Failures) {
+                _logger.Error().Message("Error reindexing document {0}/{1}/{2}: [{3}] {4}", failure.Index, failure.Type, failure.Id, failure.Status, failure.Cause.Reason).Write();
+
+                var gr = await _client.GetAsync<object>(request: new GetRequest(failure.Index, failure.Type, failure.Id)).AnyContext();
+                if (!gr.IsValid) {
+                    _logger.Error().Message("Error getting document {0}/{1}/{2}: {3}", failure.Index, failure.Type, failure.Id, gr.GetErrorMessage()).Write();
+                    continue;
+                }
+                var indexResponse = await _client.IndexAsync(gr.Source, d => d.Index(workItem.NewIndex + "-error").Type(gr.Type).Parent(gr.Parent).Id(gr.Id)).AnyContext();
+                if (!indexResponse.IsValid)
+                    _logger.Error().Message("Error indexing document {0}/{1}/{2}: {3}", workItem.NewIndex + "-error", gr.Type, gr.Id, indexResponse.GetErrorMessage()).Write();
             }
 
-            // TODO: Store invalid documents into a new index.
-            // TODO: Second pass on object id redose everything..
             long completed = response.Created + response.Updated + response.Noops;
             string message = $"Total: {response.Total} Completed: {completed} VersionConflicts: {response.VersionConflicts}";
             await progressCallbackAsync(CalculateProgress(response.Total, completed, startProgress, endProgress), message).AnyContext();
-            return new ReindexResult { Total = response.Total, Completed = completed };
+            return new ReindexResult { Total = response.Total, Completed = completed, Failures = failures };
         }
 
         private async Task<List<string>> GetIndexAliases(string index) {
@@ -120,15 +129,27 @@ namespace Foundatio.Repositories.Elasticsearch {
         private async Task<QueryContainer> GetResumeQueryAsync(string newIndex, string timestampField, DateTime? startTime) {
             var descriptor = new QueryContainerDescriptor<object>();
             if (startTime.HasValue)
-                return descriptor.DateRange(dr => dr.Field(timestampField).GreaterThanOrEquals(startTime));
+                return CreateRangeQuery(descriptor, timestampField, startTime);
 
-            var startingPoint = await GetResumeStartingPointAsync(newIndex, timestampField).AnyContext();
+            var startingPoint = await GetResumeStartingPointAsync(newIndex, timestampField ?? ID_FIELD).AnyContext();
             if (startingPoint is DateTime)
-                return descriptor.DateRange(dr => dr.Field(timestampField).GreaterThanOrEquals((DateTime)startingPoint));
+                return CreateRangeQuery(descriptor, timestampField, (DateTime)startingPoint);
+
             if (startingPoint is string) // TODO: Change this to use a range query: https://github.com/elastic/elasticsearch-net/issues/2307
-                return descriptor.QueryString(qs => qs.DefaultField(timestampField).Query($">={(string)startingPoint}"));
+                return descriptor.QueryString(qs => qs.DefaultField(timestampField ?? ID_FIELD).Query($">={(string)startingPoint}"));
+
+            if (startingPoint != null)
+                throw new ApplicationException("Unable to create resume query from returned starting point");
 
             return descriptor;
+        }
+
+        private QueryContainer CreateRangeQuery(QueryContainerDescriptor<object> descriptor, string timestampField, DateTime? startTime) {
+            if (!String.IsNullOrEmpty(timestampField))
+                return descriptor.DateRange(dr => dr.Field(timestampField).GreaterThanOrEquals(startTime));
+
+            // TODO: ensure that this creates a sequential id in the past that can be queried off of.
+            return descriptor.QueryString(qs => qs.DefaultField(ID_FIELD).Query($">={ObjectId.GenerateNewId(startTime.Value).ToString()}"));
         }
 
         private async Task<object> GetResumeStartingPointAsync(string newIndex, string timestampField) {
@@ -161,6 +182,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         private class ReindexResult {
             public long Total { get; set; }
             public long Completed { get; set; }
+            public long Failures { get; set; }
         }
     }
 }
