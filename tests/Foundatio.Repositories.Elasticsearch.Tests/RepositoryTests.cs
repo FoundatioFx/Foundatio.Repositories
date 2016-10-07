@@ -200,39 +200,43 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(log?.Id);
 
             var disposables = new List<IDisposable>(4);
-            var countdownEvent = new AsyncCountdownEvent(5);
+            var addCountdownEvent = new AsyncCountdownEvent(2);
+            var saveCountdownEvent = new AsyncCountdownEvent(2);
+            var notificationCountdownEvent = new AsyncCountdownEvent(1);
             // Save requires an id to be set.
             var addedLog = LogEventGenerator.Generate(id: ObjectId.GenerateNewId().ToString());
             try {
                 disposables.Add(_dailyRepository.DocumentsAdding.AddSyncHandler((o, args) => {
                     Assert.Equal(addedLog, args.Documents.First());
-                    countdownEvent.Signal();
+                    addCountdownEvent.Signal();
                 }));
                 disposables.Add(_dailyRepository.DocumentsAdded.AddSyncHandler((o, args) => {
                     Assert.Equal(addedLog, args.Documents.First());
-                    countdownEvent.Signal();
+                    addCountdownEvent.Signal();
                 }));
                 disposables.Add(_dailyRepository.DocumentsSaving.AddSyncHandler((o, args) => {
                     Assert.Equal(log, args.Documents.First().Value);
-                    countdownEvent.Signal();
+                    saveCountdownEvent.Signal();
                 }));
                 disposables.Add(_dailyRepository.DocumentsSaved.AddSyncHandler((o, args) => {
                     Assert.Equal(log, args.Documents.First().Value);
-                    countdownEvent.Signal();
+                    saveCountdownEvent.Signal();
                 }));
                 _messgeBus.Subscribe<EntityChanged>((msg, ct) => {
                     Assert.Equal(nameof(LogEvent), msg.Type);
                     Assert.Equal(log.Id, msg.Id);
                     Assert.Equal(ChangeType.Saved, msg.ChangeType);
-                    countdownEvent.Signal();
+                    notificationCountdownEvent.Signal();
                     return Task.CompletedTask;
                 });
 
                 log.CompanyId = ObjectId.GenerateNewId().ToString();
                 await _dailyRepository.SaveAsync(new List<LogEvent> { log, addedLog });
 
-                await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(2)).Token);
-                Assert.Equal(0, countdownEvent.CurrentCount);
+                await notificationCountdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(2)).Token);
+                Assert.Equal(0, notificationCountdownEvent.CurrentCount);
+                Assert.Equal(0, addCountdownEvent.CurrentCount);
+                Assert.Equal(0, saveCountdownEvent.CurrentCount);
             } finally {
                 foreach (var disposable in disposables)
                     disposable.Dispose();
@@ -545,7 +549,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(COUNT, await _dailyRepository.IncrementValueAsync(new string[0]));
         }
 
-        [Fact(Skip = "TODO: Investigate why this fails.")]
+        [Fact]
         public async Task PatchAllBulkConcurrently() {
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Warning);
             const int COUNT = 1000 * 10;

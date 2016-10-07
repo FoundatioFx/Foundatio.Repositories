@@ -393,6 +393,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
                     Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
 
+                    await _client.RefreshAsync(Indices.All);
                     countResponse = await _client.CountAsync<Employee>(d => d.Index(version2Index.VersionedName));
                     _logger.Trace(() => countResponse.GetRequest());
                     Assert.True(countResponse.IsValid);
@@ -459,12 +460,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
                     Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
 
+                    await _client.RefreshAsync(Indices.All);
                     var countResponse = await _client.CountAsync<Employee>(d => d.Index(version2Index.VersionedName));
                     _logger.Trace(() => countResponse.GetRequest());
                     Assert.True(countResponse.IsValid);
                     Assert.Equal(2, countResponse.Count);
 
-                    Assert.Equal(employee, await repository.GetByIdAsync(employee.Id));
+                    var result = await repository.GetByIdAsync(employee.Id);
+                    Assert.Equal(ToJson(employee), ToJson(result));
                     Assert.False((await _client.IndexExistsAsync(version1Index.VersionedName)).Exists);
                 }
             }

@@ -142,10 +142,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return null;
 
             var type = IndexTypes.First().Type;
-            if (IndexTypes.All(i => i.Type.IsAssignableFrom(typeof(IHaveDates))))
+            if (IndexTypes.All(i => typeof(IHaveDates).IsAssignableFrom(i.Type)))
                 return Configuration.Client.Infer.PropertyName(type.GetProperty(nameof(IHaveDates.UpdatedUtc)));
 
-            if (IndexTypes.All(i => i.Type.IsAssignableFrom(typeof(IHaveCreatedDate))))
+            if (IndexTypes.All(i => typeof(IHaveCreatedDate).IsAssignableFrom(i.Type)))
                 return Configuration.Client.Infer.PropertyName(type.GetProperty(nameof(IHaveCreatedDate.CreatedUtc)));
 
             return null;

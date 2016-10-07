@@ -87,8 +87,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ApplicationException("Id must be set when calling Save.");
 
             var originalDocuments = ids.Length > 0 ? (await GetByIdsAsync(ids, useCache: true).AnyContext()) : EmptyList;
-            Debug.Assert(docs.Count == originalDocuments.Count, "Original document count differs from save document count");
-
             await OnDocumentsSavingAsync(docs, originalDocuments).AnyContext();
 
             if (_validator != null)

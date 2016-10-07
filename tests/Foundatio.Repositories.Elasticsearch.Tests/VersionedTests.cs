@@ -134,15 +134,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(employee2, await _employeeRepository.GetByIdAsync(employee2.Id));
         }
 
-        [Fact]
+        [Fact(Skip = "TODO: verify index many works when when getParent & getindex == null;")]
         public void SaveCollectionWithNoIndexOrParent() {
-            // verify index many works when when getParent & getindex == null;
             throw new NotImplementedException();
         }
 
-        [Fact]
+        [Fact(Skip = "TODO: need versioning tests for parent / child docs.")]
         public void SaveWithVersionedParentChild() {
-            // need versioning tests for parent / child docs.
             throw new NotImplementedException();
         }
 
@@ -191,9 +189,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(0, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company"));
         }
 
-        [Fact]
+        [Fact(Skip = "TODO: FindAs version tests")]
         public void CanQuery() {
-            //FindAs version tests
             throw new NotImplementedException();
         }
 

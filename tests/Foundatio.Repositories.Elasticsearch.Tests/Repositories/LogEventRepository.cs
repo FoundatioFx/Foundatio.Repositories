@@ -41,7 +41,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             string script = $"ctx._source.value += {value};";
             if (ids.Length == 0)
-                return await PatchAllAsync(new Query(), script);
+                return await PatchAllAsync(new Query(), script, false);
 
             await PatchAsync(ids, script);
             return ids.Length;

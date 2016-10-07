@@ -96,9 +96,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, parentResults.Total);
         }
 
-        [Fact]
+        [Fact(Skip = "Test parent that doesn't support soft deletes")]
         public void CanDeleteParentChild() {
-            //Test parent that doesn't support soft deletes
             throw new NotImplementedException();
         }
     }
