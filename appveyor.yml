@@ -7,7 +7,7 @@ pull_requests:
   do_not_increment_build_number: true
 
 environment:
-  JAVA_HOME: C:\Program Files (x86)\Java\jdk1.8.0
+  JAVA_HOME: C:\Progra~1\Java\jdk1.8.0
   ES_VERSION: 5.0.0-beta1
 
 init:
@@ -39,7 +39,7 @@ before_package:
   - ps: if (-not $env:APPVEYOR_PULL_REQUEST_NUMBER) { & "GitLink" .\ }
 
 #on_failure:
-  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
+#  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
 
 artifacts:
   - path: artifacts\*.nupkg
