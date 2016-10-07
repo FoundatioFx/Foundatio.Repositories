@@ -86,7 +86,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 _logger.Trace(() => countResponse.GetRequest());
                 Assert.True(countResponse.IsValid);
                 Assert.Equal(numberOfEmployeesToCreate, countResponse.Count);
-
                 Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
 
                 using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult())) {
@@ -123,6 +122,73 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.Equal(numberOfEmployeesToCreate + 1, countResponse.Count);
 
                     Assert.False((await _client.IndexExistsAsync(version1Index.VersionedName)).Exists);
+                }
+            }
+        }
+
+        [Fact(Skip = "TODO: There is a bug with the nest client https://github.com/elastic/elasticsearch-net/issues/2309")]
+        public async Task CanHandleReindexFailure() {
+            var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+            await version1Index.DeleteAsync();
+
+            var version2Index = new VersionedEmployeeIndex(_configuration, 2);
+            await version2Index.DeleteAsync();
+
+            using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
+                await version1Index.ConfigureAsync();
+                Assert.True(_client.IndexExists(version1Index.VersionedName).Exists);
+
+                var version1Repository = new EmployeeRepository(version1Index.Employee);
+                await version1Repository.AddAsync(EmployeeGenerator.Generate());
+                await _client.RefreshAsync(Indices.All);
+
+                var countResponse = await _client.CountAsync<Employee>(d => d.Index(version1Index.Name));
+                _logger.Trace(() => countResponse.GetRequest());
+                Assert.True(countResponse.IsValid);
+                Assert.Equal(1, countResponse.Count);
+                Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+
+                using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult())) {
+                    //Create invalid mappings
+                    var response = await _client.CreateIndexAsync(version2Index.VersionedName, d => d.Mappings(m => m.Map<Employee>(map => map
+                        .Dynamic(false)
+                        .Properties(p => p
+                            .Number(f => f.Name(e => e.Id))
+                        ))));
+                    _logger.Trace(() => response.GetRequest());
+
+                    Assert.True(_client.IndexExists(version2Index.VersionedName).Exists);
+                    Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+
+                    await version2Index.ReindexAsync();
+
+                    var aliasResponse = await _client.GetAliasAsync(d => d.Name(version2Index.Name));
+                    Assert.True(aliasResponse.IsValid);
+                    Assert.Equal(1, aliasResponse.Indices.Count);
+                    Assert.True(aliasResponse.Indices.ContainsKey(version1Index.VersionedName));
+
+                    var indexResponse = await _client.CatIndicesAsync(d => d.Index(Indices.Index("employees-*")));
+                    Assert.NotNull(indexResponse.Records.FirstOrDefault(r => r.Index == version1Index.VersionedName));
+                    Assert.NotNull(indexResponse.Records.FirstOrDefault(r => r.Index == version2Index.VersionedName));
+                    Assert.NotNull(indexResponse.Records.FirstOrDefault(r => r.Index == $"{version2Index.VersionedName}-error"));
+
+                    Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+                    Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
+
+                    countResponse = await _client.CountAsync<Employee>(d => d.Index(version1Index.VersionedName));
+                    _logger.Trace(() => countResponse.GetRequest());
+                    Assert.True(countResponse.IsValid);
+                    Assert.Equal(1, countResponse.Count);
+
+                    countResponse = await _client.CountAsync<Employee>(d => d.Index(version2Index.VersionedName));
+                    _logger.Trace(() => countResponse.GetRequest());
+                    Assert.True(countResponse.IsValid);
+                    Assert.Equal(0, countResponse.Count);
+
+                    countResponse = await _client.CountAsync<object>(d => d.Index($"{version2Index.VersionedName}-error"));
+                    _logger.Trace(() => countResponse.GetRequest());
+                    Assert.True(countResponse.IsValid);
+                    Assert.Equal(1, countResponse.Count);
                 }
             }
         }

@@ -40,8 +40,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             _logger.Info("Received reindex work item for new index {0}", workItem.NewIndex);
             var startTime = SystemClock.UtcNow.AddSeconds(-1);
             await progressCallbackAsync(0, "Starting reindex...").AnyContext();
-            var result = await InternalReindexAsync(workItem, progressCallbackAsync, 0, 90, workItem.StartUtc).AnyContext();
-            await progressCallbackAsync(91, $"Total: {result.Total} Completed: {result.Completed}").AnyContext();
+            var firstPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 0, 90, workItem.StartUtc).AnyContext();
+            await progressCallbackAsync(91, $"Total: {firstPassResult.Total} Completed: {firstPassResult.Completed}").AnyContext();
 
             // TODO: Check to make sure the docs have been added to the new index before changing alias
             if (workItem.OldIndex != workItem.NewIndex) {
@@ -66,7 +66,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             var secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime).AnyContext();
             await progressCallbackAsync(97, $"Total: {secondPassResult.Total} Completed: {secondPassResult.Completed}").AnyContext();
 
-            if (workItem.DeleteOld && workItem.OldIndex != workItem.NewIndex) {
+            bool hasFailures = (firstPassResult.Failures + secondPassResult.Failures) > 0;
+            if (!hasFailures && workItem.DeleteOld && workItem.OldIndex != workItem.NewIndex) {
                 await _client.RefreshAsync(Indices.All).AnyContext();
                 long newDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.NewIndex)).AnyContext()).Count;
                 long oldDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.OldIndex)).AnyContext()).Count;
@@ -91,27 +92,63 @@ namespace Foundatio.Repositories.Elasticsearch {
                 .Conflicts(Conflicts.Proceed)).AnyContext();
 
             _logger.Trace(() => response.GetRequest());
-            if (!response.IsValid)
-                _logger.Error().Exception(response.OriginalException).Message("Error while reindexing result: {0}", response.GetErrorMessage()).Write();
 
             long failures = 0;
-            foreach (var failure in response.Failures) {
-                _logger.Error().Message("Error reindexing document {0}/{1}/{2}: [{3}] {4}", failure.Index, failure.Type, failure.Id, failure.Status, failure.Cause.Reason).Write();
+            if (!response.IsValid) {
+                _logger.Error().Exception(response.OriginalException).Message("Error while reindexing result: {0}", response.GetErrorMessage()).Write();
 
-                var gr = await _client.GetAsync<object>(request: new GetRequest(failure.Index, failure.Type, failure.Id)).AnyContext();
-                if (!gr.IsValid) {
-                    _logger.Error().Message("Error getting document {0}/{1}/{2}: {3}", failure.Index, failure.Type, failure.Id, gr.GetErrorMessage()).Write();
-                    continue;
+                if (await CreateFailureIndex(workItem).AnyContext()) {
+                    foreach (var failure in response.Failures) {
+                        await HandleFailure(workItem, failure).AnyContext();
+                        failures++;
+                    }
                 }
-                var indexResponse = await _client.IndexAsync(gr.Source, d => d.Index(workItem.NewIndex + "-error").Type(gr.Type).Parent(gr.Parent).Id(gr.Id)).AnyContext();
-                if (!indexResponse.IsValid)
-                    _logger.Error().Message("Error indexing document {0}/{1}/{2}: {3}", workItem.NewIndex + "-error", gr.Type, gr.Id, indexResponse.GetErrorMessage()).Write();
             }
 
             long completed = response.Created + response.Updated + response.Noops;
             string message = $"Total: {response.Total} Completed: {completed} VersionConflicts: {response.VersionConflicts}";
             await progressCallbackAsync(CalculateProgress(response.Total, completed, startProgress, endProgress), message).AnyContext();
             return new ReindexResult { Total = response.Total, Completed = completed, Failures = failures };
+        }
+
+        private async Task<bool> CreateFailureIndex(ReindexWorkItem workItem) {
+            string errorIndex = workItem.NewIndex + "-error";
+            var existsResponse = await _client.IndexExistsAsync(errorIndex).AnyContext();
+            if (!existsResponse.IsValid || existsResponse.Exists)
+                return true;
+
+            var createResponse = await _client.CreateIndexAsync(errorIndex, d => d.Mappings(m => m.Map("failures", md => md.Dynamic(false)))).AnyContext();
+            if (!createResponse.IsValid) {
+                _logger.Error().Exception(createResponse.OriginalException).Message("Unable to create error index: {0}", createResponse.GetErrorMessage()).Write();
+                return false;
+            }
+
+            return true;
+        }
+
+        private async Task HandleFailure(ReindexWorkItem workItem, BulkIndexByScrollFailure failure) {
+            _logger.Error().Message("Error reindexing document {0}/{1}/{2}: [{3}] {4}", failure.Index, failure.Type, failure.Id, failure.Status, failure.Cause.Reason).Write();
+            var gr = await _client.GetAsync<object>(request: new GetRequest(failure.Index, failure.Type, failure.Id)).AnyContext();
+            if (!gr.IsValid) {
+                _logger.Error().Message("Error getting document {0}/{1}/{2}: {3}", failure.Index, failure.Type, failure.Id, gr.GetErrorMessage()).Write();
+                return;
+            }
+
+            var document = new JObject(new {
+                failure.Index,
+                failure.Type,
+                failure.Id,
+                gr.Version,
+                gr.Parent,
+                gr.Source,
+                failure.Cause,
+                failure.Status,
+                gr.Found,
+            });
+
+            var indexResponse = await _client.IndexAsync(document, d => d.Index(workItem.NewIndex + "-error").Type("failures")).AnyContext();
+            if (!indexResponse.IsValid)
+                _logger.Error().Message("Error indexing document {0}/{1}/{2}: {3}", workItem.NewIndex + "-error", gr.Type, gr.Id, indexResponse.GetErrorMessage()).Write();
         }
 
         private async Task<List<string>> GetIndexAliases(string index) {
@@ -135,8 +172,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (startingPoint is DateTime)
                 return CreateRangeQuery(descriptor, timestampField, (DateTime)startingPoint);
 
-            if (startingPoint is string) // TODO: Change this to use a range query: https://github.com/elastic/elasticsearch-net/issues/2307
-                return descriptor.QueryString(qs => qs.DefaultField(timestampField ?? ID_FIELD).Query($">={(string)startingPoint}"));
+            if (startingPoint is string)
+                return descriptor.TermRange(dr => dr.Field(timestampField ?? ID_FIELD).GreaterThanOrEquals((string)startingPoint));
 
             if (startingPoint != null)
                 throw new ApplicationException("Unable to create resume query from returned starting point");
@@ -148,8 +185,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (!String.IsNullOrEmpty(timestampField))
                 return descriptor.DateRange(dr => dr.Field(timestampField).GreaterThanOrEquals(startTime));
 
-            // TODO: ensure that this creates a sequential id in the past that can be queried off of.
-            return descriptor.QueryString(qs => qs.DefaultField(ID_FIELD).Query($">={ObjectId.GenerateNewId(startTime.Value).ToString()}"));
+            return descriptor.TermRange(dr => dr.Field(ID_FIELD).GreaterThanOrEquals(ObjectId.GenerateNewId(startTime.Value).ToString()));
         }
 
         private async Task<object> GetResumeStartingPointAsync(string newIndex, string timestampField) {

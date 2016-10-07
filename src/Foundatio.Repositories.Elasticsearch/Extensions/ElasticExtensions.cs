@@ -28,6 +28,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return sb.ToString();
         }
 
+        // TODO: Handle IFailureReason/BulkIndexByScrollFailure and other bulk response types.
         public static string GetErrorMessage(this IResponse response) {
             var sb = new StringBuilder();
 

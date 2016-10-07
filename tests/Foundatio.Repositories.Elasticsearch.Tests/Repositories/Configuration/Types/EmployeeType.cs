@@ -28,7 +28,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
             builder.UseQueryParser(this);
         }
     }
-    
+
     public class EmployeeTypeWithYearsEmployed : IndexTypeBase<Employee> {
         public EmployeeTypeWithYearsEmployed(IIndex index) : base(index: index) { }
 

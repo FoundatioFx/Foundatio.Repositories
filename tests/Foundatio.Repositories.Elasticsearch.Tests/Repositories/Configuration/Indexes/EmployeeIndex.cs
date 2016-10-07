@@ -36,12 +36,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
 
         public DailyEmployeeType Employee { get; }
     }
-    
+
     public sealed class DailyEmployeeIndexWithWrongEmployeeType : DailyIndex {
         public DailyEmployeeIndexWithWrongEmployeeType(IElasticConfiguration configuration, int version) : base(configuration, "daily-employees", version) {
             AddType(Employee = new EmployeeType(this));
         }
-        
+
         public EmployeeType Employee { get; }
     }
 
