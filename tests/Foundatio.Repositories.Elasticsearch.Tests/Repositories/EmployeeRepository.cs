@@ -34,25 +34,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public Task<CountResult> GetNumberOfEmployeesWithMissingCompanyName(string company) {
-            var query = new BoolQuery {
-                MustNot = new QueryContainer[] {
-                    new ExistsQuery {
-                        Field = GetPropertyName(nameof(Employee.CompanyName))
-                    }
-                }
-            };
-            return CountAsync(new MyAppQuery().WithCompany(company).WithElasticFilter(query));
+            return CountAsync(new MyAppQuery().WithCompany(company).WithElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.CompanyName))));
         }
 
         public Task<CountResult> GetNumberOfEmployeesWithMissingName(string company) {
-            var query = new BoolQuery {
-                MustNot = new QueryContainer[] {
-                    new ExistsQuery {
-                        Field = GetPropertyName(nameof(Employee.Name))
-                    }
-                }
-            };
-            return CountAsync(new MyAppQuery().WithCompany(company).WithElasticFilter(query));
+            return CountAsync(new MyAppQuery().WithCompany(company).WithElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.Name))));
         }
 
         /// <summary>
