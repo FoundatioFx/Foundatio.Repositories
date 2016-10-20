@@ -1,10 +1,10 @@
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Foundatio.Repositories.Elasticsearch.Tests.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Nest;
 
-namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
+namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Types {
     public class EmployeeType : IndexTypeBase<Employee> {
         public EmployeeType(IIndex index) : base(index) { }
 
@@ -18,6 +18,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
                     .String(f => f.Name(e => e.CompanyId).IndexName(Fields.CompanyId).Index(FieldIndexOption.NotAnalyzed))
                     .String(f => f.Name(e => e.CompanyName).IndexName(Fields.CompanyName).Index(FieldIndexOption.NotAnalyzed))
                     .String(f => f.Name(e => e.Name).IndexName(Fields.Name).Index(FieldIndexOption.Analyzed))
+                    .GeoPoint(f => f.Name(e => e.Location))
                     .Number(f => f.Name(e => e.Age).IndexName(Fields.Age))
                 ));
         }

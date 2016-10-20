@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using Foundatio.Repositories.Elasticsearch.Repositories.Queries.Builders;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Configuration;
@@ -45,10 +44,15 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
 
         public void UseQueryParser(Action<ElasticQueryParserConfiguration> configure) {
+            var parser = new ElasticQueryParser(configure);
+
             Unregister<SearchQueryBuilder>();
-            Register(new ParsedSearchQueryBuilder(new ElasticQueryParser(configure)));
+            Register(new ParsedSearchQueryBuilder(parser));
+
+            Unregister<AggregationsQueryBuilder>();
+            Register(new AggregationsQueryBuilder(parser));
         }
-        
+
         public void UseQueryParser<T>(IndexTypeBase<T> indexType, Action<ElasticQueryParserConfiguration> configure = null) where T : class {
             UseQueryParser(c => {
                 c.UseMappings<T>(indexType.BuildMapping, () => indexType.Configuration.Client.GetMapping(new GetMappingRequest(indexType.Index.Name, indexType.Name)).Mapping);
@@ -66,7 +70,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             Register<PagableQueryBuilder>();
             Register<SelectedFieldsQueryBuilder>();
             Register<SortableQueryBuilder>();
-            Register<AggregationsQueryBuilder>();
+            Register(new AggregationsQueryBuilder());
             Register(new ParentQueryBuilder(this));
             Register(new ChildQueryBuilder(this));
             Register<IdentityQueryBuilder>();

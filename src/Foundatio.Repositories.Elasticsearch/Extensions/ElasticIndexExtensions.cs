@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Foundatio.Repositories.Models;
 using Nest;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
@@ -46,47 +47,62 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, data);
         }
 
-        private static AggregationResult ToAggregationResult(this Bucket bucket, string field) {
-            return new AggregationResult {
-                Field = field,
-                Terms = new AggregationDictionary<AggregationResult>(bucket.Items.OfType<KeyItem>().ToDictionary(t => t.Key, t => {
-                    var termRes = new AggregationResult<AggregationResult> {
-                        Total = t.DocCount
+        public static IDictionary<string, AggregationResult> ToAggregationResult(this IDictionary<string, IAggregation> aggregations) {
+            var result = new Dictionary<string, AggregationResult>();
+            if (aggregations == null || aggregations.Count == 0)
+                return null;
+
+            foreach (var key in aggregations.Keys) {
+                var aggValue = aggregations[key];
+
+                var metricAggValue = aggValue as ValueMetric;
+                if (metricAggValue != null) {
+                    result.Add(key, new AggregationResult { Value = metricAggValue.Value });
+                    continue;
+                }
+
+                var bucketValue = aggValue as Bucket;
+                if (bucketValue != null) {
+                    var aggResult = new AggregationResult {
+                        Buckets = new List<BucketResult>()
                     };
 
-                    if (t.Aggregations?.Count > 0) {
-                        termRes.Aggregations = new List<AggregationResult>();
-                        foreach (var key in t.Aggregations.Keys) {
-                            var nestedBucket = t.Aggregations[key] as Bucket;
-                            if (nestedBucket == null)
-                                continue;
+                    foreach (var keyItem in bucketValue.Items.OfType<KeyItem>()) {
+                        var bucketResult = new BucketResult {
+                            Key = keyItem.Key,
+                            KeyAsString = keyItem.KeyAsString,
+                            Total = keyItem.DocCount
+                        };
 
-                            termRes.Aggregations.Add(nestedBucket.ToAggregationResult(key));
-                        }
+                        bucketResult.Aggregations = keyItem.Aggregations.ToAggregationResult();
+
+                        aggResult.Buckets.Add(bucketResult);
                     }
 
-                    return termRes;
-                })),
-            };
-        }
+                    foreach (var keyItem in bucketValue.Items.OfType<HistogramItem>()) {
+                        var bucketResult = new BucketResult {
+                            Key = keyItem.Key.ToString(),
+                            KeyAsString = keyItem.KeyAsString,
+                            Total = keyItem.DocCount
+                        };
 
-        public static IReadOnlyCollection<AggregationResult> ToAggregationResult<T>(this ISearchResponse<T> res) where T : class {
-            var result = new List<AggregationResult>();
-            if (res.Aggregations == null || res.Aggregations.Count == 0)
-                return result;
+                        bucketResult.Aggregations = keyItem.Aggregations.ToAggregationResult();
 
-            foreach (var key in res.Aggregations.Keys) {
-                var bucket = res.Aggregations[key] as Bucket;
+                        aggResult.Buckets.Add(bucketResult);
+                    }
 
-                if (bucket == null)
+                    result.Add(key, aggResult);
                     continue;
-
-                result.Add(bucket.ToAggregationResult(key));
+                }
             }
 
             return result;
         }
-        
+
+        public static IDictionary<string, AggregationResult> ToAggregationResult<T>(this ISearchResponse<T> res) where T : class {
+            return res.Aggregations.ToAggregationResult();
+        }
+
         public static Task<IBulkResponse> IndexManyAsync<T>(this IElasticClient client, IEnumerable<T> objects, Func<T, string> getParent, Func<T, string> getIndex = null, string type = null) where T : class {
             if (objects == null)
                 throw new ArgumentNullException(nameof(objects));
@@ -117,7 +133,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 return doc;
             }).Cast<IBulkOperation>().ToList();
             bulkRequest.Operations = list;
-
+            
             return bulkRequest;
         }
 

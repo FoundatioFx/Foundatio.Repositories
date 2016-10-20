@@ -1,27 +1,21 @@
 using System;
 using System.Collections.Generic;
-using Foundatio.Repositories.Extensions;
 
 namespace Foundatio.Repositories.Models {
     public class AggregationResult {
-        public AggregationResult() {
-            Terms = new AggregationDictionary<AggregationResult>();
-        }
-
-        public string Field { get; set; }
-        public AggregationDictionary<AggregationResult> Terms { get; set; }
+        public double? Value { get; set; }
+        public long? Total { get; set; }
+        public IDictionary<string, object> Data { get; set; }
+        public ICollection<BucketResult> Buckets { get; set; }
+        public IDictionary<string, AggregationResult> Aggregations { get; set; }
     }
 
-    public class AggregationDictionary<T> : Dictionary<string, AggregationResult<T>> where T : class {
-        public AggregationDictionary() { }
-
-        public AggregationDictionary(IDictionary<string, AggregationResult<T>> items) {
-            this.AddRange(items);
-        }
-    }
-
-    public class AggregationResult<T> where T : class {
-        public long Total { get; set; }
-        public List<T> Aggregations { get; set; }
+    public class BucketResult {
+        public string Key { get; set; }
+        public string KeyAsString { get; set; }
+        public double? Value { get; set; }
+        public long? Total { get; set; }
+        public IDictionary<string, object> Data { get; set; }
+        public IDictionary<string, AggregationResult> Aggregations { get; set; }
     }
 }

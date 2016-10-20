@@ -6,7 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
-using Foundatio.Repositories.Elasticsearch.Tests.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.JsonPatch;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
@@ -298,13 +298,53 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(yesterdayLog?.Id);
 
             await _client.RefreshAsync();
-            var result = await _dailyRepository.CountBySearchAsync(null, aggregations: "companyId");
-            Assert.Equal(1, result.Aggregations.Count);
-            var agg = result.Aggregations.FirstOrDefault(a => a.Field == "companyId");
-            Assert.NotNull(agg);
-            Assert.Equal(1, agg.Terms.Count);
-            Assert.Equal(1, agg.Terms.First().Value.Total);
+            var result = await _dailyRepository.CountBySearchAsync(null, aggregations: "cardinality:companyId max:createdUtc");
+            Assert.Equal(2, result.Aggregations.Count);
+            var cardinalityAgg = result.Aggregations.FirstOrDefault(a => a.Key == "cardinality_companyId");
+            Assert.NotNull(cardinalityAgg);
+            Assert.Equal(1, cardinalityAgg.Value.Value);
 
+            var maxAgg = result.Aggregations.FirstOrDefault(a => a.Key == "max_createdUtc");
+            Assert.NotNull(maxAgg);
+            Assert.True(maxAgg.Value.Value.HasValue);
+            Assert.True(yesterdayLog.CreatedUtc.Subtract(__unixEpoch.AddMilliseconds(maxAgg.Value.Value.Value)).TotalSeconds < 1);
+        }
+
+        private static DateTime __unixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        [Fact]
+        public async Task CanGetDateAggregation() {
+            var utcNow = SystemClock.UtcNow;
+            var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
+            Assert.NotNull(yesterdayLog?.Id);
+
+            await _client.RefreshAsync();
+            var result = await _dailyRepository.CountBySearchAsync(null, aggregations: "date:(createdUtc min:createdUtc)");
+            Assert.Equal(1, result.Aggregations.Count);
+            var dateAgg = result.Aggregations.FirstOrDefault(a => a.Key == "date_createdUtc");
+            Assert.NotNull(dateAgg);
+            Assert.Equal(1, dateAgg.Value.Buckets.Count);
+
+            result = await _dailyRepository.CountBySearchAsync(null, aggregations: "date:(createdUtc~1h^-3h min:createdUtc)");
+            Assert.Equal(1, result.Aggregations.Count);
+            dateAgg = result.Aggregations.FirstOrDefault(a => a.Key == "date_createdUtc");
+            Assert.NotNull(dateAgg);
+            Assert.Equal(1, dateAgg.Value.Buckets.Count);
+        }
+
+        [Fact]
+        public async Task CanGetGeoGridAggregation() {
+            var utcNow = SystemClock.UtcNow;
+            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
+            Assert.NotNull(employee?.Id);
+            await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees());
+
+            await _client.RefreshAsync();
+            var result = await _employeeRepository.CountBySearchAsync(null, aggregations: "geogrid:(location~6 max:age)");
+            Assert.Equal(1, result.Aggregations.Count);
+            var geoAgg = result.Aggregations.FirstOrDefault(a => a.Key == "geogrid_location");
+            Assert.NotNull(geoAgg);
+            Assert.InRange(geoAgg.Value.Buckets.Count, 1, 11);
         }
 
         [Fact]

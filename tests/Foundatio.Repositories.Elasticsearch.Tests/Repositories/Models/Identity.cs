@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 
-namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
+namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
     public class Identity : IIdentity {
         public string Id { get; set; }
 

@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Threading.Tasks;
-using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;

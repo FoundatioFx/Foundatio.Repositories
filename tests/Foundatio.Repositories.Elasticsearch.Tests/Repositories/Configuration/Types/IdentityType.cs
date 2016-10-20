@@ -1,9 +1,9 @@
 using System;
 using Foundatio.Repositories.Elasticsearch.Configuration;
-using Foundatio.Repositories.Elasticsearch.Tests.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Nest;
 
-namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
+namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Types {
     public class IdentityType : IndexTypeBase<Identity> {
         public IdentityType(IIndex index) : base(index) { }
 

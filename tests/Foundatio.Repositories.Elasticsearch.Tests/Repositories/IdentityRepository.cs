@@ -1,6 +1,6 @@
 ﻿using System;
-using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
-using Foundatio.Repositories.Elasticsearch.Tests.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class IdentityRepository : ElasticRepositoryBase<Identity> {

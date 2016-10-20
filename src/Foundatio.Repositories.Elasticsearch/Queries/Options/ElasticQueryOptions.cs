@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
@@ -18,6 +19,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Options {
         IChildIndexType ChildType { get; }
         bool HasMultipleIndexes { get; }
         ITimeSeriesIndexType TimeSeriesType { get; }
+        AliasResolver RootAliasResolver { get; set; }
     }
 
     public class ElasticQueryOptions : IElasticQueryOptions {
@@ -49,5 +51,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Options {
         public IChildIndexType ChildType { get; }
         public bool HasMultipleIndexes { get; }
         public ITimeSeriesIndexType TimeSeriesType { get; }
+        public AliasResolver RootAliasResolver { get; set; }
     }
 }

@@ -1,7 +1,8 @@
 ﻿using System;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Types;
 
-namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
+namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes {
     public sealed class EmployeeIndex : Index {
         public EmployeeIndex(IElasticConfiguration configuration): base(configuration, "employees") {
             AddType(Employee = new EmployeeType(this));

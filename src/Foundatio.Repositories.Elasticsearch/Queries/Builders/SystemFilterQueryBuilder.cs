@@ -1,7 +1,6 @@
-﻿using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Foundatio.Repositories.Queries;
+﻿using Foundatio.Repositories.Queries;
 
-namespace Foundatio.Repositories.Elasticsearch.Repositories.Queries.Builders {
+namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class SystemFilterQueryBuilder : IElasticQueryBuilder {
         private readonly ElasticQueryBuilder _queryBuilder;
 

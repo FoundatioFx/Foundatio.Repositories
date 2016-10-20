@@ -6,7 +6,7 @@ using Foundatio.Logging;
 using Foundatio.Logging.Xunit;
 using Foundatio.Messaging;
 using Foundatio.Queues;
-using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Utility;
 using Nest;
 using Xunit.Abstractions;

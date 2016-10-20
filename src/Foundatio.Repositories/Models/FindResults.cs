@@ -12,7 +12,7 @@ namespace Foundatio.Repositories.Models {
         protected static readonly IReadOnlyCollection<FindHit<T>> EmptyFindHits = new List<FindHit<T>>(0).AsReadOnly();
         protected static readonly IReadOnlyCollection<T> EmptyDocuments = new List<T>(0).AsReadOnly();
 
-        public FindResults(IEnumerable<FindHit<T>> hits = null, long total = 0, IEnumerable<AggregationResult> aggregations = null, Func<FindResults<T>, Task<FindResults<T>>> getNextPage = null, DataDictionary data = null)
+        public FindResults(IEnumerable<FindHit<T>> hits = null, long total = 0, IDictionary<string, AggregationResult> aggregations = null, Func<FindResults<T>, Task<FindResults<T>>> getNextPage = null, DataDictionary data = null)
             : base(total, aggregations, data) {
             ((IGetNextPage<T>)this).GetNextPageFunc = getNextPage;
             if (hits != null) {
@@ -76,17 +76,17 @@ namespace Foundatio.Repositories.Models {
     }
 
     public class CountResult {
-        protected static readonly IReadOnlyCollection<AggregationResult> EmptyAggregations = new List<AggregationResult>(0).AsReadOnly();
+        protected static readonly IReadOnlyDictionary<string, AggregationResult> EmptyAggregations = new ReadOnlyDictionary<string, AggregationResult>(new Dictionary<string, AggregationResult>());
         internal static readonly IReadOnlyDictionary<string, object> EmptyData = new ReadOnlyDictionary<string, object>(new Dictionary<string, object>());
 
-        public CountResult(long total = 0, IEnumerable<AggregationResult> aggregations = null, IDictionary<string, object> data = null) {
-            Aggregations = aggregations == null ? EmptyAggregations : new List<AggregationResult>(aggregations);
+        public CountResult(long total = 0, IDictionary<string, AggregationResult> aggregations = null, IDictionary<string, object> data = null) {
+            Aggregations = aggregations == null ? EmptyAggregations : new Dictionary<string, AggregationResult>(aggregations);
             Total = total;
             Data = data != null ? new ReadOnlyDictionary<string, object>(data) : EmptyData;
         }
 
         public long Total { get; protected set; }
-        public IReadOnlyCollection<AggregationResult> Aggregations { get; protected set; }
+        public IReadOnlyDictionary<string, AggregationResult> Aggregations { get; protected set; }
         public IReadOnlyDictionary<string, object> Data { get; protected set; }
 
         public static implicit operator long(CountResult result) {

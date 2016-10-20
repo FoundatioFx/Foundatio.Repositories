@@ -5,7 +5,7 @@ using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories {
     public interface ISearchableReadOnlyRepository<T> : IReadOnlyRepository<T> where T : class, new() {
-        Task<CountResult> CountBySearchAsync(IRepositoryQuery systemFilter, string filter = null, AggregationOptions aggregations = null);
+        Task<CountResult> CountBySearchAsync(IRepositoryQuery systemFilter, string filter = null, string aggregations = null);
 
         /// <summary>
         /// Find documents using search criteria
@@ -17,7 +17,6 @@ namespace Foundatio.Repositories {
         /// <param name="paging">Paging options like page size and page number</param>
         /// <param name="aggregations"></param>
         /// <returns></returns>
-        Task<FindResults<T>> SearchAsync(IRepositoryQuery systemFilter, string filter = null, string criteria = null, SortingOptions sorting = null, PagingOptions paging = null, AggregationOptions aggregations = null);
-        Task<IReadOnlyCollection<AggregationResult>> GetAggregationsAsync(IRepositoryQuery systemFilter, AggregationOptions aggregations, string filter = null);
+        Task<FindResults<T>> SearchAsync(IRepositoryQuery systemFilter, string filter = null, string criteria = null, SortingOptions sorting = null, PagingOptions paging = null, string aggregations = null);
     }
 }

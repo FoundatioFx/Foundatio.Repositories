@@ -1,4 +1,8 @@
 using System;
+using System.Collections.Generic;
+using Foundatio.Parsers.ElasticQueries.Visitors;
+using Foundatio.Parsers.LuceneQueries.Visitors;
+using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Repositories.Queries;
 using Nest;
 
@@ -7,11 +11,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         void Build<T>(QueryBuilderContext<T> ctx) where T : class, new();
     }
 
-    public class QueryBuilderContext<T> where T : class, new() {
+    public class QueryBuilderContext<T> : IElasticQueryVisitorContext, IQueryVisitorContextWithAliasResolver where T : class, new() {
         public QueryBuilderContext(IRepositoryQuery source, IQueryOptions options, SearchDescriptor<T> search = null) {
             Source = source;
             Options = options;
             Search = search ?? new SearchDescriptor<T>();
+            var elasticQueryOptions = options as IElasticQueryOptions;
+            if (elasticQueryOptions != null)
+                ((IQueryVisitorContextWithAliasResolver)this).RootAliasResolver = elasticQueryOptions.RootAliasResolver;
         }
 
         public IRepositoryQuery Source { get; }
@@ -19,6 +26,13 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         public QueryContainer Query { get; set; }
         public FilterContainer Filter { get; set; }
         public SearchDescriptor<T> Search { get; }
+        public IDictionary<string, object> Data { get; } = new Dictionary<string, object>();
+
+        AliasResolver IQueryVisitorContextWithAliasResolver.RootAliasResolver { get; set; }
+
+        Operator IElasticQueryVisitorContext.DefaultOperator { get; set; }
+        string IElasticQueryVisitorContext.DefaultField { get; set; }
+        Func<string, IElasticType> IElasticQueryVisitorContext.GetFieldMappingFunc { get; set; }
 
         public TQuery GetSourceAs<TQuery>() where TQuery : class {
             return Source as TQuery;
