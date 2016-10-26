@@ -31,7 +31,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             if (!String.IsNullOrEmpty(searchQuery.Filter)) {
                 var result = _parser.Parse(searchQuery.Filter);
-                searchQuery.Filter = GenerateQueryVisitor.Run(AliasedQueryVisitor.Run(result, _aliasMap));
+                searchQuery.Filter = GenerateQueryVisitor.Run(AliasedQueryVisitor.Run(result, _aliasMap, ctx), ctx);
 
                 ctx.Filter &= new QueryStringQuery {
                     Query = searchQuery.Filter,
@@ -42,7 +42,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             if (!String.IsNullOrEmpty(searchQuery.Criteria)) {
                 var result = _parser.Parse(searchQuery.Criteria);
-                searchQuery.Criteria = GenerateQueryVisitor.Run(AliasedQueryVisitor.Run(result, _aliasMap));
+                searchQuery.Criteria = GenerateQueryVisitor.Run(AliasedQueryVisitor.Run(result, _aliasMap, ctx), ctx);
 
                 ctx.Query &= new QueryStringQuery {
                     Query = searchQuery.Criteria,
@@ -89,10 +89,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             // TODO: Use default search operator and wildcards
             if (!String.IsNullOrEmpty(searchQuery.Criteria))
-                ctx.Query &= _parser.BuildQuery(searchQuery.Criteria, defaultOperator: Operator.Or, scoreResults: true);
+                ctx.Query &= _parser.BuildQuery(searchQuery.Criteria, ctx);
 
             if (!String.IsNullOrEmpty(searchQuery.Filter))
-                ctx.Filter &= _parser.BuildQuery(searchQuery.Filter);
+                ctx.Filter &= _parser.BuildFilter(searchQuery.Filter, ctx);
         }
     }
 

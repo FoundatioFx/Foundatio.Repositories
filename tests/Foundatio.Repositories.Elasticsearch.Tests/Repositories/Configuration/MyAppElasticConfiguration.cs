@@ -4,15 +4,16 @@ using System.Diagnostics;
 using System.Linq;
 using Elasticsearch.Net;
 using Foundatio.Caching;
-using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Jobs;
 using Foundatio.Logging;
 using Foundatio.Messaging;
 using Foundatio.Queues;
+using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
-using Nest;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 
-namespace Foundatio.Repositories.Elasticsearch.Tests.Configuration {
+namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration {
     public class MyAppElasticConfiguration : ElasticConfiguration {
         public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, IMessageBus messageBus, ILoggerFactory loggerFactory) : base(workItemQueue, cacheClient, messageBus, loggerFactory) {
             AddIndex(Identities = new IdentityIndex(this));

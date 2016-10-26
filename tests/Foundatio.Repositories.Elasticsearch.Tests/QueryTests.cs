@@ -2,7 +2,7 @@
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Logging;
-using Foundatio.Repositories.Elasticsearch.Tests.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
 using Nest;
 using Xunit;

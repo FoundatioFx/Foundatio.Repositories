@@ -2,11 +2,11 @@
 using System.Collections.Generic;
 using System.Linq;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Foundatio.Repositories.Elasticsearch.Tests.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Types;
 using Foundatio.Repositories.Extensions;
 using Nest;
 
-namespace Foundatio.Repositories.Elasticsearch.Tests.Queries {
+namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries {
     public interface IAgeQuery {
         ICollection<int> Ages { get; set; }
         // TODO: Support age range query

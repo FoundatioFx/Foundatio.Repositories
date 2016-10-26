@@ -4,13 +4,14 @@ using Exceptionless;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 
-namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
+namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
     public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes {
         public string Id { get; set; }
         public string CompanyId { get; set; }
         public string CompanyName { get; set; }
         public string Name { get; set; }
         public int Age { get; set; }
+        public string Location { get; set; }
         public int YearsEmployed { get; set; }
         public DateTime CreatedUtc { get; set; }
         public DateTime UpdatedUtc { get; set; }
@@ -83,7 +84,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
                 CompanyName = companyName,
                 CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
                 CreatedUtc = createdUtc.GetValueOrDefault(),
-                UpdatedUtc = updatedUtc.GetValueOrDefault()
+                UpdatedUtc = updatedUtc.GetValueOrDefault(),
+                Location = RandomData.GetCoordinate()
             };
         }
 

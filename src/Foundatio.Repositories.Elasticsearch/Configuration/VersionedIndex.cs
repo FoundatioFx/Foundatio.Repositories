@@ -57,8 +57,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             throw new ApplicationException(message, response.OriginalException);
         }
 
-        public override Task DeleteAsync() {
-            return DeleteIndexAsync(VersionedName);
+        public override async Task DeleteAsync() {
+            var currentVersion = await GetCurrentVersionAsync();
+            if (currentVersion != Version)
+                await DeleteIndexAsync(String.Concat(Name, "-v", currentVersion)).AnyContext();
+
+            await DeleteIndexAsync(VersionedName).AnyContext();
         }
 
         public ReindexWorkItem CreateReindexWorkItem(int currentVersion) {

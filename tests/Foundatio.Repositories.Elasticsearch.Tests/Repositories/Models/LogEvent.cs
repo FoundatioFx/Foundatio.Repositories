@@ -6,7 +6,7 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 
-namespace Foundatio.Repositories.Elasticsearch.Tests.Models {
+namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
     public class LogEvent : IIdentity, IHaveCreatedDate {
         public string Id { get; set; }
 

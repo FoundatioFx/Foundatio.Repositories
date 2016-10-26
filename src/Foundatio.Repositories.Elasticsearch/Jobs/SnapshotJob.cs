@@ -11,7 +11,6 @@ using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
 using Nest;
-using Run = Foundatio.Repositories.Elasticsearch.Utility.Run;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs {
     public class SnapshotJob : IJob {
@@ -61,8 +60,8 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             return JobResult.Success;
         }
 
-        protected string Name { get; } = "data";
-        protected string Repository { get; } = "data";
+        protected string Name { get; set; } = "data";
+        protected string Repository { get; set; } = "data";
         protected ICollection<string> IncludedIndexes { get; } = new List<string>();
     }
 }

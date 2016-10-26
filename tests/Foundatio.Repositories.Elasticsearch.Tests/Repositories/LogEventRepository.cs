@@ -5,9 +5,8 @@ using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Foundatio.Repositories.Elasticsearch.Tests.Configuration;
-using Foundatio.Repositories.Elasticsearch.Tests.Models;
-using Foundatio.Repositories.Elasticsearch.Tests.Queries;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Models;
 

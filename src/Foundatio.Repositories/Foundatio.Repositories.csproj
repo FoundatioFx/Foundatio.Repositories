@@ -103,7 +103,6 @@
     <Compile Include="Models\AggregationResult.cs" />
     <Compile Include="Models\FindResults.cs" />
     <Compile Include="Models\NumberDictionary.cs" />
-    <Compile Include="Queries\AggregationOptions.cs" />
     <Compile Include="Queries\IdentityQuery.cs" />
     <Compile Include="Models\IHaveDates.cs" />
     <Compile Include="Models\IIdentity.cs" />

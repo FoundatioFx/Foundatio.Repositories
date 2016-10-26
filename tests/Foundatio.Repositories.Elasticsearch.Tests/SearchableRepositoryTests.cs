@@ -1,8 +1,6 @@
 ﻿using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
-using Foundatio.Repositories.Elasticsearch.Tests.Models;
-using Foundatio.Repositories.Elasticsearch.Tests.Queries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Queries;
 using Foundatio.Repositories.Utility;
@@ -12,12 +10,11 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Nest;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace Foundatio.Repositories.Elasticsearch.Tests
-{
+namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class SearchableRepositoryTests : ElasticRepositoryTestBase {
         private readonly IdentityRepository _identityRepository;
         private readonly DailyLogEventRepository _dailyRepository;
@@ -75,8 +72,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests
             var disposables = new List<IDisposable>(1);
             var countdownEvent = new AsyncCountdownEvent(1);
 
-            try
-            {
+            try {
                 var filter = $"id:{identity.Id}";
                 disposables.Add(_identityRepository.BeforeQuery.AddSyncHandler((o, args) => {
                     Assert.Equal(filter, ((ElasticQuery)args.Query).Filter);
@@ -87,9 +83,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests
                 Assert.Equal(1, results.Documents.Count);
                 await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
                 Assert.Equal(0, countdownEvent.CurrentCount);
-            }
-            finally
-            {
+            } finally {
                 foreach (var disposable in disposables)
                     disposable.Dispose();
 
