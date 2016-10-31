@@ -75,7 +75,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 if (date != DateTime.MinValue)
                     return ObjectId.GenerateNewId(date).ToString();
             }
-            
+
             return ObjectId.GenerateNewId().ToString();
         }
 
