@@ -85,7 +85,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public virtual CreateIndexDescriptor ConfigureDescriptor(CreateIndexDescriptor idx) {
             foreach (var t in IndexTypes)
-                t.Configure(idx);
+                idx = t.Configure(idx);
 
             return idx;
         }
