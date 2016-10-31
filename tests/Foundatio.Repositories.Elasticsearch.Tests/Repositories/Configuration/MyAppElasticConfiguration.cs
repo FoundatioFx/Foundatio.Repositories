@@ -9,9 +9,8 @@ using Foundatio.Logging;
 using Foundatio.Messaging;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Configuration;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
+using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration {
     public class MyAppElasticConfiguration : ElasticConfiguration {

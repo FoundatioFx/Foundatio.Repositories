@@ -1,5 +1,6 @@
 ﻿using System;
 using Foundatio.Parsers.ElasticQueries;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Parsers.LuceneQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Nest;
@@ -87,12 +88,12 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (searchQuery == null)
                 return;
 
-            // TODO: Use default search operator and wildcards
             if (!String.IsNullOrEmpty(searchQuery.Criteria))
-                ctx.Query &= _parser.BuildQuery(searchQuery.Criteria, ctx);
+                ctx.Query &= _parser.BuildQuery(searchQuery.Criteria, ctx.SetDefaultOperator(Operator.Or).UseScoring());
 
+            // NOTE: Calling UseScoring here to keep the query from being wrapped in a filter which happens ElasticQueryBuilderExtensions.BuildQuery
             if (!String.IsNullOrEmpty(searchQuery.Filter))
-                ctx.Filter &= _parser.BuildFilter(searchQuery.Filter, ctx);
+                ctx.Filter &= _parser.BuildQuery(searchQuery.Filter, ctx.SetDefaultOperator(Operator.And).UseScoring());
         }
     }
 

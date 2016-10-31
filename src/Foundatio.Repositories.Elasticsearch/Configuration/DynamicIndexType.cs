@@ -6,7 +6,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public DynamicIndexType(IIndex index, string name = null): base(index, name) {}
 
         public override TypeMappingDescriptor<T> BuildMapping(TypeMappingDescriptor<T> map) {
-            return base.BuildMapping(map.Dynamic());
+            return base.BuildMapping(map.Dynamic(true));
         }
     }
 }

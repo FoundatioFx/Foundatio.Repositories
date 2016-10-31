@@ -31,8 +31,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         AliasResolver IQueryVisitorContextWithAliasResolver.RootAliasResolver { get; set; }
 
         Operator IElasticQueryVisitorContext.DefaultOperator { get; set; }
+        bool IElasticQueryVisitorContext.UseScoring { get; set; }
         string IElasticQueryVisitorContext.DefaultField { get; set; }
-        Func<string, IElasticType> IElasticQueryVisitorContext.GetFieldMappingFunc { get; set; }
+        Func<string, IProperty> IElasticQueryVisitorContext.GetPropertyMappingFunc { get; set; }
 
         public TQuery GetSourceAs<TQuery>() where TQuery : class {
             return Source as TQuery;
@@ -49,8 +50,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             builder.Build(ctx);
 
             return new BoolQuery {
-                Must = new QueryContainer[] { ctx.Query },
-                Filter = new QueryContainer[] { ctx.Filter }
+                Must = new[] { ctx.Query },
+                Filter = new[] { ctx.Filter }
             };
         }
 

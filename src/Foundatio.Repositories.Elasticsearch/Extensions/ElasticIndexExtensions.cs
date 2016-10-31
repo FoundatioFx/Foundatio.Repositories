@@ -47,7 +47,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, data);
         }
 
-        public static IDictionary<string, AggregationResult> ToAggregationResult(this IDictionary<string, IAggregation> aggregations) {
+        public static IDictionary<string, AggregationResult> ToAggregationResult(this IDictionary<string, IAggregate> aggregations) {
             var result = new Dictionary<string, AggregationResult>();
             if (aggregations == null || aggregations.Count == 0)
                 return null;
@@ -55,19 +55,19 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             foreach (var key in aggregations.Keys) {
                 var aggValue = aggregations[key];
 
-                var metricAggValue = aggValue as ValueMetric;
+                var metricAggValue = aggValue as ValueAggregate;
                 if (metricAggValue != null) {
                     result.Add(key, new AggregationResult { Value = metricAggValue.Value });
                     continue;
                 }
 
-                var bucketValue = aggValue as Bucket;
+                var bucketValue = aggValue as BucketAggregate;
                 if (bucketValue != null) {
                     var aggResult = new AggregationResult {
                         Buckets = new List<BucketResult>()
                     };
 
-                    foreach (var keyItem in bucketValue.Items.OfType<KeyItem>()) {
+                    foreach (var keyItem in bucketValue.Items.OfType<KeyedBucket>()) {
                         var bucketResult = new BucketResult {
                             Key = keyItem.Key,
                             KeyAsString = keyItem.KeyAsString,
@@ -79,7 +79,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                         aggResult.Buckets.Add(bucketResult);
                     }
 
-                    foreach (var keyItem in bucketValue.Items.OfType<HistogramItem>()) {
+                    foreach (var keyItem in bucketValue.Items.OfType<HistogramBucket>()) {
                         var bucketResult = new BucketResult {
                             Key = keyItem.Key.ToString(),
                             KeyAsString = keyItem.KeyAsString,

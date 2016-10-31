@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.JsonPatch;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
@@ -308,7 +309,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
             Assert.NotNull(yesterdayLog?.Id);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             var result = await _dailyRepository.CountBySearchAsync(null, aggregations: "cardinality:companyId max:createdUtc");
             Assert.Equal(2, result.Aggregations.Count);
             var cardinalityAgg = result.Aggregations.FirstOrDefault(a => a.Key == "cardinality_companyId");
@@ -329,7 +330,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
             Assert.NotNull(yesterdayLog?.Id);
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             var result = await _dailyRepository.CountBySearchAsync(null, aggregations: "date:(createdUtc min:createdUtc)");
             Assert.Equal(1, result.Aggregations.Count);
             var dateAgg = result.Aggregations.FirstOrDefault(a => a.Key == "date_createdUtc");
@@ -350,7 +351,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(employee?.Id);
             await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees());
 
-            await _client.RefreshAsync();
+            await _client.RefreshAsync(Indices.All);
             var result = await _employeeRepository.CountBySearchAsync(null, aggregations: "geogrid:(location~6 max:age)");
             Assert.Equal(1, result.Aggregations.Count);
             var geoAgg = result.Aggregations.FirstOrDefault(a => a.Key == "geogrid_location");

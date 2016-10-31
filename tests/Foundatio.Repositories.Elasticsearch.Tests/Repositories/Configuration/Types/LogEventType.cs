@@ -1,5 +1,7 @@
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Types {
@@ -17,6 +19,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
         }
 
         protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
+            builder.UseQueryParser(this);
             builder.Register<CompanyQueryBuilder>();
         }
     }

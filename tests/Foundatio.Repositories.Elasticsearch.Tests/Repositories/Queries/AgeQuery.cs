@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Types;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Extensions;
 using Nest;
 
