@@ -103,35 +103,35 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return res.Aggregations.ToAggregationResult();
         }
 
-        public static Task<IBulkResponse> IndexManyAsync<T>(this IElasticClient client, IEnumerable<T> objects, Func<T, string> getParent, Func<T, string> getIndex = null, string type = null) where T : class {
+        public static Task<IBulkResponse> IndexManyAsync<T>(this IElasticClient client, IEnumerable<T> objects, Func<T, string> getParent, Func<T, string> getIndex = null, string type = null, bool isCreateOperation = false) where T : class {
             if (objects == null)
                 throw new ArgumentNullException(nameof(objects));
 
-            if (getParent == null && getIndex == null)
-                return client.IndexManyAsync(objects, null, type);
-
-            var indexBulkRequest = CreateIndexBulkRequest(objects, getIndex, type, getParent);
+            var indexBulkRequest = CreateIndexBulkRequest(objects, getIndex, type, getParent, isCreateOperation);
             return client.BulkAsync(indexBulkRequest);
         }
 
-        private static BulkRequest CreateIndexBulkRequest<T>(IEnumerable<T> objects, Func<T, string> getIndex, string type, Func<T, string> getParent) where T : class {
+        private static BulkRequest CreateIndexBulkRequest<T>(IEnumerable<T> objects, Func<T, string> getIndex, string type, Func<T, string> getParent, bool isCreateOperation) where T : class {
             var bulkRequest = new BulkRequest();
             var list = objects.Select(o => {
-                var doc = new BulkIndexOperation<T>(o) { Type = type };
+                IBulkOperation doc = isCreateOperation ? (IBulkOperation)new BulkCreateOperation<T>(o) : new BulkIndexOperation<T>(o);
+                doc.Type = type;
                 if (getParent != null)
                     doc.Parent = getParent(o);
 
                 if (getIndex != null)
                     doc.Index = getIndex(o);
 
-                var versionedDoc = o as IVersioned;
-                if (versionedDoc != null && versionedDoc.Version > 0)
-                    doc.Version = versionedDoc.Version;
+                if (!isCreateOperation) {
+                    var versionedDoc = o as IVersioned;
+                    if (versionedDoc != null)
+                        doc.Version = versionedDoc.Version;
+                }
 
                 return doc;
-            }).Cast<IBulkOperation>().ToList();
+            }).ToList();
             bulkRequest.Operations = list;
-            
+
             return bulkRequest;
         }
 

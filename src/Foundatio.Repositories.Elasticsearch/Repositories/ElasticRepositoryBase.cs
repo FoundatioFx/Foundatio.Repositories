@@ -58,7 +58,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 foreach (var doc in docs)
                     await _validator.ValidateAndThrowAsync(doc).AnyContext();
 
-            await IndexDocumentsAsync(docs).AnyContext();
+            await IndexDocumentsAsync(docs, isCreateOperation: true).AnyContext();
 
             if (addToCache)
                 await AddToCacheAsync(docs, expiresIn).AnyContext();
@@ -668,7 +668,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         #endregion
 
-        private async Task IndexDocumentsAsync(IReadOnlyCollection<T> documents) {
+        private async Task IndexDocumentsAsync(IReadOnlyCollection<T> documents, bool isCreateOperation = false) {
             if (HasMultipleIndexes) {
                 foreach (var documentGroup in documents.GroupBy(TimeSeriesType.GetDocumentIndex))
                     await TimeSeriesType.EnsureIndexAsync(documentGroup.First()).AnyContext();
@@ -677,6 +677,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (documents.Count == 1) {
                 var document = documents.Single();
                 var response = await _client.IndexAsync(document, i => {
+                    i.OpType(isCreateOperation ? OpType.Create : OpType.Index);
                     i.Type(ElasticType.Name);
 
                     if (GetParentIdFunc != null)
@@ -685,10 +686,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                     if (GetDocumentIndexFunc != null)
                         i.Index(GetDocumentIndexFunc(document));
 
-                    if (HasVersion) {
+                    if (HasVersion && isCreateOperation) {
                         var versionDoc = (IVersioned)document;
-                        if (versionDoc.Version > 0)
-                            i.Version(versionDoc.Version);
+                        i.Version(versionDoc.Version);
                     }
 
                     return i;
@@ -706,7 +706,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     versionDoc.Version = response.Version;
                 }
             } else {
-                var response = await _client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc, ElasticType.Name).AnyContext();
+                var response = await _client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc, ElasticType.Name, isCreateOperation).AnyContext();
                 _logger.Trace(() => response.GetRequest());
 
                 if (HasVersion) {
@@ -723,12 +723,26 @@ namespace Foundatio.Repositories.Elasticsearch {
                     }
                 }
 
+                var allErrors = response.ItemsWithErrors.ToList();
+                if (allErrors.Count > 0) {
+                    var retryableIds = allErrors.Where(e => e.Status == 429 || e.Status == 503).Select(e => e.Id).ToList();
+                    if (retryableIds.Count > 0) {
+                        var docs = documents.Where(d => retryableIds.Contains(d.Id)).ToList();
+                        await IndexDocumentsAsync(docs, isCreateOperation).AnyContext();
+
+                        // return as all recoverable items were retried.
+                        if (allErrors.Count == retryableIds.Count)
+                            return;
+                    }
+                }
+
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
                     _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
                     throw new ApplicationException(message, response.OriginalException);
                 }
             }
+            // 429 // 503
         }
 
         protected virtual async Task AddToCacheAsync(ICollection<T> documents, TimeSpan? expiresIn = null) {
