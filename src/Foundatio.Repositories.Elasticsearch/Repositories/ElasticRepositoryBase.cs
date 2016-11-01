@@ -13,6 +13,7 @@ using Foundatio.Messaging;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Models;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.JsonPatch;
 using Foundatio.Repositories.Models;
@@ -108,10 +109,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (update == null)
                 throw new ArgumentNullException(nameof(update));
 
+            string pipeline = ElasticType is IHavePipelinedIndexType ? ((IHavePipelinedIndexType)ElasticType).Pipeline : null;
             string script = update as string;
             var patch = update as PatchDocument;
-
             if (script != null) {
+                // TODO: Figure out how to specify a pipeline here.
                 var request = new UpdateRequest<T, T>(GetIndexById(id), ElasticType.Name, id) {
                     Script = script,
                     RetryOnConflict = 10
@@ -140,7 +142,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var target = response.Source as JToken;
                 new JsonPatcher().Patch(ref target, patch);
 
-                var updateResponse = await _client.LowLevel.IndexPutAsync<object>(response.Index, response.Type, id, new PostData<object>(target.ToString())).AnyContext();
+                var updateResponse = await _client.LowLevel.IndexPutAsync<object>(response.Index, response.Type, id, new PostData<object>(target.ToString()), p => p.Pipeline(pipeline)).AnyContext();
                 _logger.Trace(() => updateResponse.GetRequest());
 
                 if (!updateResponse.Success) {
@@ -149,6 +151,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ApplicationException(message, updateResponse.OriginalException);
                 }
             } else {
+                // TODO: Figure out how to specify a pipeline here.
                 var request = new UpdateRequest<T, object>(GetIndexById(id), ElasticType.Name, id) {
                     Doc = update,
                     RetryOnConflict = 10
@@ -195,9 +198,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return;
             }
 
+            string pipeline = ElasticType is IHavePipelinedIndexType ? ((IHavePipelinedIndexType)ElasticType).Pipeline : null;
             var script = update as string;
             var bulkResponse = await _client.BulkAsync(b => {
                 foreach (var id in idList) {
+                    b.Pipeline(pipeline);
+
                     if (script != null)
                         b.Update<T>(u => u
                             .Id(id)
@@ -242,6 +248,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ArgumentNullException(nameof(update));
 
             long affectedRecords = 0;
+            string pipeline = ElasticType is IHavePipelinedIndexType ? ((IHavePipelinedIndexType)ElasticType).Pipeline : null;
             var patch = update as PatchDocument;
             if (patch != null) {
                 var patcher = new JsonPatcher();
@@ -256,6 +263,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                                 .Id(h.Id)
                                 .Index(h.GetIndex())
                                 .Type(h.GetIndexType())
+                                .Pipeline(pipeline)
                                 .Version(h.Version));
                         }
 
@@ -293,6 +301,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                         Query = ElasticType.QueryBuilder.BuildQuery(query, GetQueryOptions(), new SearchDescriptor<T>()),
                         Conflicts = Conflicts.Proceed,
                         Script = new InlineScript(script),
+                        Pipeline = pipeline,
                         Version = HasVersion
                     };
 
@@ -313,6 +322,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     affectedRecords += await BatchProcessAsync(query, async results => {
                         var bulkResult = await _client.BulkAsync(b => {
+                            b.Pipeline(pipeline);
+
                             foreach (var h in results.Hits) {
                                 if (script != null)
                                     b.Update<T>(u => u
@@ -674,11 +685,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                     await TimeSeriesType.EnsureIndexAsync(documentGroup.First()).AnyContext();
             }
 
+            string pipeline = ElasticType is IHavePipelinedIndexType ? ((IHavePipelinedIndexType)ElasticType).Pipeline : null;
             if (documents.Count == 1) {
                 var document = documents.Single();
                 var response = await _client.IndexAsync(document, i => {
                     i.OpType(isCreateOperation ? OpType.Create : OpType.Index);
                     i.Type(ElasticType.Name);
+                    i.Pipeline(pipeline);
 
                     if (GetParentIdFunc != null)
                         i.Parent(GetParentIdFunc(document));
@@ -687,8 +700,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                         i.Index(GetDocumentIndexFunc(document));
 
                     if (HasVersion && isCreateOperation) {
-                        var versionDoc = (IVersioned)document;
-                        i.Version(versionDoc.Version);
+                        var versionedDoc = (IVersioned)document;
+                        i.Version(versionedDoc.Version);
                     }
 
                     return i;
@@ -698,6 +711,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
                     _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                    if (response.ServerError.Status == 409)
+                        throw new DuplicateDocumentException(message, response.OriginalException);
+
                     throw new ApplicationException(message, response.OriginalException);
                 }
 
@@ -706,7 +722,30 @@ namespace Foundatio.Repositories.Elasticsearch {
                     versionDoc.Version = response.Version;
                 }
             } else {
-                var response = await _client.IndexManyAsync(documents, GetParentIdFunc, GetDocumentIndexFunc, ElasticType.Name, isCreateOperation).AnyContext();
+                var bulkRequest = new BulkRequest();
+                var list = documents.Select(d => {
+                    IBulkOperation o = isCreateOperation
+                        ? (IBulkOperation)new BulkCreateOperation<T>(d) { Pipeline = pipeline }
+                        : new BulkIndexOperation<T>(d) { Pipeline = pipeline };
+
+                    o.Type = ElasticType.Name;
+                    if (GetParentIdFunc != null)
+                        o.Parent = GetParentIdFunc(d);
+
+                    if (GetDocumentIndexFunc != null)
+                        o.Index = GetDocumentIndexFunc(d);
+
+                    if (HasVersion && !isCreateOperation) {
+                        var versionedDoc = (IVersioned)d;
+                        if (versionedDoc != null)
+                            o.Version = versionedDoc.Version;
+                    }
+
+                    return o;
+                }).ToList();
+                bulkRequest.Operations = list;
+
+                var response = await _client.BulkAsync(bulkRequest).AnyContext();
                 _logger.Trace(() => response.GetRequest());
 
                 if (HasVersion) {
@@ -739,6 +778,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
                     _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                    if (allErrors.Any(e => e.Status == 409))
+                        throw new DuplicateDocumentException(message, response.OriginalException);
+
                     throw new ApplicationException(message, response.OriginalException);
                 }
             }

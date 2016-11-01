@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Models;
@@ -15,7 +16,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         int DefaultCacheExpirationSeconds { get; set; }
         int BulkBatchSize { get; set; }
         ISet<string> AllowedAggregationFields { get; }
-        CreateIndexDescriptor Configure(CreateIndexDescriptor idx);
+        Task ConfigureAsync();
+        CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx);
         void ConfigureSettings(ConnectionSettings settings);
         IElasticQueryBuilder QueryBuilder { get; }
     }
@@ -79,7 +81,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return ObjectId.GenerateNewId().ToString();
         }
 
-        public virtual CreateIndexDescriptor Configure(CreateIndexDescriptor idx) {
+        public virtual Task ConfigureAsync() {
+            return Task.CompletedTask;
+        }
+
+        public virtual CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
             return idx.Mappings(m => m.Map<T>(Name, BuildMapping));
         }
 
@@ -95,5 +101,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public int DefaultCacheExpirationSeconds { get; set; } = RepositoryConstants.DEFAULT_CACHE_EXPIRATION_SECONDS;
         public int BulkBatchSize { get; set; } = 1000;
+    }
+
+    public interface IHavePipelinedIndexType {
+        string Pipeline { get; }
     }
 }

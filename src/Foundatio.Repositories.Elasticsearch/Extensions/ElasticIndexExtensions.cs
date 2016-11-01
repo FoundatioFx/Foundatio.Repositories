@@ -4,8 +4,6 @@ using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Models;
 using Nest;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
@@ -101,38 +99,6 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
         public static IDictionary<string, AggregationResult> ToAggregationResult<T>(this ISearchResponse<T> res) where T : class {
             return res.Aggregations.ToAggregationResult();
-        }
-
-        public static Task<IBulkResponse> IndexManyAsync<T>(this IElasticClient client, IEnumerable<T> objects, Func<T, string> getParent, Func<T, string> getIndex = null, string type = null, bool isCreateOperation = false) where T : class {
-            if (objects == null)
-                throw new ArgumentNullException(nameof(objects));
-
-            var indexBulkRequest = CreateIndexBulkRequest(objects, getIndex, type, getParent, isCreateOperation);
-            return client.BulkAsync(indexBulkRequest);
-        }
-
-        private static BulkRequest CreateIndexBulkRequest<T>(IEnumerable<T> objects, Func<T, string> getIndex, string type, Func<T, string> getParent, bool isCreateOperation) where T : class {
-            var bulkRequest = new BulkRequest();
-            var list = objects.Select(o => {
-                IBulkOperation doc = isCreateOperation ? (IBulkOperation)new BulkCreateOperation<T>(o) : new BulkIndexOperation<T>(o);
-                doc.Type = type;
-                if (getParent != null)
-                    doc.Parent = getParent(o);
-
-                if (getIndex != null)
-                    doc.Index = getIndex(o);
-
-                if (!isCreateOperation) {
-                    var versionedDoc = o as IVersioned;
-                    if (versionedDoc != null)
-                        doc.Version = versionedDoc.Version;
-                }
-
-                return doc;
-            }).ToList();
-            bulkRequest.Operations = list;
-
-            return bulkRequest;
         }
 
         public static PropertiesDescriptor<T> SetupDefaults<T>(this PropertiesDescriptor<T> pd) where T : class {

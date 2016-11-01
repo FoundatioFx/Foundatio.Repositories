@@ -10,7 +10,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
         protected bool Equals(Identity other) {
             return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase);
         }
-        
+
         public override bool Equals(object obj) {
             if (ReferenceEquals(null, obj))
                 return false;
@@ -20,7 +20,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
                 return false;
             return Equals((Identity)obj);
         }
-        
+
         public override int GetHashCode() {
             return (Id != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Id) : 0);
         }
@@ -33,7 +33,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
             return !Equals(left, right);
         }
     }
-    
+
     public static class IdentityGenerator {
         public static readonly string DefaultId = ObjectId.GenerateNewId().ToString();
 
@@ -44,7 +44,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
         public static Identity Generate(string id = null) {
             return new Identity { Id = id };
         }
-        
+
         public static List<Identity> GenerateIdentities(int count = 10) {
             var results = new List<Identity>(count);
             for (int index = 0; index < count; index++)

@@ -44,7 +44,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return indexType;
         }
 
-        public abstract Task ConfigureAsync();
+        public virtual async Task ConfigureAsync() {
+            foreach (var t in IndexTypes)
+                await t.ConfigureAsync().AnyContext();
+        }
 
         public virtual Task DeleteAsync() {
             return DeleteIndexAsync(Name);
@@ -85,7 +88,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public virtual CreateIndexDescriptor ConfigureDescriptor(CreateIndexDescriptor idx) {
             foreach (var t in IndexTypes)
-                idx = t.Configure(idx);
+                idx = t.ConfigureIndex(idx);
 
             return idx;
         }

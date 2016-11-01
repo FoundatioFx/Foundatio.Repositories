@@ -6,7 +6,6 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Types;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Models;
@@ -52,9 +51,21 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return PatchAllAsync(new MyAppQuery().WithCompany(company).WithLimit(limit), new { CompanyName = name });
         }
 
-        public Task<long> IncrementYearsEmployeed(string[] ids, int years = 1) {
+        public async Task<long> IncrementYearsEmployeed(string[] ids, int years = 1) {
             string script = $"ctx._source.yearsEmployed += {years};";
-            return PatchAllAsync(new MyAppQuery().WithIds(ids), script);
+            if (ids.Length == 0)
+                return await PatchAllAsync(new Query(), script, false);
+
+            await PatchAsync(ids, script);
+            return ids.Length;
+        }
+
+        public async Task<long> IncrementYearsEmployeed(MyAppQuery query, int years = 1) {
+            if (query == null)
+                throw new ArgumentNullException(nameof(query));
+
+            string script = $"ctx._source.yearsEmployed += {years};";
+            return await PatchAllAsync(query, script);
         }
 
         protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<Employee>> documents) {

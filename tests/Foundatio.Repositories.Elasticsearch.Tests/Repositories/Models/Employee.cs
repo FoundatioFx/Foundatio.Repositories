@@ -19,14 +19,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
         public bool IsDeleted { get; set; }
 
         protected bool Equals(Employee other) {
-            return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase) && 
-                String.Equals(CompanyId, other.CompanyId, StringComparison.InvariantCultureIgnoreCase) && 
-                String.Equals(CompanyName, other.CompanyName, StringComparison.InvariantCultureIgnoreCase) && 
-                String.Equals(Name, other.Name, StringComparison.InvariantCultureIgnoreCase) && 
+            return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase) &&
+                String.Equals(CompanyId, other.CompanyId, StringComparison.InvariantCultureIgnoreCase) &&
+                String.Equals(CompanyName, other.CompanyName, StringComparison.InvariantCultureIgnoreCase) &&
+                String.Equals(Name, other.Name, StringComparison.InvariantCultureIgnoreCase) &&
                 Age == other.Age &&
                 YearsEmployed == other.YearsEmployed &&
-                CreatedUtc.Equals(other.CreatedUtc) && 
-                UpdatedUtc.Equals(other.UpdatedUtc) && 
+                CreatedUtc.Equals(other.CreatedUtc) &&
+                UpdatedUtc.Equals(other.UpdatedUtc) &&
                 Version == other.Version;
         }
 
@@ -39,7 +39,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
                 return false;
             return Equals((Employee)obj);
         }
-        
+
         public override int GetHashCode() {
             unchecked {
                 var hashCode = (Id != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Id) : 0);

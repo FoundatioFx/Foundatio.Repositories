@@ -23,6 +23,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public bool DiscardIndexesOnReindex { get; set; } = true;
 
         public override async Task ConfigureAsync() {
+            await base.ConfigureAsync().AnyContext();
             if (!await IndexExistsAsync(VersionedName).AnyContext()) {
                 if (!await AliasExistsAsync(Name).AnyContext())
                     await CreateIndexAsync(VersionedName, d => ConfigureDescriptor(d).Aliases(ad => ad.Alias(Name))).AnyContext();

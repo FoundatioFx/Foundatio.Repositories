@@ -8,6 +8,7 @@ using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.JsonPatch;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
@@ -75,13 +76,24 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default);
             Assert.NotNull(identity1?.Id);
 
-            var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Default);
-            Assert.NotNull(identity2?.Id);
-
-            Assert.Equal(identity1, identity2);
-
+            await Assert.ThrowsAsync<DuplicateDocumentException>(async () => await _identityRepository.AddAsync(IdentityGenerator.Default));
             await _client.RefreshAsync(Indices.All);
             Assert.Equal(1, await _identityRepository.CountAsync());
+        }
+
+        [Fact]
+        public async Task AddDuplicateCollection() {
+            var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default);
+            Assert.NotNull(identity1?.Id);
+
+            var identities = new List<Identity> {
+                IdentityGenerator.Default,
+                IdentityGenerator.Generate()
+            };
+
+            await Assert.ThrowsAsync<DuplicateDocumentException>(async () => await _identityRepository.AddAsync(identities));
+            await _client.RefreshAsync(Indices.All);
+            Assert.Equal(2, await _identityRepository.CountAsync());
         }
 
         [Fact]

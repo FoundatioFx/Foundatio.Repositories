@@ -1,5 +1,4 @@
-﻿using System.Collections.Generic;
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
 

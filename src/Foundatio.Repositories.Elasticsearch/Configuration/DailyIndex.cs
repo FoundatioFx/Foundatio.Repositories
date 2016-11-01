@@ -67,8 +67,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             });
         }
 
-        public override Task ConfigureAsync() {
-            return Task.CompletedTask;
+        public override async Task ConfigureAsync() {
+            foreach (var t in IndexTypes)
+                await t.ConfigureAsync().AnyContext();
         }
 
         protected override async Task CreateAliasAsync(string index, string name) {
