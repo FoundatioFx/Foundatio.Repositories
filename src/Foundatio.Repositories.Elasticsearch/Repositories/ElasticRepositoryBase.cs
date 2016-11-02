@@ -699,7 +699,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     if (GetDocumentIndexFunc != null)
                         i.Index(GetDocumentIndexFunc(document));
 
-                    if (HasVersion && isCreateOperation) {
+                    if (HasVersion && !isCreateOperation) {
                         var versionedDoc = (IVersioned)document;
                         i.Version(versionedDoc.Version);
                     }
@@ -711,7 +711,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
                     _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                    if (response.ServerError.Status == 409)
+                    if (isCreateOperation && response.ServerError.Status == 409)
                         throw new DuplicateDocumentException(message, response.OriginalException);
 
                     throw new ApplicationException(message, response.OriginalException);
@@ -778,7 +778,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
                     _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                    if (allErrors.Any(e => e.Status == 409))
+                    if (isCreateOperation && allErrors.Any(e => e.Status == 409))
                         throw new DuplicateDocumentException(message, response.OriginalException);
 
                     throw new ApplicationException(message, response.OriginalException);

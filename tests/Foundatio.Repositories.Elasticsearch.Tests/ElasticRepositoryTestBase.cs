@@ -31,7 +31,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             _configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messgeBus, Log);
             _client = _configuration.Client;
         }
-        
+
         protected virtual async Task RemoveDataAsync(bool configureIndexes = true) {
             var minimumLevel = Log.MinimumLevel;
             Log.MinimumLevel = LogLevel.Warning;
