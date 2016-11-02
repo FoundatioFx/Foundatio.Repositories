@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Types;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
@@ -12,7 +11,6 @@ using Foundatio.Utility;
 using Nest;
 using Xunit;
 using Xunit.Abstractions;
-using LogLevel = Foundatio.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class PipelineTests : ElasticRepositoryTestBase {
@@ -71,11 +69,35 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
             Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
-            Assert.Equal("Patched", employee.Name);
+            Assert.Equal("patched", employee.Name);
             Assert.Equal(2, employee.Version);
         }
 
         [Fact]
+        public async Task JsonPatchAll() {
+            var utcNow = SystemClock.UtcNow;
+            var employees = new List<Employee> {
+                EmployeeGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1", yearsEmployed: 0),
+                EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "1", yearsEmployed: 0),
+                EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "2", yearsEmployed: 0),
+            };
+
+            await _employeeRepository.AddAsync(employees);
+
+            await _client.RefreshAsync(Indices.All);
+            var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
+            await _employeeRepository.PatchAsync(employees.Select(l => l.Id), patch);
+
+            await _client.RefreshAsync(Indices.All);
+            var results = await _employeeRepository.GetAllByCompanyAsync("1");
+            Assert.Equal(2, results.Documents.Count);
+            foreach (var document in results.Documents) {
+                Assert.Equal("1", document.CompanyId);
+                Assert.Equal("patched", document.Name);
+            }
+        }
+
+        [Fact (Skip = "Not yet supported: https://github.com/elastic/elasticsearch/issues/17895")]
         public async Task PartialPatch() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
             await _employeeRepository.PatchAsync(employee.Id, new { name = "Patched" });
@@ -86,7 +108,30 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(2, employee.Version);
         }
 
-        [Fact]
+        [Fact(Skip = "Not yet supported: https://github.com/elastic/elasticsearch/issues/17895")]
+        public async Task PartialPatchAll() {
+            var utcNow = SystemClock.UtcNow;
+            var employees = new List<Employee> {
+                EmployeeGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1", yearsEmployed: 0),
+                EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "1", yearsEmployed: 0),
+                EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "2", yearsEmployed: 0),
+            };
+
+            await _employeeRepository.AddAsync(employees);
+
+            await _client.RefreshAsync(Indices.All);
+            await _employeeRepository.PatchAsync(employees.Select(l => l.Id), new { name = "Patched" });
+
+            await _client.RefreshAsync(Indices.All);
+            var results = await _employeeRepository.GetAllByCompanyAsync("1");
+            Assert.Equal(2, results.Documents.Count);
+            foreach (var document in results.Documents) {
+                Assert.Equal("1", document.CompanyId);
+                Assert.Equal("patched", document.Name);
+            }
+        }
+
+        [Fact(Skip = "Not yet supported: https://github.com/elastic/elasticsearch/issues/17895")]
         public async Task ScriptPatch() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
             await _employeeRepository.PatchAsync(employee.Id, "ctx._source.name = 'Patched';");
@@ -97,77 +142,27 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(2, employee.Version);
         }
 
-        [Fact]
+        [Fact(Skip = "Not yet supported: https://github.com/elastic/elasticsearch/issues/17895")]
         public async Task ScriptPatchAll() {
             var utcNow = SystemClock.UtcNow;
-            var logs = new List<Employee> {
-                EmployeeGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),
-                EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "1"),
-                EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "2"),
+            var employees = new List<Employee> {
+                EmployeeGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1", yearsEmployed: 0),
+                EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "1", yearsEmployed: 0),
+                EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "2", yearsEmployed: 0),
             };
 
-            await _employeeRepository.AddAsync(logs, addToCache: true);
-            Assert.Equal(5, _cache.Count);
-            Assert.Equal(0, _cache.Hits);
-            Assert.Equal(0, _cache.Misses);
+            await _employeeRepository.AddAsync(employees);
 
             await _client.RefreshAsync(Indices.All);
-            Assert.Equal(3, await _employeeRepository.IncrementYearsEmployeed(logs.Select(l => l.Id).ToArray()));
-            Assert.Equal(2, _cache.Count);
-            Assert.Equal(0, _cache.Hits);
-            Assert.Equal(0, _cache.Misses);
+            await _employeeRepository.PatchAsync(employees.Select(l => l.Id), "ctx._source.name = 'Patched';");
 
             await _client.RefreshAsync(Indices.All);
             var results = await _employeeRepository.GetAllByCompanyAsync("1");
             Assert.Equal(2, results.Documents.Count);
             foreach (var document in results.Documents) {
                 Assert.Equal("1", document.CompanyId);
-                Assert.Equal(1, document.YearsEmployed);
+                Assert.Equal("patched", document.Name);
             }
-
-            await _employeeRepository.SaveAsync(logs, addToCache: true);
-            await _client.RefreshAsync(Indices.All);
-
-            results = await _employeeRepository.GetAllByCompanyAsync("1");
-            Assert.Equal(2, results.Documents.Count);
-            foreach (var document in results.Documents) {
-                Assert.Equal("1", document.CompanyId);
-                Assert.Equal(0, document.YearsEmployed);
-            }
-        }
-
-        [Fact]
-        public async Task PatchAllBulk() {
-            Log.SetLogLevel<EmployeeRepository>(LogLevel.Warning);
-            const int COUNT = 1000 * 10;
-            int added = 0;
-            do {
-                await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(1000));
-                added += 1000;
-            } while (added < COUNT);
-            Log.SetLogLevel<EmployeeRepository>(LogLevel.Trace);
-
-            await _client.RefreshAsync(Indices.All);
-            Assert.Equal(COUNT, await _employeeRepository.IncrementYearsEmployeed(new string[0]));
-        }
-
-        [Fact]
-        public async Task PatchAllBulkConcurrently() {
-            Log.SetLogLevel<EmployeeRepository>(LogLevel.Warning);
-            const int COUNT = 1000 * 10;
-            int added = 0;
-            do {
-                await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(1000));
-                added += 1000;
-            } while (added < COUNT);
-            Log.SetLogLevel<EmployeeRepository>(LogLevel.Trace);
-
-            await _client.RefreshAsync(Indices.All);
-            var tasks = Enumerable.Range(1, 6).Select(async i => {
-                Assert.Equal(COUNT, await _employeeRepository.IncrementYearsEmployeed(new string[0], i));
-            });
-
-            await Task.WhenAll(tasks);
         }
     }
 }
