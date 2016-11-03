@@ -130,7 +130,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 foreach (var a in Aliases.Where(a => ShouldCreateAlias(utcDate, a)))
                     aliasesDescriptor.Alias(a.Name);
 
-                return ConfigureDescriptor(descriptor).Aliases(a => aliasesDescriptor);
+                return ConfigureIndex(descriptor).Aliases(a => aliasesDescriptor);
             }).AnyContext();
 
             if (!await AliasExistsAsync(alias).AnyContext())
@@ -209,7 +209,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 reindexWorkItem.DeleteOld = DiscardIndexesOnReindex && reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;
 
                 // attempt to create the index. If it exists the index will not be created.
-                await CreateIndexAsync(reindexWorkItem.NewIndex, ConfigureDescriptor).AnyContext();
+                await CreateIndexAsync(reindexWorkItem.NewIndex, ConfigureIndex).AnyContext();
 
                 // TODO: progress callback will report 0-100% multiple times...
                 await reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync).AnyContext();

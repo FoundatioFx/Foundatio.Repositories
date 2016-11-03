@@ -26,9 +26,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             await base.ConfigureAsync().AnyContext();
             if (!await IndexExistsAsync(VersionedName).AnyContext()) {
                 if (!await AliasExistsAsync(Name).AnyContext())
-                    await CreateIndexAsync(VersionedName, d => ConfigureDescriptor(d).Aliases(ad => ad.Alias(Name))).AnyContext();
+                    await CreateIndexAsync(VersionedName, d => ConfigureIndex(d).Aliases(ad => ad.Alias(Name))).AnyContext();
                 else
-                    await CreateIndexAsync(VersionedName, ConfigureDescriptor).AnyContext();
+                    await CreateIndexAsync(VersionedName, ConfigureIndex).AnyContext();
             }
         }
 

@@ -86,13 +86,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ApplicationException($"Unable to acquire index creation lock for \"{name}\".");
         }
 
-        public virtual CreateIndexDescriptor ConfigureDescriptor(CreateIndexDescriptor idx) {
-            foreach (var t in IndexTypes)
-                idx = t.ConfigureIndex(idx);
-
-            return idx;
-        }
-
         protected virtual async Task DeleteIndexAsync(string name) {
             if (name == null)
                 throw new ArgumentNullException(nameof(name));
@@ -152,6 +145,18 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return Configuration.Client.Infer.PropertyName(type.GetProperty(nameof(IHaveCreatedDate.CreatedUtc)));
 
             return null;
+        }
+
+        public virtual CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+            var aliases = new AliasesDescriptor();
+            var mappings = new MappingsDescriptor();
+
+            foreach (var t in IndexTypes) {
+                aliases = t.ConfigureIndexAliases(aliases);
+                mappings = t.ConfigureIndexMappings(mappings);
+            }
+
+            return idx.Aliases(a => aliases).Mappings(m => mappings);
         }
 
         public virtual void ConfigureSettings(ConnectionSettings settings) {

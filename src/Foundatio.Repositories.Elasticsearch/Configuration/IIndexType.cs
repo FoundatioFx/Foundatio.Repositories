@@ -17,8 +17,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         int BulkBatchSize { get; set; }
         ISet<string> AllowedAggregationFields { get; }
         Task ConfigureAsync();
-        CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx);
-        void ConfigureSettings(ConnectionSettings settings);
+        AliasesDescriptor ConfigureIndexAliases(AliasesDescriptor aliases);
+        MappingsDescriptor ConfigureIndexMappings(MappingsDescriptor mappings);
         IElasticQueryBuilder QueryBuilder { get; }
     }
 
@@ -85,17 +85,19 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return Task.CompletedTask;
         }
 
-        public virtual CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
-            return idx.Mappings(m => m.Map<T>(Name, BuildMapping));
+        public virtual AliasesDescriptor ConfigureIndexAliases(AliasesDescriptor aliases) {
+            return aliases;
         }
 
-        public virtual void ConfigureSettings(ConnectionSettings settings) {}
-
-        public IElasticQueryBuilder QueryBuilder => _queryBuilder.Value;
+        public virtual MappingsDescriptor ConfigureIndexMappings(MappingsDescriptor mappings) {
+            return mappings.Map<T>(Name, BuildMapping);
+        }
 
         public virtual TypeMappingDescriptor<T> BuildMapping(TypeMappingDescriptor<T> map) {
             return map.Properties(p => p.SetupDefaults());
         }
+
+        public IElasticQueryBuilder QueryBuilder => _queryBuilder.Value;
 
         public virtual void Dispose() {}
 

@@ -8,7 +8,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public override async Task ConfigureAsync() {
             await base.ConfigureAsync().AnyContext();
-            await CreateIndexAsync(Name, ConfigureDescriptor).AnyContext();
+            await CreateIndexAsync(Name, ConfigureIndex).AnyContext();
         }
     }
 
