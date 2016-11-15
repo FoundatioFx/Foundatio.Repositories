@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Extensions;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
@@ -82,9 +84,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             Register<FieldConditionsQueryBuilder>();
         }
 
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             foreach (var builder in _partBuilders)
-                builder.Build(ctx);
+                await builder.BuildAsync(ctx).AnyContext();
         }
 
         private static readonly Lazy<ElasticQueryBuilder> _default = new Lazy<ElasticQueryBuilder>(() => new ElasticQueryBuilder());

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Repositories.Extensions;
 
@@ -10,16 +11,18 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public class SelectedFieldsQueryBuilder : IElasticQueryBuilder {
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var selectedFieldsQuery = ctx.GetSourceAs<ISelectedFieldsQuery>();
             if (selectedFieldsQuery?.SelectedFields?.Count > 0) {
-                ctx.Search.Source(s => s.Includes(f => f.Fields(selectedFieldsQuery.SelectedFields.ToArray())));
-                return;
+                ctx.Search.Source(s => s.Includes(i => i.Fields(selectedFieldsQuery.SelectedFields.ToArray())));
+                return Task.CompletedTask;
             }
 
             var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
             if (opt?.DefaultExcludes?.Count > 0)
-                ctx.Search.Source(s => s.Excludes(f => f.Fields(opt.DefaultExcludes.ToArray())));
+                ctx.Search.Source(s => s.Excludes(i => i.Fields(opt.DefaultExcludes.ToArray())));
+
+            return Task.CompletedTask;
         }
     }
 

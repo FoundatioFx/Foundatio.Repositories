@@ -1,20 +1,27 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Foundatio.Repositories.Elasticsearch.Queries.Options;
-using Foundatio.Repositories.Queries;
+using System.Threading.Tasks;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public class SortableQueryBuilder : IElasticQueryBuilder {
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var sortableQuery = ctx.GetSourceAs<ISortableQuery>();
-            if (sortableQuery?.SortBy == null || sortableQuery.SortBy.Count <= 0)
-                return;
+    public interface ISortableQuery {
+        ICollection<IFieldSort> SortFields { get; }
+    }
 
-            var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
-            foreach (var sort in sortableQuery.SortBy.Where(s => CanSortByField(opt?.AllowedSortFields, s.Field)))
-                ctx.Search.Sort(s => s.Field(sort.Field, sort.Order == Foundatio.Repositories.Models.SortOrder.Ascending ? SortOrder.Ascending : SortOrder.Descending));
+    public class SortableQueryBuilder : IElasticQueryBuilder {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            var sortableQuery = ctx.GetSourceAs<ISortableQuery>();
+            if (sortableQuery?.SortFields == null || sortableQuery.SortFields.Count <= 0)
+                return Task.CompletedTask;
+
+            //var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
+            //foreach (var sort in sortableQuery.SortFields.Where(s => CanSortByField(opt?.AllowedSortFields, s.Field)))
+            //    ctx.Search.Sort(s => s.Field(sort.Field, sort.Order == Foundatio.Repositories.Models.SortOrder.Ascending ? SortOrder.Ascending : SortOrder.Descending));
+            ctx.Search.Sort(sortableQuery.SortFields);
+
+            return Task.CompletedTask;
         }
 
         protected bool CanSortByField(ISet<string> allowedFields, string field) {

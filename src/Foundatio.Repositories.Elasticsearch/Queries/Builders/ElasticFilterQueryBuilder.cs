@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading.Tasks;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
@@ -14,12 +15,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public class ElasticFilterQueryBuilder : IElasticQueryBuilder {
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var elasticQuery = ctx.GetSourceAs<IElasticFilterQuery>();
             if (elasticQuery?.ElasticFilter == null)
-                return;
+                return Task.CompletedTask;
 
             ctx.Filter &= elasticQuery.ElasticFilter;
+
+            return Task.CompletedTask;
         }
     }
 }

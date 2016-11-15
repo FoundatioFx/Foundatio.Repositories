@@ -1,14 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Queries.Options;
+using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Queries;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IElasticQueryBuilder {
-        void Build<T>(QueryBuilderContext<T> ctx) where T : class, new();
+        Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new();
     }
 
     public class QueryBuilderContext<T> : IElasticQueryVisitorContext, IQueryVisitorContextWithAliasResolver where T : class, new() {
@@ -45,9 +47,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public static class ElasticQueryBuilderExtensions {
-        public static QueryContainer BuildQuery<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, IQueryOptions options, SearchDescriptor<T> search) where T : class, new() {
+        public static async Task<QueryContainer> BuildQueryAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, IQueryOptions options, SearchDescriptor<T> search) where T : class, new() {
             var ctx = new QueryBuilderContext<T>(query, options, search);
-            builder.Build(ctx);
+            await builder.BuildAsync(ctx).AnyContext();
 
             return new BoolQuery {
                 Must = new[] { ctx.Query },
@@ -55,11 +57,12 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             };
         }
 
-        public static void ConfigureSearch<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, IQueryOptions options, SearchDescriptor<T> search) where T : class, new() {
+        public static async Task ConfigureSearchAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, IQueryOptions options, SearchDescriptor<T> search) where T : class, new() {
             if (search == null)
                 throw new ArgumentNullException(nameof(search));
 
-            search.Query(d => builder.BuildQuery(query, options, search));
+            var q = await builder.BuildQueryAsync(query, options, search).AnyContext();
+            search.Query(d => q);
         }
     }
 }

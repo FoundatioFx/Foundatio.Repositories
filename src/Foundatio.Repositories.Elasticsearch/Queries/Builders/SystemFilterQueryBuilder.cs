@@ -1,4 +1,6 @@
-﻿using Foundatio.Repositories.Queries;
+﻿using System.Threading.Tasks;
+using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class SystemFilterQueryBuilder : IElasticQueryBuilder {
@@ -8,7 +10,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             _queryBuilder = queryBuilder;
         }
 
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var systemFilter = ctx.GetSourceAs<ISystemFilterQuery>();
 
             if (systemFilter?.SystemFilter == null)
@@ -18,7 +20,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 Filter = ctx.Filter,
                 Query = ctx.Query
             };
-            _queryBuilder.Build<T>(innerContext);
+            await _queryBuilder.BuildAsync<T>(innerContext).AnyContext();
 
             ctx.Filter = innerContext.Filter;
             ctx.Query = innerContext.Query;

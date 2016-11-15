@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
@@ -21,10 +22,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public class FieldConditionsQueryBuilder : IElasticQueryBuilder {
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var fieldValuesQuery = ctx.GetSourceAs<IFieldConditionsQuery>();
             if (fieldValuesQuery?.FieldConditions == null || fieldValuesQuery.FieldConditions.Count <= 0)
-                return;
+                return Task.CompletedTask;
 
             foreach (var fieldValue in fieldValuesQuery.FieldConditions) {
                 switch (fieldValue.Operator) {
@@ -42,6 +43,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                         break;
                 }
             }
+
+            return Task.CompletedTask;
         }
     }
 

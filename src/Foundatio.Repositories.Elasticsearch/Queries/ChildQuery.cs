@@ -9,6 +9,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         public IRepositoryQuery SystemFilter { get; set; }
         public string Filter { get; set; }
         public string Criteria { get; set; }
+        public string Sort { get; set; }
         public SearchOperator DefaultCriteriaOperator { get; set; }
         public string Type { get; set; }
     }

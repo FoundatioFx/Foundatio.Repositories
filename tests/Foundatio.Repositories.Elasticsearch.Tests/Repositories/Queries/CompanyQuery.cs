@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Types;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Queries;
 using Nest;
@@ -19,15 +21,17 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries {
     }
 
     public class CompanyQueryBuilder : IElasticQueryBuilder {
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var companyQuery = ctx.GetSourceAs<ICompanyQuery>();
             if (companyQuery?.Companies == null || companyQuery.Companies.Count <= 0)
-                return;
+                return Task.CompletedTask;
 
             if (companyQuery.Companies.Count == 1)
                 ctx.Filter &= Query<Employee>.Term(f => f.CompanyId, companyQuery.Companies.Single());
             else
                 ctx.Filter &= Query<Employee>.Terms(d => d.Field(f => f.CompanyId).Terms(companyQuery.Companies));
+
+            return Task.CompletedTask;
         }
     }
 }

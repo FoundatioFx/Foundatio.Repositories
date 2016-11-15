@@ -298,7 +298,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 string script = update as string;
                 if (!IsCacheEnabled && script != null) {
                     var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", GetIndexesByQuery(query))), ElasticType.Name) {
-                        Query = ElasticType.QueryBuilder.BuildQuery(query, GetQueryOptions(), new SearchDescriptor<T>()),
+                        Query = await ElasticType.QueryBuilder.BuildQueryAsync(query, GetQueryOptions(), new SearchDescriptor<T>()).AnyContext(),
                         Conflicts = Conflicts.Proceed,
                         Script = new InlineScript(script),
                         Pipeline = pipeline,
@@ -469,7 +469,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(ElasticType.Index.Name, ElasticType.Name) {
-                Query = ElasticType.QueryBuilder.BuildQuery(query, GetQueryOptions(), new SearchDescriptor<T>())
+                Query = await ElasticType.QueryBuilder.BuildQueryAsync(query, GetQueryOptions(), new SearchDescriptor<T>()).AnyContext()
             }).AnyContext();
             _logger.Trace(() => response.GetRequest());
 

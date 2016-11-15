@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Types;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Extensions;
 using Nest;
@@ -25,15 +27,17 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries {
     }
 
     public class AgeQueryBuilder : IElasticQueryBuilder {
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var ageQuery = ctx.GetSourceAs<IAgeQuery>();
             if (ageQuery?.Ages == null || ageQuery.Ages.Count <= 0)
-                return;
+                return Task.CompletedTask;
 
             if (ageQuery.Ages.Count == 1)
                 ctx.Filter &= Query<Employee>.Term(f => f.Age, ageQuery.Ages.First());
             else
                 ctx.Filter &= Query<Employee>.Terms(d => d.Field(f => f.Age).Terms(ageQuery.Ages));
+
+            return Task.CompletedTask;
         }
     }
 }

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Foundatio.Utility;
 using Nest;
 
@@ -30,10 +31,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public class DateRangeQueryBuilder : IElasticQueryBuilder {
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var dateRangeQuery = ctx.GetSourceAs<IDateRangeQuery>();
             if (dateRangeQuery?.DateRanges == null || dateRangeQuery.DateRanges.Count <= 0)
-                return;
+                return Task.CompletedTask;
 
             foreach (var dateRange in dateRangeQuery.DateRanges.Where(dr => dr.UseDateRange)) {
                 ctx.Filter &= new DateRangeQuery {
@@ -42,6 +43,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                     LessThanOrEqualTo = dateRange.GetEndDate()
                 };
             }
+
+            return Task.CompletedTask;
         }
     }
 

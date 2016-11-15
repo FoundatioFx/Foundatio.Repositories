@@ -26,10 +26,10 @@ If ((Test-Path -Path "elasticsearch-$es_version.zip") -And !(Test-Path -Path "el
 }
 
 Write-Output "Starting node 1..."
-Start-Process "$(Get-Location)\elasticsearch-node1\bin\elasticsearch.bat" -RedirectStandardError "$(Get-Location)\elasticsearch-node1\error.txt" -RedirectStandardOutput "$(Get-Location)\elasticsearch-node1\log.txt"
+Start-Process "$(Get-Location)\elasticsearch-node1\bin\elasticsearch.bat"
 Write-Output "Starting node 2..."
-Start-Process "$(Get-Location)\elasticsearch-node2\bin\elasticsearch.bat" -RedirectStandardError "$(Get-Location)\elasticsearch-node2\error.txt" -RedirectStandardOutput "$(Get-Location)\elasticsearch-node2\log.txt"
+Start-Process "$(Get-Location)\elasticsearch-node2\bin\elasticsearch.bat"
 Write-Output "Starting node 3..."
-Start-Process "$(Get-Location)\elasticsearch-node3\bin\elasticsearch.bat" -RedirectStandardError "$(Get-Location)\elasticsearch-node3\error.txt" -RedirectStandardOutput "$(Get-Location)\elasticsearch-node3\log.txt"
+Start-Process "$(Get-Location)\elasticsearch-node3\bin\elasticsearch.bat"
 
 Pop-Location

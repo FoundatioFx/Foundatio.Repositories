@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Threading.Tasks;
+using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Queries;
 using Nest;
 
@@ -14,7 +16,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             _queryBuilder = queryBuilder;
         }
 
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var childQuery = ctx.GetSourceAs<IChildQuery>();
             if (childQuery?.ChildQuery == null)
                 return;
@@ -23,7 +25,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 throw new ArgumentException("Must specify a child type for child queries.");
 
             var childContext = new QueryBuilderContext<T>(childQuery.ChildQuery, ctx.Options);
-            _queryBuilder.Build(childContext);
+            await _queryBuilder.BuildAsync(childContext).AnyContext();
 
             if ((childContext.Query == null || ((IQueryContainer)childContext.Query).IsConditionless)
                 && (childContext.Filter == null || ((IQueryContainer)childContext.Filter).IsConditionless))
