@@ -123,6 +123,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AggregationQueryTests.cs" />
     <Compile Include="AliasMappingTests.cs" />
     <Compile Include="ElasticRepositoryTestBase.cs" />
     <Compile Include="Extensions\TaskExtensions.cs" />

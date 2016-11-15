@@ -75,7 +75,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
             CompanyId = DefaultCompanyId
         };
 
-        public static Employee Generate(string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
+        public static Employee Generate(string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, string location = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
             return new Employee {
                 Id = id,
                 Name = name,
@@ -85,14 +85,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
                 CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
                 CreatedUtc = createdUtc.GetValueOrDefault(),
                 UpdatedUtc = updatedUtc.GetValueOrDefault(),
-                Location = RandomData.GetCoordinate()
+                Location = location ?? RandomData.GetCoordinate()
             };
         }
 
-        public static List<Employee> GenerateEmployees(int count = 10, string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
+        public static List<Employee> GenerateEmployees(int count = 10, string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, string location = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
             var results = new List<Employee>(count);
             for (int index = 0; index < count; index++)
-                results.Add(Generate(id, name, age, yearsEmployed, companyName, companyId, createdUtc, updatedUtc));
+                results.Add(Generate(id, name, age, yearsEmployed, companyName, companyId, location, createdUtc, updatedUtc));
 
             return results;
         }

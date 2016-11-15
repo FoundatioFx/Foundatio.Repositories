@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 using Foundatio.Repositories.Models;
 using Nest;
 using Foundatio.Utility;
@@ -46,7 +45,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         }
 
         public static IDictionary<string, AggregationResult> ToAggregationResult(this IDictionary<string, IAggregate> aggregations) {
-            var result = new Dictionary<string, AggregationResult>();
+            var results = new Dictionary<string, AggregationResult>();
             if (aggregations == null || aggregations.Count == 0)
                 return null;
 
@@ -55,13 +54,35 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
                 var metricAggValue = aggValue as ValueAggregate;
                 if (metricAggValue != null) {
-                    result.Add(key, new AggregationResult { Value = metricAggValue.Value });
+                    results.Add(key, new AggregationResult { Value = metricAggValue.Value });
+                    continue;
+                }
+
+                var percentilesAggregate = aggValue as PercentilesAggregate;
+                if (percentilesAggregate != null) {
+                    var result = new AggregationResult {
+                        Data = new Dictionary<string, object>(percentilesAggregate.Items.Count)
+                    };
+
+                    foreach (var percentileItem in percentilesAggregate.Items)
+                        result.Data.Add(percentileItem.Percentile.ToString(), percentileItem.Value);
+
+                    results.Add(key, result);
+                    continue;
+                }
+
+                var singleBucketAggregate = aggValue as SingleBucketAggregate;
+                if (singleBucketAggregate != null) {
+                    results.Add(key, new AggregationResult {
+                        Value = singleBucketAggregate.DocCount,
+                        Aggregations = singleBucketAggregate.Aggregations.ToAggregationResult()
+                    });
                     continue;
                 }
 
                 var bucketValue = aggValue as BucketAggregate;
                 if (bucketValue != null) {
-                    var aggResult = new AggregationResult {
+                    var result = new AggregationResult {
                         Buckets = new List<BucketResult>()
                     };
 
@@ -69,32 +90,29 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                         var bucketResult = new BucketResult {
                             Key = keyItem.Key,
                             KeyAsString = keyItem.KeyAsString,
-                            Total = keyItem.DocCount
+                            Total = keyItem.DocCount,
+                            Aggregations = keyItem.Aggregations.ToAggregationResult()
                         };
 
-                        bucketResult.Aggregations = keyItem.Aggregations.ToAggregationResult();
-
-                        aggResult.Buckets.Add(bucketResult);
+                        result.Buckets.Add(bucketResult);
                     }
 
                     foreach (var keyItem in bucketValue.Items.OfType<HistogramBucket>()) {
                         var bucketResult = new BucketResult {
                             Key = keyItem.Key.ToString(),
                             KeyAsString = keyItem.KeyAsString,
-                            Total = keyItem.DocCount
+                            Total = keyItem.DocCount,
+                            Aggregations = keyItem.Aggregations.ToAggregationResult()
                         };
 
-                        bucketResult.Aggregations = keyItem.Aggregations.ToAggregationResult();
-
-                        aggResult.Buckets.Add(bucketResult);
+                        result.Buckets.Add(bucketResult);
                     }
 
-                    result.Add(key, aggResult);
-                    continue;
+                    results.Add(key, result);
                 }
             }
 
-            return result;
+            return results;
         }
 
         public static IDictionary<string, AggregationResult> ToAggregationResult<T>(this ISearchResponse<T> res) where T : class {

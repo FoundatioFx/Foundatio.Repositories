@@ -20,6 +20,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public EmployeeRepository(IIndexType<Employee> employeeType) : base(employeeType) {
         }
 
+        /// <summary>
+        /// This allows us easily test aggregations
+        /// </summary>
+        public Task<CountResult> GetCountByQueryAsync(IRepositoryQuery query) {
+            return CountAsync(query);
+        }
+
         public Task<FindResults<Employee>> GetAllByAgeAsync(int age) {
             return FindAsync(new MyAppQuery().WithAge(age));
         }

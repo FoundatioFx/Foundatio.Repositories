@@ -25,7 +25,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.False(map["id"].HasChildMappings);
         }
 
-
         [Fact]
         public void VerifyNestedAlias() {
             var visitor = new AliasMappingVisitor(_client.Infer);
