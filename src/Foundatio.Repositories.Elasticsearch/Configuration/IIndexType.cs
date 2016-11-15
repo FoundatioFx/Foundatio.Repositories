@@ -5,6 +5,7 @@ using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Nest;
+using System.Linq;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface IIndexType : IDisposable {
@@ -14,10 +15,38 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         IElasticConfiguration Configuration { get; }
         int DefaultCacheExpirationSeconds { get; set; }
         int BulkBatchSize { get; set; }
+        ISet<string> AllowedSearchFields { get; }
         ISet<string> AllowedAggregationFields { get; }
+        ISet<string> AllowedSortFields { get; }
         CreateIndexDescriptor Configure(CreateIndexDescriptor idx);
         void ConfigureSettings(ConnectionSettings settings);
         IElasticQueryBuilder QueryBuilder { get; }
+    }
+
+    public static class IndexTypeExtensions {
+        public static bool CanSortByField(this IIndexType indexType, string field) {
+            // allow all fields if an allowed list isn't specified
+            if (indexType.AllowedSortFields == null || indexType.AllowedSortFields.Count == 0)
+                return true;
+
+            return indexType.AllowedSortFields.Contains(field, StringComparer.OrdinalIgnoreCase);
+        }
+
+        public static bool CanSearchByField(this IIndexType indexType, string field) {
+            // allow all fields if an allowed list isn't specified
+            if (indexType.AllowedSearchFields == null || indexType.AllowedSearchFields.Count == 0)
+                return true;
+
+            return indexType.AllowedSearchFields.Contains(field, StringComparer.OrdinalIgnoreCase);
+        }
+
+        public static bool CanAggregateByField(this IIndexType indexType, string field) {
+            // allow all fields if an allowed list isn't specified
+            if (indexType.AllowedAggregationFields == null || indexType.AllowedAggregationFields.Count == 0)
+                return true;
+
+            return indexType.AllowedAggregationFields.Contains(field, StringComparer.OrdinalIgnoreCase);
+        }
     }
 
     public interface IIndexType<T>: IIndexType where T : class {
@@ -58,7 +87,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public Type Type { get; }
         public IIndex Index { get; }
         public IElasticConfiguration Configuration => Index.Configuration;
-        public ISet<string> AllowedAggregationFields { get; } = new HashSet<string>();
+        public ISet<string> AllowedSearchFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        public ISet<string> AllowedAggregationFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        public ISet<string> AllowedSortFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public virtual string CreateDocumentId(T document) {
             if (document == null)

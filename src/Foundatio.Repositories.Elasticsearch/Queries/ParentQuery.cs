@@ -10,6 +10,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         public ICollection<FieldCondition> FieldConditions { get; } = new List<FieldCondition>();
         public string Filter { get; set; }
         public string Criteria { get; set; }
+        public string Sort { get; set; }
         public SearchOperator DefaultCriteriaOperator { get; set; }
         public bool IncludeSoftDeletes { get; set; }
     }

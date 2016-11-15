@@ -114,8 +114,6 @@
     <Compile Include="Queries\PagableQuery.cs" />
     <Compile Include="Models\PagingOptions.cs" />
     <Compile Include="Queries\SoftDeletesQuery.cs" />
-    <Compile Include="Queries\SortableQuery.cs" />
-    <Compile Include="Models\SortingOptions.cs" />
     <Compile Include="Queries\SystemFilter.cs" />
     <Compile Include="RepositoryConstants.cs" />
     <Compile Include="Utility\ObjectId.cs" />

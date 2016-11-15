@@ -102,6 +102,42 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task CanSaveAndPatchImmediately() {
+            var employee = EmployeeGenerator.Default;
+            Assert.Equal(0, employee.Version);
+
+            await _employeeRepository.AddAsync(employee);
+            Assert.Equal(1, employee.Version);
+
+            Employee employeeCopy = employee;
+            var t1 = new Task(async () => {
+                for (int i = 0; i < 25; i++) {
+                    employeeCopy.Age = i;
+                    try {
+                        await _employeeRepository.SaveAsync(employeeCopy).ConfigureAwait(false);
+                        Assert.Equal(i, employeeCopy.Age);
+                        Assert.InRange(employeeCopy.Version, i + 2, i + 3);
+                    } catch {
+                        employeeCopy = await _employeeRepository.GetByIdAsync(employeeCopy.Id).ConfigureAwait(false);
+                    }
+                }
+            });
+
+            Employee patchEmployee = employee;
+            var t2 = new Task(async () => {
+                for (int i = 0; i < 25; i++) {
+                    await _employeeRepository.PatchAsync(patchEmployee.Id, new { age = i }).ConfigureAwait(false);
+                    patchEmployee = await _employeeRepository.GetByIdAsync(patchEmployee.Id).ConfigureAwait(false);
+                    Assert.Equal(i, patchEmployee.Age);
+                }
+            });
+
+            t1.Start();
+            t2.Start();
+            await Task.WhenAll(t1, t2);
+        }
+
+        [Fact]
         public async Task SaveCollection() {
             var employee1 = EmployeeGenerator.Default;
             Assert.Equal(0, employee1.Version);
@@ -191,7 +227,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync();
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
-            var results = await _employeeRepository.GetAllAsync(null, PAGE_SIZE);
+            var results = await _employeeRepository.GetAllAsync(PAGE_SIZE);
             Assert.True(results.HasMore);
 
             var viewedIds = new HashSet<string>();
@@ -262,7 +298,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync();
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
-            var results = await _employeeRepository.GetAllAsync(null, new ElasticPagingOptions().WithLimit(PAGE_SIZE).UseSnapshotPaging());
+            var results = await _employeeRepository.GetAllAsync(new ElasticPagingOptions().WithLimit(PAGE_SIZE).UseSnapshotPaging());
             Assert.True(results.HasMore);
 
             var viewedIds = new HashSet<string>();
@@ -299,7 +335,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync();
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
-            var results = await _employeeRepository.GetAllAsync(null, new ElasticPagingOptions().WithLimit(PAGE_SIZE).UseSnapshotPaging());
+            var results = await _employeeRepository.GetAllAsync(new ElasticPagingOptions().WithLimit(PAGE_SIZE).UseSnapshotPaging());
             Assert.True(results.HasMore);
 
             var viewedIds = new HashSet<string>();
@@ -317,7 +353,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 newEmployees.Add(await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: "1")));
                 await _client.RefreshAsync();
 
-                results = await _employeeRepository.GetAllAsync(null, new ElasticPagingOptions().WithScrollId(results));
+                results = await _employeeRepository.GetAllAsync(new ElasticPagingOptions().WithScrollId(results));
             } while (results != null && results.Hits.Count > 0);
 
             Assert.False(results.HasMore);
@@ -337,7 +373,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync();
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
-            var results = await _employeeRepository.GetAllAsync(null, PAGE_SIZE);
+            var results = await _employeeRepository.GetAllAsync(PAGE_SIZE);
             Assert.True(results.HasMore);
 
             var viewedIds = new HashSet<string>();

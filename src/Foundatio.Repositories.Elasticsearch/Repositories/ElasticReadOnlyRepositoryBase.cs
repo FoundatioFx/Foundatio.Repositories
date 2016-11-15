@@ -99,7 +99,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             ISearchResponse<TResult> response = null;
 
             if (useSnapshotPaging == false || String.IsNullOrEmpty(elasticPagingOptions?.ScrollId)) {
-                SearchDescriptor<T> searchDescriptor = CreateSearchDescriptor(query, queryOptions);
+                SearchDescriptor<T> searchDescriptor = await CreateSearchDescriptorAsync(query, queryOptions).AnyContext();
                 if (useSnapshotPaging)
                     searchDescriptor.SearchType(SearchType.Scan).Scroll(pagableQuery.GetLifetime());
 
@@ -165,7 +165,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var queryOptions = GetQueryOptions();
             await OnBeforeQueryAsync(query, queryOptions, typeof(T)).AnyContext();
 
-            var searchDescriptor = CreateSearchDescriptor(query, queryOptions).Size(1);
+            var searchDescriptor = (await CreateSearchDescriptorAsync(query, queryOptions).AnyContext()).Size(1);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
@@ -185,13 +185,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             return result;
         }
 
-        public Task<FindResults<T>> SearchAsync(IRepositoryQuery systemFilter, string filter = null, string criteria = null, SortingOptions sorting = null, PagingOptions paging = null, string aggregations = null) {
+        public Task<FindResults<T>> SearchAsync(IRepositoryQuery systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, PagingOptions paging = null) {
             var search = NewQuery()
                 .WithSystemFilter(systemFilter)
                 .WithFilter(filter)
                 .WithSearchQuery(criteria, false)
                 .WithAggregations(aggregations)
-                .WithSort(sorting)
+                .WithSort(sort)
                 .WithPaging(paging);
 
             return FindAsync(search);
@@ -276,10 +276,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             return hits.AsReadOnly();
         }
 
-        public Task<FindResults<T>> GetAllAsync(SortingOptions sorting = null, PagingOptions paging = null) {
+        public Task<FindResults<T>> GetAllAsync(PagingOptions paging = null) {
             var search = NewQuery()
-                .WithPaging(paging)
-                .WithSort(sorting);
+                .WithPaging(paging);
 
             return FindAsync(search);
         }
@@ -298,7 +297,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var queryOptions = GetQueryOptions();
             await OnBeforeQueryAsync(query, queryOptions, typeof(T)).AnyContext();
 
-            var searchDescriptor = CreateSearchDescriptor(query, queryOptions).Size(1);
+            var searchDescriptor = (await CreateSearchDescriptorAsync(query, queryOptions).AnyContext()).Size(1);
             searchDescriptor.Fields("id");
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
@@ -326,7 +325,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var queryOptions = GetQueryOptions();
             await OnBeforeQueryAsync(query, queryOptions, typeof(T)).AnyContext();
 
-            var searchDescriptor = CreateSearchDescriptor(query, queryOptions);
+            var searchDescriptor = await CreateSearchDescriptorAsync(query, queryOptions).AnyContext();
             searchDescriptor.SearchType(SearchType.Count);
 
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
@@ -427,11 +426,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             return InvalidateCacheAsync(docs.Select(d => new ModifiedDocument<T>(d, null)).ToList());
         }
 
-        protected SearchDescriptor<T> CreateSearchDescriptor(IRepositoryQuery query, IQueryOptions options) {
-            return ConfigureSearchDescriptor(null, query, options);
+        protected Task<SearchDescriptor<T>> CreateSearchDescriptorAsync(IRepositoryQuery query, IQueryOptions options) {
+            return ConfigureSearchDescriptorAsync(null, query, options);
         }
 
-        protected SearchDescriptor<T> ConfigureSearchDescriptor(SearchDescriptor<T> search, IRepositoryQuery query, IQueryOptions options) {
+        protected async Task<SearchDescriptor<T>> ConfigureSearchDescriptorAsync(SearchDescriptor<T> search, IRepositoryQuery query, IQueryOptions options) {
             if (search == null)
                 search = new SearchDescriptor<T>();
 
@@ -444,7 +443,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             search.IgnoreUnavailable();
 
-            ElasticType.QueryBuilder.ConfigureSearch(query, options, search);
+            await ElasticType.QueryBuilder.ConfigureSearchAsync(query, options, search).AnyContext();
 
             return search;
         }

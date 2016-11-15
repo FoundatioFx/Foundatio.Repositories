@@ -1,13 +1,21 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
+using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
+using Foundatio.Repositories.Elasticsearch.Queries.Options;
+using Foundatio.Repositories.Extensions;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface ISearchQuery {
         string Filter { get; set; }
         string Criteria { get; set; }
+        string Sort { get; set; }
         SearchOperator DefaultCriteriaOperator { get; set; }
     }
 
@@ -24,10 +32,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             _aliasMap = aliasMap;
         }
 
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var searchQuery = ctx.GetSourceAs<ISearchQuery>();
             if (searchQuery == null)
-                return;
+                return Task.CompletedTask;
 
             if (!String.IsNullOrEmpty(searchQuery.Filter)) {
                 var result = _parser.Parse(searchQuery.Filter);
@@ -52,14 +60,30 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                     AnalyzeWildcard = true
                 };
             }
+
+            if (!String.IsNullOrEmpty(searchQuery.Sort)) {
+                var result = _parser.Parse(searchQuery.Sort);
+                var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
+                TermToFieldVisitor.Run(result, ctx);
+                AliasedQueryVisitor.Run(result, _aliasMap, ctx);
+                var fields = GetReferencedFieldsQueryVisitor.Run(result);
+                // TODO: Check referenced fields against opt.AllowedSortFields
+
+                var sort = GetSortFieldsVisitor.Run(result, ctx);
+                ctx.Search.Sort(sort);
+            }
+
+            return Task.CompletedTask;
         }
     }
 
     public class SearchQueryBuilder : IElasticQueryBuilder {
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        private readonly LuceneQueryParser _parser = new LuceneQueryParser();
+
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var searchQuery = ctx.GetSourceAs<ISearchQuery>();
             if (searchQuery == null)
-                return;
+                return Task.CompletedTask;
 
             if (!String.IsNullOrEmpty(searchQuery.Filter))
                 ctx.Filter &= new QueryFilter {
@@ -76,6 +100,19 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                     DefaultOperator = searchQuery.DefaultCriteriaOperator == SearchOperator.Or ? Operator.Or : Operator.And,
                     AnalyzeWildcard = true
                 };
+
+            if (!String.IsNullOrEmpty(searchQuery.Sort)) {
+                var result = _parser.Parse(searchQuery.Sort);
+                var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
+                TermToFieldVisitor.Run(result, ctx);
+                var fields = GetReferencedFieldsQueryVisitor.Run(result);
+                // TODO: Check referenced fields against opt.AllowedSortFields
+
+                var sort = GetSortFieldsVisitor.Run(result, ctx);
+                ctx.Search.Sort(sort);
+            }
+
+            return Task.CompletedTask;
         }
     }
 
@@ -86,17 +123,19 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             _parser = parser ?? new ElasticQueryParser();
         }
 
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var searchQuery = ctx.GetSourceAs<ISearchQuery>();
             if (searchQuery == null)
                 return;
 
-            // TODO: Use default search operator and wildcards
             if (!String.IsNullOrEmpty(searchQuery.Criteria))
-                ctx.Query &= _parser.BuildQuery(searchQuery.Criteria, ctx);
+                ctx.Query &= await _parser.BuildQueryAsync(searchQuery.Criteria, ctx).AnyContext();
 
             if (!String.IsNullOrEmpty(searchQuery.Filter))
-                ctx.Filter &= _parser.BuildFilter(searchQuery.Filter, ctx);
+                ctx.Filter &= await _parser.BuildFilterAsync(searchQuery.Filter, ctx).AnyContext();
+
+            if (!String.IsNullOrEmpty(searchQuery.Sort))
+                ctx.Search.Sort(await _parser.BuildSortAsync(searchQuery.Sort, ctx).AnyContext());
         }
     }
 
@@ -109,6 +148,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         public static T WithSearchQuery<T>(this T query, string queryString, bool useAndAsDefaultOperator = true) where T : ISearchQuery {
             query.Criteria = queryString;
             query.DefaultCriteriaOperator = useAndAsDefaultOperator ? SearchOperator.And : SearchOperator.Or;
+            return query;
+        }
+
+        public static T WithSort<T>(this T query, string sort) where T : ISearchQuery {
+            query.Sort = sort;
             return query;
         }
     }

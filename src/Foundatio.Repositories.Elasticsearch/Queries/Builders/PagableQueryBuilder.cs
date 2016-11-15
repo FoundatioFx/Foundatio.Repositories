@@ -1,12 +1,13 @@
 ﻿using System;
+using System.Threading.Tasks;
 using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class PagableQueryBuilder : IElasticQueryBuilder {
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var pagableQuery = ctx.GetSourceAs<IPagableQuery>();
             if (pagableQuery == null)
-                return;
+                return Task.CompletedTask;
 
             // add 1 to limit if not auto paging so we can know if we have more results
             if (pagableQuery.ShouldUseLimit())
@@ -14,6 +15,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             if (pagableQuery.ShouldUseSkip())
                 ctx.Search.Skip(pagableQuery.GetSkip());
+
+            return Task.CompletedTask;
         }
     }
 }

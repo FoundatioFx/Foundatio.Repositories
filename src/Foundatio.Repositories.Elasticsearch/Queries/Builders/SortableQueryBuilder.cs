@@ -1,29 +1,31 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Queries.Options;
-using Foundatio.Repositories.Queries;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
+    public interface ISortableQuery {
+        ICollection<IFieldSort> SortFields { get; }
+    }
+
     public class SortableQueryBuilder : IElasticQueryBuilder {
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var sortableQuery = ctx.GetSourceAs<ISortableQuery>();
-            if (sortableQuery?.SortBy == null || sortableQuery.SortBy.Count <= 0)
-                return;
+            if (sortableQuery?.SortFields == null || sortableQuery.SortFields.Count <= 0)
+                return Task.CompletedTask;
 
             var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
-            foreach (var sort in sortableQuery.SortBy.Where(s => CanSortByField(opt?.AllowedSortFields, s.Field)))
-                ctx.Search.Sort(s => s.OnField(sort.Field)
-                    .Order(sort.Order == Foundatio.Repositories.Models.SortOrder.Ascending ? SortOrder.Ascending : SortOrder.Descending));
-        }
+            // TODO: Check SortFields against opt.AllowedSortFields
+            //foreach (var sort in sortableQuery.SortFields.Where(s => CanSortByField(opt?.AllowedSortFields, s.Field.ToString())))
+            //    ctx.Search.Sort(s => s.OnField(sort.Field)
+            //        .Order(sort.Order == Foundatio.Repositories.Models.SortOrder.Ascending ? SortOrder.Ascending : SortOrder.Descending));
 
-        protected bool CanSortByField(ISet<string> allowedFields, string field) {
-            // allow all fields if an allowed list isn't specified
-            if (allowedFields == null || allowedFields.Count == 0)
-                return true;
+            ctx.Search.Sort(sortableQuery.SortFields);
 
-            return allowedFields.Contains(field, StringComparer.OrdinalIgnoreCase);
+            return Task.CompletedTask;
         }
     }
 }

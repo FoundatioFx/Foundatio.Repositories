@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Queries.Options;
+using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Queries;
 using Nest;
 
@@ -15,7 +17,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             _queryBuilder = queryBuilder;
         }
 
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var parentQuery = ctx.GetSourceAs<IParentQuery>();
             var hasIds = ctx.GetSourceAs<IIdentityQuery>()?.Ids.Count > 0;
             if (parentQuery == null)
@@ -42,7 +44,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return;
 
             var parentContext = new QueryBuilderContext<object>(parentQuery.ParentQuery, parentOptions);
-            _queryBuilder.Build(parentContext);
+            await _queryBuilder.BuildAsync(parentContext).AnyContext();
 
             if ((parentContext.Query == null || parentContext.Query.IsConditionless)
                 && (parentContext.Filter == null || parentContext.Filter.IsConditionless))

@@ -18,10 +18,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class SearchableRepositoryTests : ElasticRepositoryTestBase {
         private readonly IdentityRepository _identityRepository;
         private readonly DailyLogEventRepository _dailyRepository;
+        private readonly EmployeeRepository _employeeRepository;
 
         public SearchableRepositoryTests(ITestOutputHelper output) : base(output) {
             _identityRepository = new IdentityRepository(_configuration);
             _dailyRepository = new DailyLogEventRepository(_configuration);
+            _employeeRepository = new EmployeeRepository(_configuration);
 
             RemoveDataAsync().GetAwaiter().GetResult();
         }
@@ -118,9 +120,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, searchResults.Total);
         }
 
-        //[Fact]
-        //public async Task GetAggregations() {
-        //    throw new NotImplementedException();
-        //}
+        [Fact]
+        public async Task GetAggregations() {
+            var employees = EmployeeGenerator.GenerateEmployees();
+            await _employeeRepository.AddAsync(employees);
+
+            await _client.RefreshAsync();
+            var result = await _employeeRepository.CountBySearchAsync(null, null, "terms:Id");
+            Assert.Equal(10, result.Total);
+        }
     }
 }

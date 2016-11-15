@@ -438,7 +438,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return 0;
 
             var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest {
-                Query = ElasticType.QueryBuilder.BuildQuery(query, GetQueryOptions(), new SearchDescriptor<T>()),
+                Query = await ElasticType.QueryBuilder.BuildQueryAsync(query, GetQueryOptions(), new SearchDescriptor<T>()).AnyContext(),
                 Indices =  new List<IndexNameMarker> { ElasticType.Index.Name },
                 Types = new List<TypeNameMarker> { ElasticType.Name }
             }).AnyContext();

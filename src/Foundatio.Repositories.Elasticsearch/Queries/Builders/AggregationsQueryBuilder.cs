@@ -1,12 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Queries.Options;
+using Foundatio.Repositories.Extensions;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IAggregationQuery {
@@ -23,23 +25,23 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             _parser = parser ?? new ElasticQueryParser();
         }
 
-        public void Build<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var aggregationQuery = ctx.GetSourceAs<IAggregationQuery>();
             if (String.IsNullOrEmpty(aggregationQuery?.Aggregations))
                 return;
 
             var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
-            if (opt?.AllowedAggregationFields?.Count > 0 && !GetAggregationFields(aggregationQuery.Aggregations).All(f => opt.AllowedAggregationFields.Contains(f)))
+            if (opt?.AllowedAggregationFields?.Count > 0 && !(await GetAggregationFieldsAsync(aggregationQuery.Aggregations).AnyContext()).All(f => opt.AllowedAggregationFields.Contains(f)))
                 throw new InvalidOperationException("All aggregation fields must be allowed.");
 
-            var result = _parser.BuildAggregations(aggregationQuery.Aggregations, ctx);
+            var result = await _parser.BuildAggregationsAsync(aggregationQuery.Aggregations, ctx).AnyContext();
             ctx.Search.Aggregations(result);
         }
 
-        private ISet<string> GetAggregationFields(string aggregations) {
+        private async Task<ISet<string>> GetAggregationFieldsAsync(string aggregations) {
             var result = _luceneQueryParser.Parse(aggregations);
-            var aggResult = _aggregationTypeVisitorVisitor.Accept(result, null);
-            return _referencedFieldsVisitor.Accept(aggResult, null);
+            var aggResult = await _aggregationTypeVisitorVisitor.AcceptAsync(result, null).AnyContext();
+            return await _referencedFieldsVisitor.AcceptAsync(aggResult, null).AnyContext();
         }
     }
 
