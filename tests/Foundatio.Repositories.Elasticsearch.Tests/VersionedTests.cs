@@ -109,9 +109,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _employeeRepository.AddAsync(employee);
             Assert.Equal(1, employee.Version);
 
-            Employee employeeCopy = employee;
             var t1 = new Task(async () => {
                 for (int i = 0; i < 25; i++) {
+                    Employee employeeCopy = employee;
                     employeeCopy.Age = i;
                     try {
                         await _employeeRepository.SaveAsync(employeeCopy).ConfigureAwait(false);
@@ -123,9 +123,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 }
             });
 
-            Employee patchEmployee = employee;
             var t2 = new Task(async () => {
                 for (int i = 0; i < 25; i++) {
+                    Employee patchEmployee = employee;
                     await _employeeRepository.PatchAsync(patchEmployee.Id, new { age = i }).ConfigureAwait(false);
                     patchEmployee = await _employeeRepository.GetByIdAsync(patchEmployee.Id).ConfigureAwait(false);
                     Assert.Equal(i, patchEmployee.Age);
