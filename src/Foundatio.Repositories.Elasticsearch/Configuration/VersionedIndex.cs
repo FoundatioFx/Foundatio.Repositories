@@ -39,7 +39,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var response = await Configuration.Client.AliasAsync(a => a.Add(s => s.Index(index).Alias(name))).AnyContext();
             if (response.IsValid) {
                 while (!await AliasExistsAsync(name).AnyContext())
-                    SystemClock.Sleep(100);
+                    await SystemClock.SleepAsync(100).AnyContext();
 
                 return;
             }
@@ -145,8 +145,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (index > 0)
                 input = input.Substring(0, index);
 
-            int version;
-            if (Int32.TryParse(input, out version))
+            if (Int32.TryParse(input, out int version))
                 return version;
 
             return -1;

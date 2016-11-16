@@ -22,7 +22,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
         
         [Fact]
-        public async Task Add() {
+        public async Task AddAsync() {
             var employee = EmployeeGenerator.Default;
             Assert.Equal(0, employee.Version);
 
@@ -35,7 +35,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task AddAndIgnoreHighVersion() {
+        public async Task AddAndIgnoreHighVersionAsync() {
             var employee = EmployeeGenerator.Generate();
             employee.Version = 5;
 
@@ -47,7 +47,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task AddCollection() {
+        public async Task AddCollectionAsync() {
             var employee = EmployeeGenerator.Default;
             Assert.Equal(0, employee.Version);
 
@@ -62,7 +62,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task Save() {
+        public async Task SaveAsync() {
             var employee = EmployeeGenerator.Default;
             Assert.Equal(0, employee.Version);
 
@@ -90,7 +90,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
         
         [Fact]
-        public async Task SaveWithHigherVersion() {
+        public async Task SaveWithHigherVersionAsync() {
             var employee = EmployeeGenerator.Default;
             Assert.Equal(0, employee.Version);
 
@@ -102,7 +102,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CanSaveAndPatchImmediately() {
+        public async Task CanSaveAndPatchImmediatelyAsync() {
             var employee = EmployeeGenerator.Default;
             Assert.Equal(0, employee.Version);
 
@@ -138,7 +138,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task SaveCollection() {
+        public async Task SaveCollectionAsync() {
             var employee1 = EmployeeGenerator.Default;
             Assert.Equal(0, employee1.Version);
 
@@ -170,7 +170,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task UpdateAllWithSinglePageOfData() {
+        public async Task UpdateAllWithSinglePageOfDataAsync() {
             var utcNow = SystemClock.UtcNow;
             var employees = new List<Employee> {
                 EmployeeGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),
@@ -210,12 +210,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task UpdateAllWithNoData() {
+        public async Task UpdateAllWithNoDataAsync() {
             Assert.Equal(0, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company"));
         }
 
         [Fact]
-        public async Task CanUsePaging() {
+        public async Task CanUsePagingAsync() {
             const int NUMBER_OF_EMPLOYEES = 1000;
             const int PAGE_SIZE = 100;
 
@@ -247,7 +247,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CanUsePagingWithCaching() {
+        public async Task CanUsePagingWithCachingAsync() {
             const int NUMBER_OF_EMPLOYEES = 100;
             const int PAGE_SIZE = 50;
 
@@ -286,7 +286,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CanUseSnapshotPaging() {
+        public async Task CanUseSnapshotPagingAsync() {
             const int NUMBER_OF_EMPLOYEES = 100;
             const int PAGE_SIZE = 10;
 
@@ -323,7 +323,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CanUseSnapshotWithScrollId() {
+        public async Task CanUseSnapshotWithScrollIdAsync() {
             const int NUMBER_OF_EMPLOYEES = 100;
             const int PAGE_SIZE = 10;
 
@@ -362,7 +362,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CanUsePagingWithOddNumber() {
+        public async Task CanUsePagingWithOddNumberAsync() {
             const int NUMBER_OF_EMPLOYEES = 67;
             const int PAGE_SIZE = 12;
             Log.MinimumLevel = LogLevel.Warning;
@@ -393,7 +393,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task UpdateAllWithPageLimit() {
+        public async Task UpdateAllWithPageLimitAsync() {
             const int NUMBER_OF_EMPLOYEES = 100;
             Log.MinimumLevel = LogLevel.Warning;
 
@@ -413,7 +413,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
         
         [Fact]
-        public async Task UpdateAllWithNoPageLimit() {
+        public async Task UpdateAllWithNoPageLimitAsync() {
             const int NUMBER_OF_EMPLOYEES = 100;
             await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1"));
 

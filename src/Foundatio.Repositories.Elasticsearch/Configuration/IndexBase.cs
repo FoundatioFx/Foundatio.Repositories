@@ -72,7 +72,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
                 if (response.IsValid) {
                     while (!await IndexExistsAsync(name).AnyContext())
-                        SystemClock.Sleep(100);
+                        await SystemClock.SleepAsync(100).AnyContext();
 
                     var healthResponse = await Configuration.Client.ClusterHealthAsync(h => h
                         .Index(name)
@@ -106,7 +106,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             if (response.IsValid) {
                 while (await IndexExistsAsync(name).AnyContext())
-                    SystemClock.Sleep(100);
+                    await SystemClock.SleepAsync(100).AnyContext();
                 
                 return;
             }
