@@ -158,6 +158,7 @@
     <Compile Include="Repositories\Queries\AgeQuery.cs" />
     <Compile Include="Repositories\Queries\CompanyQuery.cs" />
     <Compile Include="PipelineTests.cs" />
+    <Compile Include="SearchableReadOnlyRepositoryTests.cs" />
     <Compile Include="VersionedTests.cs" />
     <Compile Include="RepositoryTests.cs" />
     <Compile Include="SearchableRepositoryTests.cs" />

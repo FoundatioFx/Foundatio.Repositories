@@ -58,22 +58,30 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(1, _cache.Misses); // Save will attempt to lookup the original document using the cache.
 
-            await _identityRepository.InvalidateCacheAsync(new List<Identity> { identity });
+            await _identityRepository.InvalidateCacheAsync(new List<Identity> {
+                identity
+            });
             Assert.Equal(0, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(1, _cache.Misses);
 
-            await _identityRepository.SaveAsync(new List<Identity> { identity }, addToCache: true);
+            await _identityRepository.SaveAsync(new List<Identity> {
+                identity
+            }, addToCache: true);
             Assert.Equal(1, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(2, _cache.Misses); // Save will attempt to lookup the original document using the cache.
 
-            await _identityRepository.InvalidateCacheAsync(new List<Identity> { identity });
+            await _identityRepository.InvalidateCacheAsync(new List<Identity> {
+                identity
+            });
             Assert.Equal(0, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(2, _cache.Misses);
 
-            await _identityRepository.SaveAsync(new List<Identity> { identity }, addToCache: true);
+            await _identityRepository.SaveAsync(new List<Identity> {
+                identity
+            }, addToCache: true);
             Assert.Equal(1, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(3, _cache.Misses);
@@ -83,7 +91,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(3, _cache.Misses);
 
-            await _identityRepository.InvalidateCacheAsync(new List<Identity> { identity });
+            await _identityRepository.InvalidateCacheAsync(new List<Identity> {
+                identity
+            });
             Assert.Equal(0, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(3, _cache.Misses);
@@ -94,7 +104,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await Assert.ThrowsAsync<ArgumentNullException>(async () => await _identityRepository.InvalidateCacheAsync((Identity)null));
             await Assert.ThrowsAsync<ArgumentNullException>(async () => await _identityRepository.InvalidateCacheAsync((IReadOnlyCollection<Identity>)null));
             await _identityRepository.InvalidateCacheAsync(new List<Identity>());
-            await Assert.ThrowsAsync<ArgumentNullException>(async () => await _identityRepository.InvalidateCacheAsync(new List<Identity> { null }));
+            await Assert.ThrowsAsync<ArgumentNullException>(async () => await _identityRepository.InvalidateCacheAsync(new List<Identity> {
+                null
+            }));
         }
 
         [Fact]
@@ -484,33 +496,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.True(employeeById.IsDeleted);
 
             Assert.Equal(0, employees.Total);
-        }
-
-        [Fact]
-        public async Task SortByNumber() {
-            await _employeeRepository.AddAsync(new List<Employee> {
-                EmployeeGenerator.Generate(age: 19),
-                EmployeeGenerator.Generate(age: 9),
-                EmployeeGenerator.Generate(age: 119),
-                EmployeeGenerator.Generate(age: 20)
-            });
-
-            await _client.RefreshAsync(Indices.All);
-            var results = await _employeeRepository.GetAllAsync(SortingOptions.Parse("age"));
-            var employees = results.Documents.ToArray();
-            Assert.Equal(4, employees.Length);
-            Assert.Equal(9, employees[0].Age);
-            Assert.Equal(19, employees[1].Age);
-            Assert.Equal(20, employees[2].Age);
-            Assert.Equal(119, employees[3].Age);
-
-            results = await _employeeRepository.GetAllAsync(SortingOptions.Parse("-age"));
-            employees = results.Documents.ToArray();
-            Assert.Equal(4, employees.Length);
-            Assert.Equal(119, employees[0].Age);
-            Assert.Equal(20, employees[1].Age);
-            Assert.Equal(19, employees[2].Age);
-            Assert.Equal(9, employees[3].Age);
         }
     }
 }
