@@ -1,9 +1,9 @@
-﻿using System.Collections.Generic;
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
 
-namespace Foundatio.Repositories {
+namespace Foundatio.Repositories
+{
     public interface ISearchableReadOnlyRepository<T> : IReadOnlyRepository<T> where T : class, new() {
         Task<CountResult> CountBySearchAsync(IRepositoryQuery systemFilter, string filter = null, string aggregations = null);
 
@@ -18,5 +18,15 @@ namespace Foundatio.Repositories {
         /// <param name="paging">Paging options like page size and page number</param>
         /// <returns></returns>
         Task<FindResults<T>> SearchAsync(IRepositoryQuery systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, PagingOptions paging = null);
+    }
+
+    public static class SearchableReadOnlyRepositoryExtensions {
+        public static Task<FindResults<T>> GetAllAsync<T>(this ISearchableReadOnlyRepository<T> repository, string sort, string aggregations, PagingOptions paging = null) where T: class, new() {
+            return repository.SearchAsync(null, sort: sort, aggregations: aggregations, paging: paging);
+        }
+
+        public static Task<FindResults<T>> GetAllAsync<T>(this ISearchableReadOnlyRepository<T> repository, string sort, PagingOptions paging = null) where T : class, new() {
+            return repository.SearchAsync(null, sort: sort, paging: paging);
+        }
     }
 }
