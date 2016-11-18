@@ -49,12 +49,12 @@
       <HintPath>..\..\packages\Foundatio.4.2.1183\lib\net46\Foundatio.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Foundatio.Parsers.ElasticQueries, Version=2.0.150.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Foundatio.Parsers.ElasticQueries.2.0.150-pre\lib\net46\Foundatio.Parsers.ElasticQueries.dll</HintPath>
+    <Reference Include="Foundatio.Parsers.ElasticQueries, Version=5.0.167.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Foundatio.Parsers.ElasticQueries.5.0.167-pre\lib\net46\Foundatio.Parsers.ElasticQueries.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Foundatio.Parsers.LuceneQueries, Version=2.0.150.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Foundatio.Parsers.LuceneQueries.2.0.150-pre\lib\net46\Foundatio.Parsers.LuceneQueries.dll</HintPath>
+    <Reference Include="Foundatio.Parsers.LuceneQueries, Version=5.0.167.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Foundatio.Parsers.LuceneQueries.5.0.167-pre\lib\net46\Foundatio.Parsers.LuceneQueries.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="Nest, Version=5.0.0.0, Culture=neutral, PublicKeyToken=96c599bbe3e70f5d, processorArchitecture=MSIL">
@@ -97,11 +97,11 @@
     <Compile Include="..\Foundatio.Repositories\Utility\TaskHelper.cs">
       <Link>Utility\TaskHelper.cs</Link>
     </Compile>
-    <Compile Include="Configuration\AliasMappingsVisitor.cs" />
     <Compile Include="Configuration\ChildIndexType.cs" />
     <Compile Include="Configuration\DynamicIndexType.cs" />
     <Compile Include="Configuration\TimeSeriesIndexType.cs" />
     <Compile Include="Extensions\CollectionEqualityExtensions.cs" />
+    <Compile Include="Extensions\ElasticQueryParserConfigurationExtensions.cs" />
     <Compile Include="Extensions\FindHitExtensions.cs" />
     <Compile Include="Extensions\FindResultsExtensions.cs" />
     <Compile Include="Jobs\CleanupIndexesJob.cs" />

@@ -57,7 +57,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
         public void UseQueryParser<T>(IndexTypeBase<T> indexType, Action<ElasticQueryParserConfiguration> configure = null) where T : class {
             UseQueryParser(c => {
-                c.UseMappings<T>(indexType.BuildMapping, () => indexType.Configuration.Client.GetMapping(new GetMappingRequest(indexType.Index.Name, indexType.Name)).Mapping);
+                c.UseMappings(indexType);
                 c.UseNested();
                 configure?.Invoke(c);
             });
