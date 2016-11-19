@@ -45,12 +45,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             const string aggregations = "min:age max:age avg:age sum:age";
             var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithFilter("age: <40").WithAggregations(aggregations));
             Assert.Equal(7, result.Total);
-            Assert.Equal(5, result.Aggregations.Count);
+            Assert.Equal(4, result.Aggregations.Count);
             Assert.Equal(19, result.Aggregations["min_age"].Value);
             Assert.Equal(35, result.Aggregations["max_age"].Value);
             Assert.Equal(Math.Round(27.2857142857143, 5), Math.Round(result.Aggregations["avg_age"].Value.GetValueOrDefault(), 5));
             Assert.Equal(191, result.Aggregations["sum_age"].Value);
-            Assert.Equal(191, result.Aggregations["percentiles_age"].Value);
         }
 
         [Fact]
