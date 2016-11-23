@@ -39,7 +39,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task Add() {
+        public async Task AddAsync() {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Generate());
             Assert.NotNull(identity1?.Id);
 
@@ -72,7 +72,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task AddDuplicate() {
+        public async Task AddDuplicateAsync() {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default);
             Assert.NotNull(identity1?.Id);
 
@@ -82,7 +82,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task AddDuplicateCollection() {
+        public async Task AddDuplicateCollectionAsync() {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default);
             Assert.NotNull(identity1?.Id);
 
@@ -97,7 +97,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task AddWithCaching() {
+        public async Task AddWithCachingAsync() {
             var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, addToCache: true);
             Assert.NotNull(identity?.Id);
             Assert.Equal(1, _cache.Count);
@@ -111,7 +111,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task AddWithTimeSeries() {
+        public async Task AddWithTimeSeriesAsync() {
             var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate());
             Assert.NotNull(log?.Id);
 
@@ -119,7 +119,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task AddCollection() {
+        public async Task AddCollectionAsync() {
             var identity = IdentityGenerator.Generate();
             await _identityRepository.AddAsync(new List<Identity> { identity });
             Assert.NotNull(identity.Id);
@@ -128,7 +128,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task AddCollectionWithTimeSeries() {
+        public async Task AddCollectionWithTimeSeriesAsync() {
             var utcNow = SystemClock.UtcNow;
             var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
             var nowLog = LogEventGenerator.Default;
@@ -145,7 +145,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task AddCollectionWithCaching() {
+        public async Task AddCollectionWithCachingAsync() {
             var identity = IdentityGenerator.Generate();
             await _identityRepository.AddAsync(new List<Identity> { identity, IdentityGenerator.Generate() }, addToCache: true);
             Assert.NotNull(identity?.Id);
@@ -160,7 +160,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task Save() {
+        public async Task SaveAsync() {
             var log = await _dailyRepository.AddAsync(LogEventGenerator.Default, sendNotification: false);
             Assert.NotNull(log?.Id);
 
@@ -207,7 +207,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task AddAndSave() {
+        public async Task AddAndSaveAsync() {
             var log = await _dailyRepository.AddAsync(LogEventGenerator.Default, sendNotification: false);
             Assert.NotNull(log?.Id);
 
@@ -258,7 +258,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task AddAndSaveWithCache() {
+        public async Task AddAndSaveWithCacheAsync() {
             var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, addToCache: true);
             Assert.Equal(1, _cache.Count);
             Assert.Equal(0, _cache.Hits);
@@ -294,13 +294,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task SaveWithNoIdentity() {
+        public async Task SaveWithNoIdentityAsync() {
             var identity = IdentityGenerator.Generate();
             await Assert.ThrowsAsync<ApplicationException>(async () => await _identityRepository.SaveAsync(new List<Identity> { identity }, addToCache: true));
         }
 
         [Fact]
-        public async Task SaveWithOutOfSyncIndex() {
+        public async Task SaveWithOutOfSyncIndexAsync() {
             var utcNow = SystemClock.UtcNow;
             var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
             Assert.NotNull(yesterdayLog?.Id);
@@ -316,7 +316,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CanGetAggregations() {
+        public async Task CanGetAggregationsAsync() {
             var utcNow = SystemClock.UtcNow;
             var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
             Assert.NotNull(yesterdayLog?.Id);
@@ -337,7 +337,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         private static DateTime __unixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         [Fact]
-        public async Task CanGetDateAggregation() {
+        public async Task CanGetDateAggregationAsync() {
             var utcNow = SystemClock.UtcNow;
             var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
             Assert.NotNull(yesterdayLog?.Id);
@@ -357,7 +357,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CanGetGeoGridAggregation() {
+        public async Task CanGetGeoGridAggregationAsync() {
             var utcNow = SystemClock.UtcNow;
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
             Assert.NotNull(employee?.Id);
@@ -372,7 +372,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task SaveWithCaching() {
+        public async Task SaveWithCachingAsync() {
             var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, addToCache: true);
             Assert.NotNull(identity?.Id);
             Assert.Equal(1, _cache.Count);
@@ -397,7 +397,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task SaveCollection() {
+        public async Task SaveCollectionAsync() {
             var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate(ObjectId.GenerateNewId().ToString()) };
             await _identityRepository.SaveAsync(identities);
 
@@ -406,7 +406,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task SaveCollectionWithTimeSeries() {
+        public async Task SaveCollectionWithTimeSeriesAsync() {
             var utcNow = SystemClock.UtcNow;
             var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
             var nowLog = LogEventGenerator.Default;
@@ -424,7 +424,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task SaveCollectionWithCaching() {
+        public async Task SaveCollectionWithCachingAsync() {
             var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
             await _identityRepository.AddAsync(identities, addToCache: true);
             Assert.Equal(2, _cache.Count);
@@ -449,7 +449,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task SetCreatedAndModifiedTimes() {
+        public async Task SetCreatedAndModifiedTimesAsync() {
             SystemClock.AdjustTime(TimeSpan.FromMilliseconds(100));
             DateTime nowUtc = SystemClock.UtcNow;
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
@@ -467,7 +467,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CannotSetFutureCreatedAndModifiedTimes() {
+        public async Task CannotSetFutureCreatedAndModifiedTimesAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(createdUtc: DateTime.MaxValue, updatedUtc: DateTime.MaxValue));
             Assert.True(employee.CreatedUtc != DateTime.MaxValue);
             Assert.True(employee.UpdatedUtc != DateTime.MaxValue);
@@ -481,7 +481,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task JsonPatch() {
+        public async Task JsonPatchAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
             var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
             await _employeeRepository.PatchAsync(employee.Id, patch);
@@ -493,7 +493,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task PartialPatch() {
+        public async Task PartialPatchAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
             await _employeeRepository.PatchAsync(employee.Id, new { name = "Patched" });
 
@@ -504,7 +504,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task ScriptPatch() {
+        public async Task ScriptPatchAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
             await _employeeRepository.PatchAsync(employee.Id, "ctx._source.name = 'Patched';");
 
@@ -515,7 +515,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task ScriptPatchAll() {
+        public async Task ScriptPatchAllAsync() {
             var utcNow = SystemClock.UtcNow;
             var logs = new List<LogEvent> {
                 LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),
@@ -554,7 +554,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task ScriptPatchAllWithNoCache() {
+        public async Task ScriptPatchAllWithNoCacheAsync() {
             var utcNow = SystemClock.UtcNow;
             var logs = new List<LogEvent> {
                 LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),
@@ -587,7 +587,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task PatchAllBulk() {
+        public async Task PatchAllBulkAsync() {
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Warning);
             const int COUNT = 1000 * 10;
             int added = 0;
@@ -602,7 +602,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task PatchAllBulkConcurrently() {
+        public async Task PatchAllBulkConcurrentlyAsync() {
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Warning);
             const int COUNT = 1000 * 10;
             int added = 0;
@@ -621,7 +621,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task Remove() {
+        public async Task RemoveAsync() {
             var log = await _dailyRepository.AddAsync(LogEventGenerator.Default);
             Assert.NotNull(log?.Id);
 
@@ -652,7 +652,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task RemoveWithTimeSeries() {
+        public async Task RemoveWithTimeSeriesAsync() {
             var log = LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString());
             await _dailyRepository.AddAsync(log);
 
@@ -666,7 +666,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact(Skip = "We need to look into how we want to handle this.")]
-        public async Task RemoveWithOutOfSyncIndex() {
+        public async Task RemoveWithOutOfSyncIndexAsync() {
             var utcNow = SystemClock.UtcNow;
             var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
             Assert.NotNull(yesterdayLog?.Id);
@@ -681,12 +681,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task RemoveUnsavedDocument() {
+        public async Task RemoveUnsavedDocumentAsync() {
             await _dailyRepository.RemoveAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: SystemClock.UtcNow));
         }
 
         [Fact]
-        public async Task RemoveUnsavedDocuments() {
+        public async Task RemoveUnsavedDocumentsAsync() {
             await _dailyRepository.RemoveAsync(new List<LogEvent> {
                 LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: SystemClock.UtcNow),
                 LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: SystemClock.UtcNow)
@@ -694,7 +694,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task RemoveWithCaching() {
+        public async Task RemoveWithCachingAsync() {
             var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
             await _identityRepository.AddAsync(identities, addToCache: true);
             Assert.Equal(2, _cache.Count);
@@ -716,7 +716,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task RemoveCollection() {
+        public async Task RemoveCollectionAsync() {
             var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
             await _identityRepository.AddAsync(identities);
             await _identityRepository.RemoveAsync(identities);
@@ -726,7 +726,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task RemoveCollectionWithTimeSeries() {
+        public async Task RemoveCollectionWithTimeSeriesAsync() {
             var utcNow = SystemClock.UtcNow;
             var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
             var nowLog = LogEventGenerator.Default;
@@ -744,7 +744,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task RemoveCollectionWithCaching() {
+        public async Task RemoveCollectionWithCachingAsync() {
             var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
             await _identityRepository.AddAsync(identities, addToCache: true);
             Assert.Equal(2, _cache.Count);
@@ -761,7 +761,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact(Skip = "We need to look into how we want to handle this.")]
-        public async Task RemoveCollectionWithOutOfSyncIndex() {
+        public async Task RemoveCollectionWithOutOfSyncIndexAsync() {
             var utcNow = SystemClock.UtcNow;
             var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
             Assert.NotNull(yesterdayLog?.Id);
@@ -776,7 +776,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task RemoveAll() {
+        public async Task RemoveAllAsync() {
             await _identityRepository.RemoveAllAsync();
 
             var identities = new List<Identity> { IdentityGenerator.Default };
@@ -810,7 +810,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task RemoveAllWithBatching() {
+        public async Task RemoveAllWithBatchingAsync() {
             const int COUNT = 1000;
             Log.SetLogLevel<IdentityRepository>(LogLevel.Information);
             await _identityRepository.AddAsync(IdentityGenerator.GenerateIdentities(COUNT));
@@ -847,7 +847,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task RemoveAllWithDeleteByQuery() {
+        public async Task RemoveAllWithDeleteByQueryAsync() {
             const int COUNT = 10000;
             Log.SetLogLevel<IdentityWithNoCachingRepository>(LogLevel.Information);
             await _identityRepositoryWithNoCaching.AddAsync(IdentityGenerator.GenerateIdentities(COUNT));
@@ -884,7 +884,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task RemoveAllWithCaching() {
+        public async Task RemoveAllWithCachingAsync() {
             var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
             await _identityRepository.AddAsync(identities, addToCache: true);
             Assert.Equal(2, _cache.Count);
@@ -902,7 +902,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task RemoveAllWithTimeSeries() {
+        public async Task RemoveAllWithTimeSeriesAsync() {
             var utcNow = SystemClock.UtcNow;
             var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
             var nowLog = LogEventGenerator.Default;

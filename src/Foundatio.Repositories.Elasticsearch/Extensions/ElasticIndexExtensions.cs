@@ -32,7 +32,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 versionedDoc.Version = hit.Version.Value;
 
             var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index }, { ElasticDataKeys.IndexType, hit.Type } };
-            return new FindHit<T>(hit.Id, hit.Source, hit.Score, versionedDoc?.Version ?? null, data);
+            return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), versionedDoc?.Version ?? null, data);
         }
 
         public static FindHit<T> ToFindHit<T>(this IMultiGetHit<T> hit) where T : class {
@@ -44,7 +44,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, data);
         }
 
-        public static IDictionary<string, AggregationResult> ToAggregationResult(this IDictionary<string, IAggregate> aggregations) {
+        public static IDictionary<string, AggregationResult> ToAggregationResult(this IReadOnlyDictionary<string, IAggregate> aggregations) {
             var results = new Dictionary<string, AggregationResult>();
             if (aggregations == null || aggregations.Count == 0)
                 return null;

@@ -22,7 +22,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetNumberAggregations() {
+        public async Task GetNumberAggregationsAsync() {
             const string aggregations = "min:age max:age avg:age sum:age percentiles:age";
             var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithAggregations(aggregations));
             Assert.Equal(10, result.Total);
@@ -41,7 +41,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetNumberAggregationsWithFilter() {
+        public async Task GetNumberAggregationsWithFilterAsync() {
             const string aggregations = "min:age max:age avg:age sum:age";
             var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithFilter("age: <40").WithAggregations(aggregations));
             Assert.Equal(7, result.Total);
@@ -53,7 +53,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetCardinalityAggregations() {
+        public async Task GetCardinalityAggregationsAsync() {
             const string aggregations = "cardinality:location";
             var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithAggregations(aggregations));
             Assert.Equal(10, result.Total);
@@ -62,7 +62,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetMissingAggregations() {
+        public async Task GetMissingAggregationsAsync() {
             const string aggregations = "missing:companyName";
             var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithAggregations(aggregations));
             Assert.Equal(10, result.Total);
@@ -71,7 +71,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetDateAggregations() {
+        public async Task GetDateAggregationsAsync() {
             const string aggregations = "date:updatedUtc";
             var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithAggregations(aggregations));
             Assert.Equal(10, result.Total);
@@ -80,7 +80,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetGeoGridAggregations() {
+        public async Task GetGeoGridAggregationsAsync() {
             const string aggregations = "geogrid:location";
             var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithAggregations(aggregations));
             Assert.Equal(10, result.Total);
@@ -94,7 +94,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetTermAggregations() {
+        public async Task GetTermAggregationsAsync() {
             const string aggregations = "terms:age";
             var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithAggregations(aggregations));
             Assert.Equal(10, result.Total);

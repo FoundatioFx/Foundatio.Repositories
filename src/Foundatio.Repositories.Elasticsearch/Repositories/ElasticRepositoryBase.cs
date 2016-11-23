@@ -115,7 +115,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (script != null) {
                 // TODO: Figure out how to specify a pipeline here.
                 var request = new UpdateRequest<T, T>(GetIndexById(id), ElasticType.Name, id) {
-                    Script = script,
+                    Script = new InlineScript(script),
                     RetryOnConflict = 10
                 };
 
@@ -209,7 +209,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                             .Id(id)
                             .Index(GetIndexById(id))
                             .Type(ElasticType.Name)
-                            .Script(script)
+                            .Script(s => s.Inline(script))
                             .RetriesOnConflict(10));
                     else
                         b.Update<T, object>(u => u
@@ -330,7 +330,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                                         .Id(h.Id)
                                         .Index(h.GetIndex())
                                         .Type(h.GetIndexType())
-                                        .Script(script)
+                                        .Script(s => s.Inline(script))
                                         .RetriesOnConflict(10));
                                 else
                                     b.Update<T, object>(u => u.Id(h.Id)
