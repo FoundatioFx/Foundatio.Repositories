@@ -13,7 +13,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new();
     }
 
-    public class QueryBuilderContext<T> : IElasticQueryVisitorContext, IQueryVisitorContextWithAliasResolver where T : class, new() {
+    public class QueryBuilderContext<T> : IElasticQueryVisitorContext, IQueryVisitorContextWithAliasResolver, IQueryVisitorContextWithIncludeResolver where T : class, new() {
         public QueryBuilderContext(IRepositoryQuery source, IQueryOptions options, SearchDescriptor<T> search = null) {
             Source = source;
             Options = options;
@@ -31,6 +31,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         public IDictionary<string, object> Data { get; } = new Dictionary<string, object>();
 
         AliasResolver IQueryVisitorContextWithAliasResolver.RootAliasResolver { get; set; }
+        Func<string, Task<string>> IQueryVisitorContextWithIncludeResolver.IncludeResolver { get; set; }
 
         Operator IElasticQueryVisitorContext.DefaultOperator { get; set; }
         string IElasticQueryVisitorContext.DefaultField { get; set; }
