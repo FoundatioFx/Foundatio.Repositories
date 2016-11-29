@@ -58,7 +58,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return PatchAllAsync(new MyAppQuery().WithCompany(company).WithLimit(limit), new { CompanyName = name });
         }
 
-        public async Task<long> IncrementYearsEmployeed(string[] ids, int years = 1) {
+        public async Task<long> IncrementYearsEmployeedAsync(string[] ids, int years = 1) {
             string script = $"ctx._source.yearsEmployed += {years};";
             if (ids.Length == 0)
                 return await PatchAllAsync(new Query(), script, false);
@@ -67,7 +67,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return ids.Length;
         }
 
-        public async Task<long> IncrementYearsEmployeed(MyAppQuery query, int years = 1) {
+        public async Task<long> IncrementYearsEmployeedAsync(MyAppQuery query, int years = 1) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 

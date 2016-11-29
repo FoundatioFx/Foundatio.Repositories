@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Foundatio.Logging;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;

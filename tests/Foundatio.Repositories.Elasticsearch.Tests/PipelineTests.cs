@@ -26,7 +26,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task Add() {
+        public async Task AddAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "  BLAKE  "));
             Assert.NotNull(employee?.Id);
 
@@ -35,7 +35,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task AddCollection() {
+        public async Task AddCollectionAsync() {
             var employees = new List<Employee> {
                 EmployeeGenerator.Generate(name: "  BLAKE  "),
                 EmployeeGenerator.Generate(name: "\tBLAKE  ")
@@ -48,7 +48,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task SaveCollection() {
+        public async Task SaveCollectionAsync() {
             var employee1 = EmployeeGenerator.Generate(id: ObjectId.GenerateNewId().ToString());
             var employee2 = EmployeeGenerator.Generate(id: ObjectId.GenerateNewId().ToString());
             await _employeeRepository.AddAsync(new List<Employee> { employee1, employee2 });
@@ -62,7 +62,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task JsonPatch() {
+        public async Task JsonPatchAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
             var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
             await _employeeRepository.PatchAsync(employee.Id, patch);
@@ -74,7 +74,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task JsonPatchAll() {
+        public async Task JsonPatchAllAsync() {
             var utcNow = SystemClock.UtcNow;
             var employees = new List<Employee> {
                 EmployeeGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1", yearsEmployed: 0),
@@ -98,7 +98,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact (Skip = "Not yet supported: https://github.com/elastic/elasticsearch/issues/17895")]
-        public async Task PartialPatch() {
+        public async Task PartialPatchAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
             await _employeeRepository.PatchAsync(employee.Id, new { name = "Patched" });
 
@@ -109,7 +109,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact(Skip = "Not yet supported: https://github.com/elastic/elasticsearch/issues/17895")]
-        public async Task PartialPatchAll() {
+        public async Task PartialPatchAllAsync() {
             var utcNow = SystemClock.UtcNow;
             var employees = new List<Employee> {
                 EmployeeGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1", yearsEmployed: 0),
@@ -132,7 +132,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact(Skip = "Not yet supported: https://github.com/elastic/elasticsearch/issues/17895")]
-        public async Task ScriptPatch() {
+        public async Task ScriptPatchAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
             await _employeeRepository.PatchAsync(employee.Id, "ctx._source.name = 'Patched';");
 
@@ -143,7 +143,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact(Skip = "Not yet supported: https://github.com/elastic/elasticsearch/issues/17895")]
-        public async Task ScriptPatchAll() {
+        public async Task ScriptPatchAllAsync() {
             var utcNow = SystemClock.UtcNow;
             var employees = new List<Employee> {
                 EmployeeGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1", yearsEmployed: 0),

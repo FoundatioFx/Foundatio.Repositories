@@ -27,7 +27,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CanCacheFindResult() {
+        public async Task CanCacheFindResultAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20));
 
             await _client.RefreshAsync(Indices.All);
@@ -41,7 +41,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task InvalidateCache() {
+        public async Task InvalidateCacheAsync() {
             var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, addToCache: true);
             Assert.NotNull(identity?.Id);
             Assert.Equal(1, _cache.Count);
@@ -100,7 +100,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task InvalidateCacheWithInvalidArguments() {
+        public async Task InvalidateCacheWithInvalidArgumentsAsync() {
             await Assert.ThrowsAsync<ArgumentNullException>(async () => await _identityRepository.InvalidateCacheAsync((Identity)null));
             await Assert.ThrowsAsync<ArgumentNullException>(async () => await _identityRepository.InvalidateCacheAsync((IReadOnlyCollection<Identity>)null));
             await _identityRepository.InvalidateCacheAsync(new List<Identity>());
@@ -110,7 +110,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task Count() {
+        public async Task CountAsync() {
             Assert.Equal(0, await _identityRepository.CountAsync());
 
             var identity = IdentityGenerator.Default;
@@ -122,7 +122,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CountWithTimeSeries() {
+        public async Task CountWithTimeSeriesAsync() {
             Assert.Equal(0, await _dailyRepository.CountAsync());
 
             var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(createdUtc: SystemClock.UtcNow.AddDays(-1)));
@@ -137,7 +137,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetById() {
+        public async Task GetByIdAsync() {
             var identity = await _identityRepository.AddAsync(IdentityGenerator.Default);
             Assert.NotNull(identity?.Id);
 
@@ -145,7 +145,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetByIdWithCache() {
+        public async Task GetByIdWithCacheAsync() {
             var identity = await _identityRepository.AddAsync(IdentityGenerator.Default);
             Assert.NotNull(identity?.Id);
 
@@ -165,7 +165,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetByIdAnyIdsWithCache() {
+        public async Task GetByIdAnyIdsWithCacheAsync() {
             var identity = await _identityRepository.AddAsync(IdentityGenerator.Default);
             Assert.NotNull(identity?.Id);
 
@@ -218,7 +218,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetByIdWithTimeSeries() {
+        public async Task GetByIdWithTimeSeriesAsync() {
             var utcNow = SystemClock.UtcNow;
             var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow.AddDays(-1)));
             Assert.NotNull(yesterdayLog?.Id);
@@ -231,7 +231,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact(Skip = "We need to look into how we want to handle this.")]
-        public async Task GetByIdWithOutOfSyncIndex() {
+        public async Task GetByIdWithOutOfSyncIndexAsync() {
             var utcNow = SystemClock.UtcNow;
             var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
             Assert.NotNull(yesterdayLog?.Id);
@@ -240,7 +240,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetByIds() {
+        public async Task GetByIdsAsync() {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default);
             Assert.NotNull(identity1?.Id);
 
@@ -253,7 +253,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetByIdsWithInvalidId() {
+        public async Task GetByIdsWithInvalidIdAsync() {
             var identity = await _identityRepository.AddAsync(IdentityGenerator.Generate());
             Assert.NotNull(identity?.Id);
 
@@ -268,7 +268,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetByIdsWithCaching() {
+        public async Task GetByIdsWithCachingAsync() {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default);
             Assert.NotNull(identity1?.Id);
 
@@ -309,7 +309,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetByIdsWithInvalidIdAndCaching() {
+        public async Task GetByIdsWithInvalidIdAndCachingAsync() {
             var identity = await _identityRepository.AddAsync(IdentityGenerator.Generate());
             Assert.NotNull(identity?.Id);
 
@@ -333,7 +333,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetByIdsWithTimeSeries() {
+        public async Task GetByIdsWithTimeSeriesAsync() {
             var utcNow = SystemClock.UtcNow;
             var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow.AddDays(-1)));
             Assert.NotNull(yesterdayLog?.Id);
@@ -347,7 +347,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact(Skip = "We need to look into how we want to handle this.")]
-        public async Task GetByIdsWithOutOfSyncIndex() {
+        public async Task GetByIdsWithOutOfSyncIndexAsync() {
             var utcNow = SystemClock.UtcNow;
             var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
             Assert.NotNull(yesterdayLog?.Id);
@@ -358,7 +358,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetAll() {
+        public async Task GetAllAsync() {
             var identities = IdentityGenerator.GenerateIdentities(25);
             await _identityRepository.AddAsync(identities);
 
@@ -371,7 +371,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetAllWithPaging() {
+        public async Task GetAllWithPagingAsync() {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default);
             Assert.NotNull(identity1?.Id);
 
@@ -404,7 +404,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetAllWithSnapshotPaging() {
+        public async Task GetAllWithSnapshotPagingAsync() {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default);
             Assert.NotNull(identity1?.Id);
 
@@ -437,7 +437,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task Exists() {
+        public async Task ExistsAsync() {
             Assert.False(await _identityRepository.ExistsAsync(null));
 
             var identity = IdentityGenerator.Default;
@@ -451,7 +451,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task ExistsWithTimeSeries() {
+        public async Task ExistsWithTimeSeriesAsync() {
             Assert.False(await _dailyRepository.ExistsAsync(null));
 
             var utcNow = SystemClock.UtcNow;
@@ -467,7 +467,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task ShouldNotIncludeWhenDeleted() {
+        public async Task ShouldNotIncludeWhenDeletedAsync() {
             var deletedEmployee = EmployeeGenerator.Generate(age: 20, name: "Deleted");
             deletedEmployee.IsDeleted = true;
             await _employeeRepository.AddAsync(deletedEmployee);
@@ -480,7 +480,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task SearchShouldNotReturnDeletedDocuments() {
+        public async Task SearchShouldNotReturnDeletedDocumentsAsync() {
             var employee = EmployeeGenerator.Generate(age: 20, name: "Deleted");
             employee = await _employeeRepository.AddAsync(employee);
 

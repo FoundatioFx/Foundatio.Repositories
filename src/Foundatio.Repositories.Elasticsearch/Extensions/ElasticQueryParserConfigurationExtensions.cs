@@ -1,9 +1,9 @@
 ﻿using System;
 using Foundatio.Logging;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Nest;
-using Foundatio.Repositories.Elasticsearch.Extensions;
 
 namespace Foundatio.Parsers.ElasticQueries {
     public static class ElasticQueryParserConfigurationExtensions {
