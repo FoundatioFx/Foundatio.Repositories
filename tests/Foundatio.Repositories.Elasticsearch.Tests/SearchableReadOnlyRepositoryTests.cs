@@ -44,5 +44,26 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(19, employees[2].Age);
             Assert.Equal(9, employees[3].Age);
         }
+
+        [Fact]
+        public async Task SearchByAnalyzedTextField() {
+            await _employeeRepository.AddAsync(new List<Employee> {
+                EmployeeGenerator.Generate(age: 19, name: "Blake Niemyjski")
+            });
+
+            await _client.RefreshAsync(Indices.All);
+            var searchRepository = (ISearchableReadOnlyRepository<Employee>)_employeeRepository;
+            var results = await searchRepository.SearchAsync(new MyAppQuery(), "name:Blake");
+            var employees = results.Documents.ToArray();
+            Assert.Equal(1, employees.Length);
+
+            results = await searchRepository.SearchAsync(new MyAppQuery(), "name:\"Blake Niemyjski\"");
+            employees = results.Documents.ToArray();
+            Assert.Equal(1, employees.Length);
+
+            results = await searchRepository.SearchAsync(new MyAppQuery(), "name:Eric");
+            employees = results.Documents.ToArray();
+            Assert.Equal(0, employees.Length);
+        }
     }
 }
