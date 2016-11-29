@@ -18,7 +18,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task SortByNumber() {
+        public async Task SortByNumberAsync() {
             await _employeeRepository.AddAsync(new List<Employee> {
                 EmployeeGenerator.Generate(age: 19),
                 EmployeeGenerator.Generate(age: 9),
@@ -46,7 +46,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task SearchByAnalyzedTextField() {
+        public async Task SearchByAnalyzedTextFieldAsync() {
             await _employeeRepository.AddAsync(new List<Employee> {
                 EmployeeGenerator.Generate(age: 19, name: "Blake Niemyjski")
             });

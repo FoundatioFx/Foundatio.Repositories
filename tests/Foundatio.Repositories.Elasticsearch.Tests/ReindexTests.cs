@@ -4,8 +4,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using Elasticsearch.Net;
 using Foundatio.Logging;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
-using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Utility;
@@ -24,7 +24,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact(Skip = "This will only work if the mapping is manually updated.")]
-        public async Task CanReindexSameIndex() {
+        public async Task CanReindexSameIndexAsync() {
             var index = new EmployeeIndex(_configuration);
             await index.DeleteAsync();
 
@@ -65,7 +65,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CanResumeReindex() {
+        public async Task CanResumeReindexAsync() {
             const int numberOfEmployeesToCreate = 2000;
 
             var version1Index = new VersionedEmployeeIndex(_configuration, 1);
@@ -127,7 +127,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact(Skip = "TODO: There is a bug with the nest client https://github.com/elastic/elasticsearch-net/issues/2309")]
-        public async Task CanHandleReindexFailure() {
+        public async Task CanHandleReindexFailureAsync() {
             var version1Index = new VersionedEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
 
@@ -194,7 +194,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CanReindexVersionedIndex() {
+        public async Task CanReindexVersionedIndexAsync() {
             var version1Index = new VersionedEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
 
@@ -283,12 +283,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CanReindexVersionedIndexWithCorrectMappings() {
+        public async Task CanReindexVersionedIndexWithCorrectMappingsAsync() {
             var version1Index = new VersionedEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
 
-            var version2Index = new VersionedEmployeeIndex(_configuration, 2);
-            version2Index.DiscardIndexesOnReindex = false;
+            var version2Index = new VersionedEmployeeIndex(_configuration, 2) { DiscardIndexesOnReindex = false };
             await version2Index.DeleteAsync();
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
@@ -331,7 +330,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CanReindexVersionedIndexWithDataInBothIndexes() {
+        public async Task CanReindexVersionedIndexWithDataInBothIndexesAsync() {
             var version1Index = new VersionedEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
 
@@ -405,7 +404,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CanReindexVersionedIndexWithUpdatedDocs() {
+        public async Task CanReindexVersionedIndexWithUpdatedDocsAsync() {
             var version1Index = new VersionedEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
 
@@ -474,7 +473,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CanReindexVersionedIndexWithDeletedDocs() {
+        public async Task CanReindexVersionedIndexWithDeletedDocsAsync() {
             var version1Index = new VersionedEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
 
@@ -545,7 +544,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CanReindexTimeSeriesIndex() {
+        public async Task CanReindexTimeSeriesIndexAsync() {
             var version1Index = new DailyEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
 
@@ -640,12 +639,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CanReindexTimeSeriesIndexWithCorrectMappings() {
+        public async Task CanReindexTimeSeriesIndexWithCorrectMappingsAsync() {
             var version1Index = new DailyEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
 
-            var version2Index = new DailyEmployeeIndex(_configuration, 2);
-            version2Index.DiscardIndexesOnReindex = false;
+            var version2Index = new DailyEmployeeIndex(_configuration, 2) { DiscardIndexesOnReindex = false };
             await version2Index.DeleteAsync();
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {

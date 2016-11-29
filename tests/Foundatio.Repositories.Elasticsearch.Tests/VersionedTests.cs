@@ -174,7 +174,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             var company2Employees = results.Documents.ToList();
             long company2EmployeesVersion = company2Employees.First().Version;
-            Assert.Equal(1, await _employeeRepository.IncrementYearsEmployeed(company2Employees.Select(e => e.Id).ToArray()));
+            Assert.Equal(1, await _employeeRepository.IncrementYearsEmployeedAsync(company2Employees.Select(e => e.Id).ToArray()));
             await _client.RefreshAsync(Indices.All);
 
             results = await _employeeRepository.GetAllByCompanyAsync("2");

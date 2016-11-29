@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Jobs;
 using Foundatio.Logging;
-using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
 using Nest;
