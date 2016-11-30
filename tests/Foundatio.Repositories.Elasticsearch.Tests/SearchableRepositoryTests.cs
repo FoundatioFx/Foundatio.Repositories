@@ -94,6 +94,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task SearchByQueryWithIncludesAnAliases() {
+            var employees = EmployeeGenerator.GenerateEmployees(age: 10);
+            await _employeeRepository.AddAsync(employees);
+
+            await _client.RefreshAsync();
+            var result = await _employeeRepository.SearchAsync(null, null, "@include:myquery");
+            Assert.Equal(10, result.Total);
+        }
+
+        [Fact]
         public async Task SearchByQueryWithTimeSeries() {
             var utcNow = SystemClock.UtcNow;
             var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1234567890"));

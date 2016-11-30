@@ -1,3 +1,6 @@
+using System;
+using System.Threading.Tasks;
+using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
@@ -24,7 +27,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
         }
 
         protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
-            builder.UseQueryParser(this);
+            var aliasMap = new AliasMap {
+                { "aliasedage", "age" }
+            };
+
+            builder.UseQueryParser(this, c => c
+                .UseIncludes(i => ResolveInclude(i))
+                .UseAliases(aliasMap)
+            );
+        }
+
+        private async Task<string> ResolveInclude(string name) {
+            await Task.Delay(100);
+            return "aliasedage:10";
         }
 
         public class Fields {
