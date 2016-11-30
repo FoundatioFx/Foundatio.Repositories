@@ -8,6 +8,7 @@ using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Nest;
+using Foundatio.Parsers.LuceneQueries.Visitors;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Types {
     public class EmployeeType : IndexTypeBase<Employee> {
@@ -28,9 +29,21 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
         }
 
         protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
+            var aliasMap = new AliasMap {
+                { "aliasedage", "age" }
+            };
+
             builder.Register<AgeQueryBuilder>();
             builder.Register<CompanyQueryBuilder>();
-            builder.UseQueryParser(this);
+            builder.UseQueryParser(this, c => c
+                .UseIncludes(i => ResolveInclude(i))
+                .UseAliases(aliasMap)
+            );
+        }
+
+        private async Task<string> ResolveInclude(string name) {
+            await Task.Delay(100);
+            return "aliasedage:10";
         }
     }
 

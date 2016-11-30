@@ -46,6 +46,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task SearchByQueryWithIncludesAnAliases() {
+            var employees = EmployeeGenerator.GenerateEmployees(age: 10);
+            await _employeeRepository.AddAsync(employees);
+
+            await _client.RefreshAsync(Indices.All);
+            var result = await _employeeRepository.SearchAsync(null, null, "@include:myquery");
+            Assert.Equal(10, result.Total);
+        }
+
+        [Fact]
         public async Task SearchByAnalyzedTextFieldAsync() {
             await _employeeRepository.AddAsync(new List<Employee> {
                 EmployeeGenerator.Generate(age: 19, name: "Blake Niemyjski")
