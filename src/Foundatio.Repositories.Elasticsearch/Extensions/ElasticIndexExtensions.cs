@@ -86,18 +86,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                         Buckets = new List<BucketResult>()
                     };
 
-                    foreach (var keyItem in bucketValue.Items.OfType<KeyedBucket>()) {
-                        var bucketResult = new BucketResult {
-                            Key = keyItem.Key,
-                            KeyAsString = keyItem.KeyAsString,
-                            Total = keyItem.DocCount,
-                            Aggregations = keyItem.Aggregations.ToAggregationResult()
-                        };
-
-                        result.Buckets.Add(bucketResult);
-                    }
-
-                    foreach (var keyItem in bucketValue.Items.OfType<HistogramBucket>()) {
+                    foreach (var keyItem in bucketValue.Items.OfType<KeyedBucket<object>>()) {
                         var bucketResult = new BucketResult {
                             Key = keyItem.Key.ToString(),
                             KeyAsString = keyItem.KeyAsString,
