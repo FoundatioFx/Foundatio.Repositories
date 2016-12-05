@@ -76,13 +76,14 @@ namespace Foundatio.Repositories.Models {
     }
 
     public class CountResult {
+        public static readonly CountResult Empty = new CountResult();
         protected static readonly IReadOnlyDictionary<string, AggregationResult> EmptyAggregations = new ReadOnlyDictionary<string, AggregationResult>(new Dictionary<string, AggregationResult>());
         internal static readonly IReadOnlyDictionary<string, object> EmptyData = new ReadOnlyDictionary<string, object>(new Dictionary<string, object>());
 
         public CountResult(long total = 0, IDictionary<string, AggregationResult> aggregations = null, IDictionary<string, object> data = null) {
             Aggregations = aggregations == null ? EmptyAggregations : new Dictionary<string, AggregationResult>(aggregations);
             Total = total;
-            Data = data != null ? new ReadOnlyDictionary<string, object>(data) : EmptyData;
+            Data = data == null ? EmptyData : new ReadOnlyDictionary<string, object>(data);
         }
 
         public long Total { get; protected set; }
