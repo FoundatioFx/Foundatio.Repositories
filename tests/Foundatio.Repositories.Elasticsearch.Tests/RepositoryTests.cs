@@ -348,8 +348,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var dateAgg = result.Aggregations.DateHistogram("date_createdUtc");
             Assert.NotNull(dateAgg);
             Assert.Equal(1, dateAgg.Buckets.Count);
-            Assert.Equal(utcNow.AddDays(-1), dateAgg.Buckets.First().Date);
-            Assert.Equal(utcNow.AddDays(-1).Subtract(new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds, dateAgg.Buckets.First().Aggregations.Min("min_createdUtc").Value.Value);
+            Assert.Equal(utcNow.AddDays(-1).Date, dateAgg.Buckets.First().Date);
+            Assert.Equal(Math.Round(utcNow.AddDays(-1).Subtract(new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds, 0), dateAgg.Buckets.First().Aggregations.Min("min_createdUtc").Value.Value);
 
             result = await _dailyRepository.CountBySearchAsync(null, aggregations: "date:(createdUtc~1h^-3h min:createdUtc)");
             Assert.Equal(1, result.Aggregations.Count);
