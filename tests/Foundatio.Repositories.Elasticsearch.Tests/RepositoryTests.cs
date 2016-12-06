@@ -324,14 +324,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.All);
             var result = await _dailyRepository.CountBySearchAsync(null, aggregations: "cardinality:companyId max:createdUtc");
             Assert.Equal(2, result.Aggregations.Count);
-            var cardinalityAgg = result.Aggregations.FirstOrDefault(a => a.Key == "cardinality_companyId");
+            var cardinalityAgg = result.Aggregations.Cardinality("cardinality_companyId");
             Assert.NotNull(cardinalityAgg);
             Assert.Equal(1, cardinalityAgg.Value.Value);
 
-            var maxAgg = result.Aggregations.FirstOrDefault(a => a.Key == "max_createdUtc");
+            var maxAgg = result.Aggregations.Max("max_createdUtc");
             Assert.NotNull(maxAgg);
-            Assert.True(maxAgg.Value.Value.HasValue);
-            Assert.True(yesterdayLog.CreatedUtc.Subtract(__unixEpoch.AddMilliseconds(maxAgg.Value.Value.Value)).TotalSeconds < 1);
+            Assert.True(maxAgg.Value.HasValue);
+            Assert.True(yesterdayLog.CreatedUtc.Subtract(__unixEpoch.AddMilliseconds(maxAgg.Value.Value)).TotalSeconds < 1);
         }
 
         private static DateTime __unixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -345,15 +345,17 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.All);
             var result = await _dailyRepository.CountBySearchAsync(null, aggregations: "date:(createdUtc min:createdUtc)");
             Assert.Equal(1, result.Aggregations.Count);
-            var dateAgg = result.Aggregations.FirstOrDefault(a => a.Key == "date_createdUtc");
+            var dateAgg = result.Aggregations.DateHistogram("date_createdUtc");
             Assert.NotNull(dateAgg);
-            Assert.Equal(1, dateAgg.Value.Buckets.Count);
+            Assert.Equal(1, dateAgg.Buckets.Count);
+            Assert.Equal(utcNow.AddDays(-1), dateAgg.Buckets.First().Date);
+            Assert.Equal(utcNow.AddDays(-1).Subtract(new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds, dateAgg.Buckets.First().Aggregations.Min("min_createdUtc").Value.Value);
 
             result = await _dailyRepository.CountBySearchAsync(null, aggregations: "date:(createdUtc~1h^-3h min:createdUtc)");
             Assert.Equal(1, result.Aggregations.Count);
-            dateAgg = result.Aggregations.FirstOrDefault(a => a.Key == "date_createdUtc");
+            dateAgg = result.Aggregations.DateHistogram("date_createdUtc");
             Assert.NotNull(dateAgg);
-            Assert.Equal(1, dateAgg.Value.Buckets.Count);
+            Assert.Equal(1, dateAgg.Buckets.Count);
         }
 
         [Fact]
@@ -366,9 +368,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.All);
             var result = await _employeeRepository.CountBySearchAsync(null, aggregations: "geogrid:(location~6 max:age)");
             Assert.Equal(1, result.Aggregations.Count);
-            var geoAgg = result.Aggregations.FirstOrDefault(a => a.Key == "geogrid_location");
+            var geoAgg = result.Aggregations.GeoHash("geogrid_location");
             Assert.NotNull(geoAgg);
-            Assert.InRange(geoAgg.Value.Buckets.Count, 1, 11);
+            Assert.InRange(geoAgg.Buckets.Count, 1, 11);
         }
 
         [Fact]

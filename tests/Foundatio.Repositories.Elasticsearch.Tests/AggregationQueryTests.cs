@@ -9,6 +9,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Nest;
 using Xunit;
 using Xunit.Abstractions;
+using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class AggregationQueryTests : ElasticRepositoryTestBase {
@@ -27,17 +28,18 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithAggregations(aggregations));
             Assert.Equal(10, result.Total);
             Assert.Equal(5, result.Aggregations.Count);
-            Assert.Equal(19, result.Aggregations["min_age"].Value);
-            Assert.Equal(60, result.Aggregations["max_age"].Value);
-            Assert.Equal(34.7, result.Aggregations["avg_age"].Value);
-            Assert.Equal(347, result.Aggregations["sum_age"].Value);
-            Assert.Equal(19.27, result.Aggregations["percentiles_age"].Data["1"]);
-            Assert.Equal(20.35, result.Aggregations["percentiles_age"].Data["5"]);
-            Assert.Equal(26d, result.Aggregations["percentiles_age"].Data["25"]);
-            Assert.Equal(30.5, result.Aggregations["percentiles_age"].Data["50"]);
-            Assert.Equal(42.5, result.Aggregations["percentiles_age"].Data["75"]);
-            Assert.Equal(55.94999999999999, result.Aggregations["percentiles_age"].Data["95"]);
-            Assert.Equal(59.19, result.Aggregations["percentiles_age"].Data["99"]);
+            Assert.Equal(19, result.Aggregations.Min("min_age").Value);
+            Assert.Equal(60, result.Aggregations.Max("max_age").Value);
+            Assert.Equal(34.7, result.Aggregations.Average("avg_age").Value);
+            Assert.Equal(347, result.Aggregations.Sum("sum_age").Value);
+            var percentiles = result.Aggregations.Percentiles("percentiles_age");
+            Assert.Equal(19.27, percentiles.GetPercentile(1).Value);
+            Assert.Equal(20.35, percentiles.GetPercentile(5).Value);
+            Assert.Equal(26d, percentiles.GetPercentile(25).Value);
+            Assert.Equal(30.5, percentiles.GetPercentile(50).Value);
+            Assert.Equal(42.5, percentiles.GetPercentile(75).Value);
+            Assert.Equal(55.94999999999999, percentiles.GetPercentile(95).Value);
+            Assert.Equal(59.19, percentiles.GetPercentile(99).Value);
         }
 
         [Fact]
@@ -46,10 +48,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithFilter("age: <40").WithAggregations(aggregations));
             Assert.Equal(7, result.Total);
             Assert.Equal(4, result.Aggregations.Count);
-            Assert.Equal(19, result.Aggregations["min_age"].Value);
-            Assert.Equal(35, result.Aggregations["max_age"].Value);
-            Assert.Equal(Math.Round(27.2857142857143, 5), Math.Round(result.Aggregations["avg_age"].Value.GetValueOrDefault(), 5));
-            Assert.Equal(191, result.Aggregations["sum_age"].Value);
+            Assert.Equal(19, result.Aggregations.Min("min_age").Value);
+            Assert.Equal(35, result.Aggregations.Min("max_age").Value);
+            Assert.Equal(Math.Round(27.2857142857143, 5), Math.Round(result.Aggregations.Average("avg_age").Value.GetValueOrDefault(), 5));
+            Assert.Equal(191, result.Aggregations.Sum("sum_age").Value);
         }
 
         [Fact]
@@ -58,7 +60,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithAggregations(aggregations));
             Assert.Equal(10, result.Total);
             Assert.Equal(1, result.Aggregations.Count);
-            Assert.Equal(2, result.Aggregations["cardinality_location"].Value);
+            Assert.Equal(2, result.Aggregations.Cardinality("cardinality_location").Value);
         }
 
         [Fact]
@@ -67,7 +69,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithAggregations(aggregations));
             Assert.Equal(10, result.Total);
             Assert.Equal(1, result.Aggregations.Count);
-            Assert.Equal(10, result.Aggregations["missing_companyName"].Value);
+            Assert.Equal(10, result.Aggregations.Missing("missing_companyName").DocCount);
         }
 
         [Fact]
@@ -76,7 +78,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithAggregations(aggregations));
             Assert.Equal(10, result.Total);
             Assert.Equal(1, result.Aggregations.Count);
-            Assert.Equal(1, result.Aggregations["date_updatedUtc"].Buckets.Count);
+            Assert.Equal(1, result.Aggregations.DateHistogram("date_updatedUtc").Buckets.Count);
         }
 
         [Fact]
@@ -86,11 +88,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(10, result.Total);
             Assert.Equal(1, result.Aggregations.Count);
 
-            var bucket = result.Aggregations["geogrid_location"].Buckets.Single();
+            var bucket = result.Aggregations.GeoHash("geogrid_location").Buckets.Single();
             Assert.Equal("s", bucket.Key);
-            Assert.Equal(10, bucket.Total);
-            Assert.Equal(Math.Round(14.9999999860302, 5), Math.Round(bucket.Aggregations["avg_lat"].Value.GetValueOrDefault(), 5));
-            Assert.Equal(Math.Round(14.9999999860302, 5), Math.Round(bucket.Aggregations["avg_lon"].Value.GetValueOrDefault(), 5));
+            Assert.Equal(10, bucket.DocCount);
+            Assert.Equal(Math.Round(14.9999999860302, 5), Math.Round(bucket.Aggregations.Average("avg_lat").Value.GetValueOrDefault(), 5));
+            Assert.Equal(Math.Round(14.9999999860302, 5), Math.Round(bucket.Aggregations.Average("avg_lon").Value.GetValueOrDefault(), 5));
         }
 
         [Fact]
@@ -99,8 +101,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithAggregations(aggregations));
             Assert.Equal(10, result.Total);
             Assert.Equal(1, result.Aggregations.Count);
-            Assert.Equal(10, result.Aggregations["terms_age"].Buckets.Count);
-            Assert.Equal(1, result.Aggregations["terms_age"].Buckets.First(f => f.Key == "19.0").Total);
+            Assert.Equal(10, result.Aggregations.Terms<int>("terms_age").Buckets.Count);
+            Assert.Equal(1, result.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19).DocCount);
         }
 
         public async Task CreateDataAsync() {

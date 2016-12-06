@@ -330,7 +330,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ApplicationException(message, response.OriginalException);
             }
 
-            result = new CountResult(response.Total, response.ToAggregationResult());
+            result = new CountResult(response.Total, response.ToAggregations());
 
             await SetCachedQueryResultAsync(query, result, "count").AnyContext();
 

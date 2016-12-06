@@ -2,22 +2,21 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Foundatio.Repositories.Models;
-using Nest;
 using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticIndexExtensions {
-        public static FindResults<T> ToFindResults<T>(this ISearchResponse<T> response, int? limit = null) where T : class, new() {
+        public static FindResults<T> ToFindResults<T>(this Nest.ISearchResponse<T> response, int? limit = null) where T : class, new() {
             var docs = response.Hits.Take(limit ?? Int32.MaxValue).ToFindHits().ToList();
             var data = response.ScrollId != null ? new DataDictionary { { ElasticDataKeys.ScrollId, response.ScrollId } } : null;
-            return new FindResults<T>(docs, response.Total, response.ToAggregationResult(), null, data);
+            return new FindResults<T>(docs, response.Total, response.ToAggregations(), null, data);
         }
 
-        public static IEnumerable<FindHit<T>> ToFindHits<T>(this IEnumerable<IHit<T>> hits) where T : class {
+        public static IEnumerable<FindHit<T>> ToFindHits<T>(this IEnumerable<Nest.IHit<T>> hits) where T : class {
             return hits.Select(h => h.ToFindHit());
         }
 
-        public static FindHit<T> ToFindHit<T>(this IGetResponse<T> hit) where T : class {
+        public static FindHit<T> ToFindHit<T>(this Nest.IGetResponse<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
             if (versionedDoc != null)
                 versionedDoc.Version = hit.Version;
@@ -26,7 +25,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, data);
         }
 
-        public static FindHit<T> ToFindHit<T>(this IHit<T> hit) where T : class {
+        public static FindHit<T> ToFindHit<T>(this Nest.IHit<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
             if (versionedDoc != null && hit.Version.HasValue)
                 versionedDoc.Version = hit.Version.Value;
@@ -35,7 +34,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), versionedDoc?.Version ?? null, data);
         }
 
-        public static FindHit<T> ToFindHit<T>(this IMultiGetHit<T> hit) where T : class {
+        public static FindHit<T> ToFindHit<T>(this Nest.IMultiGetHit<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
             if (versionedDoc != null)
                 versionedDoc.Version = hit.Version;
@@ -44,71 +43,118 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, data);
         }
 
-        public static IDictionary<string, AggregationResult> ToAggregationResult(this IReadOnlyDictionary<string, IAggregate> aggregations) {
-            var results = new Dictionary<string, AggregationResult>();
-            if (aggregations == null || aggregations.Count == 0)
+        public static IAggregate ToAggregate(this Nest.IAggregate aggregate) {
+            var valueAggregate = aggregate as Nest.ValueAggregate;
+            if (valueAggregate != null)
+                return new ValueAggregate { Value = valueAggregate.Value, Data = valueAggregate.Meta };
+
+            var scriptedAggregate = aggregate as Nest.ScriptedMetricAggregate;
+            if (scriptedAggregate != null)
+                return new ObjectValueAggregate { Value = scriptedAggregate.Value<object>(), Data = scriptedAggregate.Meta };
+
+            var statsAggregate = aggregate as Nest.StatsAggregate;
+            if (statsAggregate != null)
+                return new StatsAggregate {
+                    Count = statsAggregate.Count,
+                    Min = statsAggregate.Min,
+                    Max = statsAggregate.Max,
+                    Average = statsAggregate.Average,
+                    Sum = statsAggregate.Sum,
+                    Data = statsAggregate.Meta
+                };
+
+            var extendedStatsAggregate = aggregate as Nest.ExtendedStatsAggregate;
+            if (extendedStatsAggregate != null)
+                return new ExtendedStatsAggregate {
+                    Count = extendedStatsAggregate.Count,
+                    Min = extendedStatsAggregate.Min,
+                    Max = extendedStatsAggregate.Max,
+                    Average = extendedStatsAggregate.Average,
+                    Sum = extendedStatsAggregate.Sum,
+                    StdDeviation = extendedStatsAggregate.StdDeviation,
+                    StdDeviationBounds = new StandardDeviationBounds {
+                        Lower = extendedStatsAggregate.StdDeviationBounds.Lower,
+                        Upper = extendedStatsAggregate.StdDeviationBounds.Upper
+                    },
+                    SumOfSquares = extendedStatsAggregate.SumOfSquares,
+                    Variance = extendedStatsAggregate.Variance,
+                    Data = extendedStatsAggregate.Meta
+                };
+
+            var percentilesAggregate = aggregate as Nest.PercentilesAggregate;
+            if (percentilesAggregate != null)
+                return new PercentilesAggregate(percentilesAggregate.Items.Select(i => new PercentileItem { Percentile = i.Percentile, Value = i.Value } )) {
+                    Data = percentilesAggregate.Meta
+                };
+
+            var singleBucketAggregate = aggregate as Nest.SingleBucketAggregate;
+            if (singleBucketAggregate != null)
+                return new SingleBucketAggregate {
+                    Data = singleBucketAggregate.Meta,
+                    DocCount = singleBucketAggregate.DocCount
+                };
+
+            var bucketAggregation = aggregate as Nest.BucketAggregate;
+            if (bucketAggregation != null)
+                return new BucketAggregate {
+                    Items = bucketAggregation.Items.Select(i => i.ToBucket()).ToList(),
+                    DocCountErrorUpperBound = bucketAggregation.DocCountErrorUpperBound,
+                    SumOtherDocCount = bucketAggregation.SumOtherDocCount,
+                    Data = bucketAggregation.Meta,
+                    DocCount = bucketAggregation.DocCount
+                };
+            
+            return null;
+        }
+
+        public static IBucket ToBucket(this Nest.IBucket bucket) {
+            var dateHistogramBucket = bucket as Nest.DateHistogramBucket;
+            if (dateHistogramBucket != null)
+                return new DateHistogramBucket(dateHistogramBucket.Aggregations.ToAggregations()) {
+                    DocCount = dateHistogramBucket.DocCount,
+                    Key = dateHistogramBucket.Key,
+                    KeyAsString = dateHistogramBucket.KeyAsString
+                };
+
+            var stringKeyedBucket = bucket as Nest.KeyedBucket<string>;
+            if (stringKeyedBucket != null)
+                return new KeyedBucket<string>(stringKeyedBucket.Aggregations.ToAggregations()) {
+                    DocCount = stringKeyedBucket.DocCount,
+                    Key = stringKeyedBucket.Key,
+                    KeyAsString = stringKeyedBucket.KeyAsString
+                };
+
+            var doubleKeyedBucket = bucket as Nest.KeyedBucket<double>;
+            if (doubleKeyedBucket != null)
+                return new KeyedBucket<double>(doubleKeyedBucket.Aggregations.ToAggregations()) {
+                    DocCount = doubleKeyedBucket.DocCount,
+                    Key = doubleKeyedBucket.Key,
+                    KeyAsString = doubleKeyedBucket.KeyAsString
+                };
+
+            var objectKeyedBucket = bucket as Nest.KeyedBucket<object>;
+            if (objectKeyedBucket != null)
+                return new KeyedBucket<object>(objectKeyedBucket.Aggregations.ToAggregations()) {
+                    DocCount = objectKeyedBucket.DocCount,
+                    Key = objectKeyedBucket.Key,
+                    KeyAsString = objectKeyedBucket.KeyAsString
+                };
+            
+            return null;
+        }
+
+        public static IDictionary<string, IAggregate> ToAggregations(this IReadOnlyDictionary<string, Nest.IAggregate> aggregations) {
+            if (aggregations == null)
                 return null;
 
-            foreach (var key in aggregations.Keys) {
-                var aggValue = aggregations[key];
-
-                var metricAggValue = aggValue as ValueAggregate;
-                if (metricAggValue != null) {
-                    results.Add(key, new AggregationResult { Value = metricAggValue.Value });
-                    continue;
-                }
-
-                var percentilesAggregate = aggValue as PercentilesAggregate;
-                if (percentilesAggregate != null) {
-                    var result = new AggregationResult {
-                        Data = new Dictionary<string, object>(percentilesAggregate.Items.Count)
-                    };
-
-                    foreach (var percentileItem in percentilesAggregate.Items)
-                        result.Data.Add(percentileItem.Percentile.ToString(), percentileItem.Value);
-
-                    results.Add(key, result);
-                    continue;
-                }
-
-                var singleBucketAggregate = aggValue as SingleBucketAggregate;
-                if (singleBucketAggregate != null) {
-                    results.Add(key, new AggregationResult {
-                        Value = singleBucketAggregate.DocCount,
-                        Aggregations = singleBucketAggregate.Aggregations.ToAggregationResult()
-                    });
-                    continue;
-                }
-
-                var bucketValue = aggValue as BucketAggregate;
-                if (bucketValue != null) {
-                    var result = new AggregationResult {
-                        Buckets = new List<BucketResult>()
-                    };
-
-                    foreach (var keyItem in bucketValue.Items.OfType<KeyedBucket<object>>()) {
-                        var bucketResult = new BucketResult {
-                            Key = keyItem.Key.ToString(),
-                            KeyAsString = keyItem.KeyAsString,
-                            Total = keyItem.DocCount,
-                            Aggregations = keyItem.Aggregations.ToAggregationResult()
-                        };
-
-                        result.Buckets.Add(bucketResult);
-                    }
-
-                    results.Add(key, result);
-                }
-            }
-
-            return results;
+            return aggregations.ToDictionary(a => a.Key, a => a.Value.ToAggregate());
         }
 
-        public static IDictionary<string, AggregationResult> ToAggregationResult<T>(this ISearchResponse<T> res) where T : class {
-            return res.Aggregations.ToAggregationResult();
+        public static IDictionary<string, IAggregate> ToAggregations<T>(this Nest.ISearchResponse<T> res) where T : class {
+            return res.Aggregations.ToAggregations();
         }
 
-        public static PropertiesDescriptor<T> SetupDefaults<T>(this PropertiesDescriptor<T> pd) where T : class {
+        public static Nest.PropertiesDescriptor<T> SetupDefaults<T>(this Nest.PropertiesDescriptor<T> pd) where T : class {
             var hasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
             var hasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
             var hasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));

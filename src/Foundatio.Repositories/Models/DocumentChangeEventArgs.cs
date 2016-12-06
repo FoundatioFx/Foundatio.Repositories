@@ -5,7 +5,7 @@ namespace Foundatio.Repositories.Models {
     public class DocumentsChangeEventArgs<T> : EventArgs where T : class, IIdentity, new() {
         public DocumentsChangeEventArgs(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, IRepository<T> repository) {
             ChangeType = changeType;
-            Documents = documents ?? new List<ModifiedDocument<T>>();
+            Documents = documents ?? EmptyReadOnly<ModifiedDocument<T>>.Collection;
             Repository = repository;
         }
 
@@ -16,7 +16,7 @@ namespace Foundatio.Repositories.Models {
 
     public class DocumentsEventArgs<T> : EventArgs where T : class, IIdentity, new() {
         public DocumentsEventArgs(IReadOnlyCollection<T> documents, IRepository<T> repository) {
-            Documents = documents ?? new List<T>();
+            Documents = documents ?? EmptyReadOnly<T>.Collection;
             Repository = repository;
         }
 
@@ -26,7 +26,7 @@ namespace Foundatio.Repositories.Models {
 
     public class ModifiedDocumentsEventArgs<T> : EventArgs where T : class, IIdentity, new() {
         public ModifiedDocumentsEventArgs(IReadOnlyCollection<ModifiedDocument<T>> documents, IRepository<T> repository) {
-            Documents = documents ?? new List<ModifiedDocument<T>>();
+            Documents = documents ?? EmptyReadOnly<ModifiedDocument<T>>.Collection;
             Repository = repository;
         }
 
