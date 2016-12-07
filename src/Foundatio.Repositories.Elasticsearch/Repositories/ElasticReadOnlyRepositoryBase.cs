@@ -331,9 +331,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             result = new CountResult(response.Total, response.ToAggregations());
-
             await SetCachedQueryResultAsync(query, result, "count").AnyContext();
-
             return result;
         }
 

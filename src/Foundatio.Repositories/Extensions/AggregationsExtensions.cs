@@ -37,8 +37,6 @@ namespace Foundatio.Repositories.Models {
             return bucket == null
                 ? null
                 : new TermsAggregate<TKey> {
-                    DocCountErrorUpperBound = bucket.DocCountErrorUpperBound,
-                    SumOtherDocCount = bucket.SumOtherDocCount,
                     Buckets = GetKeyedBuckets<TKey>(bucket.Items).ToList(),
                     Data = bucket.Data
                 };
@@ -83,7 +81,7 @@ namespace Foundatio.Repositories.Models {
                     Key = (TKey)Convert.ChangeType(bucket.Key, typeof(TKey)),
                     KeyAsString = bucket.KeyAsString,
                     Aggregations = bucket.Aggregations,
-                    DocCount = bucket.DocCount
+                    Total = bucket.Total
                 };
             }
         }

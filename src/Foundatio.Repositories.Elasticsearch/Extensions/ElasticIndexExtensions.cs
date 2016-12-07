@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using Foundatio.Repositories.Models;
 using Foundatio.Utility;
@@ -91,19 +92,23 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (singleBucketAggregate != null)
                 return new SingleBucketAggregate {
                     Data = singleBucketAggregate.Meta,
-                    DocCount = singleBucketAggregate.DocCount
+                    Total = singleBucketAggregate.DocCount
                 };
 
             var bucketAggregation = aggregate as Nest.BucketAggregate;
-            if (bucketAggregation != null)
+            if (bucketAggregation != null) {
+                var data = new Dictionary<string, object>((IDictionary<string, object>)bucketAggregation.Meta) {
+                    { nameof(bucketAggregation.DocCountErrorUpperBound), bucketAggregation.DocCountErrorUpperBound },
+                    { nameof(bucketAggregation.SumOtherDocCount), bucketAggregation.SumOtherDocCount }
+                };
+
                 return new BucketAggregate {
                     Items = bucketAggregation.Items.Select(i => i.ToBucket()).ToList(),
-                    DocCountErrorUpperBound = bucketAggregation.DocCountErrorUpperBound,
-                    SumOtherDocCount = bucketAggregation.SumOtherDocCount,
-                    Data = bucketAggregation.Meta,
-                    DocCount = bucketAggregation.DocCount
+                    Data = new ReadOnlyDictionary<string, object>(data),
+                    Total = bucketAggregation.DocCount
                 };
-            
+            }
+
             return null;
         }
 
@@ -111,7 +116,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             var dateHistogramBucket = bucket as Nest.DateHistogramBucket;
             if (dateHistogramBucket != null)
                 return new DateHistogramBucket(dateHistogramBucket.Aggregations.ToAggregations()) {
-                    DocCount = dateHistogramBucket.DocCount,
+                    Total = dateHistogramBucket.DocCount,
                     Key = dateHistogramBucket.Key,
                     KeyAsString = dateHistogramBucket.KeyAsString
                 };
@@ -119,7 +124,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             var stringKeyedBucket = bucket as Nest.KeyedBucket<string>;
             if (stringKeyedBucket != null)
                 return new KeyedBucket<string>(stringKeyedBucket.Aggregations.ToAggregations()) {
-                    DocCount = stringKeyedBucket.DocCount,
+                    Total = stringKeyedBucket.DocCount,
                     Key = stringKeyedBucket.Key,
                     KeyAsString = stringKeyedBucket.KeyAsString
                 };
@@ -127,7 +132,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             var doubleKeyedBucket = bucket as Nest.KeyedBucket<double>;
             if (doubleKeyedBucket != null)
                 return new KeyedBucket<double>(doubleKeyedBucket.Aggregations.ToAggregations()) {
-                    DocCount = doubleKeyedBucket.DocCount,
+                    Total = doubleKeyedBucket.DocCount,
                     Key = doubleKeyedBucket.Key,
                     KeyAsString = doubleKeyedBucket.KeyAsString
                 };
@@ -135,7 +140,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             var objectKeyedBucket = bucket as Nest.KeyedBucket<object>;
             if (objectKeyedBucket != null)
                 return new KeyedBucket<object>(objectKeyedBucket.Aggregations.ToAggregations()) {
-                    DocCount = objectKeyedBucket.DocCount,
+                    Total = objectKeyedBucket.DocCount,
                     Key = objectKeyedBucket.Key,
                     KeyAsString = objectKeyedBucket.KeyAsString
                 };

@@ -7,6 +7,6 @@ namespace Foundatio.Repositories.Models {
 
         public T Key { get; set; }
         public string KeyAsString { get; set; }
-        public long? DocCount { get; set; }
+        public long? Total { get; set; }
     }
 }

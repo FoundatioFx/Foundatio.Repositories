@@ -5,6 +5,6 @@ namespace Foundatio.Repositories.Models {
         public SingleBucketAggregate() { }
         public SingleBucketAggregate(IDictionary<string, IAggregate> aggregations) : base(aggregations) { }
 
-        public long DocCount { get; set; }
+        public long Total { get; set; }
     }
 }

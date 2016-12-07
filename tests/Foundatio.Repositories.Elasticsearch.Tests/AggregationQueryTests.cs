@@ -69,7 +69,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithAggregations(aggregations));
             Assert.Equal(10, result.Total);
             Assert.Equal(1, result.Aggregations.Count);
-            Assert.Equal(10, result.Aggregations.Missing("missing_companyName").DocCount);
+            Assert.Equal(10, result.Aggregations.Missing("missing_companyName").Total);
         }
 
         [Fact]
@@ -90,7 +90,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             var bucket = result.Aggregations.GeoHash("geogrid_location").Buckets.Single();
             Assert.Equal("s", bucket.Key);
-            Assert.Equal(10, bucket.DocCount);
+            Assert.Equal(10, bucket.Total);
             Assert.Equal(Math.Round(14.9999999860302, 5), Math.Round(bucket.Aggregations.Average("avg_lat").Value.GetValueOrDefault(), 5));
             Assert.Equal(Math.Round(14.9999999860302, 5), Math.Round(bucket.Aggregations.Average("avg_lon").Value.GetValueOrDefault(), 5));
         }
@@ -102,7 +102,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(10, result.Total);
             Assert.Equal(1, result.Aggregations.Count);
             Assert.Equal(10, result.Aggregations.Terms<int>("terms_age").Buckets.Count);
-            Assert.Equal(1, result.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19).DocCount);
+            Assert.Equal(1, result.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19).Total);
         }
 
         public async Task CreateDataAsync() {
