@@ -10,4 +10,3 @@ namespace Foundatio.Repositories.Models {
         public static readonly IReadOnlyDictionary<TKey, TValue> Dictionary = new ReadOnlyDictionary<TKey, TValue>(new Dictionary<TKey, TValue>());
     }
 }
-

@@ -97,7 +97,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
             var bucketAggregation = aggregate as Nest.BucketAggregate;
             if (bucketAggregation != null) {
-                var data = new Dictionary<string, object>((IDictionary<string, object>)bucketAggregation.Meta) {
+                var data = new Dictionary<string, object>((IDictionary<string, object>)bucketAggregation.Meta ?? new Dictionary<string, object>()) {
                     { nameof(bucketAggregation.DocCountErrorUpperBound), bucketAggregation.DocCountErrorUpperBound },
                     { nameof(bucketAggregation.SumOtherDocCount), bucketAggregation.SumOtherDocCount }
                 };
