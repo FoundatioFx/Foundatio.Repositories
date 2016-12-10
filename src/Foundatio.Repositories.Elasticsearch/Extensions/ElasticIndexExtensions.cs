@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Utility;
 
@@ -46,12 +47,23 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
         public static IAggregate ToAggregate(this Nest.IAggregate aggregate) {
             var valueAggregate = aggregate as Nest.ValueAggregate;
-            if (valueAggregate != null)
-                return new ValueAggregate { Value = valueAggregate.Value, Data = valueAggregate.Meta };
+            if (valueAggregate != null) {
+                var type = valueAggregate.Meta?["@type"].ToString();
+                if (type == "date" && valueAggregate.Value.HasValue)
+                    return new ValueAggregate<DateTime> {
+                        Value = valueAggregate.Value.Value.FromUnixTime(),
+                        Data = valueAggregate.Meta.ToData()
+                    };
+
+                return new ValueAggregate { Value = valueAggregate.Value, Data = valueAggregate.Meta.ToData() };
+            }
 
             var scriptedAggregate = aggregate as Nest.ScriptedMetricAggregate;
             if (scriptedAggregate != null)
-                return new ObjectValueAggregate { Value = scriptedAggregate.Value<object>(), Data = scriptedAggregate.Meta };
+                return new ObjectValueAggregate {
+                    Value = scriptedAggregate.Value<object>(),
+                    Data = scriptedAggregate.Meta.ToData()
+                };
 
             var statsAggregate = aggregate as Nest.StatsAggregate;
             if (statsAggregate != null)
@@ -61,7 +73,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     Max = statsAggregate.Max,
                     Average = statsAggregate.Average,
                     Sum = statsAggregate.Sum,
-                    Data = statsAggregate.Meta
+                    Data = statsAggregate.Meta.ToData()
                 };
 
             var extendedStatsAggregate = aggregate as Nest.ExtendedStatsAggregate;
@@ -79,19 +91,19 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     },
                     SumOfSquares = extendedStatsAggregate.SumOfSquares,
                     Variance = extendedStatsAggregate.Variance,
-                    Data = extendedStatsAggregate.Meta
+                    Data = extendedStatsAggregate.Meta.ToData()
                 };
 
             var percentilesAggregate = aggregate as Nest.PercentilesAggregate;
             if (percentilesAggregate != null)
                 return new PercentilesAggregate(percentilesAggregate.Items.Select(i => new PercentileItem { Percentile = i.Percentile, Value = i.Value } )) {
-                    Data = percentilesAggregate.Meta
+                    Data = percentilesAggregate.Meta.ToData()
                 };
 
             var singleBucketAggregate = aggregate as Nest.SingleBucketAggregate;
             if (singleBucketAggregate != null)
                 return new SingleBucketAggregate {
-                    Data = singleBucketAggregate.Meta,
+                    Data = singleBucketAggregate.Meta.ToData(),
                     Total = singleBucketAggregate.DocCount
                 };
 
@@ -104,7 +116,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
                 return new BucketAggregate {
                     Items = bucketAggregation.Items.Select(i => i.ToBucket()).ToList(),
-                    Data = new ReadOnlyDictionary<string, object>(data),
+                    Data = new ReadOnlyDictionary<string, object>(data).ToData(),
                     Total = bucketAggregation.DocCount
                 };
             }
@@ -149,10 +161,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         }
 
         public static IDictionary<string, IAggregate> ToAggregations(this IReadOnlyDictionary<string, Nest.IAggregate> aggregations) {
-            if (aggregations == null)
-                return null;
-
-            return aggregations.ToDictionary(a => a.Key, a => a.Value.ToAggregate());
+            return aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate());
         }
 
         public static IDictionary<string, IAggregate> ToAggregations<T>(this Nest.ISearchResponse<T> res) where T : class {

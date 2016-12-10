@@ -7,8 +7,10 @@ namespace Foundatio.Repositories.Models {
     public static class AggregationsExtensions {
         public static PercentileItem GetPercentile(this PercentilesAggregate agg, double percentile) => agg.Items.FirstOrDefault(i => i.Percentile == percentile);
         public static ValueAggregate Min(this IReadOnlyDictionary<string, IAggregate> aggs, string key) => aggs.TryGet<ValueAggregate>(key);
+        public static ValueAggregate<T> Min<T>(this IReadOnlyDictionary<string, IAggregate> aggs, string key) => aggs.TryGet<ValueAggregate<T>>(key);
 
         public static ValueAggregate Max(this IReadOnlyDictionary<string, IAggregate> aggs, string key) => aggs.TryGet<ValueAggregate>(key);
+        public static ValueAggregate<T> Max<T>(this IReadOnlyDictionary<string, IAggregate> aggs, string key) => aggs.TryGet<ValueAggregate<T>>(key);
 
         public static ValueAggregate Sum(this IReadOnlyDictionary<string, IAggregate> aggs, string key) => aggs.TryGet<ValueAggregate>(key);
 

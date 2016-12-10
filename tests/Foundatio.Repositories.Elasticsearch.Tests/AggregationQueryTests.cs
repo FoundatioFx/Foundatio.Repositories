@@ -24,15 +24,17 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task GetNumberAggregationsAsync() {
-            const string aggregations = "min:age max:age avg:age sum:age percentiles:age";
+            const string aggregations = "min:age max:age avg:age sum:age percentiles:age min:createdUtc max:updatedUtc";
             var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithAggregations(aggregations));
             Assert.Equal(10, result.Total);
-            Assert.Equal(5, result.Aggregations.Count);
+            Assert.Equal(7, result.Aggregations.Count);
             Assert.Equal(19, result.Aggregations.Min("min_age").Value);
             Assert.Equal(60, result.Aggregations.Max("max_age").Value);
             Assert.Equal(34.7, result.Aggregations.Average("avg_age").Value);
             Assert.Equal(347, result.Aggregations.Sum("sum_age").Value);
             var percentiles = result.Aggregations.Percentiles("percentiles_age");
+            Assert.Equal(DateTime.Today.SubtractYears(10), result.Aggregations.Min<DateTime>("min_createdUtc").Value);
+            Assert.Equal(DateTime.Today.SubtractYears(1), result.Aggregations.Max<DateTime>("max_updatedUtc").Value);
             Assert.Equal(19.27, percentiles.GetPercentile(1).Value);
             Assert.Equal(20.35, percentiles.GetPercentile(5).Value);
             Assert.Equal(26d, percentiles.GetPercentile(25).Value);
@@ -107,16 +109,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         public async Task CreateDataAsync() {
             await _employeeRepository.AddAsync(new List<Employee> {
-                EmployeeGenerator.Generate(age: 19, yearsEmployed: 1,  location: "10,10", createdUtc: DateTime.Today.SubtractYears(1)),
-                EmployeeGenerator.Generate(age: 22, yearsEmployed: 2,  location: "10,10", createdUtc: DateTime.Today.SubtractYears(2)),
-                EmployeeGenerator.Generate(age: 25, yearsEmployed: 3,  location: "10,10", createdUtc: DateTime.Today.SubtractYears(3)),
-                EmployeeGenerator.Generate(age: 29, yearsEmployed: 4,  location: "10,10", createdUtc: DateTime.Today.SubtractYears(4)),
-                EmployeeGenerator.Generate(age: 30, yearsEmployed: 5,  location: "10,10", createdUtc: DateTime.Today.SubtractYears(5)),
-                EmployeeGenerator.Generate(age: 31, yearsEmployed: 6,  location: "20,20", createdUtc: DateTime.Today.SubtractYears(6)),
-                EmployeeGenerator.Generate(age: 35, yearsEmployed: 7,  location: "20,20", createdUtc: DateTime.Today.SubtractYears(7)),
-                EmployeeGenerator.Generate(age: 45, yearsEmployed: 8,  location: "20,20", createdUtc: DateTime.Today.SubtractYears(8)),
-                EmployeeGenerator.Generate(age: 51, yearsEmployed: 9,  location: "20,20", createdUtc: DateTime.Today.SubtractYears(9)),
-                EmployeeGenerator.Generate(age: 60, yearsEmployed: 10, location: "20,20", createdUtc: DateTime.Today.SubtractYears(10))
+                EmployeeGenerator.Generate(age: 19, yearsEmployed: 1,  location: "10,10", createdUtc: DateTime.Today.SubtractYears(1), updatedUtc: DateTime.Today.SubtractYears(1)),
+                EmployeeGenerator.Generate(age: 22, yearsEmployed: 2,  location: "10,10", createdUtc: DateTime.Today.SubtractYears(2), updatedUtc: DateTime.Today.SubtractYears(2)),
+                EmployeeGenerator.Generate(age: 25, yearsEmployed: 3,  location: "10,10", createdUtc: DateTime.Today.SubtractYears(3), updatedUtc: DateTime.Today.SubtractYears(3)),
+                EmployeeGenerator.Generate(age: 29, yearsEmployed: 4,  location: "10,10", createdUtc: DateTime.Today.SubtractYears(4), updatedUtc: DateTime.Today.SubtractYears(4)),
+                EmployeeGenerator.Generate(age: 30, yearsEmployed: 5,  location: "10,10", createdUtc: DateTime.Today.SubtractYears(5), updatedUtc: DateTime.Today.SubtractYears(5)),
+                EmployeeGenerator.Generate(age: 31, yearsEmployed: 6,  location: "20,20", createdUtc: DateTime.Today.SubtractYears(6), updatedUtc: DateTime.Today.SubtractYears(6)),
+                EmployeeGenerator.Generate(age: 35, yearsEmployed: 7,  location: "20,20", createdUtc: DateTime.Today.SubtractYears(7), updatedUtc: DateTime.Today.SubtractYears(7)),
+                EmployeeGenerator.Generate(age: 45, yearsEmployed: 8,  location: "20,20", createdUtc: DateTime.Today.SubtractYears(8), updatedUtc: DateTime.Today.SubtractYears(8)),
+                EmployeeGenerator.Generate(age: 51, yearsEmployed: 9,  location: "20,20", createdUtc: DateTime.Today.SubtractYears(9), updatedUtc: DateTime.Today.SubtractYears(9)),
+                EmployeeGenerator.Generate(age: 60, yearsEmployed: 10, location: "20,20", createdUtc: DateTime.Today.SubtractYears(10), updatedUtc: DateTime.Today.SubtractYears(10))
             });
             await _client.RefreshAsync(Indices.AllIndices);
         }
