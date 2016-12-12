@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Nest;
+using System.Collections;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IFieldConditionsQuery {
@@ -27,13 +28,25 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (fieldValuesQuery?.FieldConditions == null || fieldValuesQuery.FieldConditions.Count <= 0)
                 return Task.CompletedTask;
 
+            QueryBase query;
+
             foreach (var fieldValue in fieldValuesQuery.FieldConditions) {
                 switch (fieldValue.Operator) {
                     case ComparisonOperator.Equals:
-                        ctx.Filter &= new TermQuery { Field = fieldValue.Field, Value = fieldValue.Value };
+                        if (fieldValue.Value is IEnumerable)
+                            query = new TermsQuery { Field = fieldValue.Field, Terms = (IEnumerable<object>)fieldValue.Value };
+                        else
+                            query = new TermQuery { Field = fieldValue.Field, Value = fieldValue.Value };
+                        ctx.Filter &= query;
+
                         break;
                     case ComparisonOperator.NotEquals:
-                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { new TermQuery { Field = fieldValue.Field, Value = fieldValue.Value } } };
+                        if (fieldValue.Value is IEnumerable)
+                            query = new TermsQuery { Field = fieldValue.Field, Terms = (IEnumerable<object>)fieldValue.Value };
+                        else
+                            query = new TermQuery { Field = fieldValue.Field, Value = fieldValue.Value };
+
+                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { query } };
                         break;
                     case ComparisonOperator.IsEmpty:
                         ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { new ExistsQuery { Field = fieldValue.Field } } };
