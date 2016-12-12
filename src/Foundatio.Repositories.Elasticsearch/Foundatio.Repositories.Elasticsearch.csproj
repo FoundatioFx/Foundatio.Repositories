@@ -49,14 +49,6 @@
       <HintPath>..\..\packages\Foundatio.4.2.1183\lib\net46\Foundatio.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Foundatio.Parsers.ElasticQueries, Version=5.0.211.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Foundatio.Parsers.ElasticQueries.5.0.211-pre\lib\net46\Foundatio.Parsers.ElasticQueries.dll</HintPath>
-      <Private>True</Private>
-    </Reference>
-    <Reference Include="Foundatio.Parsers.LuceneQueries, Version=5.0.211.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Foundatio.Parsers.LuceneQueries.5.0.211-pre\lib\net46\Foundatio.Parsers.LuceneQueries.dll</HintPath>
-      <Private>True</Private>
-    </Reference>
     <Reference Include="Nest, Version=5.0.0.0, Culture=neutral, PublicKeyToken=96c599bbe3e70f5d, processorArchitecture=MSIL">
       <HintPath>..\..\packages\NEST.5.0.0-rc4\lib\net46\Nest.dll</HintPath>
       <Private>True</Private>
@@ -155,6 +147,14 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\..\Foundatio.Parsers\src\Foundatio.Parsers.ElasticQueries\Foundatio.Parsers.ElasticQueries.csproj">
+      <Project>{9F6F9CC3-2544-44EB-8829-209187271A4E}</Project>
+      <Name>Foundatio.Parsers.ElasticQueries</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\..\Foundatio.Parsers\src\Foundatio.Parsers.LuceneQueries\Foundatio.Parsers.LuceneQueries.csproj">
+      <Project>{F759E45D-C914-4546-947D-B9F0854D22E9}</Project>
+      <Name>Foundatio.Parsers.LuceneQueries</Name>
+    </ProjectReference>
     <ProjectReference Include="..\Foundatio.Repositories\Foundatio.Repositories.csproj">
       <Project>{F5B6C2B5-485F-4A4B-8E00-D5F77676CD6E}</Project>
       <Name>Foundatio.Repositories</Name>
