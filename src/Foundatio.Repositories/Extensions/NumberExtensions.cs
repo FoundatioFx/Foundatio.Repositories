@@ -22,10 +22,10 @@ namespace Foundatio.Repositories.Extensions {
             }
         }
 
-        private static DateTime _epoch = new DateTime(1970, 1, 1);
+        private static DateTime _epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         public static DateTime FromUnixTime(this double value) {
-            return DateTime.SpecifyKind(_epoch.AddMilliseconds(0 + value), DateTimeKind.Unspecified);
+            return DateTime.SpecifyKind(_epoch.AddMilliseconds(0 + value), DateTimeKind.Utc);
         }
     }
 }

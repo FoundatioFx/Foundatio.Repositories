@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Exceptionless.DateTimeExtensions;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
@@ -326,15 +327,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(2, result.Aggregations.Count);
             var cardinalityAgg = result.Aggregations.Cardinality("cardinality_companyId");
             Assert.NotNull(cardinalityAgg);
-            Assert.Equal(1, cardinalityAgg.Value.Value);
+            Assert.Equal(1, cardinalityAgg.Value.GetValueOrDefault());
 
-            var maxAgg = result.Aggregations.Max("max_createdUtc");
+            var maxAgg = result.Aggregations.Max<DateTime>("max_createdUtc");
             Assert.NotNull(maxAgg);
-            Assert.True(maxAgg.Value.HasValue);
-            Assert.True(yesterdayLog.CreatedUtc.Subtract(__unixEpoch.AddMilliseconds(maxAgg.Value.Value)).TotalSeconds < 1);
+            Assert.True(yesterdayLog.CreatedUtc.Subtract(maxAgg.Value).TotalSeconds < 1);
         }
-
-        private static DateTime __unixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         [Fact]
         public async Task CanGetDateAggregationAsync() {
@@ -349,9 +347,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(dateAgg);
             Assert.Equal(1, dateAgg.Buckets.Count);
             Assert.Equal(utcNow.AddDays(-1).Date, dateAgg.Buckets.First().Date);
-
-            var msSinceEpoch = utcNow.AddDays(-1).Subtract(new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds;
-            Assert.InRange(dateAgg.Buckets.First().Aggregations.Min("min_createdUtc").Value.Value, Math.Floor(msSinceEpoch), Math.Ceiling(msSinceEpoch));
+            Assert.Equal(utcNow.AddDays(-1).Floor(TimeSpan.FromMilliseconds(1)), dateAgg.Buckets.First().Aggregations.Min<DateTime>("min_createdUtc").Value.Floor(TimeSpan.FromMilliseconds(1)));
 
             result = await _dailyRepository.CountBySearchAsync(null, aggregations: "date:(createdUtc~1h^-3h min:createdUtc)");
             Assert.Equal(1, result.Aggregations.Count);
