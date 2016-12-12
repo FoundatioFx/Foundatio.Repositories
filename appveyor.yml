@@ -8,7 +8,6 @@ pull_requests:
 
 environment:
   JAVA_HOME: C:\Progra~1\Java\jdk1.8.0
-  ES_VERSION: 5.0.2
 
 init:
   - git config --global core.autocrlf true
@@ -17,7 +16,7 @@ init:
 
 install:
   - choco install gitlink
-  - ps: .\build\Start-ElasticSearch.ps1
+  - ps: .\build\Start-ElasticSearch.ps1 -NodeCount 3 -StartKibana $false -Version 5.1.1
 
 assembly_info:
   patch: true

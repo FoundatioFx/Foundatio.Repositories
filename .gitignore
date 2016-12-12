@@ -16,7 +16,9 @@ x86/
 bld/
 [Bb]in/
 [Oo]bj/
-Build/elasticsearch*/
+build/kibana-*
+build/elasticsearch-*
+
 # Roslyn cache directories
 *.ide/
 
@@ -180,5 +182,9 @@ UpgradeLog*.htm
 
 # Microsoft Fakes
 FakesAssemblies/
+
 .vs/config/applicationhost.config
 *.nugetreferenceswitcher
+/build/kibana-*
+/build/elastic-*
+

@@ -1,5 +1,3 @@
 cluster.name: foundatio
-cluster.routing.allocation.disk.threshold_enabled: false
-action.auto_create_index: false
-bootstrap.memory_lock: true
-discovery.zen.minimum_master_nodes: 2
+action.destructive_requires_name: false
+action.auto_create_index: +.marvel-*
