@@ -21,5 +21,11 @@ namespace Foundatio.Repositories.Extensions {
                     return num.ToString("#,###0") + "th";
             }
         }
+
+        private static DateTime _epoch = new DateTime(1970, 1, 1);
+
+        public static DateTime FromUnixTime(this double value) {
+            return DateTime.SpecifyKind(_epoch.AddMilliseconds(0 + value), DateTimeKind.Unspecified);
+        }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Foundatio.Repositories.Extensions {
     public static class DictionaryExtensions {
@@ -17,6 +18,14 @@ namespace Foundatio.Repositories.Extensions {
                 return (string)value;
 
             return String.Empty;
+        }
+
+        public static IReadOnlyDictionary<string, object> ToData(this IReadOnlyDictionary<string, object> dictionary) {
+            var dict = dictionary?
+                .Where(kvp => kvp.Key != "@type" && kvp.Key != "@offset")
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+            return dict?.Count > 0 ? dict : null;
         }
     }
 }
