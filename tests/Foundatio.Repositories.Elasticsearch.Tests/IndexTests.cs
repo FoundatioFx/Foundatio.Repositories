@@ -98,7 +98,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             new object[] { new DateTime(2016, 2, 29, 0, 0, 0, DateTimeKind.Utc) },
             new object[] { new DateTime(2016, 8, 31, 0, 0, 0, DateTimeKind.Utc) },
             new object[] { new DateTime(2016, 9, 1, 0, 0, 0, DateTimeKind.Utc) },
-            new object[] { DateTime.UtcNow }
+            new object[] { SystemClock.UtcNow }
         }.ToArray();
 
         [Fact]
