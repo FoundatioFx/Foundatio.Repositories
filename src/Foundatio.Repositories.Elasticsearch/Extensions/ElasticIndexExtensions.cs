@@ -51,7 +51,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 var type = valueAggregate.Meta?["@type"].ToString();
                 if (type == "date" && valueAggregate.Value.HasValue)
                     return new ValueAggregate<DateTime> {
-                        Value = valueAggregate.Value.Value.FromUnixTime(),
+                        Value = DateTimeOffset.Parse(valueAggregate.ValueAsString).DateTime,
                         Data = valueAggregate.Meta.ToData()
                     };
 
@@ -109,10 +109,11 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
             var bucketAggregation = aggregate as Nest.BucketAggregate;
             if (bucketAggregation != null) {
-                var data = new Dictionary<string, object>((IDictionary<string, object>)bucketAggregation.Meta ?? new Dictionary<string, object>()) {
-                    { nameof(bucketAggregation.DocCountErrorUpperBound), bucketAggregation.DocCountErrorUpperBound },
-                    { nameof(bucketAggregation.SumOtherDocCount), bucketAggregation.SumOtherDocCount }
-                };
+                var data = new Dictionary<string, object>((IDictionary<string, object>)bucketAggregation.Meta ?? new Dictionary<string, object>());
+                if (bucketAggregation.DocCountErrorUpperBound.HasValue)
+                    data.Add(nameof(bucketAggregation.DocCountErrorUpperBound), bucketAggregation.DocCountErrorUpperBound);
+                if (bucketAggregation.SumOtherDocCount.HasValue)
+                    data.Add(nameof(bucketAggregation.SumOtherDocCount), bucketAggregation.SumOtherDocCount);
 
                 return new BucketAggregate {
                     Items = bucketAggregation.Items.Select(i => i.ToBucket()).ToList(),
