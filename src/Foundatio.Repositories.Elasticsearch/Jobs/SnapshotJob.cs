@@ -25,8 +25,8 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         }
 
         public async Task<JobResult> RunAsync(CancellationToken cancellationToken = default(CancellationToken)) {
-            string snapshotName = SystemClock.UtcNow.ToString("'" + Name + "-'yyyy-MM-dd-HH-mm");
-            _logger.Info($"Starting {Name} snapshot {snapshotName}...");
+            string snapshotName = SystemClock.UtcNow.ToString("'" + Repository + "-'yyyy-MM-dd-HH-mm");
+            _logger.Info($"Starting {Repository} snapshot {snapshotName}...");
 
             await _lockProvider.TryUsingAsync("es-snapshot", async t => {
                 var sw = Stopwatch.StartNew();
@@ -38,7 +38,9 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                             .Indices(IncludedIndexes.Count > 0 ? String.Join(",", IncludedIndexes) : "*")
                             .IgnoreUnavailable()
                             .IncludeGlobalState(false)
-                            .WaitForCompletion(), cancellationToken).AnyContext();
+                            .WaitForCompletion()
+                            .RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(60)))
+                        , cancellationToken).AnyContext();
 
                     if (!response.IsValid)
                         throw new ApplicationException($"Snapshot failed: {response.GetErrorMessage()}", response.OriginalException);
@@ -52,15 +54,24 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 sw.Stop();
 
                 if (result.IsValid)
-                    _logger.Info($"Completed {Name} snapshot {snapshotName} in {sw.Elapsed.ToWords(true)}");
+                    await OnSuccess(snapshotName, sw.Elapsed).AnyContext();
                 else
-                    _logger.Error($"Failed {Name} snapshot {snapshotName}: {result.GetErrorMessage()}");
+                    await OnFailure(snapshotName, result).AnyContext();
             }, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(30)).AnyContext();
 
             return JobResult.Success;
         }
 
-        protected string Name { get; set; } = "data";
+        public virtual Task OnSuccess(string snapshotName, TimeSpan duration) {
+            _logger.Info($"Completed {Repository} snapshot {snapshotName} in {duration.ToWords(true)}");
+            return Task.CompletedTask;
+        }
+
+        public virtual Task OnFailure(string snapshotName, ISnapshotResponse response) {
+            _logger.Error($"Failed {Repository} snapshot {snapshotName}: {response.GetErrorMessage()}");
+            return Task.CompletedTask;
+        }
+
         protected string Repository { get; set; } = "data";
         protected ICollection<string> IncludedIndexes { get; } = new List<string>();
     }
