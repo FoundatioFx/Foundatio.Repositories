@@ -9,6 +9,7 @@ using Exceptionless.DateTimeExtensions;
 using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Logging;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
@@ -38,14 +39,14 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 _repositories.Add(new RepositoryMaxAge { Name = "data", MaxAge = TimeSpan.FromDays(3) });
 
             foreach (var repo in _repositories)
-                await DeleteOldSnapshotsAsync(repo.Name, repo.MaxAge).AnyContext();
+                await DeleteOldSnapshotsAsync(repo.Name, repo.MaxAge, cancellationToken).AnyContext();
 
             _logger.Info("Finished snapshot cleanup.");
 
             return JobResult.Success;
         }
 
-        private async Task DeleteOldSnapshotsAsync(string repo, TimeSpan maxAge) {
+        private async Task DeleteOldSnapshotsAsync(string repo, TimeSpan maxAge, CancellationToken cancellationToken) {
             var sw = Stopwatch.StartNew();
             var result = await _client.GetSnapshotAsync(
                 repo,
@@ -79,13 +80,47 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
 
             _logger.Info($"Selected {snapshotsToDelete.Count} snapshots for deletion");
 
+            bool shouldContinue = true;
             foreach (var snapshot in snapshotsToDelete) {
+                if (!shouldContinue) {
+                    _logger.Info("Stopped deleted snapshots.");
+                    break;
+                }
+
                 _logger.Info($"Acquiring snapshot lock to delete {snapshot.Name} from {repo}");
-                await _lockProvider.TryUsingAsync("es-snapshot", async t => {
-                    _logger.Info($"Got snapshot lock to delete {snapshot.Name} from {repo}");
-                    await _client.DeleteSnapshotAsync(repo, snapshot.Name).AnyContext();
-                }, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(30)).AnyContext();
+                try {
+                    await _lockProvider.TryUsingAsync("es-snapshot", async t => {
+                        _logger.Info($"Got snapshot lock to delete {snapshot.Name} from {repo}");
+                        sw.Restart();
+                        var response = await _client.DeleteSnapshotAsync(repo, snapshot.Name).AnyContext();
+                        sw.Stop();
+
+                        if (response.IsValid)
+                            await OnSnapshotDeleted(snapshot.Name, sw.Elapsed).AnyContext();
+                        else
+                            shouldContinue = await OnSnapshotDeleteFailure(snapshot.Name, sw.Elapsed, response, null).AnyContext();
+                    }, TimeSpan.FromMinutes(30), cancellationToken).AnyContext();
+                } catch (Exception ex) {
+                    sw.Stop();
+                    shouldContinue = await OnSnapshotDeleteFailure(snapshot.Name, sw.Elapsed, null, ex).AnyContext();
+                }
             }
+
+            await OnCompleted().AnyContext();
+        }
+
+        public virtual Task OnSnapshotDeleted(string snapshotName, TimeSpan duration) {
+            _logger.Info($"Completed delete snapshot {snapshotName} in {duration.ToWords(true)}");
+            return Task.CompletedTask;
+        }
+
+        public virtual Task<bool> OnSnapshotDeleteFailure(string snapshotName, TimeSpan duration, IAcknowledgedResponse response, Exception ex) {
+            _logger.Error($"Failed to delete snapshot {snapshotName} after {duration.ToWords(true)}: {(response != null ? response.GetErrorMessage() : ex?.Message)}");
+            return Task.FromResult(true);
+        }
+
+        public virtual Task OnCompleted() {
+            return Task.CompletedTask;
         }
 
         private DateTime GetSnapshotDate(string repo, string name) {

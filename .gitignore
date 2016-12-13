@@ -17,6 +17,7 @@ bld/
 [Bb]in/
 [Oo]bj/
 Build/elasticsearch*/
+Build/kibana-*/
 # Roslyn cache directories
 *.ide/
 
