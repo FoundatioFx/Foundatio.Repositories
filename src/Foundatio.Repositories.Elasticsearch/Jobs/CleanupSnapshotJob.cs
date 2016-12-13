@@ -33,7 +33,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             _repositories.Add(new RepositoryMaxAge { Name = name, MaxAge = maxAge });
         }
 
-        public async Task<JobResult> RunAsync(CancellationToken cancellationToken = default(CancellationToken)) {
+        public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default(CancellationToken)) {
             _logger.Info("Starting snapshot cleanup...");
             if (_repositories.Count == 0)
                 _repositories.Add(new RepositoryMaxAge { Name = "data", MaxAge = TimeSpan.FromDays(3) });

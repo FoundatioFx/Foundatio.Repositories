@@ -25,7 +25,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             _logger = loggerFactory.CreateLogger(GetType());
         }
 
-        public async Task<JobResult> RunAsync(CancellationToken cancellationToken = default(CancellationToken)) {
+        public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default(CancellationToken)) {
             string snapshotName = SystemClock.UtcNow.ToString("'" + Repository + "-'yyyy-MM-dd-HH-mm");
             _logger.Info($"Starting {Repository} snapshot {snapshotName}...");
 
