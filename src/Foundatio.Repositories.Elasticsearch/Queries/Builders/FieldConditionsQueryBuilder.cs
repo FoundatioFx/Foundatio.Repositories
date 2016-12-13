@@ -33,7 +33,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             foreach (var fieldValue in fieldValuesQuery.FieldConditions) {
                 switch (fieldValue.Operator) {
                     case ComparisonOperator.Equals:
-                        if (fieldValue.Value is IEnumerable)
+                        if (fieldValue.Value is IEnumerable && !(fieldValue.Value is string))
                             query = new TermsQuery { Field = fieldValue.Field, Terms = (IEnumerable<object>)fieldValue.Value };
                         else
                             query = new TermQuery { Field = fieldValue.Field, Value = fieldValue.Value };
@@ -41,7 +41,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
                         break;
                     case ComparisonOperator.NotEquals:
-                        if (fieldValue.Value is IEnumerable)
+                        if (fieldValue.Value is IEnumerable && !(fieldValue.Value is string))
                             query = new TermsQuery { Field = fieldValue.Field, Terms = (IEnumerable<object>)fieldValue.Value };
                         else
                             query = new TermQuery { Field = fieldValue.Field, Value = fieldValue.Value };
