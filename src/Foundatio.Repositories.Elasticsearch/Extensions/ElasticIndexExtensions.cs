@@ -48,12 +48,15 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         public static IAggregate ToAggregate(this Nest.IAggregate aggregate) {
             var valueAggregate = aggregate as Nest.ValueAggregate;
             if (valueAggregate != null) {
-                var type = valueAggregate.Meta?["@type"].ToString();
-                if (type == "date" && valueAggregate.Value.HasValue)
-                    return new ValueAggregate<DateTime> {
-                        Value = DateTimeOffset.Parse(valueAggregate.ValueAsString).DateTime,
-                        Data = valueAggregate.Meta.ToData()
-                    };
+                object value;
+                if (valueAggregate.Meta != null && valueAggregate.Meta.TryGetValue("@type", out value)) {
+                    string type = value.ToString();
+                    if (type == "date" && valueAggregate.Value.HasValue)
+                        return new ValueAggregate<DateTime> {
+                            Value = DateTimeOffset.Parse(valueAggregate.ValueAsString).DateTime,
+                            Data = valueAggregate.Meta.ToData()
+                        };
+                }
 
                 return new ValueAggregate { Value = valueAggregate.Value, Data = valueAggregate.Meta.ToData() };
             }
@@ -110,9 +113,9 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             var bucketAggregation = aggregate as Nest.BucketAggregate;
             if (bucketAggregation != null) {
                 var data = new Dictionary<string, object>((IDictionary<string, object>)bucketAggregation.Meta ?? new Dictionary<string, object>());
-                if (bucketAggregation.DocCountErrorUpperBound.HasValue)
+                if (bucketAggregation.DocCountErrorUpperBound.GetValueOrDefault() > 0)
                     data.Add(nameof(bucketAggregation.DocCountErrorUpperBound), bucketAggregation.DocCountErrorUpperBound);
-                if (bucketAggregation.SumOtherDocCount.HasValue)
+                if (bucketAggregation.SumOtherDocCount.GetValueOrDefault() > 0)
                     data.Add(nameof(bucketAggregation.SumOtherDocCount), bucketAggregation.SumOtherDocCount);
 
                 return new BucketAggregate {
