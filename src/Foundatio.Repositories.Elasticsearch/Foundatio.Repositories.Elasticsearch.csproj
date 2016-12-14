@@ -100,6 +100,7 @@
     <Compile Include="Extensions\ElasticQueryParserConfigurationExtensions.cs" />
     <Compile Include="Extensions\FindHitExtensions.cs" />
     <Compile Include="Extensions\FindResultsExtensions.cs" />
+    <Compile Include="Jobs\MaintainIndexesJob.cs" />
     <Compile Include="Jobs\CleanupIndexesJob.cs" />
     <Compile Include="Jobs\CleanupSnapshotJob.cs" />
     <Compile Include="Jobs\SnapshotJob.cs" />
