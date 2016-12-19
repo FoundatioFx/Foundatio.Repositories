@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Utility;
@@ -45,17 +46,19 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, data);
         }
 
+        private static readonly long _epochTicks = new DateTime(1970, 1, 1).Ticks;
         public static IAggregate ToAggregate(this Nest.IAggregate aggregate) {
             var valueAggregate = aggregate as Nest.ValueAggregate;
             if (valueAggregate != null) {
                 object value;
                 if (valueAggregate.Meta != null && valueAggregate.Meta.TryGetValue("@type", out value)) {
                     string type = value.ToString();
-                    if (type == "date" && valueAggregate.Value.HasValue)
+                    if (type == "date" && valueAggregate.Value.HasValue) {
                         return new ValueAggregate<DateTime> {
-                            Value = DateTimeOffset.Parse(valueAggregate.ValueAsString).DateTime,
+                            Value = GetDate(valueAggregate),
                             Data = valueAggregate.Meta.ToData()
                         };
+                    }
                 }
 
                 return new ValueAggregate { Value = valueAggregate.Value, Data = valueAggregate.Meta.ToData() };
@@ -119,7 +122,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     data.Add(nameof(bucketAggregation.SumOtherDocCount), bucketAggregation.SumOtherDocCount);
 
                 return new BucketAggregate {
-                    Items = bucketAggregation.Items.Select(i => i.ToBucket()).ToList(),
+                    Items = bucketAggregation.Items.Select(i => i.ToBucket(data)).ToList(),
                     Data = new ReadOnlyDictionary<string, object>(data).ToData(),
                     Total = bucketAggregation.DocCount
                 };
@@ -128,14 +131,33 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return null;
         }
 
-        public static IBucket ToBucket(this Nest.IBucket bucket) {
+        private static DateTime GetDate(Nest.ValueAggregate valueAggregate) {
+            if (valueAggregate?.Value == null)
+                throw new ArgumentNullException(nameof(valueAggregate));
+
+            var kind = DateTimeKind.Utc;
+            long ticks = _epochTicks + ((long)valueAggregate.Value * TimeSpan.TicksPerMillisecond);
+
+            object value;
+            if (valueAggregate.Meta.TryGetValue("@offset", out value) && value != null) {
+                kind = DateTimeKind.Unspecified;
+                ticks -= TimeUnit.Parse(value.ToString()).Ticks;
+            }
+
+            return new DateTime(ticks, kind);
+        }
+
+        public static IBucket ToBucket(this Nest.IBucket bucket, IDictionary<string, object> parentData = null) {
             var dateHistogramBucket = bucket as Nest.DateHistogramBucket;
-            if (dateHistogramBucket != null)
-                return new DateHistogramBucket(dateHistogramBucket.Aggregations.ToAggregations()) {
+            if (dateHistogramBucket != null) {
+                var kind = parentData != null && parentData.ContainsKey("@offset") ? DateTimeKind.Unspecified : DateTimeKind.Utc;
+                var date = new DateTime(_epochTicks + ((long)dateHistogramBucket.Key * TimeSpan.TicksPerMillisecond), kind);
+                return new DateHistogramBucket(date, dateHistogramBucket.Aggregations.ToAggregations()) {
                     Total = dateHistogramBucket.DocCount,
                     Key = dateHistogramBucket.Key,
-                    KeyAsString = dateHistogramBucket.KeyAsString
+                    KeyAsString = date.ToString("O")
                 };
+            }
 
             var stringKeyedBucket = bucket as Nest.KeyedBucket<string>;
             if (stringKeyedBucket != null)
