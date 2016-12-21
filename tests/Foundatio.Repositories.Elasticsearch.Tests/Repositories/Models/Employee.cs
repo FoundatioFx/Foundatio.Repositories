@@ -13,6 +13,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
         public int Age { get; set; }
         public string Location { get; set; }
         public int YearsEmployed { get; set; }
+        public DateTime LastReview { get; set; }
+        public DateTimeOffset NextReview { get; set; }
         public DateTime CreatedUtc { get; set; }
         public DateTime UpdatedUtc { get; set; }
         public long Version { get; set; }
@@ -25,6 +27,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
                 String.Equals(Name, other.Name, StringComparison.InvariantCultureIgnoreCase) &&
                 Age == other.Age &&
                 YearsEmployed == other.YearsEmployed &&
+                LastReview.Equals(other.LastReview) &&
+                NextReview.Equals(other.NextReview) &&
                 CreatedUtc.Equals(other.CreatedUtc) &&
                 UpdatedUtc.Equals(other.UpdatedUtc) &&
                 Version == other.Version;
@@ -48,6 +52,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
                 hashCode = (hashCode * 397) ^ (Name != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Name) : 0);
                 hashCode = (hashCode * 397) ^ Age;
                 hashCode = (hashCode * 397) ^ YearsEmployed;
+                hashCode = (hashCode * 397) ^ LastReview.GetHashCode();
+                hashCode = (hashCode * 397) ^ NextReview.GetHashCode();
                 hashCode = (hashCode * 397) ^ CreatedUtc.GetHashCode();
                 hashCode = (hashCode * 397) ^ UpdatedUtc.GetHashCode();
                 hashCode = (hashCode * 397) ^ Version.GetHashCode();
@@ -75,7 +81,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
             CompanyId = DefaultCompanyId
         };
 
-        public static Employee Generate(string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, string location = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
+        public static Employee Generate(string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, string location = null, DateTime? lastReview = null, DateTimeOffset? nextReview = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
             return new Employee {
                 Id = id,
                 Name = name,
@@ -83,16 +89,18 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
                 YearsEmployed = yearsEmployed ?? RandomData.GetInt(0, 1),
                 CompanyName = companyName,
                 CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
+                LastReview = lastReview.GetValueOrDefault(),
+                NextReview = nextReview.GetValueOrDefault(),
                 CreatedUtc = createdUtc.GetValueOrDefault(),
                 UpdatedUtc = updatedUtc.GetValueOrDefault(),
                 Location = location ?? RandomData.GetCoordinate()
             };
         }
 
-        public static List<Employee> GenerateEmployees(int count = 10, string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, string location = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
+        public static List<Employee> GenerateEmployees(int count = 10, string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, string location = null, DateTime? lastReview = null, DateTimeOffset? nextReview = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
             var results = new List<Employee>(count);
             for (int index = 0; index < count; index++)
-                results.Add(Generate(id, name, age, yearsEmployed, companyName, companyId, location, createdUtc, updatedUtc));
+                results.Add(Generate(id, name, age, yearsEmployed, companyName, companyId, location, lastReview, nextReview, createdUtc, updatedUtc));
 
             return results;
         }

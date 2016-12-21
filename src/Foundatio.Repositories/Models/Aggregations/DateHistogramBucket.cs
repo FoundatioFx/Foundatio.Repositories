@@ -1,11 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace Foundatio.Repositories.Models {
+    [DebuggerDisplay("{Date}")]
     public class DateHistogramBucket : KeyedBucket<double> {
         public DateHistogramBucket() { }
-        public DateHistogramBucket(IDictionary<string, IAggregate> aggregations) : base(aggregations) { }
 
-        public DateTime Date => DateTime.SpecifyKind(new DateTime(1970, 1, 1).AddMilliseconds(0 + Key), DateTimeKind.Utc);
+        public DateHistogramBucket(DateTime date, IDictionary<string, IAggregate> aggregations) : base(aggregations) {
+            Date = date;
+        }
+
+        public DateTime Date { get; private set; }
     }
 }

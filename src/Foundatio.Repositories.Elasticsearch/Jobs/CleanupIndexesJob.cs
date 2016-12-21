@@ -45,14 +45,6 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         public async Task<JobResult> RunAsync(CancellationToken cancellationToken = default(CancellationToken)) {
             _logger.Info("Starting index cleanup...");
 
-            await DeleteOldIndexesAsync(cancellationToken).AnyContext();
-
-            _logger.Info("Finished index cleanup.");
-
-            return JobResult.Success;
-        }
-
-        private async Task DeleteOldIndexesAsync(CancellationToken cancellationToken) {
             var sw = Stopwatch.StartNew();
             var result = await _client.CatIndicesAsync(
                 d => d.RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
@@ -68,13 +60,15 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 _logger.Error($"Failed to retrieve list of indexes: {result.GetErrorMessage()}");
 
             if (indexes.Count == 0)
-                return;
+                return JobResult.Success;
 
             DateTime now = SystemClock.UtcNow;
             var indexesToDelete = indexes.Where(r => r.Date < now.Subtract(r.MaxAge)).ToList();
 
-            if (indexesToDelete.Count == 0)
-                return;
+            if (indexesToDelete.Count == 0) {
+                _logger.Info("No indexes selected for deletion.");
+                return JobResult.Success;
+            }
 
             // log that we are seeing indexes that should have been deleted already
             var oldIndexes = indexes.Where(s => s.Date < now.Subtract(s.MaxAge).AddDays(-1)).ToList();
@@ -109,7 +103,9 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 }
             }
 
-            await OnCompleted().AnyContext();
+            await OnCompleted(indexesToDelete.Select(i => i.Index).ToList(), sw.Elapsed).AnyContext();
+
+            return JobResult.Success;
         }
 
         public virtual Task OnIndexDeleted(string indexName, TimeSpan duration) {
@@ -122,7 +118,8 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             return Task.FromResult(true);
         }
 
-        public virtual Task OnCompleted() {
+        public virtual Task OnCompleted(IReadOnlyCollection<string> deletedIndexes, TimeSpan duration) {
+            _logger.Info($"Finished cleaning up {deletedIndexes.Count} in {duration.ToWords(true)}.");
             return Task.CompletedTask;
         }
 

@@ -31,8 +31,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration 
         }
 
         protected override void ConfigureSettings(ConnectionSettings settings) {
-            // Allow us to log out the responses.
-            settings.DisableDirectStreaming(); //.PrettyJson();
+            // only do this in test and dev mode
+            settings.DisableDirectStreaming().PrettyJson();
             base.ConfigureSettings(settings);
         }
 

@@ -23,7 +23,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Keyword(f => f.Name(e => e.CompanyId))
                     .Keyword(f => f.Name(e => e.CompanyName))
                     .Text(f => f.Name(e => e.Name))
-                    .Number(f => f.Name(e => e.Age))
+                    .Scalar(f => f.Age, f => f.Name(e => e.Age))
+                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
                     .GeoPoint(f => f.Name(e => e.Location))
                 ));
         }
@@ -36,12 +37,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
             builder.Register<AgeQueryBuilder>();
             builder.Register<CompanyQueryBuilder>();
             builder.UseQueryParser(this, c => c
-                .UseIncludes(i => ResolveInclude(i))
+                .UseIncludes(i => ResolveIncludeAsync(i))
                 .UseAliases(aliasMap)
             );
         }
 
-        private async Task<string> ResolveInclude(string name) {
+        private async Task<string> ResolveIncludeAsync(string name) {
             await Task.Delay(100);
             return "aliasedage:10";
         }
@@ -59,8 +60,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Keyword(f => f.Name(e => e.CompanyId))
                     .Keyword(f => f.Name(e => e.CompanyName))
                     .Text(f => f.Name(e => e.Name))
-                    .Number(f => f.Name(e => e.Age))
-                    .Number(f => f.Name(e => e.YearsEmployed))
+                    .Scalar(f => f.Age, f => f.Name(e => e.Age))
+                    .Scalar(f => f.YearsEmployed, f => f.Name(e => e.YearsEmployed))
+                    .Date(f => f.Name(e => e.LastReview))
+                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
                 ));
         }
     }
@@ -100,7 +103,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Keyword(f => f.Name(e => e.CompanyId))
                     .Keyword(f => f.Name(e => e.CompanyName))
                     .Text(f => f.Name(e => e.Name))
-                    .Number(f => f.Name(e => e.Age))
+                    .Scalar(f => f.Age, f => f.Name(e => e.Age))
+                    .Date(f => f.Name(e => e.LastReview))
+                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
                 ));
         }
 
@@ -123,7 +128,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Keyword(f => f.Name(e => e.CompanyId))
                     .Keyword(f => f.Name(e => e.CompanyName))
                     .Text(f => f.Name(e => e.Name))
-                    .Number(f => f.Name(e => e.Age))
+                    .Scalar(f => f.Age, f => f.Name(e => e.Age))
+                    .Date(f => f.Name(e => e.LastReview))
+                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
                 ));
         }
 
