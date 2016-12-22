@@ -11,6 +11,6 @@ namespace Foundatio.Repositories.Models {
             Date = date;
         }
 
-        public DateTime Date { get; private set; }
+        public DateTime Date { get; }
     }
 }

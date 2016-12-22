@@ -46,7 +46,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, data);
         }
 
-        private static readonly long _epochTicks = new DateTime(1970, 1, 1).Ticks;
+        private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
         public static IAggregate ToAggregate(this Nest.IAggregate aggregate) {
             var valueAggregate = aggregate as Nest.ValueAggregate;
             if (valueAggregate != null) {
@@ -182,7 +182,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     Key = objectKeyedBucket.Key,
                     KeyAsString = objectKeyedBucket.KeyAsString
                 };
-            
+
             return null;
         }
 
