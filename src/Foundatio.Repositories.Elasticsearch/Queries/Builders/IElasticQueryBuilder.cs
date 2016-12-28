@@ -21,6 +21,12 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             var elasticQueryOptions = options as IElasticQueryOptions;
             if (elasticQueryOptions != null)
                 ((IQueryVisitorContextWithAliasResolver)this).RootAliasResolver = elasticQueryOptions.RootAliasResolver;
+
+            var range = GetDateRange();
+            if (range != null) {
+                Data.Add(nameof(range.StartDate), range.GetStartDate());
+                Data.Add(nameof(range.EndDate), range.GetEndDate());
+            }
         }
 
         public IRepositoryQuery Source { get; }
@@ -44,6 +50,25 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
         public TOptions GetOptionsAs<TOptions>() where TOptions : class {
             return Options as TOptions;
+        }
+
+        private DateRange GetDateRange() {
+            var rangeQueries = new List<IDateRangeQuery> {
+                GetSourceAs<IDateRangeQuery>(),
+                GetSourceAs<ISystemFilterQuery>()?.SystemFilter as IDateRangeQuery
+            };
+
+            foreach (var query in rangeQueries) {
+                if (query == null)
+                    continue;
+
+                foreach (DateRange dateRange in query.DateRanges) {
+                    if (dateRange.UseDateRange)
+                        return dateRange;
+                }
+            }
+
+            return null;
         }
     }
 
