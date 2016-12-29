@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Utility;
@@ -10,6 +11,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         ICollection<DateRange> DateRanges { get; }
     }
 
+    [DebuggerDisplay("{Field}: {StartDate} - {EndDate}")]
     public class DateRange {
         public DateTime? StartDate { get; set; }
         public DateTime? EndDate { get; set; }
@@ -49,11 +51,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public static class DateRangeQueryExtensions {
-        public static T WithDateRange<T>(this T query, DateTime? start, DateTime? end, string field) where T : IDateRangeQuery {
+        public static T WithDateRange<T>(this T query, DateTime? utcStart, DateTime? utcEnd, string field) where T : IDateRangeQuery {
             if (String.IsNullOrEmpty(field))
                 throw new ArgumentNullException(nameof(field));
 
-            query.DateRanges?.Add(new DateRange { StartDate = start, EndDate = end, Field = field });
+            query.DateRanges?.Add(new DateRange { StartDate = utcStart, EndDate = utcEnd, Field = field });
             return query;
         }
     }
