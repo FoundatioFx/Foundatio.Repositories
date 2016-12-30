@@ -23,22 +23,17 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Keyword(f => f.Name(e => e.CompanyId))
                     .Keyword(f => f.Name(e => e.CompanyName))
                     .Text(f => f.Name(e => e.Name).Fields(f1 => f1.Keyword(s => s.Name("keyword").IgnoreAbove(256))))
-                    .Scalar(f => f.Age, f => f.Name(e => e.Age))
-                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
+                    .Scalar(f => f.Age, f => f.Name(e => e.Age).Alias("aliasedage"))
+                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview).Alias("next"))
                     .GeoPoint(f => f.Name(e => e.Location))
                 ));
         }
 
         protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
-            var aliasMap = new AliasMap {
-                { "aliasedage", "age" }
-            };
-
             builder.Register<AgeQueryBuilder>();
             builder.Register<CompanyQueryBuilder>();
             builder.UseQueryParser(this, c => c
                 .UseIncludes(i => ResolveIncludeAsync(i))
-                .UseAliases(aliasMap)
             );
         }
 
@@ -63,7 +58,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Scalar(f => f.Age, f => f.Name(e => e.Age))
                     .Scalar(f => f.YearsEmployed, f => f.Name(e => e.YearsEmployed))
                     .Date(f => f.Name(e => e.LastReview))
-                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
+                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview).Alias("next"))
                 ));
         }
     }
@@ -105,7 +100,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Text(f => f.Name(e => e.Name).Fields(f1 => f1.Keyword(s => s.Name("keyword").IgnoreAbove(256))))
                     .Scalar(f => f.Age, f => f.Name(e => e.Age))
                     .Date(f => f.Name(e => e.LastReview))
-                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
+                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview).Alias("next"))
                 ));
         }
 
@@ -130,7 +125,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Text(f => f.Name(e => e.Name).Fields(f1 => f1.Keyword(s => s.Name("keyword").IgnoreAbove(256))))
                     .Scalar(f => f.Age, f => f.Name(e => e.Age))
                     .Date(f => f.Name(e => e.LastReview))
-                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
+                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview).Alias("next"))
                 ));
         }
 

@@ -30,7 +30,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public Task<FindResults<Employee>> GetAllByAgeAsync(int age) {
             return FindAsync(new MyAppQuery().WithAge(age));
         }
-        
+
+        /// <summary>
+        /// Exposed only for testing purposes.
+        /// </summary>
+        public Task<FindResults<Employee>> GetByQueryAsync(MyAppQuery query) {
+            return FindAsync(query);
+        }
 
         public Task<FindResults<Employee>> GetAllByCompanyAsync(string company, PagingOptions paging = null, bool useCache = false) {
             return FindAsync(new MyAppQuery().WithCompany(company).WithPaging(paging).WithCacheKey(useCache ? "by-company" : null));

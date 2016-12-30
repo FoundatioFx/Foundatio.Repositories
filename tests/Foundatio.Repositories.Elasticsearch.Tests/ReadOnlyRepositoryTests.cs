@@ -2,8 +2,11 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Elasticsearch.Models;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
@@ -434,6 +437,20 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             var secondPageResults = await _identityRepository.GetAllAsync(paging: new PagingOptions().WithPage(2).WithLimit(1));
             Assert.Equal(secondDoc, secondPageResults.Documents.First());
+        }
+
+        [Fact]
+        public async Task GetAllWithAliasedDateRangeAsync() {
+            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: DateTimeOffset.Now));
+            Assert.NotNull(employee?.Id);
+
+            await _client.RefreshAsync(Indices.All);
+            var results = await _employeeRepository.GetByQueryAsync(new MyAppQuery().WithDateRange(DateTime.UtcNow.SubtractHours(1), DateTime.UtcNow, "last"));
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(1, results.Total);
         }
 
         [Fact]

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
+using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Utility;
 using Nest;
 
@@ -38,9 +39,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (dateRangeQuery?.DateRanges == null || dateRangeQuery.DateRanges.Count <= 0)
                 return Task.CompletedTask;
 
+            var resolver = (ctx as IQueryVisitorContextWithAliasResolver)?.RootAliasResolver;
             foreach (var dateRange in dateRangeQuery.DateRanges.Where(dr => dr.UseDateRange)) {
+                string field = dateRange.Field;
+                if (resolver != null)
+                    field = resolver(dateRange.Field)?.Name ?? dateRange.Field;
+
                 ctx.Filter &= new DateRangeQuery {
-                    Field = dateRange.Field,
+                    Field = field,
                     GreaterThanOrEqualTo = dateRange.GetStartDate(),
                     LessThanOrEqualTo = dateRange.GetEndDate()
                 };
