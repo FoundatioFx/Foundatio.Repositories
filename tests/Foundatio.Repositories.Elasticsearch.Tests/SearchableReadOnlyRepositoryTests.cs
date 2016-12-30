@@ -46,6 +46,34 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task SortByTextWithKeywordFieldAsync() {
+            await _employeeRepository.AddAsync(new List<Employee> {
+                EmployeeGenerator.Generate(name: "Blake"),
+                EmployeeGenerator.Generate(name: "Eric"),
+                EmployeeGenerator.Generate(name: "Jason AA"),
+                EmployeeGenerator.Generate(name: "Marylou")
+            });
+
+            await _client.RefreshAsync(Indices.All);
+            var searchRepository = (ISearchableReadOnlyRepository<Employee>)_employeeRepository;
+            var results = await searchRepository.SearchAsync(new MyAppQuery(), sort: "name");
+            var employees = results.Documents.ToArray();
+            Assert.Equal(4, employees.Length);
+            Assert.Equal("Blake", employees[0].Name);
+            Assert.Equal("Eric", employees[1].Name);
+            Assert.Equal("Jason AA", employees[2].Name);
+            Assert.Equal("Marylou", employees[3].Name);
+
+            results = await searchRepository.SearchAsync(new MyAppQuery(), sort: "-name");
+            employees = results.Documents.ToArray();
+            Assert.Equal(4, employees.Length);
+            Assert.Equal("Marylou", employees[0].Name);
+            Assert.Equal("Jason AA", employees[1].Name);
+            Assert.Equal("Eric", employees[2].Name);
+            Assert.Equal("Blake", employees[3].Name);
+        }
+
+        [Fact]
         public async Task SearchByQueryWithIncludesAnAliases() {
             var employees = EmployeeGenerator.GenerateEmployees(age: 10);
             await _employeeRepository.AddAsync(employees);
