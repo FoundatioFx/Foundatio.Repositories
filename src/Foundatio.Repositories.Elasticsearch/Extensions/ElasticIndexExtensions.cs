@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -195,10 +195,10 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         }
 
         public static Nest.PropertiesDescriptor<T> SetupDefaults<T>(this Nest.PropertiesDescriptor<T> pd) where T : class {
-            var hasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
-            var hasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
-            var hasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
-            var supportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(typeof(T));
+            bool hasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
+            bool hasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
+            bool hasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
+            bool supportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(typeof(T));
 
             if (hasIdentity)
                 pd.Keyword(p => p.Name(d => (d as IIdentity).Id));
