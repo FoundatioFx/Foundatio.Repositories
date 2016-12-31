@@ -32,7 +32,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             _repositories.Add(new RepositoryMaxAge { Name = name, MaxAge = maxAge });
         }
 
-        public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default(CancellationToken)) {
+        public async Task<JobResult> RunAsync(CancellationToken cancellationToken = default(CancellationToken)) {
             _logger.Info("Starting snapshot cleanup...");
             foreach (var repo in _repositories)
                 await DeleteOldSnapshotsAsync(repo.Name, repo.MaxAge, cancellationToken).AnyContext();
