@@ -5,16 +5,16 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class MonthlyIndexType<T> : TimeSeriesIndexType<T> where T : class {
-        public MonthlyIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null) 
+        public MonthlyIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null)
             : base(index, name, getDocumentDateUtc) { }
     }
 
     public class MonthlyIndex: DailyIndex {
-        public MonthlyIndex(IElasticConfiguration configuration, string name, int version = 1) 
+        public MonthlyIndex(IElasticConfiguration configuration, string name, int version = 1)
             : base(configuration, name, version) {
             DateFormat = "yyyy.MM";
         }
-        
+
         public override string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd) {
             if (!utcStart.HasValue)
                 utcStart = SystemClock.UtcNow;
@@ -36,7 +36,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected override DateTime GetIndexExpirationDate(DateTime utcDate) {
-            return MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero ? utcDate.EndOfMonth().Add(MaxIndexAge.Value) : DateTime.MaxValue;
+            return MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero ? utcDate.EndOfMonth().SafeAdd(MaxIndexAge.Value) : DateTime.MaxValue;
         }
 
         protected override bool ShouldCreateAlias(DateTime documentDateUtc, IndexAliasAge alias) {

@@ -48,7 +48,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public bool DiscardExpiredIndexes { get; set; } = true;
 
         protected virtual DateTime GetIndexExpirationDate(DateTime utcDate) {
-            return MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero ? utcDate.EndOfDay().Add(MaxIndexAge.Value) : DateTime.MaxValue;
+            return MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero ? utcDate.EndOfDay().SafeAdd(MaxIndexAge.Value) : DateTime.MaxValue;
         }
 
         public IReadOnlyCollection<IndexAliasAge> Aliases => _frozenAliases.Value;
@@ -102,7 +102,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             DateTime result;
             if (DateTime.TryParseExact(index, $"\'{Name}-v{version}-\'{DateFormat}", EnUs, DateTimeStyles.AdjustToUniversal, out result))
-                return result.Date;
+                return DateTime.SpecifyKind(result.Date, DateTimeKind.Utc);
 
             return DateTime.MaxValue;
         }

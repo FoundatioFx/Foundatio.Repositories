@@ -162,6 +162,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var indices = response.Records
                 .Where(i => version < 0 || GetIndexVersion(i.Index) == version)
                 .Select(i => new IndexInfo { DateUtc = GetIndexDate(i.Index), Index = i.Index, Version = GetIndexVersion(i.Index) })
+                .OrderBy(i => i.DateUtc)
                 .ToList();
 
             _logger.Info($"Retrieved list of {indices.Count} indexes in {sw.Elapsed.ToWords(true)}");
@@ -172,6 +173,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return DateTime.MaxValue;
         }
 
+        [DebuggerDisplay("{Index} (Date: {DateUtc} Version: {Version} CurrentVersion: {CurrentVersion})")]
         protected class IndexInfo {
             public string Index { get; set; }
             public int Version { get; set; }
