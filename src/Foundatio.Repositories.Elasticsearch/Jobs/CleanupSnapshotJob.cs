@@ -41,7 +41,6 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 await DeleteOldSnapshotsAsync(repo.Name, repo.MaxAge, cancellationToken).AnyContext();
 
             _logger.Info("Finished snapshot cleanup.");
-
             return JobResult.Success;
         }
 
