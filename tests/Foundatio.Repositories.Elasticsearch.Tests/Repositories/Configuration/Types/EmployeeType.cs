@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Foundatio.Logging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
@@ -26,7 +27,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Scalar(f => f.Age, f => f.Name(e => e.Age).Alias("aliasedage"))
                     .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview).Alias("next"))
                     .GeoPoint(f => f.Name(e => e.Location))
-                ));
+                    .Object<Dictionary<string, object>>(f => f.Name(e => e.Data).Properties(p1 => p1
+                        .Object<object>(f2 => f2.Name("@user_meta").Properties(p2 => p2
+                            .Text(f3 => f3.Name("twitter_id").RootAlias("twitter").IncludeInAll().Boost(1.1).Fields(f4 => f4.Keyword(f5 => f5.Name("keyword"))))
+                            .Number(f3 => f3.Name("twitter_followers").RootAlias("followers").IncludeInAll().Boost(1.1))))
+                        ))
+                    ));
         }
 
         protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {

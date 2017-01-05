@@ -19,6 +19,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
         public DateTime UpdatedUtc { get; set; }
         public long Version { get; set; }
         public bool IsDeleted { get; set; }
+        public Dictionary<string, object> Data { get; set; }
 
         protected bool Equals(Employee other) {
             return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase) &&

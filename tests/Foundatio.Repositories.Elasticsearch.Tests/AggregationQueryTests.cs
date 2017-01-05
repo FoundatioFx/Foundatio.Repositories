@@ -60,6 +60,40 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task GetAliasedNumberAggregationsWithFilterAsync() {
+            await CreateDataAsync();
+
+            const string aggregations = "min:aliasedage max:aliasedage avg:aliasedage sum:aliasedage";
+            var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithFilter("aliasedage: <40").WithAggregations(aggregations));
+            Assert.Equal(7, result.Total);
+            Assert.Equal(4, result.Aggregations.Count);
+            Assert.Equal(19, result.Aggregations.Min("min_aliasedage").Value);
+            Assert.Equal(35, result.Aggregations.Min("max_aliasedage").Value);
+            Assert.Equal(Math.Round(27.2857142857143, 5), Math.Round(result.Aggregations.Average("avg_aliasedage").Value.GetValueOrDefault(), 5));
+            Assert.Equal(191, result.Aggregations.Sum("sum_aliasedage").Value);
+        }
+
+        [Fact]
+        public async Task GetNestedAliasedNumberAggregationsWithFilterAsync() {
+            await _employeeRepository.AddAsync(new Employee {
+                Name = "Blake",
+                Age = 30,
+                Data = new Dictionary<string, object> { { "@user_meta", new { twitter_id = "blaken", twitter_followers = 1000 } } }
+            });
+            await _client.RefreshAsync(Indices.AllIndices);
+
+            const string aggregations = "min:followers max:followers avg:followers sum:followers cardinality:twitter";
+            var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithAggregations(aggregations));
+            Assert.Equal(1, result.Total);
+            Assert.Equal(5, result.Aggregations.Count);
+            Assert.Equal(1000, result.Aggregations.Min("min_followers").Value);
+            Assert.Equal(1000, result.Aggregations.Min("max_followers").Value);
+            Assert.Equal(1000, result.Aggregations.Average("avg_followers").Value.GetValueOrDefault());
+            Assert.Equal(1000, result.Aggregations.Sum("sum_followers").Value);
+            Assert.Equal(1, result.Aggregations.Cardinality("cardinality_twitter").Value);
+        }
+
+        [Fact]
         public async Task GetCardinalityAggregationsAsync() {
             await CreateDataAsync();
 
