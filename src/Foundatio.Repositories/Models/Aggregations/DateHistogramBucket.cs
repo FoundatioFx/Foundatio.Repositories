@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 
 namespace Foundatio.Repositories.Models {
-    [DebuggerDisplay("{Date}")]
+    [DebuggerDisplay("Date: {Date}: Ticks: {Key}")]
     public class DateHistogramBucket : KeyedBucket<double> {
         public DateHistogramBucket() { }
 

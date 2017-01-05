@@ -1,6 +1,8 @@
 ﻿using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace Foundatio.Repositories.Models {
+    [DebuggerDisplay("Percentile: {Percentile} Value: {Value}")]
     public class PercentileItem {
         public double Percentile { get; set; }
         public double Value { get; set; }

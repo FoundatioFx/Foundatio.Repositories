@@ -1,8 +1,9 @@
 ﻿using Newtonsoft.Json.Linq;
 using System;
+using System.Diagnostics;
 
 namespace Foundatio.Repositories.Models {
-
+    [DebuggerDisplay("Value: {Value}")]
     public class ObjectValueAggregate : MetricAggregateBase {
         public object Value { get; set; }
 

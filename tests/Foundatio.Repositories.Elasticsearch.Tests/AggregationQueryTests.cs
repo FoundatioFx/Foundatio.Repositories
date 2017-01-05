@@ -94,6 +94,25 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task GetAliasedNumberAggregationThatCausesMappingAsync() {
+            await _employeeRepository.AddAsync(new Employee {
+                Name = "Blake",
+                Age = 30,
+                NextReview = DateTimeOffset.UtcNow,
+                Data = new Dictionary<string, object> { { "@user_meta", new { twitter_id = "blaken", twitter_followers = 1000 } } }
+            });
+            await _client.RefreshAsync(Indices.AllIndices);
+
+            var thisWillTriggerMappingRefresh = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithFilter("fieldDoestExist:true"));
+            Assert.Equal(0, thisWillTriggerMappingRefresh.Total);
+
+            var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithAggregations("cardinality:twitter"));
+            Assert.Equal(1, result.Total);
+            Assert.Equal(1, result.Aggregations.Count);
+            Assert.Equal(1, result.Aggregations.Cardinality("cardinality_twitter").Value);
+        }
+
+        [Fact]
         public async Task GetCardinalityAggregationsAsync() {
             await CreateDataAsync();
 
