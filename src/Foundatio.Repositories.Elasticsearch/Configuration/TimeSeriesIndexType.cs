@@ -43,7 +43,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
                 if (HasIdentity) {
                     // This is also called when trying to create the document id.
-                    var id = ((IIdentity)document).Id;
+                    string id = ((IIdentity)document).Id;
                     ObjectId objectId;
                     if (id != null && ObjectId.TryParse(id, out objectId) && objectId.CreationTime != DateTime.MinValue)
                         return objectId.CreationTime;
@@ -58,7 +58,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ArgumentNullException(nameof(document));
 
             if (HasIdentity) {
-                var id = ((IIdentity)document).Id;
+                string id = ((IIdentity)document).Id;
                 if (!String.IsNullOrEmpty(id))
                     return id;
             }

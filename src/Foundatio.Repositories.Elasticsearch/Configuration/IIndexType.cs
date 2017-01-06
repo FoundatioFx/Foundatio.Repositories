@@ -98,7 +98,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ArgumentNullException(nameof(document));
 
             if (HasIdentity) {
-                var id = ((IIdentity)document).Id;
+                string id = ((IIdentity)document).Id;
                 if (!String.IsNullOrEmpty(id))
                     return id;
             }

@@ -37,7 +37,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var employees = await _employeeRepository.GetAllByAgeAsync(20);
             Assert.Equal(1, employees.Documents.Count);
 
-            var json = JsonConvert.SerializeObject(employees);
+            string json = JsonConvert.SerializeObject(employees);
             var results = JsonConvert.DeserializeObject<FindResults<Employee>>(json);
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);

@@ -19,7 +19,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var parentQuery = ctx.GetSourceAs<IParentQuery>();
-            var hasIds = ctx.GetSourceAs<IIdentityQuery>()?.Ids.Count > 0;
+            bool hasIds = ctx.GetSourceAs<IIdentityQuery>()?.Ids.Count > 0;
             if (parentQuery == null)
                 return;
 
