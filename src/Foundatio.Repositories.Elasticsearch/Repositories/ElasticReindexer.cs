@@ -87,6 +87,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync, int startProgress = 0, int endProgress = 100, DateTime? startTime = null) {
             const string scroll = "5m";
+            bool errorIndexCreated = false;
             string timestampField = workItem.TimestampField ?? "_timestamp";
             var scopedCacheClient = new ScopedCacheClient(_cache, workItem.GetHashCode().ToString());
 
@@ -133,36 +134,50 @@ namespace Foundatio.Repositories.Elasticsearch {
                             ConfigureIndexItem(b, h, workItem.NewIndex);
 
                         return b;
-                    }), logger: _logger).AnyContext();
+                    }), logger: _logger, maxAttempts: 2).AnyContext();
                 } catch (Exception ex) {
                     _logger.Error(ex, $"Error trying to do bulk index: {ex.Message}");
                 }
 
                 if (bulkResponse == null || !bulkResponse.IsValid || bulkResponse.ItemsWithErrors.Any()) {
-                    string message = $"Reindex bulk error: old={workItem.OldIndex} new={workItem.NewIndex} completed={completed} message={bulkResponse.GetErrorMessage()}";
-                    _logger.Warn(bulkResponse.ConnectionStatus.OriginalException, message);
+                    string message;
+                    if (bulkResponse != null) {
+                        message = $"Reindex bulk error: old={workItem.OldIndex} new={workItem.NewIndex} completed={completed} message={bulkResponse?.GetErrorMessage()}";
+                        _logger.Warn(bulkResponse.ConnectionStatus.OriginalException, message);
+                    }
+
                     // try each doc individually so we can see which doc is breaking us
+                    var hitsToRetry = bulkResponse?.ItemsWithErrors.Select(i => results1.Hits.First(hit => hit.Id == i.Id)) ?? results1.Hits;
+                    foreach (var itemToRetry in hitsToRetry) {
+                        IIndexResponse response;
+                        try {
+                            response = await _client.IndexAsync(itemToRetry.Source, d => ConfigureItem(d, itemToRetry, workItem.NewIndex)).AnyContext();
+                            if (response.IsValid)
+                                continue;
 
-                    var hitsToRetry = bulkResponse.ItemsWithErrors.Select(i => results.Hits.First(hit => hit.Id == i.Id));
-                    foreach (var itemWithError in hitsToRetry) {
-                        var response = await _client.IndexAsync(itemWithError.Source, d => ConfigureItem(d, itemWithError, workItem.NewIndex)).AnyContext();
-                        if (response.IsValid)
-                            continue;
+                            message = $"Reindex error: old={workItem.OldIndex} new={workItem.NewIndex} id={itemToRetry.Id} completed={completed} message={response.GetErrorMessage()}";
+                            _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message);
 
-                        message = $"Reindex error: old={workItem.OldIndex} new={workItem.NewIndex} id={itemWithError.Id} completed={completed} message={response.GetErrorMessage()}";
-                        _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message);
+                            var errorDoc = new JObject {
+                                ["Type"] = itemToRetry.Type,
+                                ["Content"] = itemToRetry.Source.ToString(Formatting.Indented)
+                            };
 
-                        var errorDoc = new JObject(new {
-                            itemWithError.Type,
-                            Content = itemWithError.Source.ToString(Formatting.Indented)
-                        });
+                            var errorIndex = workItem.NewIndex + "-error";
+                            if (!errorIndexCreated && !(await _client.IndexExistsAsync(errorIndex).AnyContext()).Exists) {
+                                await _client.CreateIndexAsync(errorIndex).AnyContext();
+                                errorIndexCreated = true;
+                            }
 
-                        // put the document into an error index
-                        response = await _client.IndexAsync(errorDoc, d => d.Index(workItem.NewIndex + "-error").Id(itemWithError.Id)).AnyContext();
-                        if (response.IsValid)
-                            continue;
+                            // put the document into an error index
+                            response = await _client.IndexAsync(errorDoc, d => d.Index(errorIndex).Id(itemToRetry.Id)).AnyContext();
+                            if (response.IsValid)
+                                continue;
+                        } catch (Exception exception) {
+                            throw;
+                        }
 
-                        message = $"Reindex error: old={workItem.OldIndex} new={workItem.NewIndex} id={itemWithError.Id} completed={completed} message={response.GetErrorMessage()}";
+                        message = $"Reindex error: old={workItem.OldIndex} new={workItem.NewIndex} id={itemToRetry.Id} completed={completed} message={response.GetErrorMessage()}";
                         _logger.Error().Exception(response.ConnectionStatus.OriginalException).Message(message);
                         throw new ReindexException(response.ConnectionStatus, message);
                     }
