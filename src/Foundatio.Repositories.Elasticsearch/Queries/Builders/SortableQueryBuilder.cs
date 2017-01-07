@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Nest;
@@ -30,6 +31,34 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return true;
 
             return allowedFields.Contains(field, StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    public static class SortableQueryExtensions {
+        public static T WithSort<T>(this T query, Field field, SortOrder? order = null) where T: ISortableQuery {
+            query.SortFields?.Add(new SortField { Field = field, Order = order });
+            return query;
+        }
+
+        public static T WithSortDescending<T>(this T query, Field field) where T : ISortableQuery {
+            return query.WithSort(field, SortOrder.Descending);
+        }
+
+        public static T WithSortAscending<T>(this T query, Field field) where T : ISortableQuery {
+            return query.WithSort(field, SortOrder.Ascending);
+        }
+
+        public static T WithSort<T, TModel>(this T query, Expression<Func<TModel, object>> objectPath, SortOrder? order = null) where T : ISortableQuery {
+            query.SortFields?.Add(new SortField { Field = objectPath, Order = order });
+            return query;
+        }
+
+        public static T WithSortDescending<T, TModel>(this T query, Expression<Func<TModel, object>> objectPath) where T : ISortableQuery {
+            return query.WithSort(objectPath, SortOrder.Descending);
+        }
+
+        public static T WithSortAscending<T, TModel>(this T query, Expression<Func<TModel, object>> objectPath) where T : ISortableQuery {
+            return query.WithSort(objectPath, SortOrder.Ascending);
         }
     }
 }

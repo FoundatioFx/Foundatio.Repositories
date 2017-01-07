@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Nest;
 using System.Collections;
+using System.Linq.Expressions;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IFieldConditionsQuery {
@@ -61,24 +62,46 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public static class FieldValueQueryExtensions {
-        public static T WithFieldEquals<T>(this T query, Field field, object value) where T : IFieldConditionsQuery {
-            query.FieldConditions?.Add(new FieldCondition { Field = field, Value = value, Operator = ComparisonOperator.Equals });
+        public static T WithFieldCondition<T>(this T query, Field field, ComparisonOperator op, object value = null) where T : IFieldConditionsQuery {
+            query.FieldConditions?.Add(new FieldCondition { Field = field, Value = value, Operator = op });
             return query;
+        }
+
+        public static T WithFieldEquals<T>(this T query, Field field, object value) where T : IFieldConditionsQuery {
+            return query.WithFieldCondition(field, ComparisonOperator.Equals, value);
         }
 
         public static T WithFieldNotEquals<T>(this T query, Field field, object value) where T : IFieldConditionsQuery {
-            query.FieldConditions?.Add(new FieldCondition { Field = field, Value = value, Operator = ComparisonOperator.NotEquals });
-            return query;
+            return query.WithFieldCondition(field, ComparisonOperator.NotEquals, value);
         }
 
         public static T WithEmptyField<T>(this T query, Field field) where T : IFieldConditionsQuery {
-            query.FieldConditions?.Add(new FieldCondition { Field = field, Operator = ComparisonOperator.IsEmpty });
-            return query;
+            return query.WithFieldCondition(field, ComparisonOperator.IsEmpty);
         }
 
         public static T WithNonEmptyField<T>(this T query, Field field) where T : IFieldConditionsQuery {
-            query.FieldConditions?.Add(new FieldCondition { Field = field, Operator = ComparisonOperator.HasValue });
+            return query.WithFieldCondition(field, ComparisonOperator.HasValue);
+        }
+
+        public static T WithFieldCondition<T, TModel>(this T query, Expression<Func<TModel, object>> objectPath, ComparisonOperator op, object value = null) where T : IFieldConditionsQuery {
+            query.FieldConditions?.Add(new FieldCondition { Field = objectPath, Value = value, Operator = op });
             return query;
+        }
+
+        public static T WithFieldEquals<T, TModel>(this T query, Expression<Func<TModel, object>> objectPath, object value) where T : IFieldConditionsQuery {
+            return query.WithFieldCondition(objectPath, ComparisonOperator.Equals, value);
+        }
+
+        public static T WithFieldNotEquals<T, TModel>(this T query, Expression<Func<TModel, object>> objectPath, object value) where T : IFieldConditionsQuery {
+            return query.WithFieldCondition(objectPath, ComparisonOperator.NotEquals, value);
+        }
+
+        public static T WithEmptyField<T, TModel>(this T query, Expression<Func<TModel, object>> objectPath) where T : IFieldConditionsQuery {
+            return query.WithFieldCondition(objectPath, ComparisonOperator.IsEmpty);
+        }
+
+        public static T WithNonEmptyField<T, TModel>(this T query, Expression<Func<TModel, object>> objectPath) where T : IFieldConditionsQuery {
+            return query.WithFieldCondition(objectPath, ComparisonOperator.HasValue);
         }
     }
 }
