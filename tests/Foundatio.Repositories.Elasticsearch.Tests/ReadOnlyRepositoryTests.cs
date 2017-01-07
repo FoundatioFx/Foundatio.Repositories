@@ -445,7 +445,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(employee?.Id);
 
             await _client.RefreshAsync(Indices.All);
-            var results = await _employeeRepository.GetByQueryAsync(new MyAppQuery().WithDateRange(DateTime.UtcNow.SubtractHours(1), DateTime.UtcNow, "last"));
+            var results = await _employeeRepository.GetByQueryAsync(new MyAppQuery().WithDateRange(DateTime.UtcNow.SubtractHours(1), DateTime.UtcNow, "next"));
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);

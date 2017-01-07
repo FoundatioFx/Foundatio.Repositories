@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Configuration;
 using System.Diagnostics;
 using System.Linq;
+using System.Net.Sockets;
 using Elasticsearch.Net;
 using Foundatio.Caching;
 using Foundatio.Jobs;
@@ -24,10 +26,34 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration 
         }
 
         protected override IConnectionPool CreateConnectionPool() {
-            var connectionString = ConfigurationManager.ConnectionStrings["ElasticConnectionString"].ConnectionString;
+            string connectionString = ConfigurationManager.ConnectionStrings["ElasticConnectionString"]?.ConnectionString;
             bool fiddlerIsRunning = Process.GetProcessesByName("fiddler").Length > 0;
-            return new StaticConnectionPool(connectionString.Split(',')
-                .Select(url => new Uri(fiddlerIsRunning ? url.Replace("localhost", "ipv4.fiddler") : url)));
+
+            var servers = new List<Uri>();
+            if (!String.IsNullOrEmpty(connectionString)) {
+                servers.AddRange(
+                    connectionString.Split(',')
+                        .Select(url => new Uri(fiddlerIsRunning ? url.Replace("localhost", "ipv4.fiddler") : url)));
+            } else {
+                servers.Add(new Uri($"http://{(fiddlerIsRunning ? "ipv4.fiddler" : "localhost")}:9200"));
+                if (IsPortOpen(9201))
+                    servers.Add(new Uri($"http://{(fiddlerIsRunning ? "ipv4.fiddler" : "localhost")}:9201"));
+                if (IsPortOpen(9202))
+                    servers.Add(new Uri($"http://{(fiddlerIsRunning ? "ipv4.fiddler" : "localhost")}:9202"));
+            }
+
+            return new StaticConnectionPool(servers);
+        }
+
+        private bool IsPortOpen(int port) {
+            using (TcpClient tcpClient = new TcpClient()) {
+                try {
+                    tcpClient.Connect("127.0.0.1", port);
+                    return true;
+                } catch (Exception) {
+                    return false;
+                }
+            }
         }
 
         protected override void ConfigureSettings(ConnectionSettings settings) {

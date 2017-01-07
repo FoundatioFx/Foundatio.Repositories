@@ -1,9 +1,11 @@
 ﻿using System;
+using System.CodeDom;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Parsers.LuceneQueries.Visitors;
+using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Utility;
 using Nest;
 
@@ -39,11 +41,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (dateRangeQuery?.DateRanges == null || dateRangeQuery.DateRanges.Count <= 0)
                 return Task.CompletedTask;
 
-            var resolver = (ctx as IQueryVisitorContextWithAliasResolver)?.RootAliasResolver;
+            var elasticQueryOptions = ctx.GetOptionsAs<IElasticQueryOptions>();
             foreach (var dateRange in dateRangeQuery.DateRanges.Where(dr => dr.UseDateRange)) {
                 string field = dateRange.Field;
-                if (resolver != null)
-                    field = resolver(dateRange.Field)?.Name ?? dateRange.Field;
+                if (elasticQueryOptions != null && elasticQueryOptions.IndexType != null)
+                    field = elasticQueryOptions.IndexType.GetFieldName(dateRange.Field);
 
                 ctx.Filter &= new DateRangeQuery {
                     Field = field,

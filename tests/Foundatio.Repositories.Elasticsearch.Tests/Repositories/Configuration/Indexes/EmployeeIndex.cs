@@ -1,6 +1,7 @@
 ﻿using System;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Types;
+using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes {
     public sealed class EmployeeIndex : Index {
@@ -9,6 +10,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
         }
 
         public EmployeeType Employee { get; }
+
+        public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+            return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+        }
     }
 
     public sealed class EmployeeIndexWithYearsEmployed : Index {
@@ -17,6 +22,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
         }
 
         public EmployeeTypeWithYearsEmployed Employee { get; }
+
+        public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+            return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+        }
     }
 
     public sealed class VersionedEmployeeIndex : VersionedIndex {
@@ -25,6 +34,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
         }
 
         public EmployeeType Employee { get; }
+
+        public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+            return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+        }
     }
 
     public sealed class DailyEmployeeIndex : DailyIndex {
@@ -36,6 +49,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
         }
 
         public DailyEmployeeType Employee { get; }
+
+        public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+            return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+        }
     }
 
     public sealed class DailyEmployeeIndexWithWrongEmployeeType : DailyIndex {
@@ -56,5 +73,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
         }
 
         public MonthlyEmployeeType Employee { get; }
+
+        public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+            return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+        }
     }
 }

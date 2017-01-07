@@ -7,6 +7,9 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Nest;
 using System.Linq;
+using System.Linq.Expressions;
+using Foundatio.Parsers.ElasticQueries.Visitors;
+using Foundatio.Parsers.LuceneQueries.Visitors;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface IIndexType : IDisposable {
@@ -23,6 +26,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         AliasesDescriptor ConfigureIndexAliases(AliasesDescriptor aliases);
         MappingsDescriptor ConfigureIndexMappings(MappingsDescriptor mappings);
         IElasticQueryBuilder QueryBuilder { get; }
+        string GetFieldName(Field field);
+        string GetPropertyName(PropertyName property);
     }
 
     public static class IndexTypeExtensions {
@@ -56,6 +61,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         /// Creates a new document id. If a date can be resolved, it will be taken into account when creating a new id.
         /// </summary>
         string CreateDocumentId(T document);
+        string GetFieldName(Expression<Func<T, object>> objectPath);
+        string GetPropertyName(Expression<Func<T, object>> objectPath);
     }
 
     public abstract class IndexTypeBase<T> : IIndexType<T> where T : class {
@@ -63,6 +70,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         protected static readonly bool HasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
         private readonly string _typeName = typeof(T).Name.ToLower();
         private readonly Lazy<IElasticQueryBuilder> _queryBuilder;
+        private readonly Lazy<AliasMap> _aliasMap;
 
         public IndexTypeBase(IIndex index, string name = null) {
             if (index == null)
@@ -72,6 +80,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             Index = index;
             Type = typeof(T);
             _queryBuilder = new Lazy<IElasticQueryBuilder>(CreateQueryBuilder);
+            _aliasMap = new Lazy<AliasMap>(GetAliasMap);
         }
 
         protected virtual IElasticQueryBuilder CreateQueryBuilder() {
@@ -129,11 +138,30 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public IElasticQueryBuilder QueryBuilder => _queryBuilder.Value;
+        public AliasMap AliasMap => _aliasMap.Value;
 
         public virtual void Dispose() {}
 
         public int DefaultCacheExpirationSeconds { get; set; } = RepositoryConstants.DEFAULT_CACHE_EXPIRATION_SECONDS;
         public int BulkBatchSize { get; set; } = 1000;
+
+        private AliasMap GetAliasMap() {
+            var visitor = new AliasMappingVisitor(Configuration.Client.Infer);
+            var walker = new MappingWalker(visitor);
+            var descriptor = BuildMapping(new TypeMappingDescriptor<T>());
+            walker.Accept(descriptor);
+
+            return visitor.RootAliasMap;
+        }
+
+        public string GetFieldName(Field field) {
+            var result = AliasMap?.Resolve(field.Name);
+            return Configuration.Client.Infer.Field(!String.IsNullOrEmpty(result?.Name) ? result.Name : field);
+        }
+
+        public string GetFieldName(Expression<Func<T, object>> objectPath) => Configuration.Client.Infer.Field(objectPath);
+        public string GetPropertyName(PropertyName property) => Configuration.Client.Infer.PropertyName(property);
+        public string GetPropertyName(Expression<Func<T, object>> objectPath) => Configuration.Client.Infer.PropertyName(objectPath);
     }
 
     public interface IHavePipelinedIndexType {

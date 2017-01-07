@@ -513,10 +513,6 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         #endregion
 
-        protected string GetPropertyName(string propertyName) {
-            return _client.Infer.PropertyName(typeof(T).GetProperty(propertyName));
-        }
-
         #region Events
 
         public AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; } = new AsyncEvent<BeforeQueryEventArgs<T>>();

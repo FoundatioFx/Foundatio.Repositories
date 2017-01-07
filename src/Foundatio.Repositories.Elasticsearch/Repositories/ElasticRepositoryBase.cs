@@ -33,7 +33,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             NotificationsEnabled = _messagePublisher != null;
 
             if (HasCreatedDate) {
-                var propertyName = GetPropertyName(nameof(IHaveCreatedDate.CreatedUtc));
+                string propertyName = indexType.GetPropertyName(e => ((IHaveCreatedDate)e).CreatedUtc);
                 FieldsRequiredForRemove.Add(propertyName);
             }
         }

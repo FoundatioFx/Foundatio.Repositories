@@ -59,7 +59,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public override async Task DeleteAsync() {
-            var currentVersion = await GetCurrentVersionAsync();
+            int currentVersion = await GetCurrentVersionAsync();
             if (currentVersion != Version)
                 await DeleteIndexAsync(String.Concat(Name, "-v", currentVersion)).AnyContext();
 
@@ -94,7 +94,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (await AliasExistsAsync(Name).AnyContext())
                 return;
 
-            var currentVersion = await GetCurrentVersionAsync().AnyContext();
+            int currentVersion = await GetCurrentVersionAsync().AnyContext();
             if (currentVersion < 0)
                 currentVersion = Version;
 
