@@ -140,7 +140,7 @@
     <Compile Include="Queries\QueryParts\ElasticIndexesQuery.cs" />
     <Compile Include="Queries\Builders\ParentQueryBuilder.cs" />
     <Compile Include="Queries\Builders\SearchQueryBuilder.cs" />
-    <Compile Include="Queries\Builders\SelectedFieldsQueryBuilder.cs" />
+    <Compile Include="Queries\Builders\FieldIncludesQueryBuilder.cs" />
     <Compile Include="Queries\Builders\SoftDeletesQueryBuilder.cs" />
     <Compile Include="Queries\Builders\SortableQueryBuilder.cs" />
     <Compile Include="Queries\QueryParts\TypeQuery.cs" />

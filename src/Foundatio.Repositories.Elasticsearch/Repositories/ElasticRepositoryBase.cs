@@ -241,7 +241,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
         }
 
-        protected async Task<long> PatchAllAsync<TQuery>(TQuery query, object update, bool sendNotifications = true, Action<IEnumerable<string>> updatedIdsCallback = null) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery {
+        protected async Task<long> PatchAllAsync<TQuery>(TQuery query, object update, bool sendNotifications = true, Action<IEnumerable<string>> updatedIdsCallback = null) where TQuery : IPagableQuery, IFieldIncludesQuery, IRepositoryQuery {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
@@ -318,8 +318,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                     affectedRecords += response.Updated + response.Noops;
                     Debug.Assert(response.Total == affectedRecords, "Unable to update all documents");
                 } else {
-                    if (!query.SelectedFields.Contains("id"))
-                        query.SelectedFields.Add("id");
+                    if (!query.FieldIncludes.Contains("id"))
+                        query.FieldIncludes.Add("id");
 
                     affectedRecords += await BatchProcessAsync(query, async results => {
                         var bulkResult = await _client.BulkAsync(b => {
@@ -453,14 +453,14 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         protected List<string> FieldsRequiredForRemove { get; } = new List<string>();
 
-        protected async Task<long> RemoveAllAsync<TQuery>(TQuery query, bool sendNotifications = true) where TQuery: IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery {
+        protected async Task<long> RemoveAllAsync<TQuery>(TQuery query, bool sendNotifications = true) where TQuery: IPagableQuery, IFieldIncludesQuery, IRepositoryQuery {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
             if (IsCacheEnabled) {
                 foreach (var field in FieldsRequiredForRemove.Union(new[] { "id" }))
-                    if (!query.SelectedFields.Contains(field))
-                        query.SelectedFields.Add(field);
+                    if (!query.FieldIncludes.Contains(field))
+                        query.FieldIncludes.Add(field);
 
                 // TODO: What if you only want to send one notification?
                 return await BatchProcessAsync(query, async results => {
@@ -490,11 +490,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             return response.Deleted;
         }
 
-        protected Task<long> BatchProcessAsync<TQuery>(TQuery query, Func<FindResults<T>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery {
+        protected Task<long> BatchProcessAsync<TQuery>(TQuery query, Func<FindResults<T>, Task<bool>> processAsync) where TQuery : IPagableQuery, IFieldIncludesQuery, IRepositoryQuery {
             return BatchProcessAsAsync(query, processAsync);
         }
 
-        protected async Task<long> BatchProcessAsAsync<TQuery, TResult>(TQuery query, Func<FindResults<TResult>, Task<bool>> processAsync) where TQuery : IPagableQuery, ISelectedFieldsQuery, IRepositoryQuery where TResult : class, new() {
+        protected async Task<long> BatchProcessAsAsync<TQuery, TResult>(TQuery query, Func<FindResults<TResult>, Task<bool>> processAsync) where TQuery : IPagableQuery, IFieldIncludesQuery, IRepositoryQuery where TResult : class, new() {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 

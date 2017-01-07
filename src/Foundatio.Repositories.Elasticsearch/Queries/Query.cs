@@ -9,7 +9,7 @@ using IDateRangeQuery = Foundatio.Repositories.Elasticsearch.Queries.Builders.ID
 namespace Foundatio.Repositories.Elasticsearch.Queries {
     public class Query : ISystemFilterQuery, IIdentityQuery, ICachableQuery, IDateRangeQuery,
         IFieldConditionsQuery, IPagableQuery, ISearchQuery, IAggregationQuery,
-        ISelectedFieldsQuery, ISortableQuery, IParentQuery, IChildQuery, ISoftDeletesQuery {
+        IFieldIncludesQuery, ISortableQuery, IParentQuery, IChildQuery, ISoftDeletesQuery {
 
         public ISet<string> Ids { get; } = new HashSet<string>();
         public ISet<string> ExcludedIds { get; } = new HashSet<string>();
@@ -22,7 +22,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         public string Filter { get; set; }
         public string Criteria { get; set; }
         public SearchOperator DefaultCriteriaOperator { get; set; }
-        public ICollection<string> SelectedFields { get; } = new List<string>();
+        public ICollection<Field> FieldIncludes { get; } = new List<Field>();
+        public ICollection<Field> FieldExcludes { get; } = new List<Field>();
         public ICollection<IFieldSort> SortFields { get; } = new List<IFieldSort>();
         public string Sort { get; set; }
         public bool SortByScore { get; set; }

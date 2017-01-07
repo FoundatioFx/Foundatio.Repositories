@@ -70,7 +70,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
         public void RegisterDefaults() {
             Register<PagableQueryBuilder>();
-            Register<SelectedFieldsQueryBuilder>();
+            Register<FieldIncludesQueryBuilder>();
             Register<SortableQueryBuilder>();
             Register(new AggregationsQueryBuilder());
             Register(new ParentQueryBuilder(this));

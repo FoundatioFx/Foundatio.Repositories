@@ -23,7 +23,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public Task<FindResults<LogEvent>> GetPartialByCompanyAsync(string company) {
-            return FindAsync(new MyAppQuery().WithCompany(company).WithSelectedFields("id", "createdUtc"));
+            return FindAsync(new MyAppQuery().WithCompany(company).IncludeFields((LogEvent l) => l.Id, l => l.CreatedUtc));
         }
 
         public Task<FindResults<LogEvent>> GetAllByCompanyAsync(string company) {

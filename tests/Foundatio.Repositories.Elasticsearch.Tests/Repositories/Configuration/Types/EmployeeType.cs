@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Foundatio.Logging;
@@ -9,7 +9,6 @@ using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Nest;
-using Foundatio.Parsers.LuceneQueries.Visitors;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Types {
     public class EmployeeType : IndexTypeBase<Employee> {

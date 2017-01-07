@@ -18,7 +18,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class DateRange {
         public DateTime? StartDate { get; set; }
         public DateTime? EndDate { get; set; }
-        public string Field { get; set; }
+        public Field Field { get; set; }
 
         public bool UseStartDate => StartDate.HasValue && StartDate.Value > DateTime.MinValue;
 
@@ -43,12 +43,12 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             var elasticQueryOptions = ctx.GetOptionsAs<IElasticQueryOptions>();
             foreach (var dateRange in dateRangeQuery.DateRanges.Where(dr => dr.UseDateRange)) {
-                string field = dateRange.Field;
-                if (elasticQueryOptions != null && elasticQueryOptions.IndexType != null)
-                    field = elasticQueryOptions.IndexType.GetFieldName(dateRange.Field);
+                string fieldName = dateRange.Field?.Name;
+                if (elasticQueryOptions?.IndexType != null && !String.IsNullOrEmpty(fieldName))
+                    fieldName = elasticQueryOptions.IndexType.GetFieldName(fieldName);
 
                 ctx.Filter &= new DateRangeQuery {
-                    Field = field,
+                    Field = fieldName ?? dateRange.Field,
                     GreaterThanOrEqualTo = dateRange.GetStartDate(),
                     LessThanOrEqualTo = dateRange.GetEndDate()
                 };
@@ -59,8 +59,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public static class DateRangeQueryExtensions {
-        public static T WithDateRange<T>(this T query, DateTime? utcStart, DateTime? utcEnd, string field) where T : IDateRangeQuery {
-            if (String.IsNullOrEmpty(field))
+        public static T WithDateRange<T>(this T query, DateTime? utcStart, DateTime? utcEnd, Field field) where T : IDateRangeQuery {
+            if (field == null)
                 throw new ArgumentNullException(nameof(field));
 
             query.DateRanges?.Add(new DateRange { StartDate = utcStart, EndDate = utcEnd, Field = field });

@@ -10,7 +10,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public class FieldCondition {
-        public string Field { get; set; }
+        public Field Field { get; set; }
         public object Value { get; set; }
         public ComparisonOperator Operator { get; set; }
     }
@@ -28,9 +28,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (fieldValuesQuery?.FieldConditions == null || fieldValuesQuery.FieldConditions.Count <= 0)
                 return Task.CompletedTask;
 
-            QueryBase query;
-
             foreach (var fieldValue in fieldValuesQuery.FieldConditions) {
+                QueryBase query;
                 switch (fieldValue.Operator) {
                     case ComparisonOperator.Equals:
                         if (fieldValue.Value is IEnumerable && !(fieldValue.Value is string))
@@ -62,22 +61,22 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public static class FieldValueQueryExtensions {
-        public static T WithFieldEquals<T>(this T query, string field, object value) where T : IFieldConditionsQuery {
+        public static T WithFieldEquals<T>(this T query, Field field, object value) where T : IFieldConditionsQuery {
             query.FieldConditions?.Add(new FieldCondition { Field = field, Value = value, Operator = ComparisonOperator.Equals });
             return query;
         }
 
-        public static T WithFieldNotEquals<T>(this T query, string field, object value) where T : IFieldConditionsQuery {
+        public static T WithFieldNotEquals<T>(this T query, Field field, object value) where T : IFieldConditionsQuery {
             query.FieldConditions?.Add(new FieldCondition { Field = field, Value = value, Operator = ComparisonOperator.NotEquals });
             return query;
         }
 
-        public static T WithEmptyField<T>(this T query, string field) where T : IFieldConditionsQuery {
+        public static T WithEmptyField<T>(this T query, Field field) where T : IFieldConditionsQuery {
             query.FieldConditions?.Add(new FieldCondition { Field = field, Operator = ComparisonOperator.IsEmpty });
             return query;
         }
 
-        public static T WithNonEmptyField<T>(this T query, string field) where T : IFieldConditionsQuery {
+        public static T WithNonEmptyField<T>(this T query, Field field) where T : IFieldConditionsQuery {
             query.FieldConditions?.Add(new FieldCondition { Field = field, Operator = ComparisonOperator.HasValue });
             return query;
         }
