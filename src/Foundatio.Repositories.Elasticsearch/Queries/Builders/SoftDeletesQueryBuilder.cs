@@ -8,7 +8,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class SoftDeletesQueryBuilder : IElasticQueryBuilder {
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var softDeletesQuery = ctx.GetSourceAs<ISoftDeletesQuery>();
-            if (softDeletesQuery == null)
+            if (softDeletesQuery == null || softDeletesQuery.IncludeSoftDeletes)
                 return Task.CompletedTask;
 
             var idsQuery = ctx.GetSourceAs<IIdentityQuery>();
