@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -8,6 +9,7 @@ using Foundatio.Repositories.Utility;
 using Nest;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Reflection;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 
@@ -69,6 +71,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         protected static readonly bool HasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
         protected static readonly bool HasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
         private readonly string _typeName = typeof(T).Name.ToLower();
+        private readonly ConcurrentDictionary<string, PropertyInfo> _cachedProperties = new ConcurrentDictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
         private readonly Lazy<IElasticQueryBuilder> _queryBuilder;
         private readonly Lazy<AliasMap> _aliasMap;
 
@@ -156,7 +159,17 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public string GetFieldName(Field field) {
             var result = AliasMap?.Resolve(field.Name);
-            return Configuration.Client.Infer.Field(!String.IsNullOrEmpty(result?.Name) ? result.Name : field);
+            if (!String.IsNullOrEmpty(result?.Name))
+                return result.Name;
+
+            if (!String.IsNullOrEmpty(field.Name))
+                field = GetPropertyInfo(field.Name) ?? field;
+
+            return Configuration.Client.Infer.Field(field);
+        }
+
+        private PropertyInfo GetPropertyInfo(string property) {
+            return _cachedProperties.GetOrAdd(property, s => Type.GetProperty(property, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance));
         }
 
         public string GetFieldName(Expression<Func<T, object>> objectPath) => Configuration.Client.Infer.Field(objectPath);

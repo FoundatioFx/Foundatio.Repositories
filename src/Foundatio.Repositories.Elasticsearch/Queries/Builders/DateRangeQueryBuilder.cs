@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Utility;
@@ -62,6 +63,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 throw new ArgumentNullException(nameof(field));
 
             query.DateRanges?.Add(new DateRange { StartDate = utcStart, EndDate = utcEnd, Field = field });
+            return query;
+        }
+
+        public static T WithDateRange<T, TModel>(this T query, DateTime? utcStart, DateTime? utcEnd, Expression<Func<TModel, object>> objectPath) where T : IDateRangeQuery {
+            if (objectPath == null)
+                throw new ArgumentNullException(nameof(objectPath));
+
+            query.DateRanges?.Add(new DateRange { StartDate = utcStart, EndDate = utcEnd, Field = objectPath });
             return query;
         }
     }

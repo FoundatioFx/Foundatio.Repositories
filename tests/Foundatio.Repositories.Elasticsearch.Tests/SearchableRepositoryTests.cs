@@ -55,9 +55,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(0, await _dailyRepository.CountBySearchAsync(null, "id:test"));
             Assert.Equal(1, await _dailyRepository.CountBySearchAsync(null, $"id:{nowLog.Id}"));
             Assert.Equal(1, await _dailyRepository.CountBySearchAsync(new ElasticQuery().WithDateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "createdUtc"), $"id:{nowLog.Id}"));
-            Assert.Equal(0, await _dailyRepository.CountBySearchAsync(new ElasticQuery().WithDateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), "createdUtc"), $"id:{nowLog.Id}"));
-            Assert.Equal(1, await _dailyRepository.CountBySearchAsync(new ElasticQuery().WithDateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), "createdUtc")));
-            Assert.Equal(1, await _dailyRepository.CountBySearchAsync(new ElasticQuery().WithDateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "createdUtc")));
+            Assert.Equal(0, await _dailyRepository.CountBySearchAsync(new ElasticQuery().WithDateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), (LogEvent l) => l.CreatedUtc), $"id:{nowLog.Id}"));
+            Assert.Equal(1, await _dailyRepository.CountBySearchAsync(new ElasticQuery().WithDateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), "CREATEDUTC")));
+            Assert.Equal(1, await _dailyRepository.CountBySearchAsync(new ElasticQuery().WithDateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "CreatedUtc")));
         }
 
         [Fact]
