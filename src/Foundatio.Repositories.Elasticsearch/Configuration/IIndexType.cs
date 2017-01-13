@@ -21,41 +21,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         IElasticConfiguration Configuration { get; }
         int DefaultCacheExpirationSeconds { get; set; }
         int BulkBatchSize { get; set; }
-        ISet<string> AllowedSearchFields { get; }
-        ISet<string> AllowedAggregationFields { get; }
-        ISet<string> AllowedSortFields { get; }
         Task ConfigureAsync();
         AliasesDescriptor ConfigureIndexAliases(AliasesDescriptor aliases);
         MappingsDescriptor ConfigureIndexMappings(MappingsDescriptor mappings);
         IElasticQueryBuilder QueryBuilder { get; }
         string GetFieldName(Field field);
         string GetPropertyName(PropertyName property);
-    }
-
-    public static class IndexTypeExtensions {
-        public static bool CanSortByField(this IIndexType indexType, string field) {
-            // allow all fields if an allowed list isn't specified
-            if (indexType.AllowedSortFields == null || indexType.AllowedSortFields.Count == 0)
-                return true;
-
-            return indexType.AllowedSortFields.Contains(field, StringComparer.OrdinalIgnoreCase);
-        }
-
-        public static bool CanSearchByField(this IIndexType indexType, string field) {
-            // allow all fields if an allowed list isn't specified
-            if (indexType.AllowedSearchFields == null || indexType.AllowedSearchFields.Count == 0)
-                return true;
-
-            return indexType.AllowedSearchFields.Contains(field, StringComparer.OrdinalIgnoreCase);
-        }
-
-        public static bool CanAggregateByField(this IIndexType indexType, string field) {
-            // allow all fields if an allowed list isn't specified
-            if (indexType.AllowedAggregationFields == null || indexType.AllowedAggregationFields.Count == 0)
-                return true;
-
-            return indexType.AllowedAggregationFields.Contains(field, StringComparer.OrdinalIgnoreCase);
-        }
     }
 
     public interface IIndexType<T>: IIndexType where T : class {

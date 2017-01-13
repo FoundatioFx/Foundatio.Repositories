@@ -11,9 +11,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Options {
         IIndex Index { get; }
         bool SupportsSoftDeletes { get; }
         bool HasIdentity { get; }
-        ISet<string> AllowedSearchFields { get; }
-        ISet<string> AllowedAggregationFields { get; }
-        ISet<string> AllowedSortFields { get; }
         ISet<string> DefaultExcludes { get; }
         bool HasParent { get; }
         bool ParentSupportsSoftDeletes { get; }
@@ -33,9 +30,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Options {
             TimeSeriesType = indexType as ITimeSeriesIndexType;
             HasParent = ChildType != null;
             HasMultipleIndexes = TimeSeriesType != null;
-            AllowedSearchFields = indexType.AllowedSearchFields;
-            AllowedAggregationFields = indexType.AllowedAggregationFields;
-            AllowedSortFields = indexType.AllowedSortFields;
             SupportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(indexType.Type);
             HasIdentity = typeof(IIdentity).IsAssignableFrom(indexType.Type);
             ParentSupportsSoftDeletes = ChildType != null && typeof(ISupportSoftDeletes).IsAssignableFrom(ChildType.GetParentIndexType().Type);
@@ -44,9 +38,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Options {
         public IIndexType IndexType { get; }
         public bool SupportsSoftDeletes { get; }
         public bool HasIdentity { get; }
-        public ISet<string> AllowedSearchFields { get; set; }
-        public ISet<string> AllowedAggregationFields { get; set; }
-        public ISet<string> AllowedSortFields { get; set; }
         public ISet<string> DefaultExcludes { get; set; }
 
         public IIndex Index { get; }
@@ -56,31 +47,5 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Options {
         public bool HasMultipleIndexes { get; }
         public ITimeSeriesIndexType TimeSeriesType { get; }
         public AliasResolver RootAliasResolver { get; set; }
-    }
-
-    public static class ElasticQueryOptionsExtensions {
-        public static bool CanSearchByField(this IQueryOptions options, string field) {
-            var elasticOptions = options as IElasticQueryOptions;
-            if (elasticOptions?.AllowedSearchFields == null || elasticOptions.AllowedSearchFields.Count == 0)
-                return true;
-
-            return elasticOptions.AllowedSearchFields.Contains(field);
-        }
-
-        public static bool CanSortByField(this IQueryOptions options, string field) {
-            var elasticOptions = options as IElasticQueryOptions;
-            if (elasticOptions?.AllowedSortFields == null || elasticOptions.AllowedSortFields.Count == 0)
-                return true;
-
-            return elasticOptions.AllowedSortFields.Contains(field);
-        }
-
-        public static bool CanAggregateByField(this IQueryOptions options, string field) {
-            var elasticOptions = options as IElasticQueryOptions;
-            if (elasticOptions?.AllowedAggregationFields == null || elasticOptions.AllowedAggregationFields.Count == 0)
-                return true;
-
-            return elasticOptions.AllowedAggregationFields.Contains(field);
-        }
     }
 }
