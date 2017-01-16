@@ -183,3 +183,4 @@ UpgradeLog*.htm
 FakesAssemblies/
 .vs/config/applicationhost.config
 *.nugetreferenceswitcher
+/.vs/
