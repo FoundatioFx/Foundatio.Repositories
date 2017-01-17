@@ -40,6 +40,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return CountAsync(new MyAppQuery().WithCompany(company).WithFilter($"_missing_:{EmployeeType.Fields.Name}"));
         }
 
+        public Task<FindResults<Employee>> QueryAsync(IRepositoryQuery query) {
+            return FindAsync(query);
+        }
+
         /// <summary>
         /// Updates company name by company id
         /// </summary>

@@ -14,6 +14,8 @@ using Foundatio.Utility;
 using Nito.AsyncEx;
 using Xunit;
 using Xunit.Abstractions;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
+using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class RepositoryTests : ElasticRepositoryTestBase {
@@ -63,7 +65,24 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 disposables.Clear();
             }
         }
-        
+
+        [Fact]
+        public async Task CanQueryByDeleted() {
+            var employee1 = EmployeeGenerator.Default;
+            employee1.IsDeleted = true;
+            employee1 = await _employeeRepository.AddAsync(employee1);
+            Assert.NotNull(employee1?.Id);
+
+            await _employeeRepository.AddAsync(EmployeeGenerator.Generate());
+
+            await _client.RefreshAsync();
+            var allEmployees = await _employeeRepository.QueryAsync(new MyAppQuery().IncludeDeleted());
+            Assert.Equal(2, allEmployees.Total);
+
+            var nonDeletedEmployees = await _employeeRepository.QueryAsync(new MyAppQuery());
+            Assert.Equal(1, nonDeletedEmployees.Total);
+        }
+
         [Fact]
         public async Task AddDuplicate() {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default);
