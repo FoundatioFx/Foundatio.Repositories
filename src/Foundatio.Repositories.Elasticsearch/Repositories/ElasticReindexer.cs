@@ -173,7 +173,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                             response = await _client.IndexAsync(errorDoc, d => d.Index(errorIndex).Id(itemToRetry.Id)).AnyContext();
                             if (response.IsValid)
                                 continue;
-                        } catch (Exception exception) {
+                        } catch {
                             throw;
                         }
 

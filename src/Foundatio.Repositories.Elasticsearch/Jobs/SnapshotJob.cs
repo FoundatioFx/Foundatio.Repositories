@@ -42,11 +42,16 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                             .WaitForCompletion()
                             .RequestConfiguration(r => r.RequestTimeout(60 * 60 * 1000))).AnyContext();
 
-                    // 400 means the snapshot already exists
-                    if (!response.IsValid && response.ConnectionStatus.HttpStatusCode != 400)
-                        throw new ApplicationException($"Snapshot failed: {response.GetErrorMessage()}", response.ConnectionStatus.OriginalException);
+                    if (response.IsValid == false) {
+                        _logger.Trace($"Invalid response attempting to create snapshot, checking to see if snapshot {snapshotName} already exists.");
+                        var snapshotExistsResponse = await _client.GetSnapshotAsync(Repository, snapshotName).AnyContext();
+                        if (snapshotExistsResponse.IsValid == false || snapshotExistsResponse.Snapshots.Count() == 0)
+                            throw new ApplicationException($"Snapshot failed: {response.GetErrorMessage()}", response.ConnectionStatus.OriginalException);
 
-                    return response;
+                        return true;
+                    }
+
+                    return true;
                 },
                     maxAttempts: 5,
                     retryInterval: TimeSpan.FromSeconds(10),
@@ -54,11 +59,10 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                     logger: _logger).AnyContext();
                 sw.Stop();
 
-                // 400 means the snapshot already exists
-                if (result.IsValid && result.ConnectionStatus.HttpStatusCode != 400)
+                if (result)
                     await OnSuccess(snapshotName, sw.Elapsed).AnyContext();
                 else
-                    await OnFailure(snapshotName, result).AnyContext();
+                    await OnFailure(snapshotName).AnyContext();
             }, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(30)).AnyContext();
 
             return JobResult.Success;
@@ -69,8 +73,8 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             return Task.CompletedTask;
         }
 
-        public virtual Task OnFailure(string snapshotName, ISnapshotResponse response) {
-            _logger.Error($"Failed {Repository} snapshot {snapshotName}: {response.GetErrorMessage()}");
+        public virtual Task OnFailure(string snapshotName) {
+            _logger.Error($"Failed {Repository} snapshot {snapshotName}");
             return Task.CompletedTask;
         }
 

@@ -58,16 +58,17 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 d => d.RequestConfiguration(r => r.RequestTimeout(5 * 60 * 1000))).AnyContext();
 
             sw.Stop();
-            var indexes = new List<IndexDate>();
-            if (result.IsValid && result.Records != null)
-                indexes = result.Records?.Select(r => GetIndexDate(r.Index)).ToList();
 
             if (result.IsValid)
-                _logger.Info($"Retrieved list of {indexes.Count} indexes in {sw.Elapsed.ToWords(true)}");
+                _logger.Info($"Retrieved list of {result.Records?.Count()} indexes in {sw.Elapsed.ToWords(true)}");
             else
                 _logger.Error($"Failed to retrieve list of indexes: {result.GetErrorMessage()}");
 
-            if (indexes.Count == 0)
+            var indexes = new List<IndexDate>();
+            if (result.IsValid && result.Records != null)
+                indexes = result.Records?.Select(r => GetIndexDate(r.Index)).Where(r => r != null).ToList();
+
+            if (indexes == null || indexes.Count == 0)
                 return;
 
             DateTime now = SystemClock.UtcNow;
