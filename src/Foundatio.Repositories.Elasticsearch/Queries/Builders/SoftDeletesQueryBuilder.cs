@@ -7,23 +7,35 @@ using Nest;
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class SoftDeletesQueryBuilder : IElasticQueryBuilder {
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var softDeletesQuery = ctx.GetSourceAs<ISoftDeletesQuery>();
-            if (softDeletesQuery == null)
+            // wait until the system filter query is being built if the query supports it
+            if (ctx.Type != ContextType.SystemFilter && ctx.Source is ISystemFilterQuery)
                 return Task.CompletedTask;
 
-            var mode = softDeletesQuery.SoftDeleteMode;
-            var systemFilterContext = ctx as ISystemFilterQueryBuilderContext;
+            // dont add filter to child query system filters
+            if (ctx.Parent?.Type == ContextType.Child)
+                return Task.CompletedTask;
 
-            // only automatically apply this to system filters
-            if (systemFilterContext != null && mode.HasValue == false)
+            var mode = ctx.GetSourceAs<ISoftDeletesQuery>()?.SoftDeleteMode;
+            // if no mode was specified, then try using the parent query mode
+            if (mode == null && ctx.Parent != null)
+                mode = ctx.Parent.GetSourceAs<ISoftDeletesQuery>()?.SoftDeleteMode;
+
+            // default to active only if no mode has been specified
+            if (mode.HasValue == false)
                 mode = SoftDeleteQueryMode.ActiveOnly;
 
-            if (mode.HasValue == false || mode.Value == SoftDeleteQueryMode.All)
+            // no filter needed if we want all
+            if (mode.Value == SoftDeleteQueryMode.All)
                 return Task.CompletedTask;
 
+            // check to see if the model supports soft deletes
+            var options = ctx.GetOptionsAs<IElasticQueryOptions>();
+            if (options == null || !options.SupportsSoftDeletes)
+                return Task.CompletedTask;
+
+            // if we are querying for specific ids then we don't need a deleted filter
             var idsQuery = ctx.GetSourceAs<IIdentityQuery>();
-            var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
-            if (opt == null || !opt.SupportsSoftDeletes || (idsQuery != null && idsQuery.Ids.Count > 0))
+            if (idsQuery != null && idsQuery.Ids.Count > 0)
                 return Task.CompletedTask;
 
             if (mode.Value == SoftDeleteQueryMode.ActiveOnly)

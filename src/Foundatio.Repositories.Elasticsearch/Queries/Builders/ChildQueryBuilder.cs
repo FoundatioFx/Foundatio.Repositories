@@ -24,7 +24,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (String.IsNullOrEmpty(childQuery.ChildQuery.Type))
                 throw new ArgumentException("Must specify a child type for child queries.");
 
-            var childContext = new QueryBuilderContext<T>(childQuery.ChildQuery, ctx.Options);
+            // this should pass an options object that is for the child index type
+            var childContext = new QueryBuilderContext<T>(childQuery.ChildQuery, ctx.Options, null, ctx, ContextType.Child);
             await _queryBuilder.BuildAsync(childContext).AnyContext();
 
             if ((childContext.Query == null || childContext.Query.IsConditionless)

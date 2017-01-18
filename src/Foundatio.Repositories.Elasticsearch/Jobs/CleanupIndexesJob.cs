@@ -74,8 +74,10 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             DateTime now = SystemClock.UtcNow;
             var indexesToDelete = indexes.Where(r => r.Date < now.Subtract(r.MaxAge)).ToList();
 
-            if (indexesToDelete.Count == 0)
+            if (indexesToDelete.Count == 0) {
+                _logger.Info("No indexes selected for deletion.");
                 return;
+            }
 
             // log that we are seeing indexes that should have been deleted already
             var oldIndexes = indexes.Where(s => s.Date < now.Subtract(s.MaxAge).AddDays(-1)).ToList();

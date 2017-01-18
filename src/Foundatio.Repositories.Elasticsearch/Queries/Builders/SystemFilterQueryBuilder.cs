@@ -11,11 +11,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
 
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            if (ctx.Type == ContextType.SystemFilter)
+                return;
+
             var systemFilter = ctx.GetSourceAs<ISystemFilterQuery>();
             if (systemFilter == null)
                 return;
 
-            var innerContext = new SystemFilterQueryBuilderContext<T>(systemFilter.SystemFilter, ctx.Options, ctx, ctx.Search) {
+            var innerContext = new QueryBuilderContext<T>(systemFilter.SystemFilter, ctx.Options, ctx.Search, ctx, ContextType.SystemFilter) {
                 Filter = ctx.Filter,
                 Query = ctx.Query
             };

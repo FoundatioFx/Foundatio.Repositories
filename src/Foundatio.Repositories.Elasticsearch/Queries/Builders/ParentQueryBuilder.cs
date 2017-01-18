@@ -19,7 +19,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var parentQuery = ctx.GetSourceAs<IParentQuery>();
-            var hasIds = ctx.GetSourceAs<IIdentityQuery>()?.Ids.Count > 0;
+            bool hasIds = ctx.GetSourceAs<IIdentityQuery>()?.Ids.Count > 0;
             if (parentQuery == null)
                 return;
 
@@ -43,7 +43,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (parentQuery.ParentQuery == null)
                 return;
 
-            var parentContext = new QueryBuilderContext<object>(parentQuery.ParentQuery, parentOptions);
+            var parentContext = new QueryBuilderContext<object>(parentQuery.ParentQuery, parentOptions, null, ctx, ContextType.Parent);
             await _queryBuilder.BuildAsync(parentContext).AnyContext();
 
             if ((parentContext.Query == null || parentContext.Query.IsConditionless)
