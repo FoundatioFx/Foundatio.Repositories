@@ -46,6 +46,19 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
     }
 
+    public class SystemFilterQueryBuilderContext<T> : QueryBuilderContext<T>, ISystemFilterQueryBuilderContext where T : class, new() {
+        public SystemFilterQueryBuilderContext(IRepositoryQuery source, IQueryOptions options, IElasticQueryVisitorContext parentContext, SearchDescriptor<T> search = null)
+            : base(source, options, search) {
+            Parent = parentContext;
+        }
+
+        public IElasticQueryVisitorContext Parent { get; }
+    }
+
+    public interface ISystemFilterQueryBuilderContext : IElasticQueryVisitorContext {
+        IElasticQueryVisitorContext Parent { get; }
+    }
+
     public static class ElasticQueryBuilderExtensions {
         public static async Task<QueryContainer> BuildQueryAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, IQueryOptions options, SearchDescriptor<T> search) where T : class, new() {
             var ctx = new QueryBuilderContext<T>(query, options, search);

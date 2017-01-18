@@ -79,8 +79,35 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var allEmployees = await _employeeRepository.QueryAsync(new MyAppQuery().IncludeDeleted());
             Assert.Equal(2, allEmployees.Total);
 
-            var nonDeletedEmployees = await _employeeRepository.QueryAsync(new MyAppQuery());
+            var onlyDeleted = await _employeeRepository.QueryAsync(new MyAppQuery().IncludeOnlyDeleted());
+            Assert.Equal(1, onlyDeleted.Total);
+            Assert.Equal(employee1.Id, onlyDeleted.Documents.First().Id);
+
+            var nonDeletedEmployees = await _employeeRepository.QueryAsync(new MyAppQuery().IncludeDeleted(false));
             Assert.Equal(1, nonDeletedEmployees.Total);
+            Assert.NotEqual(employee1.Id, nonDeletedEmployees.Documents.First().Id);
+        }
+
+        [Fact]
+        public async Task CanQueryByDeletedSearch() {
+            var employee1 = EmployeeGenerator.Default;
+            employee1.IsDeleted = true;
+            employee1 = await _employeeRepository.AddAsync(employee1);
+            Assert.NotNull(employee1?.Id);
+
+            await _employeeRepository.AddAsync(EmployeeGenerator.Generate());
+
+            await _client.RefreshAsync();
+            var allEmployees = await _employeeRepository.SearchAsync(new MyAppQuery().IncludeDeleted());
+            Assert.Equal(2, allEmployees.Total);
+
+            var onlyDeleted = await _employeeRepository.SearchAsync(new MyAppQuery().IncludeDeleted(), "deleted:true");
+            Assert.Equal(1, onlyDeleted.Total);
+            Assert.Equal(employee1.Id, onlyDeleted.Documents.First().Id);
+
+            var nonDeletedEmployees = await _employeeRepository.SearchAsync(new MyAppQuery());
+            Assert.Equal(1, nonDeletedEmployees.Total);
+            Assert.NotEqual(employee1.Id, nonDeletedEmployees.Documents.First().Id);
         }
 
         [Fact]
