@@ -73,6 +73,50 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task CanQueryByDeleted() {
+            var employee1 = EmployeeGenerator.Default;
+            employee1.IsDeleted = true;
+            employee1 = await _employeeRepository.AddAsync(employee1);
+            Assert.NotNull(employee1?.Id);
+
+            await _employeeRepository.AddAsync(EmployeeGenerator.Generate());
+
+            await _client.RefreshAsync(Indices.All);
+            var allEmployees = await _employeeRepository.GetByQueryAsync(new MyAppQuery().IncludeDeleted());
+            Assert.Equal(2, allEmployees.Total);
+
+            var onlyDeleted = await _employeeRepository.GetByQueryAsync(new MyAppQuery().IncludeOnlyDeleted());
+            Assert.Equal(1, onlyDeleted.Total);
+            Assert.Equal(employee1.Id, onlyDeleted.Documents.First().Id);
+
+            var nonDeletedEmployees = await _employeeRepository.GetByQueryAsync(new MyAppQuery().IncludeDeleted(false));
+            Assert.Equal(1, nonDeletedEmployees.Total);
+            Assert.NotEqual(employee1.Id, nonDeletedEmployees.Documents.First().Id);
+        }
+
+        [Fact]
+        public async Task CanQueryByDeletedSearch() {
+            var employee1 = EmployeeGenerator.Default;
+            employee1.IsDeleted = true;
+            employee1 = await _employeeRepository.AddAsync(employee1);
+            Assert.NotNull(employee1?.Id);
+
+            await _employeeRepository.AddAsync(EmployeeGenerator.Generate());
+
+            await _client.RefreshAsync(Indices.All);
+            var allEmployees = await _employeeRepository.SearchAsync(new MyAppQuery().IncludeDeleted());
+            Assert.Equal(2, allEmployees.Total);
+
+            var onlyDeleted = await _employeeRepository.SearchAsync(new MyAppQuery().IncludeDeleted(), "isDeleted:true");
+            Assert.Equal(1, onlyDeleted.Total);
+            Assert.Equal(employee1.Id, onlyDeleted.Documents.First().Id);
+
+            var nonDeletedEmployees = await _employeeRepository.SearchAsync(new MyAppQuery());
+            Assert.Equal(1, nonDeletedEmployees.Total);
+            Assert.NotEqual(employee1.Id, nonDeletedEmployees.Documents.First().Id);
+        }
+
+        [Fact]
         public async Task AddDuplicateAsync() {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default);
             Assert.NotNull(identity1?.Id);

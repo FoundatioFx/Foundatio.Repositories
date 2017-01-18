@@ -43,7 +43,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (parentQuery.ParentQuery == null)
                 return;
 
-            var parentContext = new QueryBuilderContext<object>(parentQuery.ParentQuery, parentOptions);
+            var parentContext = new QueryBuilderContext<object>(parentQuery.ParentQuery, parentOptions, null, ctx, ContextType.Parent);
             await _queryBuilder.BuildAsync(parentContext).AnyContext();
 
             if ((parentContext.Query == null || ((IQueryContainer)parentContext.Query).IsConditionless)

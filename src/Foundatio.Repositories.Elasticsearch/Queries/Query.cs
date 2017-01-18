@@ -30,7 +30,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         public string Aggregations { get; set; }
         public IRepositoryQuery ParentQuery { get; set; }
         public ITypeQuery ChildQuery { get; set; }
-        public bool IncludeSoftDeletes { get; set; }
+        public SoftDeleteQueryMode? SoftDeleteMode { get; set; }
         public IPagingOptions Options { get; set; }
     }
 }
