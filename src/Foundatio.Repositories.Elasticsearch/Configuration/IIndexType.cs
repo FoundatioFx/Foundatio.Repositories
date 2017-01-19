@@ -7,11 +7,11 @@ using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Nest;
-using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries.Visitors;
+using Elasticsearch.Net;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface IIndexType : IDisposable {
@@ -19,6 +19,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         Type Type { get; }
         IIndex Index { get; }
         IElasticConfiguration Configuration { get; }
+        Refresh DefaultRefresh { get; }
         int DefaultCacheExpirationSeconds { get; set; }
         int BulkBatchSize { get; set; }
         Task ConfigureAsync();
@@ -46,13 +47,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private readonly Lazy<IElasticQueryBuilder> _queryBuilder;
         private readonly Lazy<AliasMap> _aliasMap;
 
-        public IndexTypeBase(IIndex index, string name = null) {
+        public IndexTypeBase(IIndex index, string name = null, Refresh defaultRefresh = Refresh.False) {
             if (index == null)
                 throw new ArgumentNullException(nameof(index));
 
             Name = name ?? _typeName;
             Index = index;
             Type = typeof(T);
+            DefaultRefresh = defaultRefresh;
             _queryBuilder = new Lazy<IElasticQueryBuilder>(CreateQueryBuilder);
             _aliasMap = new Lazy<AliasMap>(GetAliasMap);
         }
@@ -72,6 +74,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public Type Type { get; }
         public IIndex Index { get; }
         public IElasticConfiguration Configuration => Index.Configuration;
+        public Refresh DefaultRefresh { get; }
         public ISet<string> AllowedSearchFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public ISet<string> AllowedAggregationFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public ISet<string> AllowedSortFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

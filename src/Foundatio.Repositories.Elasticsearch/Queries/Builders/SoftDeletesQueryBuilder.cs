@@ -14,6 +14,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (ctx.Type != ContextType.SystemFilter && ctx.Source is ISystemFilterQuery)
                 return Task.CompletedTask;
 
+            // dont add filter to child query system filters
+            if (ctx.Parent?.Type == ContextType.Child)
+                return Task.CompletedTask;
+
             var mode = ctx.GetSourceAs<ISoftDeletesQuery>()?.SoftDeleteMode;
             // if no mode was specified, then try using the parent query mode
             if (mode == null && ctx.Parent != null)
@@ -27,10 +31,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (mode.Value == SoftDeleteQueryMode.All)
                 return Task.CompletedTask;
 
+            // check to see if the model supports soft deletes
+            var options = ctx.GetOptionsAs<IElasticQueryOptions>();
+            if (options == null || !options.SupportsSoftDeletes)
+                return Task.CompletedTask;
+
             // if we are querying for specific ids then we don't need a deleted filter
             var idsQuery = ctx.GetSourceAs<IIdentityQuery>();
-            var options = ctx.GetOptionsAs<IElasticQueryOptions>();
-            if (options == null || !options.SupportsSoftDeletes || (idsQuery != null && idsQuery.Ids.Count > 0))
+            if (idsQuery != null && idsQuery.Ids.Count > 0)
                 return Task.CompletedTask;
 
             string fieldName = options.IndexType?.GetFieldName(IsDeleted) ?? IsDeleted;

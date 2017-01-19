@@ -693,6 +693,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     i.OpType(isCreateOperation ? OpType.Create : OpType.Index);
                     i.Type(ElasticType.Name);
                     i.Pipeline(pipeline);
+                    i.Refresh(ElasticType.DefaultRefresh);
 
                     if (GetParentIdFunc != null)
                         i.Parent(GetParentIdFunc(document));
@@ -745,6 +746,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     return o;
                 }).ToList();
                 bulkRequest.Operations = list;
+                bulkRequest.Refresh = ElasticType.DefaultRefresh;
 
                 var response = await _client.BulkAsync(bulkRequest).AnyContext();
                 _logger.Trace(() => response.GetRequest());
