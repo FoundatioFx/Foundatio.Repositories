@@ -1,13 +1,7 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
-using Foundatio.Parsers.ElasticQueries.Visitors;
-using Foundatio.Parsers.LuceneQueries;
-using Foundatio.Parsers.LuceneQueries.Visitors;
-using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Repositories.Extensions;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {

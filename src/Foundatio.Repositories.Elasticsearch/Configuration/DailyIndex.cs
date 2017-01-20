@@ -171,6 +171,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             var utcEndOfDay = utcEnd.Value.EndOfDay();
 
+            // TODO: Look up aliases that fit these ranges.
             var indices = new List<string>();
             for (DateTime current = utcStart.Value.StartOfDay(); current <= utcEndOfDay; current = current.AddDays(1))
                 indices.Add(GetIndex(current));
