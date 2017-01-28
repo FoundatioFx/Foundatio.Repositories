@@ -13,6 +13,7 @@ using Nest;
 using System.Threading;
 using Elasticsearch.Net;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Parsers.ElasticQueries;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface IElasticConfiguration : IDisposable {
@@ -25,6 +26,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         IIndexType GetIndexType(Type type);
         IIndex GetIndex(string name);
         void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder);
+        void ConfigureGlobalQueryParsers(ElasticQueryParserConfiguration config);
         Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true);
         Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null);
         Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null);
@@ -64,6 +66,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public virtual void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder) {}
+
+        public virtual void ConfigureGlobalQueryParsers(ElasticQueryParserConfiguration config) {}
 
         protected virtual void ConfigureSettings(ConnectionSettings settings) {
             settings.EnableTcpKeepAlive(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2));

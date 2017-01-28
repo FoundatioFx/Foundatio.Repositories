@@ -12,6 +12,7 @@ using System.Reflection;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Elasticsearch.Net;
+using Foundatio.Parsers.ElasticQueries;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface IIndexType : IDisposable {
@@ -45,6 +46,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private readonly string _typeName = typeof(T).Name.ToLower();
         private readonly ConcurrentDictionary<string, PropertyInfo> _cachedProperties = new ConcurrentDictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
         private readonly Lazy<IElasticQueryBuilder> _queryBuilder;
+        private readonly Lazy<ElasticQueryParser> _queryParser;
         private readonly Lazy<AliasMap> _aliasMap;
 
         public IndexTypeBase(IIndex index, string name = null, Refresh defaultRefresh = Refresh.False) {
@@ -56,12 +58,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             Type = typeof(T);
             DefaultRefresh = defaultRefresh;
             _queryBuilder = new Lazy<IElasticQueryBuilder>(CreateQueryBuilder);
+            _queryParser = new Lazy<ElasticQueryParser>(CreateQueryParser);
             _aliasMap = new Lazy<AliasMap>(GetAliasMap);
         }
 
         protected virtual IElasticQueryBuilder CreateQueryBuilder() {
             var builder = new ElasticQueryBuilder();
 
+            builder.UseQueryParser(_queryParser.Value);
             Configuration.ConfigureGlobalQueryBuilders(builder);
             ConfigureQueryBuilder(builder);
 
@@ -70,12 +74,25 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual void ConfigureQueryBuilder(ElasticQueryBuilder builder) {}
 
+        protected virtual ElasticQueryParser CreateQueryParser() {
+            var parser = new ElasticQueryParser(config => {
+                config.UseMappings(this);
+                config.UseNested();
+                Configuration.ConfigureGlobalQueryParsers(config);
+                ConfigureQueryParser(config);
+            });
+
+            return parser;
+        }
+
+        protected virtual void ConfigureQueryParser(ElasticQueryParserConfiguration config) { }
+
         public string Name { get; }
         public Type Type { get; }
         public IIndex Index { get; }
         public IElasticConfiguration Configuration => Index.Configuration;
         public Refresh DefaultRefresh { get; }
-        public ISet<string> AllowedSearchFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        public ISet<string> AllowedQueryFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public ISet<string> AllowedAggregationFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public ISet<string> AllowedSortFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -115,6 +132,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public IElasticQueryBuilder QueryBuilder => _queryBuilder.Value;
+        public ElasticQueryParser QueryParser => _queryParser.Value;
         public AliasMap AliasMap => _aliasMap.Value;
 
         public virtual void Dispose() {}

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Foundatio.Logging;
+using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -37,9 +38,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
         protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
             builder.Register<AgeQueryBuilder>();
             builder.Register<CompanyQueryBuilder>();
-            builder.UseQueryParser(this, c => c
-                .UseIncludes(i => ResolveIncludeAsync(i))
-            );
+        }
+
+        protected override void ConfigureQueryParser(ElasticQueryParserConfiguration config) {
+            config.UseIncludes(i => ResolveIncludeAsync(i));
         }
 
         private async Task<string> ResolveIncludeAsync(string name) {
@@ -112,7 +114,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
         protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
             builder.Register<AgeQueryBuilder>();
             builder.Register<CompanyQueryBuilder>();
-            builder.UseQueryParser(this);
         }
     }
 
@@ -137,7 +138,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
         protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
             builder.Register<AgeQueryBuilder>();
             builder.Register<CompanyQueryBuilder>();
-            builder.UseQueryParser(this);
         }
     }
 }

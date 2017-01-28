@@ -45,22 +45,12 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             return true;
         }
 
-        public void UseQueryParser(Action<ElasticQueryParserConfiguration> configure) {
-            var parser = new ElasticQueryParser(configure);
-
+        public void UseQueryParser(ElasticQueryParser parser) {
             Unregister<SearchQueryBuilder>();
             Register(new ParsedSearchQueryBuilder(parser));
 
             Unregister<AggregationsQueryBuilder>();
             Register(new AggregationsQueryBuilder(parser));
-        }
-
-        public void UseQueryParser<T>(IndexTypeBase<T> indexType, Action<ElasticQueryParserConfiguration> configure = null) where T : class {
-            UseQueryParser(c => {
-                c.UseMappings(indexType);
-                c.UseNested();
-                configure?.Invoke(c);
-            });
         }
 
         public void UseAliases(AliasMap aliasMap) {

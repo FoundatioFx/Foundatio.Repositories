@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
@@ -14,10 +14,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                 .Properties(p => p
                     .Keyword(f => f.Name(e => e.Id))
                 );
-        }
-
-        protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
-            builder.UseQueryParser(this);
         }
     }
 }
