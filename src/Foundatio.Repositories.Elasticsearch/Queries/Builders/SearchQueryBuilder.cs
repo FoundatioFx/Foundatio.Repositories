@@ -115,8 +115,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class ParsedSearchQueryBuilder : IElasticQueryBuilder {
         private readonly ElasticQueryParser _parser;
 
-        public ParsedSearchQueryBuilder(ElasticQueryParser parser = null) {
-            _parser = parser ?? new ElasticQueryParser();
+        public ParsedSearchQueryBuilder(ElasticQueryParser parser) {
+            if (parser == null)
+                throw new ArgumentNullException(nameof(parser));
+
+            _parser = parser;
         }
 
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
