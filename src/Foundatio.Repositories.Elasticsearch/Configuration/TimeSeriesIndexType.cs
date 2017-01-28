@@ -1,8 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Queries;
+using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Queries;
 using Foundatio.Repositories.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
@@ -82,7 +85,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var date = _getDocumentDateUtc(document);
             return TimeSeriesIndex.GetIndex(date);
         }
-        
+
         public virtual Task EnsureIndexAsync(T document) {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
@@ -106,18 +109,29 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public virtual string[] GetIndexesByQuery(object query) {
+            var indexes = GetIndexes(query);
+
+            var systemFilterQuery = query as ISystemFilterQuery;
+            if (systemFilterQuery != null)
+                indexes.AddRange(GetIndexes(systemFilterQuery.SystemFilter));
+
+            return indexes.Count > 0 ? indexes.ToArray() : _defaultIndexes;
+        }
+
+        private HashSet<string> GetIndexes(object query) {
+            var indexes = new HashSet<string>();
+
             var withIndexesQuery = query as IElasticIndexesQuery;
             if (withIndexesQuery == null)
-                return _defaultIndexes;
+                return indexes;
 
-            var indexes = new List<string>();
             if (withIndexesQuery.Indexes.Count > 0)
                 indexes.AddRange(withIndexesQuery.Indexes);
 
             if (withIndexesQuery.UtcStartIndex.HasValue || withIndexesQuery.UtcEndIndex.HasValue)
                 indexes.AddRange(TimeSeriesIndex.GetIndexes(withIndexesQuery.UtcStartIndex, withIndexesQuery.UtcEndIndex));
 
-            return indexes.Count > 0 ? indexes.ToArray() : _defaultIndexes;
+            return indexes;
         }
 
         protected ITimeSeriesIndex TimeSeriesIndex => (ITimeSeriesIndex)Index;

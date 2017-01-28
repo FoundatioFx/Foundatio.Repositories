@@ -54,7 +54,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                     logger: _logger).AnyContext();
                 sw.Stop();
 
-                if (!result.IsValid && result.ApiCall.HttpStatusCode != 400)
+                if (result.IsValid && result.ApiCall.HttpStatusCode != 400)
                     await OnSuccess(snapshotName, sw.Elapsed).AnyContext();
                 else
                     await OnFailure(snapshotName, result).AnyContext();

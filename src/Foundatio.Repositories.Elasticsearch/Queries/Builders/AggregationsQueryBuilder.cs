@@ -1,13 +1,7 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
-using Foundatio.Parsers.ElasticQueries.Visitors;
-using Foundatio.Parsers.LuceneQueries;
-using Foundatio.Parsers.LuceneQueries.Visitors;
-using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Repositories.Extensions;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
@@ -18,8 +12,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class AggregationsQueryBuilder : IElasticQueryBuilder {
         private readonly ElasticQueryParser _parser;
 
-        public AggregationsQueryBuilder(ElasticQueryParser parser = null) {
-            _parser = parser ?? new ElasticQueryParser();
+        public AggregationsQueryBuilder(ElasticQueryParser parser) {
+            if (parser == null)
+                throw new ArgumentNullException(nameof(parser));
+
+            _parser = parser;
         }
 
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {

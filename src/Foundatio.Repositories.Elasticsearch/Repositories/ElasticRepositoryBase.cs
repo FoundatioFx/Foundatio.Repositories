@@ -713,7 +713,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
                     _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                    if (isCreateOperation && response.ServerError.Status == 409)
+                    if (isCreateOperation && response.ServerError?.Status == 409)
                         throw new DuplicateDocumentException(message, response.OriginalException);
 
                     throw new ApplicationException(message, response.OriginalException);
