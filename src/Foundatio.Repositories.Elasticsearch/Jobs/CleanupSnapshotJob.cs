@@ -112,7 +112,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         }
 
         public virtual Task<bool> OnSnapshotDeleteFailure(string snapshotName, TimeSpan duration, IDeleteSnapshotResponse response, Exception ex) {
-            _logger.Error($"Failed to delete snapshot {snapshotName} after {duration.ToWords(true)}: {(response != null ? response.GetErrorMessage() : ex?.Message)}");
+            _logger.Error().Exception(ex).Message($"Failed to delete snapshot {snapshotName} after {duration.ToWords(true)}: {(response != null ? response.GetErrorMessage() : ex?.Message)}").Write();
             return Task.FromResult(true);
         }
 
