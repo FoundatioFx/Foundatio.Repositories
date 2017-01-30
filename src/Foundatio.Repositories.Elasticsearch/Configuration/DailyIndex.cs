@@ -109,7 +109,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public virtual async Task EnsureIndexAsync(DateTime utcDate) {
             var indexExpirationUtcDate = GetIndexExpirationDate(utcDate);
-            if (SystemClock.UtcNow >= indexExpirationUtcDate)
+            if (SystemClock.UtcNow > indexExpirationUtcDate)
                 throw new ArgumentException($"Index max age exceeded: {indexExpirationUtcDate}", nameof(utcDate));
 
             var expires = indexExpirationUtcDate < DateTime.MaxValue ? indexExpirationUtcDate : (DateTime?)null;

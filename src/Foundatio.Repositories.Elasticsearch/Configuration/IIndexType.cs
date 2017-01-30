@@ -64,7 +64,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual IElasticQueryBuilder CreateQueryBuilder() {
             var builder = new ElasticQueryBuilder();
-
             builder.UseQueryParser(_queryParser.Value);
             Configuration.ConfigureGlobalQueryBuilders(builder);
             ConfigureQueryBuilder(builder);

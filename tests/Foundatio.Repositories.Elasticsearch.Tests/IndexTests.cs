@@ -27,7 +27,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Theory]
-        [MemberData("AliasesDatesToCheck")]
+        [MemberData(nameof(AliasesDatesToCheck))]
         public async Task CanCreateDailyAliasesAsync(DateTime utcNow) {
             SystemClock.SetFixedTime(utcNow);
             var index = new DailyEmployeeIndex(_configuration, 1);
@@ -61,7 +61,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Theory]
-        [MemberData("AliasesDatesToCheck")]
+        [MemberData(nameof(AliasesDatesToCheck))]
         public async Task CanCreateMonthlyAliasesAsync(DateTime utcNow) {
             SystemClock.SetFixedTime(utcNow);
             var index = new MonthlyEmployeeIndex(_configuration, 1);
@@ -98,6 +98,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             new object[] { new DateTime(2016, 2, 29, 0, 0, 0, DateTimeKind.Utc) },
             new object[] { new DateTime(2016, 8, 31, 0, 0, 0, DateTimeKind.Utc) },
             new object[] { new DateTime(2016, 9, 1, 0, 0, 0, DateTimeKind.Utc) },
+            new object[] { new DateTime(2016, 9, 1, 0, 0, 0, DateTimeKind.Utc) },
+            new object[] { new DateTime(2017, 12, 31, 11, 59, 59, DateTimeKind.Utc).EndOfDay() },
             new object[] { SystemClock.UtcNow }
         }.ToArray();
 
@@ -435,7 +437,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Theory]
-        [MemberData("AliasesDatesToCheck")]
+        [MemberData(nameof(AliasesDatesToCheck))]
         public async Task DailyAliasMaxAgeAsync(DateTime utcNow) {
             SystemClock.SetFixedTime(utcNow);
             var index = new DailyEmployeeIndex(_configuration, 1) { MaxIndexAge = TimeSpan.FromDays(45) };
@@ -499,7 +501,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Theory]
-        [MemberData("AliasesDatesToCheck")]
+        [MemberData(nameof(AliasesDatesToCheck))]
         public async Task MonthlyAliasMaxAgeAsync(DateTime utcNow) {
             SystemClock.SetFixedTime(utcNow);
             var index = new MonthlyEmployeeIndex(_configuration, 1) { MaxIndexAge = TimeSpan.FromDays(90) };
@@ -563,7 +565,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Theory]
-        [MemberData("AliasesDatesToCheck")]
+        [MemberData(nameof(AliasesDatesToCheck))]
         public async Task DailyIndexMaxAgeAsync(DateTime utcNow) {
             SystemClock.SetFixedTime(utcNow);
 
@@ -594,7 +596,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Theory]
-        [MemberData("AliasesDatesToCheck")]
+        [MemberData(nameof(AliasesDatesToCheck))]
         public async Task MonthlyIndexMaxAgeAsync(DateTime utcNow) {
             SystemClock.SetFixedTime(utcNow);
 
