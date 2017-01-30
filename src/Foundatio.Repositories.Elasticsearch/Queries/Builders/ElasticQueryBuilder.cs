@@ -3,9 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
-using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Extensions;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class ElasticQueryBuilder : IElasticQueryBuilder {
@@ -50,7 +48,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             Register(new ParsedSearchQueryBuilder(parser));
 
             Unregister<AggregationsQueryBuilder>();
-            Register(new AggregationsQueryBuilder(parser));
+            Register(new AggregationsQueryBuilder());
         }
 
         public void UseAliases(AliasMap aliasMap) {

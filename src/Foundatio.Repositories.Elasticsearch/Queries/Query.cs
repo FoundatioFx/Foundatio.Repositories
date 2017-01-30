@@ -1,21 +1,16 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
 using Nest;
 using IDateRangeQuery = Foundatio.Repositories.Elasticsearch.Queries.Builders.IDateRangeQuery;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries {
-    public class Query : ISystemFilterQuery, IIdentityQuery, ICachableQuery, IDateRangeQuery,
-        IFieldConditionsQuery, IPagableQuery, ISearchQuery, IAggregationQuery,
+    public class Query : ISystemFilterQuery, IIdentityQuery, IDateRangeQuery,
+        IFieldConditionsQuery, ISearchQuery, IAggregationQuery,
         IFieldIncludesQuery, ISortableQuery, IParentQuery, IChildQuery, ISoftDeletesQuery {
 
         public ISet<string> Ids { get; } = new HashSet<string>();
         public ISet<string> ExcludedIds { get; } = new HashSet<string>();
-        public string CacheKey { get; set; }
-        public TimeSpan? ExpiresIn { get; set; }
-        public DateTime? ExpiresAt { get; set; }
         public ICollection<DateRange> DateRanges { get; } = new List<DateRange>();
         public ICollection<FieldCondition> FieldConditions { get; } = new List<FieldCondition>();
         public IRepositoryQuery SystemFilter { get; set; }
@@ -31,6 +26,5 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         public IRepositoryQuery ParentQuery { get; set; }
         public ITypeQuery ChildQuery { get; set; }
         public SoftDeleteQueryMode? SoftDeleteMode { get; set; }
-        public IPagingOptions Options { get; set; }
     }
 }

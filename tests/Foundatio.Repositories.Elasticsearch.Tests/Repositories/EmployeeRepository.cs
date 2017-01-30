@@ -9,6 +9,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Queries;
 using Nest;
 
@@ -39,7 +40,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public Task<FindResults<Employee>> GetAllByCompanyAsync(string company, PagingOptions paging = null, bool useCache = false) {
-            return FindAsync(new MyAppQuery().WithCompany(company).WithPaging(paging).WithCacheKey(useCache ? "by-company" : null));
+            return FindAsync(new MyAppQuery().WithCompany(company), new CommandOptions().WithCacheKey(useCache ? "by-company" : null).WithPaging(paging));
         }
 
         public Task<FindResults<Employee>> GetAllByCompaniesWithFieldEqualsAsync(string[] companies)
@@ -48,7 +49,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public Task<CountResult> GetCountByCompanyAsync(string company) {
-            return CountAsync(new MyAppQuery().WithCompany(company).WithCacheKey(company));
+            return CountAsync(new MyAppQuery().WithCompany(company), new CommandOptions().WithCacheKey(company));
         }
 
         public Task<CountResult> GetNumberOfEmployeesWithMissingCompanyName(string company) {
@@ -67,13 +68,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         /// <param name="limit">OPTIONAL limit that should be applied to bulk updates. This is here only for tests...</param>
         /// <returns></returns>
         public Task<long> UpdateCompanyNameByCompanyAsync(string company, string name, int? limit = null) {
-            return PatchAllAsync(new MyAppQuery().WithCompany(company).WithLimit(limit), new { CompanyName = name });
+            return PatchAllAsync(new MyAppQuery().WithCompany(company), new { CompanyName = name }, new CommandOptions().WithLimit(limit));
         }
 
         public async Task<long> IncrementYearsEmployeedAsync(string[] ids, int years = 1) {
             string script = $"ctx._source.yearsEmployed += {years};";
             if (ids.Length == 0)
-                return await PatchAllAsync(new Query(), script, false);
+                return await PatchAllAsync(new Query(), script, new CommandOptions().DisableNotifications());
 
             await PatchAsync(ids, script);
             return ids.Length;
@@ -87,7 +88,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return await PatchAllAsync(query, script);
         }
 
-        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<Employee>> documents) {
+        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<Employee>> documents, ICommandOptions options = null) {
             if (!IsCacheEnabled)
                 return;
 

@@ -4,9 +4,10 @@ using System.Threading.Tasks;
 using Nest;
 using System.Collections;
 using System.Linq.Expressions;
+using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public interface IFieldConditionsQuery {
+    public interface IFieldConditionsQuery : IRepositoryQuery {
         ICollection<FieldCondition> FieldConditions { get; }
     }
 

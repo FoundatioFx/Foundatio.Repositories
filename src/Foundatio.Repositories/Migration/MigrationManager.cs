@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Threading.Tasks;
 using Foundatio.Logging;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Options;
 using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Migrations {
@@ -63,17 +64,17 @@ namespace Foundatio.Repositories.Migrations {
 
         private async Task<ICollection<IMigration>> GetPendingMigrationsAsync() {
             var allMigrations = GetAllMigrations();
-            var completedMigrations = await _migrationRepository.GetAllAsync(paging: 1000).AnyContext();
+            var completedMigrations = await _migrationRepository.GetAllAsync(new CommandOptions().WithLimit(1000)).AnyContext();
 
             // if migrations have never run before, mark the up to date with the most recent migration
             if (completedMigrations.Documents.Count == 0) {
-                var max = allMigrations.Max(m => m.Version);
+                int max = allMigrations.Max(m => m.Version);
                 await MarkMigrationCompleteAsync(max);
 
                 return new List<IMigration>();
             }
 
-            var currentVersion = completedMigrations.Documents.Max(m => m.Version);
+            int currentVersion = completedMigrations.Documents.Max(m => m.Version);
             return allMigrations.Where(m => m.Version > currentVersion).ToList();
         }
 

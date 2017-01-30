@@ -74,7 +74,6 @@
     <Compile Include="Extensions\NumberExtensions.cs" />
     <Compile Include="Extensions\StringExtensions.cs" />
     <Compile Include="Extensions\TaskExtensions.cs" />
-    <Compile Include="IRepositoryConfiguration.cs" />
     <Compile Include="ISearchableReadOnlyRepository.cs" />
     <Compile Include="ISearchableRepository.cs" />
     <Compile Include="JsonPatch\AbstractPatcher.cs" />
@@ -115,9 +114,14 @@
     <Compile Include="Models\Aggregations\TermsAggregate.cs" />
     <Compile Include="Models\Aggregations\ValueAggregate.cs" />
     <Compile Include="Models\BeforeQueryEventArgs.cs" />
+    <Compile Include="Models\IHaveData.cs" />
+    <Compile Include="Options\CacheOptions.cs" />
     <Compile Include="Models\EmptyReadOnly.cs" />
-    <Compile Include="Models\IPagingOptions.cs" />
+    <Compile Include="Options\NotificationOptions.cs" />
+    <Compile Include="Options\PagingOptions.cs" />
+    <Compile Include="Options\ICommandOptions.cs" />
     <Compile Include="Models\IVersioned.cs" />
+    <Compile Include="Options\UpdatedIdsCallbackOptions.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Models\ChangeType.cs" />
     <Compile Include="Models\DocumentChangeEventArgs.cs" />
@@ -130,10 +134,7 @@
     <Compile Include="IReadOnlyRepository.cs" />
     <Compile Include="IRepository.cs" />
     <Compile Include="Models\ISupportSoftDeletes.cs" />
-    <Compile Include="Queries\IQueryOptions.cs" />
     <Compile Include="Queries\IRepositoryQuery.cs" />
-    <Compile Include="Queries\PagableQuery.cs" />
-    <Compile Include="Models\PagingOptions.cs" />
     <Compile Include="Queries\SoftDeletesQuery.cs" />
     <Compile Include="Queries\SystemFilter.cs" />
     <Compile Include="RepositoryConstants.cs" />

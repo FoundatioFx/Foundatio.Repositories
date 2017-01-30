@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Nest;
@@ -353,7 +354,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.All);
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
-            var results = await _employeeRepository.GetAllAsync(PAGE_SIZE);
+            var results = await _employeeRepository.GetAllAsync(new PagingOptions().WithLimit(PAGE_SIZE));
             Assert.True(results.HasMore);
 
             var viewedIds = new HashSet<string>();
@@ -383,7 +384,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company", limit: 100));
 
             await _client.RefreshAsync(Indices.All);
-            var results = await _employeeRepository.GetAllByCompanyAsync("1", NUMBER_OF_EMPLOYEES);
+            var results = await _employeeRepository.GetAllByCompanyAsync("1", new PagingOptions().WithLimit(NUMBER_OF_EMPLOYEES));
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Documents.Count);
             foreach (var document in results.Documents) {
                 Assert.Equal(2, document.Version);
@@ -401,7 +402,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company"));
 
             await _client.RefreshAsync(Indices.All);
-            var results = await _employeeRepository.GetAllByCompanyAsync("1", paging: NUMBER_OF_EMPLOYEES);
+            var results = await _employeeRepository.GetAllByCompanyAsync("1", new PagingOptions().WithLimit(NUMBER_OF_EMPLOYEES));
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Documents.Count);
             foreach (var document in results.Documents) {
                 Assert.Equal(2, document.Version);

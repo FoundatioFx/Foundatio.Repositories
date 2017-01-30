@@ -9,6 +9,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent> {
@@ -31,7 +32,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public Task<CountResult> GetCountByCompanyAsync(string company) {
-            return CountAsync(new MyAppQuery().WithCompany(company).WithCacheKey(company));
+            return CountAsync(new MyAppQuery().WithCompany(company), new CommandOptions().WithCacheKey(company));
         }
 
         public async Task<long> IncrementValueAsync(string[] ids, int value = 1) {
@@ -40,7 +41,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             string script = $"ctx._source.value += {value};";
             if (ids.Length == 0)
-                return await PatchAllAsync(new Query(), script, false);
+                return await PatchAllAsync(new Query(), script, new CommandOptions().DisableNotifications());
 
             await PatchAsync(ids, script);
             return ids.Length;
@@ -54,7 +55,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return await PatchAllAsync(query, script);
         }
 
-        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents) {
+        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents, ICommandOptions options = null) {
             if (!IsCacheEnabled)
                 return;
 

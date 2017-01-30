@@ -18,10 +18,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface IIndexType : IDisposable {
         string Name { get; }
         Type Type { get; }
+        ElasticQueryParser QueryParser { get; }
         IIndex Index { get; }
         IElasticConfiguration Configuration { get; }
         Refresh DefaultRefresh { get; }
-        int DefaultCacheExpirationSeconds { get; set; }
         int BulkBatchSize { get; set; }
         Task ConfigureAsync();
         AliasesDescriptor ConfigureIndexAliases(AliasesDescriptor aliases);

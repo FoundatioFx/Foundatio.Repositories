@@ -1,9 +1,10 @@
 ﻿using System;
 using System.Threading.Tasks;
-using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Queries;
 using Nest;
+using Foundatio.Repositories.Elasticsearch.Options;
+using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IParentQuery: IRepositoryQuery {
@@ -23,8 +24,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (parentQuery == null)
                 return;
 
-            var options = ctx.GetOptionsAs<IElasticQueryOptions>();
-            IQueryOptions parentOptions = null;
+            var options = ctx.GetOptionsAs<IElasticCommandOptions>();
+            ICommandOptions parentOptions = null;
 
             if (options != null && options.HasParent == false)
                 return;
@@ -37,7 +38,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 if (parentType == null)
                     throw new ApplicationException("ParentIndexTypeName on child index type must match the name of the parent type.");
 
-                parentOptions = new ElasticQueryOptions(parentType);
+                parentOptions = new ElasticCommandOptions(parentType);
             }
 
             if (parentQuery.ParentQuery == null)

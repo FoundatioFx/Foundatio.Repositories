@@ -1,9 +1,10 @@
 ﻿using System;
 using System.Threading.Tasks;
+using Foundatio.Repositories.Queries;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public interface IElasticFilterQuery {
+    public interface IElasticFilterQuery : IRepositoryQuery {
         QueryContainer ElasticFilter { get; set; }
     }
 

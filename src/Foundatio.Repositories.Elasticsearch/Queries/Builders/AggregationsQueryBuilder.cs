@@ -1,30 +1,26 @@
 ﻿using System;
 using System.Threading.Tasks;
-using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Repositories.Elasticsearch.Options;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public interface IAggregationQuery {
+    public interface IAggregationQuery : IRepositoryQuery {
         string Aggregations { get; set; }
     }
 
     public class AggregationsQueryBuilder : IElasticQueryBuilder {
-        private readonly ElasticQueryParser _parser;
-
-        public AggregationsQueryBuilder(ElasticQueryParser parser) {
-            if (parser == null)
-                throw new ArgumentNullException(nameof(parser));
-
-            _parser = parser;
-        }
-
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            var elasticOptions = ctx.GetOptionsAs<IElasticCommandOptions>();
+            if (elasticOptions?.IndexType?.QueryParser == null)
+                return;
+
             var aggregationQuery = ctx.GetSourceAs<IAggregationQuery>();
             if (String.IsNullOrEmpty(aggregationQuery?.Aggregations))
                 return;
 
-            var result = await _parser.BuildAggregationsAsync(aggregationQuery.Aggregations, ctx).AnyContext();
+            var result = await elasticOptions.IndexType.QueryParser.BuildAggregationsAsync(aggregationQuery.Aggregations, ctx).AnyContext();
             ctx.Search.Aggregations(result);
         }
     }

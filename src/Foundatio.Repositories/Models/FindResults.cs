@@ -73,7 +73,7 @@ namespace Foundatio.Repositories.Models {
         Func<FindResults<T>, Task<FindResults<T>>> GetNextPageFunc { get; set; }
     }
 
-    public class CountResult {
+    public class CountResult : IHaveData {
         public static readonly CountResult Empty = new CountResult();
         private AggregationsHelper _agg;
 
@@ -99,7 +99,7 @@ namespace Foundatio.Repositories.Models {
         }
     }
 
-    public class FindHit<T> {
+    public class FindHit<T> : IHaveData {
         public static readonly FindHit<T> Empty = new FindHit<T>(null, default(T), 0);
 
         public FindHit(string id, T document, double score, long? version = null, IDictionary<string, object> data = null) {

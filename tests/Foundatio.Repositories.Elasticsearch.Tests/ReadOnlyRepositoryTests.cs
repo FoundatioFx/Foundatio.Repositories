@@ -8,6 +8,7 @@ using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Nest;
@@ -366,7 +367,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _identityRepository.AddAsync(identities);
 
             await _client.RefreshAsync(Indices.All);
-            var results = await _identityRepository.GetAllAsync(paging: 100);
+            var results = await _identityRepository.GetAllAsync(new PagingOptions().WithLimit(100));
             Assert.NotNull(results);
             Assert.Equal(25, results.Total);
             Assert.Equal(25, results.Documents.Count);
@@ -382,7 +383,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(identity2?.Id);
 
             await _client.RefreshAsync(Indices.All);
-            var results = await _identityRepository.GetAllAsync(paging: new PagingOptions().WithLimit(1));
+            var results = await _identityRepository.GetAllAsync(new PagingOptions().WithLimit(1));
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
@@ -402,7 +403,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.False(results.HasMore);
             Assert.Equal(2, results.Total);
 
-            var secondPageResults = await _identityRepository.GetAllAsync(paging: new PagingOptions().WithPage(2).WithLimit(1));
+            var secondPageResults = await _identityRepository.GetAllAsync(new PagingOptions().WithPage(2).WithLimit(1));
             Assert.Equal(secondDoc, secondPageResults.Documents.First());
         }
 
@@ -415,7 +416,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(identity2?.Id);
 
             await _client.RefreshAsync(Indices.All);
-            var results = await _identityRepository.GetAllAsync(paging: new ElasticPagingOptions().WithLimit(1).WithSnapshotLifetime(TimeSpan.FromMinutes(1)));
+            var results = await _identityRepository.GetAllAsync(new ElasticPagingOptions().WithLimit(1).WithSnapshotLifetime(TimeSpan.FromMinutes(1)));
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
@@ -435,7 +436,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.False(results.HasMore);
             Assert.Equal(2, results.Total);
 
-            var secondPageResults = await _identityRepository.GetAllAsync(paging: new PagingOptions().WithPage(2).WithLimit(1));
+            var secondPageResults = await _identityRepository.GetAllAsync(new PagingOptions().WithPage(2).WithLimit(1));
             Assert.Equal(secondDoc, secondPageResults.Documents.First());
         }
 

@@ -3,10 +3,11 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries.Visitors;
-using Foundatio.Repositories.Elasticsearch.Queries.Options;
+using Foundatio.Repositories.Elasticsearch.Options;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Queries;
 using Nest;
+using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IElasticQueryBuilder {
@@ -14,13 +15,13 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitorContext, IQueryVisitorContextWithAliasResolver, IQueryVisitorContextWithIncludeResolver where T : class, new() {
-        public QueryBuilderContext(IRepositoryQuery source, IQueryOptions options, SearchDescriptor<T> search = null, IQueryBuilderContext parentContext = null, string type = null) {
+        public QueryBuilderContext(IRepositoryQuery source, ICommandOptions options, SearchDescriptor<T> search = null, IQueryBuilderContext parentContext = null, string type = null) {
             Source = source;
             Options = options;
             Search = search ?? new SearchDescriptor<T>();
             Parent = parentContext;
             Type = type ?? ContextType.Default;
-            var elasticQueryOptions = options as IElasticQueryOptions;
+            var elasticQueryOptions = options as IElasticCommandOptions;
             if (elasticQueryOptions != null)
                 ((IQueryVisitorContextWithAliasResolver)this).RootAliasResolver = elasticQueryOptions.RootAliasResolver;
 
@@ -34,7 +35,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         public string Type { get; }
         public IQueryBuilderContext Parent { get; }
         public IRepositoryQuery Source { get; }
-        public IQueryOptions Options { get; }
+        public ICommandOptions Options { get; }
         public QueryContainer Query { get; set; }
         public QueryContainer Filter { get; set; }
         public SearchDescriptor<T> Search { get; }
@@ -78,7 +79,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IQueryBuilderContext {
         IQueryBuilderContext Parent { get; }
         IRepositoryQuery Source { get; }
-        IQueryOptions Options { get; }
+        ICommandOptions Options { get; }
         QueryContainer Query { get; set; }
         QueryContainer Filter { get; set; }
         string Type { get; }
@@ -86,17 +87,17 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public static class QueryBuilderContextExtensions {
-        public static TQuery GetSourceAs<TQuery>(this IQueryBuilderContext context) where TQuery : class {
+        public static TQuery GetSourceAs<TQuery>(this IQueryBuilderContext context) where TQuery : class, IRepositoryQuery {
             return context.Source as TQuery;
         }
 
-        public static TOptions GetOptionsAs<TOptions>(this IQueryBuilderContext context) where TOptions : class {
+        public static TOptions GetOptionsAs<TOptions>(this IQueryBuilderContext context) where TOptions : class, ICommandOptions {
             return context.Options as TOptions;
         }
     }
 
     public static class ElasticQueryBuilderExtensions {
-        public static async Task<QueryContainer> BuildQueryAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, IQueryOptions options, SearchDescriptor<T> search) where T : class, new() {
+        public static async Task<QueryContainer> BuildQueryAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, ICommandOptions options, SearchDescriptor<T> search) where T : class, new() {
             var ctx = new QueryBuilderContext<T>(query, options, search);
             await builder.BuildAsync(ctx).AnyContext();
 
@@ -106,7 +107,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             };
         }
 
-        public static async Task ConfigureSearchAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, IQueryOptions options, SearchDescriptor<T> search) where T : class, new() {
+        public static async Task ConfigureSearchAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, ICommandOptions options, SearchDescriptor<T> search) where T : class, new() {
             if (search == null)
                 throw new ArgumentNullException(nameof(search));
 
