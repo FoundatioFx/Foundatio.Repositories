@@ -65,14 +65,13 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             if (snapshots.Count == 0)
                 return;
 
-            DateTime now = SystemClock.UtcNow;
-            var snapshotsToDelete = snapshots.Where(r => r.Date < now.Subtract(maxAge)).ToList();
-
+            DateTime oldestValidSnapshot = SystemClock.UtcNow.Subtract(maxAge);
+            var snapshotsToDelete = snapshots.Where(r => r.Date.IsBefore(oldestValidSnapshot)).ToList();
             if (snapshotsToDelete.Count == 0)
                 return;
 
             // log that we are seeing snapshots that should have been deleted already
-            var oldSnapshots = snapshots.Where(s => s.Date < now.Subtract(maxAge).AddDays(-1)).ToList();
+            var oldSnapshots = snapshots.Where(s => s.Date < oldestValidSnapshot.AddDays(-1)).ToList();
             if (oldSnapshots.Count > 0)
                 _logger.Error($"Found old snapshots that should've been deleted: {String.Join(", ", oldSnapshots)}");
 
@@ -129,11 +128,13 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             return DateTime.MaxValue;
         }
 
+        [DebuggerDisplay("{Name}")]
         private class RepositoryMaxAge {
             public string Name { get; set; }
             public TimeSpan MaxAge { get; set; }
         }
 
+        [DebuggerDisplay("{Name} ({Date})")]
         private class SnapshotDate {
             public string Name { get; set; }
             public DateTime Date { get; set; }
