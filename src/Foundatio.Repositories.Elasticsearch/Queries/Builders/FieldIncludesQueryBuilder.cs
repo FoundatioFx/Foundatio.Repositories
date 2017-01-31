@@ -36,7 +36,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
     public static class FieldIncludesQueryExtensions {
         public static T IncludeField<T>(this T query, Field field) where T : IFieldIncludesQuery {
-            query.FieldIncludes?.Add(field);
+            if (field != null)
+                query.FieldIncludes?.Add(field);
+
             return query;
         }
 
@@ -46,7 +48,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
 
         public static T IncludeFields<T>(this T query, params Field[] fields) where T : IFieldIncludesQuery {
+            if (fields == null)
+                return query;
+
             query.FieldIncludes?.AddRange(fields);
+
             return query;
         }
 
@@ -58,7 +64,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
 
         public static T ExcludeField<T>(this T query, Field field) where T : IFieldIncludesQuery {
-            query.FieldExcludes?.Add(field);
+            if (field != null)
+                query.FieldExcludes?.Add(field);
+
             return query;
         }
 
@@ -68,7 +76,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
 
         public static T ExcludeFields<T>(this T query, params Field[] fields) where T : IFieldIncludesQuery {
+            if (fields == null)
+                return query;
+
             query.FieldExcludes?.AddRange(fields);
+
             return query;
         }
 
