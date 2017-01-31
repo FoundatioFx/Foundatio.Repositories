@@ -89,7 +89,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                     await _lockProvider.TryUsingAsync("es-snapshot", async t => {
                         _logger.Info($"Got snapshot lock to delete {snapshot.Name} from {repo}");
                         sw.Restart();
-                        var response = await _client.DeleteSnapshotAsync(repo, snapshot.Name, cancellationToken: t).AnyContext();
+                        var response = await _client.DeleteSnapshotAsync(repo, snapshot.Name, r => r.RequestConfiguration(c => c.RequestTimeout(TimeSpan.FromMinutes(15))), cancellationToken: t).AnyContext();
                         sw.Stop();
 
                         if (response.IsValid)
