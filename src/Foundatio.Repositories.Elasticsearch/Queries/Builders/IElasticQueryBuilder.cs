@@ -93,6 +93,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         public static TOptions GetOptionsAs<TOptions>(this IQueryBuilderContext context) where TOptions : class {
             return context.Options as TOptions;
         }
+
+        public static void SetTimeZone(this IQueryBuilderContext context, string timeZone)
+        {
+            context.Data["timezone"] = timeZone;
+        }
     }
 
     public static class ElasticQueryBuilderExtensions {

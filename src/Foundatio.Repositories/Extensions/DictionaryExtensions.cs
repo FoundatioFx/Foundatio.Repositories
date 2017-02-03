@@ -22,7 +22,7 @@ namespace Foundatio.Repositories.Extensions {
 
         public static IReadOnlyDictionary<string, object> ToData(this IReadOnlyDictionary<string, object> dictionary) {
             var dict = dictionary?
-                .Where(kvp => kvp.Key != "@type" && kvp.Key != "@offset")
+                .Where(kvp => kvp.Key != "@type" && kvp.Key != "@timezone")
                 .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
             return dict?.Count > 0 ? dict : null;
