@@ -6,10 +6,6 @@ using Xunit;
 
 namespace Foundatio.Repositories.Tests {
     public class ObjectIdTests {
-        public ObjectIdTests() {
-            SystemClock.Reset();
-        }
-
         [Fact]
         public void CanParseDate() {
             var time = SystemClock.UtcNow.Round(TimeSpan.FromSeconds(1));
@@ -37,7 +33,7 @@ namespace Foundatio.Repositories.Tests {
             var utcNow = SystemClock.UtcNow.Round(TimeSpan.FromSeconds(1));
             var id = ObjectId.GenerateNewId(utcNow);
             Assert.Equal(utcNow, id.CreationTime);
-            
+
             var id2 = ObjectId.GenerateNewId(utcNow);
             Assert.Equal(utcNow, id2.CreationTime);
 
