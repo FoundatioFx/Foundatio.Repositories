@@ -1,23 +1,21 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace Foundatio.Repositories.Options {
-    public interface IUpdatedIdsCallbackOptions : ICommandOptions {
-        Action<IEnumerable<string>> UpdatedIdsCallback { get; set; }
-    }
-
+namespace Foundatio.Repositories {
     public static class UpdatedIdsCallbackOptionsExtensions {
-        public static T WithUpdatedIdsCallback<T>(this T options, Action<IEnumerable<string>> callback) where T : IUpdatedIdsCallbackOptions {
-            options.UpdatedIdsCallback = callback;
+        internal const string UpdatedIdsCallbackKey = "@UpdatedIdsCallback";
+
+        public static T WithUpdatedIdsCallback<T>(this T options, Action<IEnumerable<string>> callback) where T : ICommandOptions {
+            options.SetOption(UpdatedIdsCallbackKey, callback);
             return options;
         }
+    }
+}
 
+namespace Foundatio.Repositories.Options {
+    public static class ReadUpdatedIdsCallbackOptionsExtensions {
         public static Action<IEnumerable<string>> GetUpdatedIdsCallback<T>(this T options) where T : ICommandOptions {
-            var updatedIdsOptions = options as IUpdatedIdsCallbackOptions;
-            if (updatedIdsOptions == null)
-                return null;
-
-            return updatedIdsOptions.UpdatedIdsCallback;
+            return options.GetOption<Action<IEnumerable<string>>>(UpdatedIdsCallbackOptionsExtensions.UpdatedIdsCallbackKey, null);
         }
     }
 }

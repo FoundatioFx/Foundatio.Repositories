@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Models;
-using Foundatio.Repositories.Options;
 using Foundatio.Utility;
 
 namespace Foundatio.Repositories {
@@ -19,15 +18,11 @@ namespace Foundatio.Repositories {
 
     public static class ReadOnlyRepositoryExtensions {
         public static Task<T> GetByIdAsync<T>(this IReadOnlyRepository<T> repository, string id, bool useCache = false, TimeSpan? expiresIn = null) where T : class, new() {
-            return repository.GetByIdAsync(id, new CommandOptions().UseAutoCache(useCache).WithExpiresIn(expiresIn));
+            return repository.GetByIdAsync(id, new CommandOptions().EnableCache(useCache, expiresIn));
         }
 
         public static Task<IReadOnlyCollection<T>> GetByIdsAsync<T>(this IReadOnlyRepository<T> repository, IEnumerable<string> ids, bool useCache = false, TimeSpan? expiresIn = null) where T : class, new() {
-            return repository.GetByIdsAsync(ids, new CommandOptions().UseAutoCache(useCache).WithExpiresIn(expiresIn));
-        }
-
-        public static Task<FindResults<T>> GetAllAsync<T>(this IReadOnlyRepository<T> repository, PagingOptions options) where T : class, new() {
-            return repository.GetAllAsync(options);
+            return repository.GetByIdsAsync(ids, new CommandOptions().EnableCache(useCache, expiresIn));
         }
     }
 }

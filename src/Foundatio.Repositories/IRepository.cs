@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Models;
-using Foundatio.Repositories.Options;
 using Foundatio.Utility;
 
 namespace Foundatio.Repositories {
@@ -31,19 +30,19 @@ namespace Foundatio.Repositories {
 
     public static class RepositoryExtensions {
         public static Task<T> AddAsync<T>(this IRepository<T> repository, T document, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotification = true) where T : class, IIdentity, new() {
-            return repository.AddAsync(document, new CommandOptions().UseAutoCache(addToCache).WithExpiresIn(expiresIn).SendNotifications(sendNotification));
+            return repository.AddAsync(document, new CommandOptions().EnableCache(addToCache, expiresIn).SendNotifications(sendNotification));
         }
 
         public static Task AddAsync<T>(this IRepository<T> repository, IEnumerable<T> documents, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotification = true) where T : class, IIdentity, new() {
-            return repository.AddAsync(documents, new CommandOptions().UseAutoCache(addToCache).WithExpiresIn(expiresIn).SendNotifications(sendNotification));
+            return repository.AddAsync(documents, new CommandOptions().EnableCache(addToCache, expiresIn).SendNotifications(sendNotification));
         }
 
         public static Task<T> SaveAsync<T>(this IRepository<T> repository, T document, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotification = true) where T : class, IIdentity, new() {
-            return repository.SaveAsync(document, new CommandOptions().UseAutoCache(addToCache).WithExpiresIn(expiresIn).SendNotifications(sendNotification));
+            return repository.SaveAsync(document, new CommandOptions().EnableCache(addToCache, expiresIn).SendNotifications(sendNotification));
         }
 
         public static Task SaveAsync<T>(this IRepository<T> repository, IEnumerable<T> documents, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotification = true) where T : class, IIdentity, new() {
-            return repository.SaveAsync(documents, new CommandOptions().UseAutoCache(addToCache).WithExpiresIn(expiresIn).SendNotifications(sendNotification));
+            return repository.SaveAsync(documents, new CommandOptions().EnableCache(addToCache, expiresIn).SendNotifications(sendNotification));
         }
 
         public static Task PatchAsync<T>(this IRepository<T> repository, string id, object update, bool sendNotification = true) where T : class, IIdentity, new() {

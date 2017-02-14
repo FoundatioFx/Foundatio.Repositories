@@ -117,6 +117,7 @@
     <Compile Include="Models\IHaveData.cs" />
     <Compile Include="Options\CacheOptions.cs" />
     <Compile Include="Models\EmptyReadOnly.cs" />
+    <Compile Include="Options\IOptions.cs" />
     <Compile Include="Options\NotificationOptions.cs" />
     <Compile Include="Options\PagingOptions.cs" />
     <Compile Include="Options\ICommandOptions.cs" />
@@ -140,6 +141,7 @@
     <Compile Include="RepositoryConstants.cs" />
     <Compile Include="Utility\ObjectId.cs" />
     <Compile Include="Utility\TaskHelper.cs" />
+    <Compile Include="Utility\TypeHelper.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Foundatio.Repositories.nuspec" />

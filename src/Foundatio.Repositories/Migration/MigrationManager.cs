@@ -64,7 +64,7 @@ namespace Foundatio.Repositories.Migrations {
 
         private async Task<ICollection<IMigration>> GetPendingMigrationsAsync() {
             var allMigrations = GetAllMigrations();
-            var completedMigrations = await _migrationRepository.GetAllAsync(new CommandOptions().WithLimit(1000)).AnyContext();
+            var completedMigrations = await _migrationRepository.GetAllAsync(new CommandOptions().UsePaging(1000)).AnyContext();
 
             // if migrations have never run before, mark the up to date with the most recent migration
             if (completedMigrations.Documents.Count == 0) {
