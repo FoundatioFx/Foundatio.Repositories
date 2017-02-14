@@ -45,17 +45,14 @@
       <HintPath>..\..\packages\FluentValidation.6.2.1.0\lib\Net45\FluentValidation.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Foundatio, Version=4.3.1282.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Foundatio.4.3.1282\lib\net46\Foundatio.dll</HintPath>
-      <Private>True</Private>
+    <Reference Include="Foundatio, Version=4.3.1299.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Foundatio.4.3.1299\lib\net46\Foundatio.dll</HintPath>
     </Reference>
-    <Reference Include="Foundatio.Parsers.ElasticQueries, Version=5.0.254.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\packages\Foundatio.Parsers.ElasticQueries.5.0.254-pre\lib\net46\Foundatio.Parsers.ElasticQueries.dll</HintPath>
+    <Reference Include="Foundatio.Parsers.ElasticQueries, Version=5.0.259.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Foundatio.Parsers.ElasticQueries.5.0.259-pre\lib\net46\Foundatio.Parsers.ElasticQueries.dll</HintPath>
     </Reference>
-    <Reference Include="Foundatio.Parsers.LuceneQueries, Version=5.0.254.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\..\packages\Foundatio.Parsers.LuceneQueries.5.0.254-pre\lib\net46\Foundatio.Parsers.LuceneQueries.dll</HintPath>
+    <Reference Include="Foundatio.Parsers.LuceneQueries, Version=5.0.259.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Foundatio.Parsers.LuceneQueries.5.0.259-pre\lib\net46\Foundatio.Parsers.LuceneQueries.dll</HintPath>
     </Reference>
     <Reference Include="Nest, Version=5.0.0.0, Culture=neutral, PublicKeyToken=96c599bbe3e70f5d, processorArchitecture=MSIL">
       <HintPath>..\..\packages\NEST.5.0.1\lib\net46\Nest.dll</HintPath>
