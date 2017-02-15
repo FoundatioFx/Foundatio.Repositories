@@ -16,7 +16,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
         public string CacheKey { get; set; }
         public TimeSpan? ExpiresIn { get; set; }
         public DateTime? ExpiresAt { get; set; }
-        public ICollection<DateRange> DateRanges { get; } = new List<DateRange>();
+        public ICollection<Builders.DateRange> DateRanges { get; } = new List<Builders.DateRange>();
         public ICollection<FieldCondition> FieldConditions { get; } = new List<FieldCondition>();
         public IRepositoryQuery SystemFilter { get; set; }
         public string Filter { get; set; }
