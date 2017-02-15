@@ -1,4 +1,4 @@
-version: 5.0.{build}
+﻿version: 5.0.{build}
 os: Visual Studio 2015
 clone_depth: 2
 configuration: Release
@@ -16,7 +16,7 @@ init:
 
 install:
   - choco install gitlink
-  - ps: .\build\Start-ElasticSearch.ps1 -NodeCount 3 -StartKibana $false -Version 5.1.1
+  - ps: .\build\Start-ElasticSearch.ps1 -NodeCount 3 -StartKibana $false
 
 assembly_info:
   patch: true
