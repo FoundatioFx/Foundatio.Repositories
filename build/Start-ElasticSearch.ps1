@@ -1,5 +1,5 @@
 ﻿Param(
-  [string]$Version = "5.1.1",
+  [string]$Version = "5.2.1",
   [int]$NodeCount = 1,
   [bool]$StartKibana = $true,
   [int]$StartPort = 9200,
@@ -46,18 +46,20 @@ For ($i = 1; $i -le $NodeCount; $i++) {
 
 	Start-Process "$(Get-Location)\elasticsearch-$Version-node$i\bin\elasticsearch.bat"
 
-    $retries = 0
+    $attempts = 0
     Do {
+        If ($attempts -gt 0) {
+            Start-Sleep -s 2
+        }
+        
         Write-Host "Waiting for Elasticsearch $Version node $i to respond..."
         $res = $null
         
         Try {
             $res = Invoke-WebRequest http://localhost:$nodePort -UseBasicParsing
-        } Catch {
-            $retries = $retries + 1
-            Start-Sleep -s 1
-        }
-    } Until ($res -ne $null -And $res.StatusCode -eq 200 -And $retries -lt 10)
+        } Catch {}
+        $attempts = $attempts + 1
+    } Until ($res -ne $null -And $res.StatusCode -eq 200 -And $attempts -lt 25)
 }
 
 If ($StartKibana -eq $true) {
@@ -80,18 +82,20 @@ If ($StartKibana -eq $true) {
 
 	Write-Output "Starting Kibana $Version"
     Start-Process "$(Get-Location)\kibana-$Version\bin\kibana.bat"
-    $retries = 0
+    $attempts = 0
     Do {
+        If ($attempts -gt 0) {
+            Start-Sleep -s 2
+        }
+        
         Write-Host "Waiting for Kibana $Version to respond..."
         $res = $null
         
         Try {
             $res = Invoke-WebRequest http://localhost:5601 -UseBasicParsing
-        } Catch {
-            $retries = $retries + 1
-            Start-Sleep -s 1
-        }
-    } Until ($res -ne $null -And $res.StatusCode -eq 200 -And $retries -lt 10)
+        } Catch {}
+        $attempts = $attempts + 1
+    } Until ($res -ne $null -And $res.StatusCode -eq 200 -And $attempts -lt 25)
 
     If ($OpenKibana) {
         Start-Process "http://localhost:5601/app/kibana#/dev_tools/console"
