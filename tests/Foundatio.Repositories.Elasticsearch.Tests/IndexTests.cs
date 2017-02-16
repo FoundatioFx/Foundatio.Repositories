@@ -1285,4 +1285,4 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return Encoding.Default.GetString(_client.Serializer.Serialize(data));
         }
     }
-}T
+}
