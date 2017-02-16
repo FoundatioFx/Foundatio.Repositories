@@ -31,7 +31,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             RemoveDataAsync().GetAwaiter().GetResult();
         }
-        
+
         [Fact]
         public async Task Add() {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Generate());
@@ -113,7 +113,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task AddDuplicate() {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default);
             Assert.NotNull(identity1?.Id);
-            
+
             var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Default);
             Assert.NotNull(identity2?.Id);
 
@@ -153,13 +153,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id));
         }
-        
+
         [Fact]
         public async Task AddCollectionWithTimeSeries() {
             var utcNow = SystemClock.UtcNow;
             var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
             var nowLog = LogEventGenerator.Default;
-            
+
             var logs = new List<LogEvent> { yesterdayLog, nowLog };
             await _dailyRepository.AddAsync(logs);
 
@@ -170,7 +170,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var getAllResults = await _dailyRepository.GetAllAsync();
             Assert.Equal(logs, getAllResults.Documents.OrderBy(d => d.CreatedUtc).ToList());
         }
-        
+
         [Fact]
         public async Task AddCollectionWithCaching() {
             var identity = IdentityGenerator.Generate();
@@ -190,7 +190,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task Save() {
             var log = await _dailyRepository.AddAsync(LogEventGenerator.Default, sendNotification: false);
             Assert.NotNull(log?.Id);
-            
+
             var disposables = new List<IDisposable>();
             var countdownEvent = new AsyncCountdownEvent(5);
 
@@ -237,7 +237,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task AddAndSave() {
             var log = await _dailyRepository.AddAsync(LogEventGenerator.Default, sendNotification: false);
             Assert.NotNull(log?.Id);
-            
+
             var disposables = new List<IDisposable>(4);
             var countdownEvent = new AsyncCountdownEvent(5);
             // Save requires an id to be set.
@@ -286,7 +286,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
-            
+
             string cacheKey = _cache.Keys.Single();
             var cacheValue = await _cache.GetAsync<Identity>(cacheKey);
             Assert.True(cacheValue.HasValue);
@@ -295,7 +295,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             identity = await _identityRepository.GetByIdAsync(identity.Id, useCache: true);
             Assert.NotNull(identity);
             Assert.Equal(2, _cache.Hits);
-            
+
             cacheValue = await _cache.GetAsync<Identity>(cacheKey);
             Assert.True(cacheValue.HasValue);
             Assert.Equal(identity, cacheValue.Value);
@@ -319,7 +319,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var identity = IdentityGenerator.Generate();
             await Assert.ThrowsAsync<ApplicationException>(async () => await _identityRepository.SaveAsync(new List<Identity> { identity }, addToCache: true));
         }
-        
+
         [Fact]
         public async Task SaveWithOutOfSyncIndex() {
             var utcNow = SystemClock.UtcNow;
@@ -328,7 +328,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _client.RefreshAsync();
             Assert.Equal(1, await _dailyRepository.CountAsync());
-            
+
             yesterdayLog.Message = "updated";
             await _dailyRepository.SaveAsync(yesterdayLog);
 
@@ -405,7 +405,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
 
-            identity = await _identityRepository.SaveAsync(identity, addToCache: true); 
+            identity = await _identityRepository.SaveAsync(identity, addToCache: true);
             Assert.NotNull(identity?.Id);
             Assert.Equal(1, _cache.Count);
             Assert.Equal(0, _cache.Hits);
@@ -425,7 +425,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var results = await _identityRepository.GetByIdsAsync(identities.Select(i => i.Id).ToList());
             Assert.Equal(2, results.Count);
         }
-        
+
         [Fact]
         public async Task SaveCollectionWithTimeSeries() {
             var utcNow = SystemClock.UtcNow;
@@ -443,7 +443,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var results = await _dailyRepository.GetByIdsAsync(new List<string> { yesterdayLog.Id, nowLog.Id });
             Assert.Equal(logs, results.OrderBy(d => d.CreatedUtc).ToList());
         }
-        
+
         [Fact]
         public async Task SaveCollectionWithCaching() {
             var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
@@ -468,23 +468,25 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(2, _cache.Hits);
             Assert.Equal(2, _cache.Misses);
         }
-        
+
         [Fact]
         public async Task SetCreatedAndModifiedTimes() {
-            SystemClock.Test.AddTime(TimeSpan.FromMilliseconds(100));
-            DateTime nowUtc = SystemClock.UtcNow;
-            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
-            Assert.True(employee.CreatedUtc >= nowUtc);
-            Assert.True(employee.UpdatedUtc >= nowUtc);
+            using (TestSystemClock.Install()) {
+                SystemClock.Test.SubtractTime(TimeSpan.FromMilliseconds(100));
+                DateTime nowUtc = SystemClock.UtcNow;
+                var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+                Assert.True(employee.CreatedUtc >= nowUtc);
+                Assert.True(employee.UpdatedUtc >= nowUtc);
 
-            DateTime createdUtc = employee.CreatedUtc;
-            DateTime updatedUtc = employee.UpdatedUtc;
+                DateTime createdUtc = employee.CreatedUtc;
+                DateTime updatedUtc = employee.UpdatedUtc;
 
-            employee.Name = Guid.NewGuid().ToString();
-            SystemClock.Instance = new TestSystemClock();
-            employee = await _employeeRepository.SaveAsync(employee);
-            Assert.Equal(createdUtc, employee.CreatedUtc);
-            Assert.True(updatedUtc < employee.UpdatedUtc, $"Previous UpdatedUtc: {updatedUtc} Current UpdatedUtc: {employee.UpdatedUtc}");
+                employee.Name = Guid.NewGuid().ToString();
+                SystemClock.Test.AddTime(TimeSpan.FromMilliseconds(100));
+                employee = await _employeeRepository.SaveAsync(employee);
+                Assert.Equal(createdUtc, employee.CreatedUtc);
+                Assert.True(updatedUtc < employee.UpdatedUtc, $"Previous UpdatedUtc: {updatedUtc} Current UpdatedUtc: {employee.UpdatedUtc}");
+            }
         }
 
         [Fact]
@@ -638,7 +640,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 disposables.Clear();
             }
         }
-        
+
         [Fact]
         public async Task RemoveWithTimeSeries() {
             var log = LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString());
@@ -661,7 +663,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _client.RefreshAsync();
             Assert.Equal(1, await _dailyRepository.CountAsync());
-            
+
             await _dailyRepository.RemoveAsync(yesterdayLog);
 
             await _client.RefreshAsync();
@@ -685,7 +687,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
-            
+
             await _identityRepository.RemoveAsync(identities);
             Assert.Equal(0, _cache.Count);
             Assert.Equal(0, _cache.Hits);
@@ -704,7 +706,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync();
             Assert.Equal(0, await _identityRepository.CountAsync());
         }
-        
+
         [Fact]
         public async Task RemoveCollectionWithTimeSeries() {
             var utcNow = SystemClock.UtcNow;
@@ -730,7 +732,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(2, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
-            
+
             await _identityRepository.RemoveAsync(identities);
             Assert.Equal(0, _cache.Count);
             Assert.Equal(0, _cache.Hits);
@@ -762,7 +764,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var identities = new List<Identity> { IdentityGenerator.Default };
             await _identityRepository.AddAsync(identities);
             await _client.RefreshAsync();
-            
+
             var disposables = new List<IDisposable>(2);
             var countdownEvent = new AsyncCountdownEvent(2);
 
@@ -846,7 +848,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync();
             Assert.Equal(0, await _identityRepository.CountAsync());
         }
-        
+
         [Fact]
         public async Task RemoveAllWithTimeSeries() {
             var utcNow = SystemClock.UtcNow;
