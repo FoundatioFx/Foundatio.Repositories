@@ -30,7 +30,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Theory]
         [MemberData("AliasesDatesToCheck")]
         public async Task CanCreateDailyAliases(DateTime utcNow) {
-            SystemClock.SetFixedTime(utcNow);
+            SystemClock.Test.SetFixedTime(utcNow);
             var index = new DailyEmployeeIndex(_configuration, 1);
             await index.DeleteAsync();
             
@@ -64,7 +64,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Theory]
         [MemberData("AliasesDatesToCheck")]
         public async Task CanCreateMonthlyAliases(DateTime utcNow) {
-            SystemClock.SetFixedTime(utcNow);
+            SystemClock.Test.SetFixedTime(utcNow);
             var index = new MonthlyEmployeeIndex(_configuration, 1);
             await index.DeleteAsync();
             
@@ -783,7 +783,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task MaintainWillCreateAliasesOnTimeSeriesIndex() {
-            SystemClock.SetFixedTime(SystemClock.UtcNow);
+            SystemClock.Test.SetFixedTime(SystemClock.UtcNow);
             var version1Index = new DailyEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
 
@@ -851,7 +851,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 await index.ConfigureAsync();
                 var repository = new EmployeeRepository(index.Employee);
 
-                SystemClock.AdjustTime(TimeSpan.FromDays(15));
+                SystemClock.Test.AddTime(TimeSpan.FromDays(15));
                 var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: SystemClock.UtcNow));
                 Assert.NotNull(employee?.Id);
                 await _client.RefreshAsync();
@@ -871,7 +871,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 aliases.Sort();
                 Assert.Equal(GetExpectedEmployeeDailyAliases(index, SystemClock.UtcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
-                SystemClock.AdjustTime(TimeSpan.FromDays(9));
+                SystemClock.Test.AddTime(TimeSpan.FromDays(9));
                 index.MaxIndexAge = TimeSpan.FromDays(10);
                 await index.MaintainAsync();
                 existsResponse = await _client.IndexExistsAsync(index.GetIndex(employee.CreatedUtc));
@@ -887,7 +887,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 aliases.Sort();
                 Assert.Equal(GetExpectedEmployeeDailyAliases(index, SystemClock.UtcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
-                SystemClock.Reset();
+                SystemClock.Instance = DefaultSystemClock.Instance;
                 await index.MaintainAsync();
                 existsResponse = await _client.IndexExistsAsync(index.GetIndex(employee.CreatedUtc));
                 _logger.Trace(() => existsResponse.GetRequest());
@@ -903,7 +903,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task MaintainMonthlyIndexes() {
-            SystemClock.SetFixedTime(new DateTime(2016, 8, 31, 0, 0, 0, DateTimeKind.Utc));
+            SystemClock.Test.SetFixedTime(new DateTime(2016, 8, 31, 0, 0, 0, DateTimeKind.Utc));
             var index = new MonthlyEmployeeIndex(_configuration, 1);
             index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.SubtractMonths(4).StartOfMonth();
             await index.DeleteAsync();
@@ -963,7 +963,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task MaintainOnlyOldIndexes() {
-            SystemClock.SetFixedTime(SystemClock.UtcNow.EndOfYear());
+            SystemClock.Test.SetFixedTime(SystemClock.UtcNow.EndOfYear());
 
             var index = new MonthlyEmployeeIndex(_configuration, 1);
             index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.SubtractMonths(12).StartOfMonth();
@@ -985,7 +985,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         
         [Fact]
         public async Task MaintainOnlyOldIndexesWithNoExistingAliases() {
-            SystemClock.SetFixedTime(SystemClock.UtcNow.EndOfYear());
+            SystemClock.Test.SetFixedTime(SystemClock.UtcNow.EndOfYear());
 
             var index = new MonthlyEmployeeIndex(_configuration, 1);
             index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.SubtractMonths(12).StartOfMonth();
@@ -1008,7 +1008,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         
         [Fact]
         public async Task MaintainOnlyOldIndexesWithPartialAliases() {
-            SystemClock.SetFixedTime(SystemClock.UtcNow.EndOfYear());
+            SystemClock.Test.SetFixedTime(SystemClock.UtcNow.EndOfYear());
 
             var index = new MonthlyEmployeeIndex(_configuration, 1);
             index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.SubtractMonths(12).StartOfMonth();
@@ -1033,7 +1033,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Theory]
         [MemberData("AliasesDatesToCheck")]
         public async Task DailyAliasMaxAge(DateTime utcNow) {
-            SystemClock.SetFixedTime(utcNow);
+            SystemClock.Test.SetFixedTime(utcNow);
             var index = new DailyEmployeeIndex(_configuration, 1);
             index.MaxIndexAge = TimeSpan.FromDays(45);
             await index.DeleteAsync();
@@ -1098,7 +1098,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Theory]
         [MemberData("AliasesDatesToCheck")]
         public async Task MonthlyAliasMaxAge(DateTime utcNow) {
-            SystemClock.SetFixedTime(utcNow);
+            SystemClock.Test.SetFixedTime(utcNow);
             var index = new MonthlyEmployeeIndex(_configuration, 1);
             index.MaxIndexAge = TimeSpan.FromDays(90);
             await index.DeleteAsync();
@@ -1163,7 +1163,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Theory]
         [MemberData("AliasesDatesToCheck")]
         public async Task DailyIndexMaxAge(DateTime utcNow) {
-            SystemClock.SetFixedTime(utcNow);
+            SystemClock.Test.SetFixedTime(utcNow);
 
             var index = new DailyEmployeeIndex(_configuration, 1);
             index.MaxIndexAge = TimeSpan.FromDays(1);
@@ -1195,7 +1195,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Theory]
         [MemberData("AliasesDatesToCheck")]
         public async Task MonthlyIndexMaxAge(DateTime utcNow) {
-            SystemClock.SetFixedTime(utcNow);
+            SystemClock.Test.SetFixedTime(utcNow);
 
             var index = new MonthlyEmployeeIndex(_configuration, 1);
             index.MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.StartOfMonth();

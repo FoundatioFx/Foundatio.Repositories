@@ -1,6 +1,5 @@
 ﻿using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Queries;
 using Foundatio.Repositories.Utility;

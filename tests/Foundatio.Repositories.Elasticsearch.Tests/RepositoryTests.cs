@@ -5,7 +5,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.Logging;
-using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.JsonPatch;
 using Foundatio.Repositories.Models;
@@ -472,7 +471,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         
         [Fact]
         public async Task SetCreatedAndModifiedTimes() {
-            SystemClock.AdjustTime(TimeSpan.FromMilliseconds(100));
+            SystemClock.Test.AddTime(TimeSpan.FromMilliseconds(100));
             DateTime nowUtc = SystemClock.UtcNow;
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
             Assert.True(employee.CreatedUtc >= nowUtc);
@@ -482,7 +481,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             DateTime updatedUtc = employee.UpdatedUtc;
 
             employee.Name = Guid.NewGuid().ToString();
-            SystemClock.Reset();
+            SystemClock.Instance = new TestSystemClock();
             employee = await _employeeRepository.SaveAsync(employee);
             Assert.Equal(createdUtc, employee.CreatedUtc);
             Assert.True(updatedUtc < employee.UpdatedUtc, $"Previous UpdatedUtc: {updatedUtc} Current UpdatedUtc: {employee.UpdatedUtc}");

@@ -7,7 +7,7 @@ using Xunit;
 namespace Foundatio.Repositories.Tests {
     public class ObjectIdTests {
         public ObjectIdTests() {
-            SystemClock.Reset();
+            SystemClock.Instance = new TestSystemClock();
         }
 
         [Fact]

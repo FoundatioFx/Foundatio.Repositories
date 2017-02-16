@@ -21,7 +21,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         protected readonly InMemoryMessageBus _messgeBus;
 
         public ElasticRepositoryTestBase(ITestOutputHelper output) : base(output) {
-            SystemClock.Reset();
+            SystemClock.Instance = new TestSystemClock();
             Log.MinimumLevel = LogLevel.Trace;
             Log.SetLogLevel<ScheduledTimer>(LogLevel.Warning);
 
