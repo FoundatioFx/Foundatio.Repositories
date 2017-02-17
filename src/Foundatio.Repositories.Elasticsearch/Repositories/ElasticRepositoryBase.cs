@@ -217,7 +217,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                             .Id(id)
                             .Index(GetIndexById(id))
                             .Type(ElasticType.Name)
-                            .Doc(update));
+                            .Doc(update)
+                            .RetriesOnConflict(10));
                 }
 
                 return b;
