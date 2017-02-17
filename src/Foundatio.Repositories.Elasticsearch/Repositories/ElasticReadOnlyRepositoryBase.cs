@@ -253,10 +253,15 @@ namespace Foundatio.Repositories.Elasticsearch {
                     itemsToFind.Remove(doc.Id);
                 }
             }
-
+            
             // fallback to doing a find
-            if (itemsToFind.Count > 0 && (HasParent || HasMultipleIndexes))
-                hits.AddRange((await FindAsync(NewQuery().WithIds(itemsToFind)).AnyContext()).Hits.Where(h => h.Document != null).Select(h => h.Document));
+            if (itemsToFind.Count > 0 && (HasParent || HasMultipleIndexes)) {
+                var response = await FindAsync(NewQuery().WithIds(itemsToFind).WithLimit(1000)).AnyContext();
+                do {
+                    if (response.Hits.Count > 0)
+                        hits.AddRange(response.Hits.Where(h => h.Document != null).Select(h => h.Document));
+                } while (await response.NextPageAsync().AnyContext());
+            }
 
             if (IsCacheEnabled && useCache) {
                 foreach (var item in hits.OfType<IIdentity>())
