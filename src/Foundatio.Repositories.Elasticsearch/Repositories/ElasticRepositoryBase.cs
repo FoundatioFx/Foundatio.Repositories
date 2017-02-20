@@ -101,8 +101,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             await OnDocumentsSavedAsync(docs, originalDocuments, options).AnyContext();
         }
 
-        public async Task PatchAsync(string id, object update, ICommandOptions options = null) {
-            if (String.IsNullOrEmpty(id))
+        public async Task PatchAsync(Id id, object update, ICommandOptions options = null) {
+            if (String.IsNullOrEmpty(id.Value))
                 throw new ArgumentNullException(nameof(id));
 
             if (update == null)
@@ -113,7 +113,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var patch = update as PatchDocument;
             if (script != null) {
                 // TODO: Figure out how to specify a pipeline here.
-                var request = new UpdateRequest<T, T>(GetIndexById(id), ElasticType.Name, id) {
+                var request = new UpdateRequest<T, T>(GetIndexById(id), ElasticType.Name, id.Value) {
                     Script = new InlineScript(script),
                     RetryOnConflict = 10
                 };
@@ -127,7 +127,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ApplicationException(message, response.OriginalException);
                 }
             } else if (patch != null) {
-                var request = new GetRequest(GetIndexById(id), ElasticType.Name, id);
+                var request = new GetRequest(GetIndexById(id), ElasticType.Name, id.Value);
                 var response = await _client.GetAsync<JObject>(request).AnyContext();
 
                 _logger.Trace(() => response.GetRequest());
@@ -141,7 +141,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var target = response.Source as JToken;
                 new JsonPatcher().Patch(ref target, patch);
 
-                var updateResponse = await _client.LowLevel.IndexPutAsync<object>(response.Index, response.Type, id, new PostData<object>(target.ToString()), p => p.Pipeline(pipeline)).AnyContext();
+                var updateResponse = await _client.LowLevel.IndexPutAsync<object>(response.Index, response.Type, id.Value, new PostData<object>(target.ToString()), p => p.Pipeline(pipeline)).AnyContext();
                 _logger.Trace(() => updateResponse.GetRequest());
 
                 if (!updateResponse.Success) {
@@ -151,7 +151,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
             } else {
                 // TODO: Figure out how to specify a pipeline here.
-                var request = new UpdateRequest<T, object>(GetIndexById(id), ElasticType.Name, id) {
+                var request = new UpdateRequest<T, object>(GetIndexById(id), ElasticType.Name, id.Value) {
                     Doc = update,
                     RetryOnConflict = 10
                 };
@@ -174,44 +174,43 @@ namespace Foundatio.Repositories.Elasticsearch {
             await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
         }
 
-        public async Task PatchAsync(IEnumerable<string> ids, object update, ICommandOptions options = null) {
+        public async Task PatchAsync(Ids ids, object update, ICommandOptions options = null) {
             if (ids == null)
                 throw new ArgumentNullException(nameof(ids));
 
             if (update == null)
                 throw new ArgumentNullException(nameof(update));
 
-            var idList = ids.ToList();
-            if (idList.Count == 0)
+            if (ids.Count == 0)
                 return;
 
-            if (idList.Count == 1) {
-                await PatchAsync(idList[0], update, options).AnyContext();
+            if (ids.Count == 1) {
+                await PatchAsync(ids[0], update, sendNotifications).AnyContext();
                 return;
             }
 
             var patch = update as PatchDocument;
             if (patch != null) {
-                await PatchAllAsync(NewQuery().WithIds(idList), update, options).AnyContext();
+                await PatchAllAsync(NewQuery().WithIds(ids), update, options).AnyContext();
                 return;
             }
 
             string pipeline = ElasticType is IHavePipelinedIndexType ? ((IHavePipelinedIndexType)ElasticType).Pipeline : null;
             string script = update as string;
             var bulkResponse = await _client.BulkAsync(b => {
-                foreach (string id in idList) {
+                foreach (var id in ids) {
                     b.Pipeline(pipeline);
 
                     if (script != null)
                         b.Update<T>(u => u
-                            .Id(id)
+                            .Id(id.Value)
                             .Index(GetIndexById(id))
                             .Type(ElasticType.Name)
                             .Script(s => s.Inline(script))
                             .RetriesOnConflict(10));
                     else
                         b.Update<T, object>(u => u
-                            .Id(id)
+                            .Id(id.Value)
                             .Index(GetIndexById(id))
                             .Type(ElasticType.Name)
                             .Doc(update)
@@ -232,10 +231,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             // TODO: Find a good way to invalidate cache and send changed notification
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
             if (IsCacheEnabled)
-                await Cache.RemoveAllAsync(idList).AnyContext();
+                await Cache.RemoveAllAsync(ids.Select(id => id.Value)).AnyContext();
 
             if (options.ShouldSendNotifications())
-                foreach (var id in idList)
+                foreach (var id in ids)
                     await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
         }
 
@@ -377,7 +376,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return affectedRecords;
         }
 
-        public async Task RemoveAsync(string id, ICommandOptions options = null) {
+        public async Task RemoveAsync(Id id, ICommandOptions options = null) {
             if (String.IsNullOrEmpty(id))
                 throw new ArgumentNullException(nameof(id));
 

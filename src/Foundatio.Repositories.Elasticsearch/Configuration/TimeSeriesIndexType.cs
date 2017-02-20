@@ -10,9 +10,9 @@ using Foundatio.Repositories.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface ITimeSeriesIndexType : IIndexType {
-        string GetIndexById(string id);
+        string GetIndexById(Id id);
 
-        string[] GetIndexesByQuery(object query);
+        string[] GetIndexesByQuery(IRepositoryQuery query);
     }
 
     public interface ITimeSeriesIndexType<T> : IIndexType<T>, ITimeSeriesIndexType where T : class {
@@ -97,18 +97,18 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return TimeSeriesIndex.EnsureIndexAsync(date);
         }
 
-        public virtual string GetIndexById(string id) {
-            if (String.IsNullOrEmpty(id))
+        public virtual string GetIndexById(Id id) {
+            if (String.IsNullOrEmpty(id.Value))
                 throw new ArgumentNullException(nameof(id));
 
             ObjectId objectId;
-            if (!ObjectId.TryParse(id, out objectId))
+            if (!ObjectId.TryParse(id.Value, out objectId))
                 throw new ArgumentException("Unable to parse ObjectId", nameof(id));
 
             return TimeSeriesIndex.GetIndex(objectId.CreationTime);
         }
 
-        public virtual string[] GetIndexesByQuery(object query) {
+        public virtual string[] GetIndexesByQuery(IRepositoryQuery query) {
             var indexes = GetIndexes(query);
 
             var systemFilterQuery = query as ISystemFilterQuery;

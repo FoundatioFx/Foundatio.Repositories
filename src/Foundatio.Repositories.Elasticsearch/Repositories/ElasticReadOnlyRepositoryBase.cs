@@ -186,10 +186,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             return FindAsync(search, options);
         }
 
-        public async Task<T> GetByIdAsync(string id, ICommandOptions options = null) {
-            if (String.IsNullOrEmpty(id))
+        public async Task<T> GetByIdAsync(Id id, ICommandOptions options = null) {
+            if (String.IsNullOrEmpty(id.Value))
                 return null;
-
+            
             T hit = null;
             if (IsCacheEnabled && options.ShouldUseCache())
                 hit = await Cache.GetAsync<T>(id, default(T)).AnyContext();
@@ -199,8 +199,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return hit;
             }
 
-            if (!HasParent) {
-                var request = new GetRequest(GetIndexById(id), ElasticType.Name, id);
+            if (!HasParent || id.Routing != null) {
+                var request = new GetRequest(GetIndexById(id), ElasticType.Name, id.Value);
+                if (id.Routing != null)
+                    request.Routing = id.Routing;
                 var response = await _client.GetAsync<T>(request).AnyContext();
                 _logger.Trace(() => response.GetRequest());
 
@@ -219,43 +221,49 @@ namespace Foundatio.Repositories.Elasticsearch {
             return hit;
         }
 
-        public async Task<IReadOnlyCollection<T>> GetByIdsAsync(IEnumerable<string> ids, ICommandOptions options = null) {
+        public async Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, ICommandOptions options = null) {
             var idList = ids?.Distinct().Where(i => !String.IsNullOrEmpty(i)).ToList();
             if (idList == null || idList.Count == 0)
                 return EmptyList;
-
+            
             if (!HasIdentity)
                 throw new NotSupportedException("Model type must implement IIdentity.");
 
             var hits = new List<T>();
             if (IsCacheEnabled && options.ShouldUseCache()) {
-                var cacheHits = await Cache.GetAllAsync<T>(idList).AnyContext();
+                var cacheHits = await Cache.GetAllAsync<T>(idList.Select(id => id.Value)).AnyContext();
                 hits.AddRange(cacheHits.Where(kvp => kvp.Value.HasValue).Select(kvp => kvp.Value.Value));
             }
 
-            var itemsToFind = idList.Except(hits.OfType<IIdentity>().Select(i => i.Id)).ToList();
+            var itemsToFind = idList.Except(hits.OfType<IIdentity>().Select(i => (Id)i.Id)).ToList();
             if (itemsToFind.Count == 0)
                 return hits.AsReadOnly();
 
             var multiGet = new MultiGetDescriptor();
-            if (!HasParent) {
-                itemsToFind.ForEach(id => multiGet.Get<T>(f => f.Id(id).Index(GetIndexById(id)).Type(ElasticType.Name)));
+            foreach (var id in itemsToFind.Where(i => i.Routing != null || !HasParent)) {
+                multiGet.Get<T>(f => {
+                    f.Id(id.Value).Index(GetIndexById(id)).Type(ElasticType.Name);
+                    if (id.Routing != null)
+                        f.Routing(id.Routing);
 
-                var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
-                _logger.Trace(() => multiGetResults.GetRequest());
+                    return f;
+                });
+            }
 
-                foreach (var doc in multiGetResults.Documents) {
-                    if (!doc.Found)
-                        continue;
+            var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
+            _logger.Trace(() => multiGetResults.GetRequest());
 
-                    hits.Add(((IMultiGetHit<T>)doc).ToFindHit().Document);
-                    itemsToFind.Remove(doc.Id);
-                }
+            foreach (var doc in multiGetResults.Documents) {
+                if (!doc.Found)
+                    continue;
+
+                hits.Add(((IMultiGetHit<T>)doc).ToFindHit().Document);
+                itemsToFind.Remove(doc.Id);
             }
             
             // fallback to doing a find
             if (itemsToFind.Count > 0 && (HasParent || HasMultipleIndexes)) {
-                var response = await FindAsync(NewQuery().WithIds(itemsToFind).WithLimit(1000)).AnyContext();
+                var response = await FindAsync(NewQuery().WithIds(itemsToFind.Select(id => id.Value)).WithLimit(1000)).AnyContext();
                 do {
                     if (response.Hits.Count > 0)
                         hits.AddRange(response.Hits.Where(h => h.Document != null).Select(h => h.Document));
@@ -274,11 +282,18 @@ namespace Foundatio.Repositories.Elasticsearch {
             return FindAsync(NewQuery(), options);
         }
 
-        public async Task<bool> ExistsAsync(string id) {
-            if (String.IsNullOrEmpty(id))
+        public async Task<bool> ExistsAsync(Id id) {
+            if (String.IsNullOrEmpty(id.Value))
                 return false;
 
-            return await ExistsAsync(new Query().WithId(id)).AnyContext();
+            if (!HasParent || id.Routing != null) {
+                var response = await _client.DocumentExistsAsync<T>(new DocumentPath<T>(id.Value), d => d.Index(GetIndexById(id)).Routing(id.Routing)).AnyContext();
+                _logger.Trace(() => response.GetRequest());
+
+                return response.Exists;
+            } else {
+                return await ExistsAsync(new Query().WithId(id)).AnyContext();
+            }
         }
 
         protected async Task<bool> ExistsAsync(IRepositoryQuery query) {
@@ -447,7 +462,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return HasMultipleIndexes ? TimeSeriesType.GetIndexesByQuery(query) : new[] { ElasticIndex.Name };
         }
 
-        protected string GetIndexById(string id) {
+        protected string GetIndexById(Id id) {
             return HasMultipleIndexes ? TimeSeriesType.GetIndexById(id) : ElasticIndex.Name;
         }
 

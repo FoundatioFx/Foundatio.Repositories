@@ -77,6 +77,7 @@
     <Compile Include="Extensions\NumberExtensions.cs" />
     <Compile Include="Extensions\StringExtensions.cs" />
     <Compile Include="Extensions\TaskExtensions.cs" />
+    <Compile Include="Id.cs" />
     <Compile Include="ISearchableReadOnlyRepository.cs" />
     <Compile Include="ISearchableRepository.cs" />
     <Compile Include="JsonPatch\AbstractPatcher.cs" />
