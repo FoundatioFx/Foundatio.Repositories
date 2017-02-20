@@ -1,18 +1,21 @@
+using Exceptionless.DateTimeExtensions;
+using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
+using Foundatio.Repositories.Models;
+using Foundatio.Utility;
+using Nest;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Exceptionless.DateTimeExtensions;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
-using Nest;
 using Xunit;
 using Xunit.Abstractions;
-using Foundatio.Repositories.Models;
-using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
+
     public sealed class AggregationQueryTests : ElasticRepositoryTestBase {
         private readonly EmployeeRepository _employeeRepository;
 
@@ -91,6 +94,47 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1000, result.Aggregations.Average("avg_followers").Value.GetValueOrDefault());
             Assert.Equal(1000, result.Aggregations.Sum("sum_followers").Value);
             Assert.Equal(1, result.Aggregations.Cardinality("cardinality_twitter").Value);
+        }
+
+        [Fact]
+        public async Task GetNestedAggregationsAsync() {
+            var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
+            var employees = new List<Employee> {
+                EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(2)),
+                EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(1))
+            };
+            employees[0].Id = "employee1";
+            employees[0].Id = "employee2";
+            employees[0].PeerReviews = new PeerReview[] { new PeerReview { ReviewerEmployeeId = employees[1].Id, Rating = 4 } };
+            employees[1].PeerReviews = new PeerReview[] { new PeerReview { ReviewerEmployeeId = employees[0].Id, Rating = 5 } };
+
+            await _employeeRepository.AddAsync(employees);
+            await _client.RefreshAsync(Indices.AllIndices);
+
+            var nestedAggQuery = _client.Search<Employee>(d => d.Index("employees").Aggregations(a => a
+               .Nested("nested_reviewRating", h => h.Path("peerReviews")
+                   .Aggregations(a1 => a1.Terms("terms_rating", t => t.Field("peerReviews.rating").Meta(m => m.Add("@type", "integer")))))
+                ));
+
+            var result = nestedAggQuery.Aggregations.ToAggregations();
+            Assert.Equal(1, result.Count);
+            Assert.Equal(2, ((result["nested_reviewRating"] as Foundatio.Repositories.Models.SingleBucketAggregate).Aggregations["terms_rating"] as Foundatio.Repositories.Models.BucketAggregate).Items.Count);
+
+            var nestedAggQueryWithFilter = _client.Search<Employee>(d => d.Index("employees").Aggregations(a => a
+               .Nested("nested_reviewRating", h => h.Path("peerReviews")
+                    .Aggregations(a1 => a1
+                        .Filter("user_" + employees[0].Id, f => f.Filter(q => q.Term(t => t.Field("peerReviews.reviewerEmployeeId").Value(employees[0].Id)))
+                            .Aggregations(a2 => a2.Terms("terms_rating", t => t.Field("peerReviews.rating").Meta(m => m.Add("@type", "integer")))))
+                ))));
+
+            result = nestedAggQueryWithFilter.Aggregations.ToAggregations();
+            Assert.Equal(1, result.Count);
+
+            var filteredAgg = ((result["nested_reviewRating"] as Foundatio.Repositories.Models.SingleBucketAggregate).Aggregations["user_" + employees[0].Id] as Foundatio.Repositories.Models.SingleBucketAggregate);
+            Assert.NotNull(filteredAgg);
+            Assert.Equal(1, filteredAgg.Aggregations.Terms("terms_rating").Buckets.Count);
+            Assert.Equal("5", filteredAgg.Aggregations.Terms("terms_rating").Buckets.First().Key );
+            Assert.Equal(1, filteredAgg.Aggregations.Terms("terms_rating").Buckets.First().Total);
         }
 
         [Fact]

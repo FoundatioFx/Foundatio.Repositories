@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Logging;
-using Foundatio.Repositories.Elasticsearch.Tests.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Exceptions;
@@ -494,20 +493,22 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task SetCreatedAndModifiedTimesAsync() {
-            SystemClock.AdjustTime(TimeSpan.FromMilliseconds(100));
-            DateTime nowUtc = SystemClock.UtcNow;
-            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
-            Assert.True(employee.CreatedUtc >= nowUtc);
-            Assert.True(employee.UpdatedUtc >= nowUtc);
+            using (TestSystemClock.Install()) {
+                SystemClock.Test.SubtractTime(TimeSpan.FromMilliseconds(100));
+                DateTime nowUtc = SystemClock.UtcNow;
+                var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+                Assert.True(employee.CreatedUtc >= nowUtc);
+                Assert.True(employee.UpdatedUtc >= nowUtc);
 
-            DateTime createdUtc = employee.CreatedUtc;
-            DateTime updatedUtc = employee.UpdatedUtc;
+                DateTime createdUtc = employee.CreatedUtc;
+                DateTime updatedUtc = employee.UpdatedUtc;
 
-            employee.Name = Guid.NewGuid().ToString();
-            SystemClock.Reset();
-            employee = await _employeeRepository.SaveAsync(employee);
-            Assert.Equal(createdUtc, employee.CreatedUtc);
-            Assert.True(updatedUtc < employee.UpdatedUtc, $"Previous UpdatedUtc: {updatedUtc} Current UpdatedUtc: {employee.UpdatedUtc}");
+                employee.Name = Guid.NewGuid().ToString();
+                SystemClock.Test.AddTime(TimeSpan.FromMilliseconds(100));
+                employee = await _employeeRepository.SaveAsync(employee);
+                Assert.Equal(createdUtc, employee.CreatedUtc);
+                Assert.True(updatedUtc < employee.UpdatedUtc, $"Previous UpdatedUtc: {updatedUtc} Current UpdatedUtc: {employee.UpdatedUtc}");
+            }
         }
 
         [Fact]

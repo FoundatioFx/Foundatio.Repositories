@@ -108,7 +108,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
             var singleBucketAggregate = aggregate as Nest.SingleBucketAggregate;
             if (singleBucketAggregate != null)
-                return new SingleBucketAggregate {
+                return new SingleBucketAggregate(singleBucketAggregate.Aggregations.ToAggregations()) {
                     Data = singleBucketAggregate.Meta.ToData(),
                     Total = singleBucketAggregate.DocCount
                 };
@@ -139,7 +139,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             long ticks = _epochTicks + ((long)valueAggregate.Value * TimeSpan.TicksPerMillisecond);
 
             object value;
-            if (valueAggregate.Meta.TryGetValue("@offset", out value) && value != null) {
+            if (valueAggregate.Meta.TryGetValue("@timezone", out value) && value != null) {
                 kind = DateTimeKind.Unspecified;
                 ticks -= TimeUnit.Parse(value.ToString()).Ticks;
             }
@@ -150,7 +150,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         public static IBucket ToBucket(this Nest.IBucket bucket, IDictionary<string, object> parentData = null) {
             var dateHistogramBucket = bucket as Nest.DateHistogramBucket;
             if (dateHistogramBucket != null) {
-                var kind = parentData != null && parentData.ContainsKey("@offset") ? DateTimeKind.Unspecified : DateTimeKind.Utc;
+                var kind = parentData != null && parentData.ContainsKey("@timezone") ? DateTimeKind.Unspecified : DateTimeKind.Utc;
                 var date = new DateTime(_epochTicks + ((long)dateHistogramBucket.Key * TimeSpan.TicksPerMillisecond), kind);
                 return new DateHistogramBucket(date, dateHistogramBucket.Aggregations.ToAggregations()) {
                     Total = dateHistogramBucket.DocCount,
