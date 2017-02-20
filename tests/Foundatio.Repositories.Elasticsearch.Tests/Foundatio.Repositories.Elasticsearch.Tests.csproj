@@ -157,9 +157,6 @@
     <Compile Include="SearchableRepositoryTests.cs" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="app.config">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
