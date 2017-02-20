@@ -108,7 +108,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
             var singleBucketAggregate = aggregate as Nest.SingleBucketAggregate;
             if (singleBucketAggregate != null)
-                return new SingleBucketAggregate {
+                return new SingleBucketAggregate(singleBucketAggregate.Aggregations.ToAggregations()) {
                     Data = singleBucketAggregate.Meta.ToData(),
                     Total = singleBucketAggregate.DocCount
                 };

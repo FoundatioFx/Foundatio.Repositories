@@ -32,6 +32,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                             .Text(f3 => f3.Name("twitter_id").RootAlias("twitter").IncludeInAll().Boost(1.1).Fields(f4 => f4.Keyword(f5 => f5.Name("keyword"))))
                             .Number(f3 => f3.Name("twitter_followers").RootAlias("followers").IncludeInAll().Boost(1.1))))
                         ))
+                    .Nested<PeerReview>(f => f.Name(e => e.PeerReviews).Properties(p1 => p1
+                        .Keyword(f2 => f2.Name(p2 => p2.ReviewerEmployeeId))
+                        .Number(f2 => f2.Name(p3 => p3.Rating).Type(NumberType.Integer))))
                     ));
         }
 

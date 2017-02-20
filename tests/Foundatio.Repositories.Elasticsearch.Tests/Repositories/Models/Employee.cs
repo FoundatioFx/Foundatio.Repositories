@@ -5,6 +5,12 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
+
+    public class PeerReview {
+        public string ReviewerEmployeeId { get; set; }
+        public int Rating { get; set; }
+    }
+
     public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes {
         public string Id { get; set; }
         public string CompanyId { get; set; }
@@ -19,6 +25,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
         public DateTime UpdatedUtc { get; set; }
         public long Version { get; set; }
         public bool IsDeleted { get; set; }
+        public PeerReview[] PeerReviews { get; set; }
         public Dictionary<string, object> Data { get; set; }
 
         protected bool Equals(Employee other) {
