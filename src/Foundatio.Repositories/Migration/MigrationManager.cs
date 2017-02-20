@@ -66,10 +66,12 @@ namespace Foundatio.Repositories.Migrations {
             var allMigrations = GetAllMigrations();
             var completedMigrations = await _migrationRepository.GetAllAsync(new CommandOptions().UsePaging(1000)).AnyContext();
 
-            var max = 0;
+            int max = 0;
             // if migrations have never run before, mark highest version as completed
             if (completedMigrations.Documents.Count == 0) {
-                if (allMigrations.Count > 0) max = allMigrations.Max(m => m.Version);
+                if (allMigrations.Count > 0)
+                    max = allMigrations.Max(m => m.Version);
+
                 await MarkMigrationCompleteAsync(max);
 
                 return new List<IMigration>();
