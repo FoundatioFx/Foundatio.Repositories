@@ -32,6 +32,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             child = await _childRepository.AddAsync(child);
             Assert.NotNull(child?.Id);
 
+            child = await _childRepository.GetByIdAsync(new Id(child.Id, parent.Id));
+            Assert.NotNull(child?.Id);
+
             await _client.RefreshAsync(Indices.All);
             child = await _childRepository.GetByIdAsync(child.Id);
             Assert.NotNull(child?.Id);
