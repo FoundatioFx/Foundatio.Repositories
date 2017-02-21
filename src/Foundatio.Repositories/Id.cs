@@ -64,6 +64,15 @@ namespace Foundatio.Repositories {
             return result;
         }
 
+        public static implicit operator Ids(Collection<string> ids) {
+            var result = new Ids();
+
+            foreach (string id in ids)
+                result.Add(id);
+
+            return result;
+        }
+
         public static implicit operator Ids(string[] ids) {
             var result = new Ids();
 
@@ -73,8 +82,8 @@ namespace Foundatio.Repositories {
             return result;
         }
 
-        public static implicit operator string[](Ids ids) {
-            string[] result = new string[ids.Count];
+        public static implicit operator List<string>(Ids ids) {
+            var result = new List<string>();
             for (int i = 0; i < ids.Count; i++)
                 result[i] = ids[i].ToString();
 
@@ -83,6 +92,14 @@ namespace Foundatio.Repositories {
 
         public static implicit operator Collection<string>(Ids ids) {
             var result = new Collection<string>();
+            for (int i = 0; i < ids.Count; i++)
+                result[i] = ids[i].ToString();
+
+            return result;
+        }
+
+        public static implicit operator string[] (Ids ids) {
+            string[] result = new string[ids.Count];
             for (int i = 0; i < ids.Count; i++)
                 result[i] = ids[i].ToString();
 
