@@ -54,6 +54,7 @@ namespace Foundatio.Repositories {
         public Ids() { }
 
         public Ids(IEnumerable<string> ids) : base(ids.Select(i => (Id)i)) {}
+        public Ids(IEnumerable<Id> ids) : base(ids) { }
 
         public static implicit operator Ids(List<string> ids) {
             var result = new Ids();
