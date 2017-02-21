@@ -287,7 +287,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return false;
 
             if (!HasParent || id.Routing != null) {
-                var response = await _client.DocumentExistsAsync<T>(new DocumentPath<T>(id.Value), d => d.Index(GetIndexById(id)).Routing(id.Routing)).AnyContext();
+                var response = await _client.DocumentExistsAsync<T>(new DocumentPath<T>(id.Value), d => {
+                    d.Index(GetIndexById(id));
+                    if (id.Routing != null)
+                        d.Routing(id.Routing);
+
+                    return d;
+                }).AnyContext();
                 _logger.Trace(() => response.GetRequest());
 
                 return response.Exists;

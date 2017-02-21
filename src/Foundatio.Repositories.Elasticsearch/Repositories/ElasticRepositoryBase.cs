@@ -117,6 +117,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                     Script = new InlineScript(script),
                     RetryOnConflict = 10
                 };
+                if (id.Routing != null)
+                    request.Routing = id.Routing;
 
                 var response = await _client.UpdateAsync<T>(request).AnyContext();
                 _logger.Trace(() => response.GetRequest());
@@ -128,6 +130,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
             } else if (patch != null) {
                 var request = new GetRequest(GetIndexById(id), ElasticType.Name, id.Value);
+                if (id.Routing != null)
+                    request.Routing = id.Routing;
+
                 var response = await _client.GetAsync<JObject>(request).AnyContext();
 
                 _logger.Trace(() => response.GetRequest());
@@ -141,7 +146,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var target = response.Source as JToken;
                 new JsonPatcher().Patch(ref target, patch);
 
-                var updateResponse = await _client.LowLevel.IndexPutAsync<object>(response.Index, response.Type, id.Value, new PostData<object>(target.ToString()), p => p.Pipeline(pipeline)).AnyContext();
+                var updateResponse = await _client.LowLevel.IndexPutAsync<object>(response.Index, response.Type, id.Value, new PostData<object>(target.ToString()), p => {
+                    p.Pipeline(pipeline);
+                    if (id.Routing != null)
+                        p.Routing(id.Routing);
+
+                    return p;
+                }).AnyContext();
                 _logger.Trace(() => updateResponse.GetRequest());
 
                 if (!updateResponse.Success) {
@@ -155,6 +166,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                     Doc = update,
                     RetryOnConflict = 10
                 };
+                if (id.Routing != null)
+                    request.Routing = id.Routing;
 
                 var response = await _client.UpdateAsync<T, object>(request).AnyContext();
                 _logger.Trace(() => response.GetRequest());
@@ -202,19 +215,31 @@ namespace Foundatio.Repositories.Elasticsearch {
                     b.Pipeline(pipeline);
 
                     if (script != null)
-                        b.Update<T>(u => u
-                            .Id(id.Value)
-                            .Index(GetIndexById(id))
-                            .Type(ElasticType.Name)
-                            .Script(s => s.Inline(script))
-                            .RetriesOnConflict(10));
+                        b.Update<T>(u => {
+                            u.Id(id.Value)
+                              .Index(GetIndexById(id))
+                              .Type(ElasticType.Name)
+                              .Script(s => s.Inline(script))
+                              .RetriesOnConflict(10);
+
+                            if (id.Routing != null)
+                                u.Routing(id.Routing);
+
+                            return u;
+                        });
                     else
-                        b.Update<T, object>(u => u
-                            .Id(id.Value)
-                            .Index(GetIndexById(id))
-                            .Type(ElasticType.Name)
-                            .Doc(update)
-                            .RetriesOnConflict(10));
+                        b.Update<T, object>(u => {
+                            u.Id(id.Value)
+                                .Index(GetIndexById(id))
+                                .Type(ElasticType.Name)
+                                .Doc(update)
+                                .RetriesOnConflict(10);
+
+                            if (id.Routing != null)
+                                u.Routing(id.Routing);
+
+                            return u;
+                        });
                 }
 
                 return b;
@@ -259,6 +284,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                             b.Index<JObject>(i => i
                                 .Document(target as JObject)
                                 .Id(h.Id)
+                                .Routing(h.Routing)
                                 .Index(h.GetIndex())
                                 .Type(h.GetIndexType())
                                 .Pipeline(pipeline)
@@ -326,12 +352,14 @@ namespace Foundatio.Repositories.Elasticsearch {
                                 if (script != null)
                                     b.Update<T>(u => u
                                         .Id(h.Id)
+                                        .Routing(h.Routing)
                                         .Index(h.GetIndex())
                                         .Type(h.GetIndexType())
                                         .Script(s => s.Inline(script))
                                         .RetriesOnConflict(10));
                                 else
                                     b.Update<T, object>(u => u.Id(h.Id)
+                                        .Routing(h.Routing)
                                         .Index(h.GetIndex())
                                         .Type(h.GetIndexType())
                                         .Doc(update));

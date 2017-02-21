@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -102,7 +102,7 @@ namespace Foundatio.Repositories.Models {
     public class FindHit<T> : IHaveData {
         public static readonly FindHit<T> Empty = new FindHit<T>(null, default(T), 0);
 
-        public FindHit(string id, T document, double score, long? version = null, IDictionary<string, object> data = null) {
+        public FindHit(string id, T document, double score, long? version = null, string routing = null, IDictionary<string, object> data = null) {
             Id = id;
             Document = document;
             Score = score;
@@ -114,6 +114,7 @@ namespace Foundatio.Repositories.Models {
         public double Score { get; }
         public long? Version { get; }
         public string Id { get; }
+        public string Routing { get; }
         public IReadOnlyDictionary<string, object> Data { get; }
     }
 }
