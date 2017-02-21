@@ -291,7 +291,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return false;
 
             if (!HasParent || id.Routing != null) {
-                var response = await _client.DocumentExistsAsync<T>(new DocumentPath<T>(id.Value), d => d.Index(GetIndexById(id)).Routing(id.Routing)).AnyContext();
+                var response = await _client.DocumentExistsAsync<T>(new DocumentPath<T>(id.Value), d => {
+                    d.Index(GetIndexById(id));
+                    if (id.Routing != null)
+                        d.Routing(id.Routing);
+
+                    return d;
+                }).AnyContext();
                 _logger.Trace(() => response.GetRequest());
 
                 return response.Exists;
@@ -473,7 +479,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected Func<T, string> GetParentIdFunc => HasParent ? d => ChildType.GetParentId(d) : (Func<T, string>)null;
         protected Func<T, string> GetDocumentIndexFunc => HasMultipleIndexes ? d => TimeSeriesType.GetDocumentIndex(d) : (Func<T, string>)(d => ElasticIndex.Name);
 
-        protected async Task<TResult> GetCachedQueryResultAsync<TResult>(object query, string cachePrefix = null, string cacheSuffix = null) {
+        protected async Task<TResult> GetCachedQueryResultAsync<TResult>(IRepositoryQuery query, string cachePrefix = null, string cacheSuffix = null) {
             var cachedQuery = query as ICachableQuery;
             if (!IsCacheEnabled || cachedQuery == null || !cachedQuery.ShouldUseCache())
                 return default(TResult);
@@ -486,7 +492,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return result;
         }
 
-        protected async Task SetCachedQueryResultAsync<TResult>(object query, TResult result, string cachePrefix = null, string cacheSuffix = null) {
+        protected async Task SetCachedQueryResultAsync<TResult>(IRepositoryQuery query, TResult result, string cachePrefix = null, string cacheSuffix = null) {
             var cachedQuery = query as ICachableQuery;
             if (!IsCacheEnabled || result == null || cachedQuery == null || !cachedQuery.ShouldUseCache())
                 return;
