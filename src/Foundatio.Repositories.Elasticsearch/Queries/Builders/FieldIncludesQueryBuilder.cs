@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
-using Foundatio.Repositories.Elasticsearch.Options;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Queries;
 using Nest;
 
@@ -22,9 +22,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return Task.CompletedTask;
             }
 
-            var opt = ctx.GetOptionsAs<IElasticCommandOptions>();
-            if (opt?.DefaultExcludes?.Count > 0)
-                ctx.Search.Source(s => s.Excludes(i => i.Fields(opt.DefaultExcludes.ToArray())));
+            var excludes = ctx.Options.GetDefaultExcludes();
+            if (excludes?.Count > 0)
+                ctx.Search.Source(s => s.Excludes(i => i.Fields(excludes.ToArray())));
 
             if (fieldIncludesQuery?.FieldExcludes?.Count > 0) {
                 ctx.Search.Source(s => s.Excludes(i => i.Fields(fieldIncludesQuery.FieldExcludes.ToArray())));

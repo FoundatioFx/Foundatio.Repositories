@@ -45,15 +45,15 @@ namespace Foundatio.Repositories {
             return repository.SaveAsync(documents, new CommandOptions().EnableCache(addToCache, expiresIn).SendNotifications(sendNotification));
         }
 
-        public static Task PatchAsync<T>(this IRepository<T> repository, string id, object update, bool sendNotification = true) where T : class, IIdentity, new() {
+        public static Task PatchAsync<T>(this IRepository<T> repository, Id id, object update, bool sendNotification = true) where T : class, IIdentity, new() {
             return repository.PatchAsync(id, update, new CommandOptions().SendNotifications(sendNotification));
         }
 
         public static Task PatchAsync<T>(this IRepository<T> repository, IEnumerable<string> ids, object update, bool sendNotification = true) where T : class, IIdentity, new() {
-            return repository.PatchAsync(ids, update, new CommandOptions().SendNotifications(sendNotification));
+            return repository.PatchAsync(new Ids(ids), update, new CommandOptions().SendNotifications(sendNotification));
         }
 
-        public static Task RemoveAsync<T>(this IRepository<T> repository, string id, bool sendNotification = true) where T : class, IIdentity, new() {
+        public static Task RemoveAsync<T>(this IRepository<T> repository, Id id, bool sendNotification = true) where T : class, IIdentity, new() {
             return repository.RemoveAsync(id, new CommandOptions().SendNotifications(sendNotification));
         }
 
@@ -67,10 +67,6 @@ namespace Foundatio.Repositories {
 
         public static Task<long> RemoveAllAsync<T>(this IRepository<T> repository, bool sendNotification = true) where T : class, IIdentity, new() {
             return repository.RemoveAllAsync(new CommandOptions().SendNotifications(sendNotification));
-        }
-        
-        public static Task PatchAsync<T>(this IRepository<T> repository, IEnumerable<string> ids, object update, bool sendNotification = true) where T : class, IIdentity, new() {
-            return repository.PatchAsync(new Ids(ids), update, sendNotification);
         }
    }
  }

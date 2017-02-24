@@ -36,6 +36,10 @@ namespace Foundatio.Repositories.Options {
             return options.GetOption(SetPagingOptionsExtensions.PageNumberKey, 1);
         }
 
+        public static bool ShouldUseSkip<T>(this T options) where T : ICommandOptions {
+            return options.ShouldUseLimit() && options.GetPage() > 1;
+        }
+
         public static int GetSkip<T>(this T options) where T : ICommandOptions {
             if (!options.ShouldUseLimit() && !options.ShouldUsePage())
                 return 0;

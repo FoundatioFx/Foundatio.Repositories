@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries.Visitors;
-using Foundatio.Repositories.Elasticsearch.Options;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Queries;
 using Nest;
@@ -21,9 +20,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             Search = search ?? new SearchDescriptor<T>();
             Parent = parentContext;
             Type = type ?? ContextType.Default;
-            var elasticQueryOptions = options as IElasticCommandOptions;
-            if (elasticQueryOptions != null)
-                ((IQueryVisitorContextWithAliasResolver)this).RootAliasResolver = elasticQueryOptions.RootAliasResolver;
+            ((IQueryVisitorContextWithAliasResolver)this).RootAliasResolver = options.GetRootAliasResolver();
 
             var range = GetDateRange();
             if (range != null) {
@@ -91,12 +88,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             return context.Source as TQuery;
         }
 
-        public static TOptions GetOptionsAs<TOptions>(this IQueryBuilderContext context) where TOptions : class, ICommandOptions {
-            return context.Options as TOptions;
-        }
-
-        public static void SetTimeZone(this IQueryBuilderContext context, string timeZone)
-        {
+        public static void SetTimeZone(this IQueryBuilderContext context, string timeZone) {
             context.Data["timezone"] = timeZone;
         }
     }

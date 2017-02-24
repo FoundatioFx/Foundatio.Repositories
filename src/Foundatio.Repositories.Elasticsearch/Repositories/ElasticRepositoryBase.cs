@@ -12,7 +12,6 @@ using Foundatio.Logging;
 using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
-using Foundatio.Repositories.Elasticsearch.Models;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
@@ -22,7 +21,6 @@ using Foundatio.Repositories.Queries;
 using Foundatio.Utility;
 using Newtonsoft.Json.Linq;
 using Foundatio.Repositories.Options;
-using Foundatio.Repositories.Elasticsearch.Options;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IRepository<T> where T : class, IIdentity, new() {
@@ -198,7 +196,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return;
 
             if (ids.Count == 1) {
-                await PatchAsync(ids[0], update, sendNotifications).AnyContext();
+                await PatchAsync(ids[0], update, options).AnyContext();
                 return;
             }
 
@@ -269,6 +267,10 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (update == null)
                 throw new ArgumentNullException(nameof(update));
+
+            if (options == null)
+                options = new CommandOptions();
+            SetDefaultCommandOptions(options);
             
             long affectedRecords = 0;
             string pipeline = ElasticType is IHavePipelinedIndexType ? ((IHavePipelinedIndexType)ElasticType).Pipeline : null;
@@ -322,7 +324,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 string script = update as string;
                 if (!IsCacheEnabled && script != null) {
                     var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", GetIndexesByQuery(query))), ElasticType.Name) {
-                        Query = await ElasticType.QueryBuilder.BuildQueryAsync(query, GetDefaultCommandOptions(), new SearchDescriptor<T>()).AnyContext(),
+                        Query = await ElasticType.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext(),
                         Conflicts = Conflicts.Proceed,
                         Script = new InlineScript(script),
                         Pipeline = pipeline,
@@ -408,10 +410,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (String.IsNullOrEmpty(id))
                 throw new ArgumentNullException(nameof(id));
 
-            await RemoveAsync(new[] { id }, options).AnyContext();
+            await RemoveAsync((Ids)id, options).AnyContext();
         }
 
-        public async Task RemoveAsync(IEnumerable<string> ids, ICommandOptions options = null) {
+        public async Task RemoveAsync(Ids ids, ICommandOptions options = null) {
             if (ids == null)
                 throw new ArgumentNullException(nameof(ids));
 
@@ -500,8 +502,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }).AnyContext();
             }
 
+            if (options == null)
+                options = new CommandOptions();
+
+            SetDefaultCommandOptions(options);
             var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(ElasticType.Index.Name, ElasticType.Name) {
-                Query = await ElasticType.QueryBuilder.BuildQueryAsync(query, GetDefaultCommandOptions(), new SearchDescriptor<T>()).AnyContext()
+                Query = await ElasticType.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext()
             }).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
@@ -534,15 +540,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ArgumentNullException(nameof(processAsync));
 
             if (options == null)
-                options = new ElasticCommandOptions();
+                options = new CommandOptions();
 
-            var elasticPagingOptions = options as IElasticPagingOptions;
-            if (elasticPagingOptions == null)
-                throw new ArgumentException("Options must implement IElasticPagingOptions", nameof(options));
-
-            elasticPagingOptions.UseSnapshotPaging = true;
-            if (!elasticPagingOptions.SnapshotLifetime.HasValue)
-                elasticPagingOptions.SnapshotLifetime = TimeSpan.FromMinutes(5);
+            options.UseSnapshotPaging();
+            if (!options.HasSnapshotLifetime())
+                options.SetSnapshotLifetime(TimeSpan.FromMinutes(5));
 
             long recordsProcessed = 0;
             var results = await FindAsAsync<TResult>(query).AnyContext();

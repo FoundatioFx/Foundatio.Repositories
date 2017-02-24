@@ -22,11 +22,7 @@ namespace Foundatio.Repositories {
         }
 
         public static Task<IReadOnlyCollection<T>> GetByIdsAsync<T>(this IReadOnlyRepository<T> repository, IEnumerable<string> ids, bool useCache = false, TimeSpan? expiresIn = null) where T : class, new() {
-            return repository.GetByIdsAsync(ids, new CommandOptions().EnableCache(useCache, expiresIn));
-        }
-
-        public static Task<IReadOnlyCollection<T>> GetByIdsAsync<T>(this IRepository<T> repository, IEnumerable<string> ids, bool useCache = false, TimeSpan? expiresIn = null) where T : class, IIdentity, new() {
-            return repository.GetByIdsAsync(new Ids(ids), useCache, expiresIn);
+            return repository.GetByIdsAsync(new Ids(ids), new CommandOptions().EnableCache(useCache, expiresIn));
         }
     }
 }

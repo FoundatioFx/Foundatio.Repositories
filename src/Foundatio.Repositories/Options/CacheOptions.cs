@@ -55,6 +55,14 @@ namespace Foundatio.Repositories.Options {
             return options.HasOption(SetCacheOptionsExtensions.CacheKey);
         }
 
+        public static bool HasCacheKey<T>(this T options) where T : ICommandOptions {
+            return options.GetOption<bool>(SetCacheOptionsExtensions.CacheKey);
+        }
+
+        public static string GetCacheKey<T>(this T options) where T : ICommandOptions {
+            return options.GetOption<string>(SetCacheOptionsExtensions.CacheKey, null);
+        }
+
         public static TimeSpan GetExpiresIn<T>(this T options) where T : ICommandOptions {
             return options.GetOption(SetCacheOptionsExtensions.CacheExpiresInKey, RepositoryConstants.DEFAULT_CACHE_EXPIRATION_TIMESPAN);
         }

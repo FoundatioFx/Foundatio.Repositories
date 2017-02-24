@@ -5,8 +5,8 @@ using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
-using Foundatio.Repositories.Elasticsearch.Options;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Queries;
 using Nest;
 
@@ -60,7 +60,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             if (!String.IsNullOrEmpty(searchQuery.Sort)) {
                 var result = _parser.Parse(searchQuery.Sort);
-                var opt = ctx.GetOptionsAs<IElasticCommandOptions>();
+                var opt = ctx.Options.GetElasticTypeSettings();
                 TermToFieldVisitor.Run(result, ctx);
                 AliasedQueryVisitor.Run(result, _aliasMap, ctx);
                 var fields = GetReferencedFieldsQueryVisitor.Run(result);
@@ -98,7 +98,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             if (!String.IsNullOrEmpty(searchQuery.Sort)) {
                 var result = _parser.Parse(searchQuery.Sort);
-                var opt = ctx.GetOptionsAs<IElasticCommandOptions>();
+                var opt = ctx.Options.GetElasticTypeSettings();
                 TermToFieldVisitor.Run(result, ctx);
                 var fields = GetReferencedFieldsQueryVisitor.Run(result);
                 // TODO: Check referenced fields against opt.AllowedSortFields

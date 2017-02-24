@@ -102,7 +102,7 @@
     <Compile Include="Extensions\CollectionEqualityExtensions.cs" />
     <Compile Include="Extensions\ElasticQueryParserConfigurationExtensions.cs" />
     <Compile Include="Extensions\FindHitExtensions.cs" />
-    <Compile Include="Extensions\ElasticReadOnlyRepositoryExtensions.cs" />
+    <Compile Include="Extensions\FindResultsExtensions.cs" />
     <Compile Include="Jobs\MaintainIndexesJob.cs" />
     <Compile Include="Jobs\CleanupIndexesJob.cs" />
     <Compile Include="Jobs\CleanupSnapshotJob.cs" />
@@ -110,7 +110,7 @@
     <Compile Include="Jobs\ReindexWorkItem.cs" />
     <Compile Include="Jobs\ReindexWorkItemHandler.cs" />
     <Compile Include="Configuration\DailyIndex.cs" />
-    <Compile Include="Models\ElasticPagingOptions.cs" />
+    <Compile Include="Options\ElasticCommandOptions.cs" />
     <Compile Include="Repositories\ElasticReindexer.cs" />
     <Compile Include="Configuration\IElasticConfiguration.cs" />
     <Compile Include="Configuration\IIndex.cs" />
@@ -126,7 +126,6 @@
     <Compile Include="Queries\Builders\SystemFilterQueryBuilder.cs" />
     <Compile Include="Queries\ChildQuery.cs" />
     <Compile Include="Queries\ElasticQuery.cs" />
-    <Compile Include="Options\ElasticCommandOptions.cs" />
     <Compile Include="Queries\ParentQuery.cs" />
     <Compile Include="Queries\Builders\ChildQueryBuilder.cs" />
     <Compile Include="Queries\Builders\DateRangeQueryBuilder.cs" />

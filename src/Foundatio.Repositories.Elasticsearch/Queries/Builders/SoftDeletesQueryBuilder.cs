@@ -1,6 +1,6 @@
 ﻿using System.Threading.Tasks;
-using Foundatio.Repositories.Elasticsearch.Options;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Queries;
 using Nest;
 
@@ -31,7 +31,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return Task.CompletedTask;
 
             // check to see if the model supports soft deletes
-            var options = ctx.GetOptionsAs<IElasticCommandOptions>();
+            var options = ctx.Options.GetElasticTypeSettings();
             if (options == null || !options.SupportsSoftDeletes)
                 return Task.CompletedTask;
 

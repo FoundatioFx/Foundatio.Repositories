@@ -4,10 +4,10 @@ using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Queries;
 using Foundatio.Utility;
 using Nest;
-using Foundatio.Repositories.Elasticsearch.Options;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IDateRangeQuery : IRepositoryQuery {
@@ -41,7 +41,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (dateRangeQuery?.DateRanges == null || dateRangeQuery.DateRanges.Count <= 0)
                 return Task.CompletedTask;
 
-            var elasticQueryOptions = ctx.GetOptionsAs<IElasticCommandOptions>();
+            var elasticQueryOptions = ctx.Options.GetElasticTypeSettings();
             foreach (var dateRange in dateRangeQuery.DateRanges.Where(dr => dr.UseDateRange)) {
                 string fieldName = dateRange.Field?.Name;
                 if (elasticQueryOptions?.IndexType != null && !String.IsNullOrEmpty(fieldName))

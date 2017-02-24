@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries.Extensions;
-using Foundatio.Repositories.Elasticsearch.Options;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
@@ -12,7 +12,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
     public class AggregationsQueryBuilder : IElasticQueryBuilder {
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var elasticOptions = ctx.GetOptionsAs<IElasticCommandOptions>();
+            var elasticOptions = ctx.Options.GetElasticTypeSettings();
             if (elasticOptions?.IndexType?.QueryParser == null)
                 return;
 
