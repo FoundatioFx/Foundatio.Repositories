@@ -17,6 +17,9 @@
 namespace Foundatio.Repositories.Options {
     public static class ReadNotificationOptionsExtensions {
         public static bool ShouldSendNotifications<T>(this T options) where T : ICommandOptions {
+            if (options == null)
+                return true;
+
             return options.GetOption(SetNotificationOptionsExtensions.SendNotificationsKey, true);
         }
     }

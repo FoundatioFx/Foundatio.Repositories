@@ -9,7 +9,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Models;
-using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Queries;
 using Nest;
 

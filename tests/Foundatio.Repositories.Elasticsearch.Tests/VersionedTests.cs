@@ -206,7 +206,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.All);
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
-            var results = await _employeeRepository.GetAllAsync(PAGE_SIZE);
+            var results = await _employeeRepository.GetAllAsync(new CommandOptions().WithLimit(PAGE_SIZE));
             Assert.True(results.HasMore);
 
             var viewedIds = new HashSet<string>();
@@ -277,7 +277,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.All);
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
-            var results = await _employeeRepository.GetAllAsync(new ElasticPagingOptions().WithLimit(PAGE_SIZE).UseSnapshotPaging());
+            var results = await _employeeRepository.GetAllAsync(new ElasticPagingOptions().WithLimit(PAGE_SIZE).WithSnapshotPaging());
             Assert.True(results.HasMore);
 
             var viewedIds = new HashSet<string>();
@@ -314,7 +314,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.All);
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
-            var results = await _employeeRepository.GetAllAsync(new ElasticPagingOptions().WithLimit(PAGE_SIZE).UseSnapshotPaging());
+            var results = await _employeeRepository.GetAllAsync(new ElasticPagingOptions().WithLimit(PAGE_SIZE).WithSnapshotPaging());
             Assert.True(results.HasMore);
 
             var viewedIds = new HashSet<string>();

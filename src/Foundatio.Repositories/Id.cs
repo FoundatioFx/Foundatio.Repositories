@@ -53,7 +53,7 @@ namespace Foundatio.Repositories {
     public class Ids : List<Id> {
         public Ids() { }
 
-        public Ids(IEnumerable<string> ids) : base(ids.Select(i => (Id)i)) {}
+        public Ids(IEnumerable<string> ids) : base(ids != null ? ids.Select(i => (Id)i) : new Id[] { }) {}
 
         public Ids(IEnumerable<Id> ids) : base(ids) { }
 

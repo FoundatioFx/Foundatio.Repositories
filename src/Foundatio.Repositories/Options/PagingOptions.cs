@@ -1,4 +1,6 @@
-﻿namespace Foundatio.Repositories {
+﻿using Foundatio.Repositories.Options;
+
+namespace Foundatio.Repositories {
     public static class SetPagingOptionsExtensions {
         internal const string PageLimitKey = "@PageLimit";
         internal const string PageNumberKey = "@PageNumber";
@@ -10,16 +12,42 @@
 
             return options;
         }
+
+        public static T WithPage<T>(this T options, int? page) where T : ICommandOptions {
+            if (page.HasValue)
+                options.SetOption(PageNumberKey, page.Value);
+
+            return options;
+        }
+
+        public static T WithPaging<T>(this T options, PagingOptions paging) where T : ICommandOptions {
+            options.Apply(paging);
+
+            return options;
+        }
+
+        public static T WithLimit<T>(this T options, int? limit) where T : ICommandOptions {
+            if (limit.HasValue)
+                options.SetOption(PageLimitKey, limit.Value);
+
+            return options;
+        }
     }
 }
 
 namespace Foundatio.Repositories.Options {
     public static class ReadPagingOptionsExtensions {
         public static bool ShouldUseLimit<T>(this T options) where T : ICommandOptions {
+            if (options == null)
+                return false;
+
             return options.HasOption(SetPagingOptionsExtensions.PageLimitKey);
         }
 
         public static int GetLimit<T>(this T options) where T : ICommandOptions {
+            if (options == null)
+                return RepositoryConstants.DEFAULT_LIMIT;
+
             var limit = options.GetOption(SetPagingOptionsExtensions.PageLimitKey, RepositoryConstants.DEFAULT_LIMIT);
 
             if (limit > RepositoryConstants.MAX_LIMIT)
@@ -29,18 +57,30 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static bool ShouldUsePage<T>(this T options) where T : ICommandOptions {
+            if (options == null)
+                return false;
+
             return options.HasOption(SetPagingOptionsExtensions.PageNumberKey);
         }
 
         public static int GetPage<T>(this T options) where T : ICommandOptions {
+            if (options == null)
+                return 1;
+
             return options.GetOption(SetPagingOptionsExtensions.PageNumberKey, 1);
         }
 
         public static bool ShouldUseSkip<T>(this T options) where T : ICommandOptions {
+            if (options == null)
+                return false;
+
             return options.ShouldUseLimit() && options.GetPage() > 1;
         }
 
         public static int GetSkip<T>(this T options) where T : ICommandOptions {
+            if (options == null)
+                return 0;
+
             if (!options.ShouldUseLimit() && !options.ShouldUsePage())
                 return 0;
 

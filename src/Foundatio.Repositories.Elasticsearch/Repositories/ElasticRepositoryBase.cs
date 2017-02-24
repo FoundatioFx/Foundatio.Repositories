@@ -268,9 +268,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (update == null)
                 throw new ArgumentNullException(nameof(update));
 
-            if (options == null)
-                options = new CommandOptions();
-            SetDefaultCommandOptions(options);
+            options = SetDefaultCommandOptions(options);
             
             long affectedRecords = 0;
             string pipeline = ElasticType is IHavePipelinedIndexType ? ((IHavePipelinedIndexType)ElasticType).Pipeline : null;
@@ -393,7 +391,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                         }
 
                         return true;
-                    }).AnyContext();
+                    }, options).AnyContext();
                 }
             }
 
@@ -502,10 +500,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }).AnyContext();
             }
 
-            if (options == null)
-                options = new CommandOptions();
-
-            SetDefaultCommandOptions(options);
+            options = SetDefaultCommandOptions(options);
             var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(ElasticType.Index.Name, ElasticType.Name) {
                 Query = await ElasticType.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext()
             }).AnyContext();
@@ -539,15 +534,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (processAsync == null)
                 throw new ArgumentNullException(nameof(processAsync));
 
-            if (options == null)
-                options = new CommandOptions();
-
-            options.UseSnapshotPaging();
+            options = SetDefaultCommandOptions(options);
+            options.WithSnapshotPaging();
             if (!options.HasSnapshotLifetime())
-                options.SetSnapshotLifetime(TimeSpan.FromMinutes(5));
+                options.WithSnapshotLifetime(TimeSpan.FromMinutes(5));
 
             long recordsProcessed = 0;
-            var results = await FindAsAsync<TResult>(query).AnyContext();
+            var results = await FindAsAsync<TResult>(query, options).AnyContext();
             do {
                 if (results.Hits.Count == 0)
                     break;

@@ -5,10 +5,15 @@ using System.Reflection;
 namespace Foundatio.Repositories.Utility {
     public static class TypeHelper {
         public static T ToType<T>(this object value) {
-            if (value == null)
-                throw new ArgumentNullException(nameof(value));
-
             Type targetType = typeof(T);
+            if (value == null) {
+                try {
+                    return (T)Convert.ChangeType(value, targetType);
+                } catch {
+                    throw new ArgumentNullException(nameof(value));
+                }
+            }
+
             TypeConverter converter = TypeDescriptor.GetConverter(targetType);
             Type valueType = value.GetType();
 

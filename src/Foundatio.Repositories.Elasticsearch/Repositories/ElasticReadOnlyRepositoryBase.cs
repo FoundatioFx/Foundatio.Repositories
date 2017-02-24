@@ -97,7 +97,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (useSnapshotPaging == false || !options.HasSnapshotScrollId()) {
                 var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
                 if (useSnapshotPaging)
-                    searchDescriptor.Scroll(options.GetSnapshotLifetime());
+                    searchDescriptor.Scroll(options.GetSnapshotLifetime() ?? TimeSpan.FromMinutes(1));
 
                 response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
             } else {
@@ -330,10 +330,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (result != null)
                 return result;
 
-            if (options == null)
-                options = new CommandOptions();
-
-            SetDefaultCommandOptions(options);
+            options = SetDefaultCommandOptions(options);
             await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
             var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();

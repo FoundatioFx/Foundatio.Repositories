@@ -121,6 +121,7 @@
     <Compile Include="Models\IHaveData.cs" />
     <Compile Include="Options\CacheOptions.cs" />
     <Compile Include="Models\EmptyReadOnly.cs" />
+    <Compile Include="Options\IEnumerable.cs" />
     <Compile Include="Options\IOptions.cs" />
     <Compile Include="Options\NotificationOptions.cs" />
     <Compile Include="Options\PagingOptions.cs" />
