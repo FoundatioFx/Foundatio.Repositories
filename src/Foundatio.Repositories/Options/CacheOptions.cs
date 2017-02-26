@@ -5,7 +5,7 @@ namespace Foundatio.Repositories {
     public static class SetCacheOptionsExtensions {
         internal const string EnableCacheKey = "@EnableCache";
 
-        public static T EnableCache<T>(this T options, bool enableCache) where T : ICommandOptions {
+        public static T EnableCache<T>(this T options, bool enableCache = true) where T : ICommandOptions {
             options.SetOption(EnableCacheKey, enableCache);
             return options;
         }

@@ -76,7 +76,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     return new FindResults<TResult>();
 
                 if (options != null)
-                    options.UsePaging(!options.ShouldUsePage() ? 2 : options.GetPage() + 1);
+                    options.WithPage(!options.ShouldUsePage() ? 2 : options.GetPage() + 1);
 
                 return await FindAsAsync<TResult>(query, options).AnyContext();
             };
@@ -97,7 +97,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (useSnapshotPaging == false || !options.HasSnapshotScrollId()) {
                 var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
                 if (useSnapshotPaging)
-                    searchDescriptor.Scroll(options.GetSnapshotLifetime() ?? TimeSpan.FromMinutes(1));
+                    searchDescriptor.Scroll(options.GetSnapshotLifetime());
 
                 response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
             } else {

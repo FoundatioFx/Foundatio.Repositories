@@ -813,7 +813,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected virtual async Task AddToCacheAsync(ICollection<T> documents, ICommandOptions options) {
-            if (!IsCacheEnabled || Cache == null)
+            if (!IsCacheEnabled || Cache == null || !options.ShouldUseCache())
                 return;
 
             foreach (var document in documents)

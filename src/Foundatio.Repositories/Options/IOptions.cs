@@ -1,14 +1,14 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using Foundatio.Repositories.Utility;
 
 namespace Foundatio.Repositories.Options {
-    public interface IOptions : IEnumerable<KeyValuePair<string, object>> {
+    public interface IOptions {
         void SetOption(string name, object value);
         bool HasOption(string name);
         bool RemoveOption(string name);
         T GetOption<T>(string name, T defaultValue = default(T));
+        IEnumerable<KeyValuePair<string, object>> GetAllOptions();
     }
 
     public abstract class OptionsBase : IOptions {
@@ -33,7 +33,7 @@ namespace Foundatio.Repositories.Options {
             object data = _options[name];
             if (!(data is T)) {
                 try {
-                    return data.ToType<T>();
+                    return TypeHelper.ToType<T>(data);
                 } catch {
                     throw new ArgumentException($"Option \"{name}\" is not compatible with the requested type \"{typeof(T).FullName}\".");
                 }
@@ -42,12 +42,8 @@ namespace Foundatio.Repositories.Options {
             return (T)data;
         }
 
-        IEnumerator<KeyValuePair<string, object>> IEnumerable<KeyValuePair<string, object>>.GetEnumerator() {
-            return _options.GetEnumerator();
-        }
-
-        IEnumerator IEnumerable.GetEnumerator() {
-            return _options.GetEnumerator();
+        IEnumerable<KeyValuePair<string, object>> IOptions.GetAllOptions() {
+            return _options;
         }
     }
 
@@ -55,7 +51,7 @@ namespace Foundatio.Repositories.Options {
         public static T Clone<T>(this T source) where T: IOptions, new() {
             var clone = new T();
 
-            foreach (var kvp in source)
+            foreach (var kvp in source.GetAllOptions())
                 clone.SetOption(kvp.Key, kvp.Value);
 
             return source;
@@ -65,7 +61,7 @@ namespace Foundatio.Repositories.Options {
             if (source == null)
                 return target;
 
-            foreach (var kvp in source) {
+            foreach (var kvp in source.GetAllOptions()) {
                 if (overrideExisting || !target.HasOption(kvp.Key))
                     target.SetOption(kvp.Key, kvp.Value);
             }

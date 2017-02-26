@@ -20,12 +20,6 @@ namespace Foundatio.Repositories {
             return options;
         }
 
-        public static T WithPaging<T>(this T options, PagingOptions paging) where T : ICommandOptions {
-            options.Apply(paging);
-
-            return options;
-        }
-
         public static T WithLimit<T>(this T options, int? limit) where T : ICommandOptions {
             if (limit.HasValue)
                 options.SetOption(PageLimitKey, limit.Value);

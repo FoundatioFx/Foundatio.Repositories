@@ -38,12 +38,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return FindAsync(query);
         }
 
-        public Task<FindResults<Employee>> GetAllByCompanyAsync(string company, PagingOptions paging = null, bool useCache = false) {
-            return FindAsync(new MyAppQuery().WithCompany(company), new CommandOptions().WithCacheKey(useCache ? "by-company" : null).WithPaging(paging));
+        public Task<FindResults<Employee>> GetAllByCompanyAsync(string company, ICommandOptions options = null) {
+            return FindAsync(new MyAppQuery().WithCompany(company), options);
         }
 
-        public Task<FindResults<Employee>> GetAllByCompaniesWithFieldEqualsAsync(string[] companies)
-        {
+        public Task<FindResults<Employee>> GetAllByCompaniesWithFieldEqualsAsync(string[] companies) {
             return FindAsync(new MyAppQuery().WithFieldEquals("companyId", companies));
         }
 

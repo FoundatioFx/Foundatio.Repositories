@@ -4,7 +4,7 @@ using System.Reflection;
 
 namespace Foundatio.Repositories.Utility {
     public static class TypeHelper {
-        public static T ToType<T>(this object value) {
+        public static T ToType<T>(object value) {
             Type targetType = typeof(T);
             if (value == null) {
                 try {

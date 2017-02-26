@@ -8,10 +8,6 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories {
-
-    [Obsolete("Use CommandOptions")]
-    public class ElasticPagingOptions : CommandOptions { }
-
     public static class SetElasticOptionsExtensions {
         internal const string ElasticTypeSettingsKey = "@ElasticTypeSettings";
         public static T SetElasticType<T>(this T options, IIndexType indexType) where T : ICommandOptions {
@@ -35,7 +31,6 @@ namespace Foundatio.Repositories {
 
             return options;
         }
-
 
         internal const string RootAliasResolverKey = "@RootAliasResolver";
         public static T SetRootAliasResolver<T>(this T options, AliasResolver rootAliasResolver) where T : ICommandOptions {
@@ -135,11 +130,11 @@ namespace Foundatio.Repositories.Options {
             return options.HasOption(SetElasticOptionsExtensions.SnapshotPagingLifetimeKey);
         }
 
-        public static TimeSpan? GetSnapshotLifetime<T>(this T options) where T : ICommandOptions {
+        public static TimeSpan GetSnapshotLifetime<T>(this T options) where T : ICommandOptions {
             if (options == null)
-                return null;
+                return TimeSpan.FromMinutes(1);
 
-            return options.GetOption<TimeSpan?>(SetElasticOptionsExtensions.SnapshotPagingLifetimeKey);
+            return options.GetOption<TimeSpan>(SetElasticOptionsExtensions.SnapshotPagingLifetimeKey);
         }
     }
 
