@@ -32,17 +32,11 @@ namespace Foundatio.Repositories {
 namespace Foundatio.Repositories.Options {
     public static class ReadPagingOptionsExtensions {
         public static bool ShouldUseLimit<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return false;
-
-            return options.HasOption(SetPagingOptionsExtensions.PageLimitKey);
+            return options.SafeHasOption(SetPagingOptionsExtensions.PageLimitKey);
         }
 
         public static int GetLimit<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return RepositoryConstants.DEFAULT_LIMIT;
-
-            var limit = options.GetOption(SetPagingOptionsExtensions.PageLimitKey, RepositoryConstants.DEFAULT_LIMIT);
+            var limit = options.SafeGetOption(SetPagingOptionsExtensions.PageLimitKey, RepositoryConstants.DEFAULT_LIMIT);
 
             if (limit > RepositoryConstants.MAX_LIMIT)
                 return RepositoryConstants.MAX_LIMIT;
@@ -51,30 +45,18 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static bool ShouldUsePage<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return false;
-
-            return options.HasOption(SetPagingOptionsExtensions.PageNumberKey);
+            return options.SafeHasOption(SetPagingOptionsExtensions.PageNumberKey);
         }
 
         public static int GetPage<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return 1;
-
-            return options.GetOption(SetPagingOptionsExtensions.PageNumberKey, 1);
+            return options.SafeGetOption(SetPagingOptionsExtensions.PageNumberKey, 1);
         }
 
         public static bool ShouldUseSkip<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return false;
-
             return options.ShouldUseLimit() && options.GetPage() > 1;
         }
 
         public static int GetSkip<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return 0;
-
             if (!options.ShouldUseLimit() && !options.ShouldUsePage())
                 return 0;
 

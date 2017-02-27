@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
-using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 
@@ -17,19 +16,11 @@ namespace Foundatio.Repositories {
 
         internal const string DefaultExcludesKey = "@DefaultExcludes";
         public static T AddDefaultExclude<T>(this T options, string exclude) where T : ICommandOptions {
-            var excludes = options.GetOption(DefaultExcludesKey, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-            excludes.Add(exclude);
-            options.SetOption(DefaultExcludesKey, excludes);
-
-            return options;
+            return options.AddSetOptionValue(DefaultExcludesKey, exclude);
         }
 
         public static T AddDefaultExcludes<T>(this T options, IEnumerable<string> excludes) where T : ICommandOptions {
-            var excludesValue = options.GetOption(DefaultExcludesKey, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-            excludesValue.AddRange(excludes);
-            options.SetOption(DefaultExcludesKey, excludesValue);
-
-            return options;
+            return options.AddSetOptionValues(DefaultExcludesKey, excludes);
         }
 
         internal const string RootAliasResolverKey = "@RootAliasResolver";
@@ -82,59 +73,35 @@ namespace Foundatio.Repositories {
 namespace Foundatio.Repositories.Options {
     public static class ReadElasticOptionsExtensions {
         public static ElasticTypeSettings GetElasticTypeSettings<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return null;
-
-            return options.GetOption<ElasticTypeSettings>(SetElasticOptionsExtensions.ElasticTypeSettingsKey);
+            return options.SafeGetOption<ElasticTypeSettings>(SetElasticOptionsExtensions.ElasticTypeSettingsKey);
         }
 
         public static ISet<string> GetDefaultExcludes<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return new HashSet<string>();
-
-            return options.GetOption<ISet<string>>(SetElasticOptionsExtensions.DefaultExcludesKey, new HashSet<string>());
+            return options.SafeGetOption<ISet<string>>(SetElasticOptionsExtensions.DefaultExcludesKey, new HashSet<string>());
         }
 
         public static AliasResolver GetRootAliasResolver<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return null;
-
-            return options.GetOption<AliasResolver>(SetElasticOptionsExtensions.RootAliasResolverKey);
+            return options.SafeGetOption<AliasResolver>(SetElasticOptionsExtensions.RootAliasResolverKey);
         }
 
         public static bool ShouldUseSnapshotPaging<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return false;
-
-            return options.GetOption<bool>(SetElasticOptionsExtensions.UseSnapshotPagingKey, false);
+            return options.SafeGetOption<bool>(SetElasticOptionsExtensions.UseSnapshotPagingKey, false);
         }
 
         public static bool HasSnapshotScrollId<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return false;
-
-            return options.HasOption(SetElasticOptionsExtensions.SnapshotPagingScrollIdKey);
+            return options.SafeHasOption(SetElasticOptionsExtensions.SnapshotPagingScrollIdKey);
         }
 
         public static string GetSnapshotScrollId<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return null;
-
-            return options.GetOption<string>(SetElasticOptionsExtensions.SnapshotPagingScrollIdKey, null);
+            return options.SafeGetOption<string>(SetElasticOptionsExtensions.SnapshotPagingScrollIdKey, null);
         }
 
         public static bool HasSnapshotLifetime<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return false;
-
-            return options.HasOption(SetElasticOptionsExtensions.SnapshotPagingLifetimeKey);
+            return options.SafeHasOption(SetElasticOptionsExtensions.SnapshotPagingLifetimeKey);
         }
 
         public static TimeSpan GetSnapshotLifetime<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return TimeSpan.FromMinutes(1);
-
-            return options.GetOption<TimeSpan>(SetElasticOptionsExtensions.SnapshotPagingLifetimeKey);
+            return options.SafeGetOption<TimeSpan>(SetElasticOptionsExtensions.SnapshotPagingLifetimeKey, TimeSpan.FromMinutes(1));
         }
     }
 

@@ -33,6 +33,7 @@ build:
   project: Foundatio.Repositories.sln
   verbosity: minimal
   publish_nuget: true
+  publish_nuget_symbols: true
 
 before_package:
   - ps: if (-not $env:APPVEYOR_PULL_REQUEST_NUMBER) { & "GitLink" .\ }
@@ -44,15 +45,21 @@ artifacts:
   - path: artifacts\*.nupkg
     name: ReleaseArtifacts
 
+nuget:
+  account_feed: true
+  project_feed: true
+  disable_publish_on_pr: true
+
 deploy:
   - provider: Environment
     name: NuGet
+    on:
+      branch: master
   - provider: GitHub
     auth_token:
       secure: 0s81q7bweVLTFSOKxnIhan7el6bIFiN8HJ1kYJzOkeFXX7wgGSq9bs/rV53X9qpf
     draft: true
     on:
-      branch: master
       appveyor_repo_tag: true
 
 notifications:

@@ -6,8 +6,7 @@ namespace Foundatio.Repositories {
         internal const string EnableCacheKey = "@EnableCache";
 
         public static T EnableCache<T>(this T options, bool enableCache = true) where T : ICommandOptions {
-            options.SetOption(EnableCacheKey, enableCache);
-            return options;
+            return options.BuildOption(EnableCacheKey, enableCache);
         }
 
         public static T EnableCache<T>(this T options, bool enableCache, DateTime? expiresAtUtc = null) where T : ICommandOptions {
@@ -37,9 +36,7 @@ namespace Foundatio.Repositories {
         }
 
         public static T WithCacheKey<T>(this T options, string cacheKey) where T : ICommandOptions {
-            options.SetOption(CacheKey, cacheKey);
-
-            return options;
+            return options.BuildOption(CacheKey, cacheKey);
         }
 
         public static T UseCache<T>(this T options, string cacheKey, TimeSpan? expiresIn = null) where T : ICommandOptions {
@@ -55,34 +52,22 @@ namespace Foundatio.Repositories {
 namespace Foundatio.Repositories.Options {
     public static class ReadCacheOptionsExtensions {
         public static bool ShouldUseCache<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return false;
+            if (options.SafeHasOption(SetCacheOptionsExtensions.EnableCacheKey))
+                return options.SafeGetOption(SetCacheOptionsExtensions.EnableCacheKey, false);
 
-            if (options.HasOption(SetCacheOptionsExtensions.EnableCacheKey))
-                return options.GetOption(SetCacheOptionsExtensions.EnableCacheKey, false);
-
-            return options.HasOption(SetCacheOptionsExtensions.CacheKey);
+            return options.SafeHasOption(SetCacheOptionsExtensions.CacheKey);
         }
 
         public static bool HasCacheKey<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return false;
-
-            return options.GetOption<bool>(SetCacheOptionsExtensions.CacheKey);
+            return options.SafeGetOption<bool>(SetCacheOptionsExtensions.CacheKey);
         }
 
         public static string GetCacheKey<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return null;
-
-            return options.GetOption<string>(SetCacheOptionsExtensions.CacheKey, null);
+            return options.SafeGetOption<string>(SetCacheOptionsExtensions.CacheKey, null);
         }
 
         public static TimeSpan GetExpiresIn<T>(this T options) where T : ICommandOptions {
-            if (options == null)
-                return RepositoryConstants.DEFAULT_CACHE_EXPIRATION_TIMESPAN;
-
-            return options.GetOption(SetCacheOptionsExtensions.CacheExpiresInKey, RepositoryConstants.DEFAULT_CACHE_EXPIRATION_TIMESPAN);
+            return options.SafeGetOption(SetCacheOptionsExtensions.CacheExpiresInKey, RepositoryConstants.DEFAULT_CACHE_EXPIRATION_TIMESPAN);
         }
     }
 }
