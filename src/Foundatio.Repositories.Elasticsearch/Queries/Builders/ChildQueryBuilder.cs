@@ -20,7 +20,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             var childQuery = ctx.GetSourceAs<IChildQuery>();
             if (childQuery?.ChildQuery == null)
                 return;
-
+            
             if (String.IsNullOrEmpty(childQuery.ChildQuery.Type))
                 throw new ArgumentException("Must specify a child type for child queries.");
 

@@ -115,6 +115,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     Script = new InlineScript(script),
                     RetryOnConflict = 10
                 };
+                request.Refresh = options.GetRefreshMode(ElasticType.DefaultRefresh);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
 
@@ -146,6 +147,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 var updateResponse = await _client.LowLevel.IndexPutAsync<object>(response.Index, response.Type, id.Value, new PostData<object>(target.ToString()), p => {
                     p.Pipeline(pipeline);
+                    p.Refresh(options.GetRefreshMode(ElasticType.DefaultRefresh));
                     if (id.Routing != null)
                         p.Routing(id.Routing);
 
@@ -166,6 +168,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 };
                 if (id.Routing != null)
                     request.Routing = id.Routing;
+                request.Refresh = options.GetRefreshMode(ElasticType.DefaultRefresh);
 
                 var response = await _client.UpdateAsync<T, object>(request).AnyContext();
                 _logger.Trace(() => response.GetRequest());
@@ -209,6 +212,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             string pipeline = ElasticType is IHavePipelinedIndexType ? ((IHavePipelinedIndexType)ElasticType).Pipeline : null;
             string script = update as string;
             var bulkResponse = await _client.BulkAsync(b => {
+                b.Refresh(options.GetRefreshMode(ElasticType.DefaultRefresh));
                 foreach (var id in ids) {
                     b.Pipeline(pipeline);
 
@@ -277,6 +281,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var patcher = new JsonPatcher();
                 affectedRecords += await BatchProcessAsAsync<TQuery, JObject>(query, async results => {
                     var bulkResult = await _client.BulkAsync(b => {
+                        b.Refresh(options.GetRefreshMode(ElasticType.DefaultRefresh));
                         foreach (var h in results.Hits) {
                             var target = h.Document as JToken;
                             patcher.Patch(ref target, patch);
@@ -347,6 +352,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     affectedRecords += await BatchProcessAsync(query, async results => {
                         var bulkResult = await _client.BulkAsync(b => {
                             b.Pipeline(pipeline);
+                            b.Refresh(options.GetRefreshMode(ElasticType.DefaultRefresh));
 
                             foreach (var h in results.Hits) {
                                 if (script != null)
@@ -447,6 +453,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (docs.Count == 1) {
                 var document = docs.Single();
                 var request = new DeleteRequest(GetDocumentIndexFunc?.Invoke(document), ElasticType.Name, document.Id);
+                request.Refresh = options.GetRefreshMode(ElasticType.DefaultRefresh);
+
                 var response = await _client.DeleteAsync(request).AnyContext();
                 _logger.Trace(() => response.GetRequest());
 
@@ -458,6 +466,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             } else {
                 var documentsByIndex = docs.GroupBy(d => GetDocumentIndexFunc?.Invoke(d));
                 var response = await _client.BulkAsync(bulk => {
+                    bulk.Refresh(options.GetRefreshMode(ElasticType.DefaultRefresh));
                     foreach (var group in documentsByIndex)
                         bulk.DeleteMany<T>(group.Select(g => g.Id), (b, id) => b.Index(group.Key).Type(ElasticType.Name));
 
@@ -715,7 +724,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     i.OpType(isCreateOperation ? OpType.Create : OpType.Index);
                     i.Type(ElasticType.Name);
                     i.Pipeline(pipeline);
-                    i.Refresh(ElasticType.DefaultRefresh);
+                    i.Refresh(options.GetRefreshMode(ElasticType.DefaultRefresh));
 
                     if (GetParentIdFunc != null)
                         i.Parent(GetParentIdFunc(document));
@@ -768,7 +777,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     return o;
                 }).ToList();
                 bulkRequest.Operations = list;
-                bulkRequest.Refresh = ElasticType.DefaultRefresh;
+                bulkRequest.Refresh = options.GetRefreshMode(ElasticType.DefaultRefresh);
 
                 var response = await _client.BulkAsync(bulkRequest).AnyContext();
                 _logger.Trace(() => response.GetRequest());

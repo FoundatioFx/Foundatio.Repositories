@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using Elasticsearch.Net;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -21,6 +22,12 @@ namespace Foundatio.Repositories {
 
         public static T AddDefaultExcludes<T>(this T options, IEnumerable<string> excludes) where T : ICommandOptions {
             return options.AddSetOptionValues(DefaultExcludesKey, excludes);
+        }
+
+        internal const string RefreshModeKey = "@RefreshMode";
+        public static T SetRefreshMode<T>(this T options, Refresh refresh) where T : ICommandOptions {
+            options.SetOption(RefreshModeKey, refresh);
+            return options;
         }
 
         internal const string RootAliasResolverKey = "@RootAliasResolver";
@@ -102,6 +109,10 @@ namespace Foundatio.Repositories.Options {
 
         public static TimeSpan GetSnapshotLifetime<T>(this T options) where T : ICommandOptions {
             return options.SafeGetOption<TimeSpan>(SetElasticOptionsExtensions.SnapshotPagingLifetimeKey, TimeSpan.FromMinutes(1));
+        }
+
+        public static Refresh GetRefreshMode<T>(this T options, Refresh defaultRefresh = Refresh.False) where T : ICommandOptions {
+            return options.SafeGetOption<Refresh>(SetElasticOptionsExtensions.RefreshModeKey, defaultRefresh);
         }
     }
 
