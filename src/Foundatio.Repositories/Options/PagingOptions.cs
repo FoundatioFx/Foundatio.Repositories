@@ -5,22 +5,14 @@ namespace Foundatio.Repositories {
         internal const string PageLimitKey = "@PageLimit";
         internal const string PageNumberKey = "@PageNumber";
 
-        public static T UsePaging<T>(this T options, int limit, int? page = null) where T : ICommandOptions {
-            options.SetOption(PageLimitKey, limit);
+        public static T PageNumber<T>(this T options, int? page) where T : ICommandOptions {
             if (page.HasValue)
                 options.SetOption(PageNumberKey, page.Value);
 
             return options;
         }
 
-        public static T WithPage<T>(this T options, int? page) where T : ICommandOptions {
-            if (page.HasValue)
-                options.SetOption(PageNumberKey, page.Value);
-
-            return options;
-        }
-
-        public static T WithLimit<T>(this T options, int? limit) where T : ICommandOptions {
+        public static T PageLimit<T>(this T options, int? limit) where T : ICommandOptions {
             if (limit.HasValue)
                 options.SetOption(PageLimitKey, limit.Value);
 

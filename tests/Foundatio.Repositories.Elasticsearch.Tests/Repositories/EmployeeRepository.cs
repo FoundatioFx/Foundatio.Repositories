@@ -47,7 +47,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public Task<CountResult> GetCountByCompanyAsync(string company) {
-            return CountAsync(new MyAppQuery().WithCompany(company), new CommandOptions().WithCacheKey(company));
+            return CountAsync(new MyAppQuery().WithCompany(company), new CommandOptions().CacheKey(company));
         }
 
         public Task<CountResult> GetNumberOfEmployeesWithMissingCompanyName(string company) {
@@ -66,7 +66,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         /// <param name="limit">OPTIONAL limit that should be applied to bulk updates. This is here only for tests...</param>
         /// <returns></returns>
         public Task<long> UpdateCompanyNameByCompanyAsync(string company, string name, int? limit = null) {
-            return PatchAllAsync(new MyAppQuery().WithCompany(company), new { CompanyName = name }, new CommandOptions().WithLimit(limit));
+            return PatchAllAsync(new MyAppQuery().WithCompany(company), new { CompanyName = name }, new CommandOptions().PageLimit(limit));
         }
 
         public async Task<long> IncrementYearsEmployeedAsync(string[] ids, int years = 1) {

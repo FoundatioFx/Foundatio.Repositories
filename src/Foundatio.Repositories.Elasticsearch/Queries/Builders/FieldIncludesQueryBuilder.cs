@@ -22,7 +22,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return Task.CompletedTask;
             }
 
-            var excludes = ctx.Options.GetDefaultExcludes();
+            var excludes = ctx.Options.GetExcludes();
             if (excludes?.Count > 0)
                 ctx.Search.Source(s => s.Excludes(i => i.Fields(excludes.ToArray())));
 

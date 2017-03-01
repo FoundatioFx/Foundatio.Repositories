@@ -5,15 +5,10 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Options;
-using Foundatio.Repositories.Queries;
 using Foundatio.Utility;
 using Nest;
 
-namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public interface IDateRangeQuery : IRepositoryQuery {
-        ICollection<DateRange> DateRanges { get; }
-    }
-
+namespace Foundatio.Repositories {
     [DebuggerDisplay("{Field}: {StartDate} - {EndDate}")]
     public class DateRange {
         public DateTime? StartDate { get; set; }
@@ -35,14 +30,42 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
     }
 
+    public static class DateRangesQueryExtensions {
+        internal const string DateRangesKey = "@DateRanges";
+
+        public static T DateRange<T>(this T query, DateTime? utcStart, DateTime? utcEnd, Field field) where T : IRepositoryQuery {
+            if (field == null)
+                throw new ArgumentNullException(nameof(field));
+
+            return query.AddCollectionOptionValue(DateRangesKey, new DateRange { StartDate = utcStart, EndDate = utcEnd, Field = field });
+        }
+
+        public static T DateRange<T, TModel>(this T query, DateTime? utcStart, DateTime? utcEnd, Expression<Func<TModel, object>> objectPath) where T : IRepositoryQuery {
+            if (objectPath == null)
+                throw new ArgumentNullException(nameof(objectPath));
+
+            return query.AddCollectionOptionValue(DateRangesKey, new DateRange { StartDate = utcStart, EndDate = utcEnd, Field = objectPath });
+        }
+    }
+}
+
+namespace Foundatio.Repositories.Options {
+    public static class ReadDateRangesQueryExtensions {
+        public static ICollection<DateRange> GetDateRanges<T>(this T options) where T : IRepositoryQuery {
+            return options.SafeGetCollection<DateRange>(DateRangesQueryExtensions.DateRangesKey);
+        }
+    }
+}
+
+namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class DateRangeQueryBuilder : IElasticQueryBuilder {
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var dateRangeQuery = ctx.GetSourceAs<IDateRangeQuery>();
-            if (dateRangeQuery?.DateRanges == null || dateRangeQuery.DateRanges.Count <= 0)
+            var dateRanges = ctx.Source.GetDateRanges();
+            if (dateRanges.Count <= 0)
                 return Task.CompletedTask;
 
             var elasticQueryOptions = ctx.Options.GetElasticTypeSettings();
-            foreach (var dateRange in dateRangeQuery.DateRanges.Where(dr => dr.UseDateRange)) {
+            foreach (var dateRange in dateRanges.Where(dr => dr.UseDateRange)) {
                 string fieldName = dateRange.Field?.Name;
                 if (elasticQueryOptions?.IndexType != null && !String.IsNullOrEmpty(fieldName))
                     fieldName = elasticQueryOptions.IndexType.GetFieldName(fieldName);
@@ -55,24 +78,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             }
 
             return Task.CompletedTask;
-        }
-    }
-
-    public static class DateRangeQueryExtensions {
-        public static T WithDateRange<T>(this T query, DateTime? utcStart, DateTime? utcEnd, Field field) where T : IDateRangeQuery {
-            if (field == null)
-                throw new ArgumentNullException(nameof(field));
-
-            query.DateRanges?.Add(new DateRange { StartDate = utcStart, EndDate = utcEnd, Field = field });
-            return query;
-        }
-
-        public static T WithDateRange<T, TModel>(this T query, DateTime? utcStart, DateTime? utcEnd, Expression<Func<TModel, object>> objectPath) where T : IDateRangeQuery {
-            if (objectPath == null)
-                throw new ArgumentNullException(nameof(objectPath));
-
-            query.DateRanges?.Add(new DateRange { StartDate = utcStart, EndDate = utcEnd, Field = objectPath });
-            return query;
         }
     }
 }

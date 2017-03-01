@@ -76,7 +76,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     return new FindResults<TResult>();
 
                 if (options != null)
-                    options.WithPage(!options.ShouldUsePage() ? 2 : options.GetPage() + 1);
+                    options.PageNumber(!options.ShouldUsePage() ? 2 : options.GetPage() + 1);
 
                 return await FindAsAsync<TResult>(query, options).AnyContext();
             };
@@ -458,8 +458,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (options == null)
                 options = new CommandOptions();
 
-            options.SetElasticType(ElasticType);
-            options.AddDefaultExcludes(DefaultExcludes);
+            options.ElasticType(ElasticType);
+            options.Exclude(DefaultExcludes);
 
             return options;
         }

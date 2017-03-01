@@ -1,11 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
+using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories {
     public static class UpdatedIdsCallbackOptionsExtensions {
         internal const string UpdatedIdsCallbackKey = "@UpdatedIdsCallback";
 
-        public static T WithUpdatedIdsCallback<T>(this T options, Action<IEnumerable<string>> callback) where T : ICommandOptions {
+        public static T UpdateCallback<T>(this T options, Action<IEnumerable<string>> callback) where T : ICommandOptions {
             return options.BuildOption(UpdatedIdsCallbackKey, callback);
         }
     }

@@ -260,7 +260,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (IsCacheEnabled)
                 await Cache.RemoveAllAsync(ids.Select(id => id.Value)).AnyContext();
 
-            if (options.ShouldSendNotifications())
+            if (options.ShouldNotify())
                 foreach (var id in ids)
                     await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
         }
@@ -546,7 +546,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             options = SetDefaultCommandOptions(options);
             options.WithSnapshotPaging();
             if (!options.HasSnapshotLifetime())
-                options.WithSnapshotLifetime(TimeSpan.FromMinutes(5));
+                options.SnapshotPagingLifetime(TimeSpan.FromMinutes(5));
 
             long recordsProcessed = 0;
             var results = await FindAsAsync<TResult>(query, options).AnyContext();

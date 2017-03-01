@@ -17,12 +17,8 @@ namespace Foundatio.Repositories {
     }
 
     public static class ReadOnlyRepositoryExtensions {
-        public static Task<T> GetByIdAsync<T>(this IReadOnlyRepository<T> repository, Id id, bool useCache = false, TimeSpan? expiresIn = null) where T : class, new() {
-            return repository.GetByIdAsync(id, new CommandOptions().EnableCache(useCache, expiresIn));
-        }
-
-        public static Task<IReadOnlyCollection<T>> GetByIdsAsync<T>(this IReadOnlyRepository<T> repository, IEnumerable<string> ids, bool useCache = false, TimeSpan? expiresIn = null) where T : class, new() {
-            return repository.GetByIdsAsync(new Ids(ids), new CommandOptions().EnableCache(useCache, expiresIn));
+        public static Task<IReadOnlyCollection<T>> GetByIdsAsync<T>(this IReadOnlyRepository<T> repository, IEnumerable<string> ids, ICommandOptions options = null) where T : class, new() {
+            return repository.GetByIdsAsync(new Ids(ids), options);
         }
     }
 }

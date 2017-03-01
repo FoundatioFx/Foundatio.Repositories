@@ -8,68 +8,56 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories {
+    public enum Consistency {
+        Eventual,
+        Immediate,
+        Wait
+    }
+
     public static class SetElasticOptionsExtensions {
-        internal const string ElasticTypeSettingsKey = "@ElasticTypeSettings";
-        public static T SetElasticType<T>(this T options, IIndexType indexType) where T : ICommandOptions {
-            options.SetOption(ElasticTypeSettingsKey, new ElasticTypeSettings(indexType));
+        internal const string ExcludesKey = "@Excludes";
+        public static T Exclude<T>(this T options, string exclude) where T : ICommandOptions {
+            return options.AddSetOptionValue(ExcludesKey, exclude);
+        }
+
+        public static T Exclude<T>(this T options, IEnumerable<string> excludes) where T : ICommandOptions {
+            return options.AddSetOptionValue(ExcludesKey, excludes);
+        }
+
+        internal const string ConsistencyModeKey = "@ConsistencyMode";
+        public static T Consistency<T>(this T options, Consistency mode) where T : ICommandOptions {
+            options.SetOption(ConsistencyModeKey, mode);
             return options;
         }
 
-        internal const string DefaultExcludesKey = "@DefaultExcludes";
-        public static T AddDefaultExclude<T>(this T options, string exclude) where T : ICommandOptions {
-            return options.AddSetOptionValue(DefaultExcludesKey, exclude);
-        }
-
-        public static T AddDefaultExcludes<T>(this T options, IEnumerable<string> excludes) where T : ICommandOptions {
-            return options.AddSetOptionValues(DefaultExcludesKey, excludes);
-        }
-
-        internal const string RefreshModeKey = "@RefreshMode";
-        public static T SetRefreshMode<T>(this T options, Refresh refresh) where T : ICommandOptions {
-            options.SetOption(RefreshModeKey, refresh);
-            return options;
-        }
-
-        internal const string RootAliasResolverKey = "@RootAliasResolver";
-        public static T SetRootAliasResolver<T>(this T options, AliasResolver rootAliasResolver) where T : ICommandOptions {
-            options.SetOption(RootAliasResolverKey, rootAliasResolver);
-            return options;
-        }
-
-        internal const string UseSnapshotPagingKey = "@UseSnapshotPaging";
+        internal const string SnapshotPagingKey = "@SnapshotPaging";
         internal const string SnapshotPagingScrollIdKey = "@SnapshotPagingScrollId";
-        public static T WithSnapshotPaging<T>(this T options, string scrollId) where T : ICommandOptions {
-            options.SetOption(UseSnapshotPagingKey, true);
-            options.SetOption(SnapshotPagingScrollIdKey, scrollId);
-
-            return options;
+        public static T SnapshotPaging<T>(this T options) where T : ICommandOptions {
+            return options.BuildOption(SnapshotPagingKey, true);
         }
 
         internal const string SnapshotPagingLifetimeKey = "@SnapshotPagingLifetime";
-        public static T WithSnapshotPaging<T>(this T options, TimeSpan? snapshotLifetime = null) where T : ICommandOptions {
-            options.SetOption(UseSnapshotPagingKey, true);
-            if (snapshotLifetime.HasValue)
+
+        public static T SnapshotPagingLifetime<T>(this T options, TimeSpan? snapshotLifetime) where T : ICommandOptions {
+            if (snapshotLifetime.HasValue) {
+                options.SetOption(SnapshotPagingKey, true);
                 options.SetOption(SnapshotPagingLifetimeKey, snapshotLifetime.Value);
+            }
 
             return options;
         }
 
-        public static T WithSnapshotLifetime<T>(this T options, TimeSpan snapshotLifetime) where T : ICommandOptions {
-            options.SetOption(UseSnapshotPagingKey, true);
-            options.SetOption(SnapshotPagingLifetimeKey, snapshotLifetime);
+        public static T SnapshotPagingScrollId<T>(this T options, string scrollId) where T : ICommandOptions {
+            if (scrollId != null) {
+                options.SetOption(SnapshotPagingKey, true);
+                options.SetOption(SnapshotPagingScrollIdKey, scrollId);
+            }
 
             return options;
         }
 
-        public static T WithScrollId<T>(this T options, string scrollId) where T : ICommandOptions {
-            options.SetOption(UseSnapshotPagingKey, true);
-            options.SetOption(SnapshotPagingScrollIdKey, scrollId);
-
-            return options;
-        }
-
-        public static T WithScrollId<T>(this T options, IHaveData target) where T : ICommandOptions {
-            options.SetOption(UseSnapshotPagingKey, true);
+        public static T SnapshotPagingScrollId<T>(this T options, IHaveData target) where T : ICommandOptions {
+            options.SetOption(SnapshotPagingKey, true);
             options.SetOption(SnapshotPagingScrollIdKey, target.GetScrollId());
 
             return options;
@@ -79,20 +67,32 @@ namespace Foundatio.Repositories {
 
 namespace Foundatio.Repositories.Options {
     public static class ReadElasticOptionsExtensions {
-        public static ElasticTypeSettings GetElasticTypeSettings<T>(this T options) where T : ICommandOptions {
-            return options.SafeGetOption<ElasticTypeSettings>(SetElasticOptionsExtensions.ElasticTypeSettingsKey);
+        internal const string ElasticTypeSettingsKey = "@ElasticTypeSettings";
+        public static T ElasticType<T>(this T options, IIndexType indexType) where T : ICommandOptions {
+            options.SetOption(ElasticTypeSettingsKey, new ElasticTypeSettings(indexType));
+            return options;
         }
 
-        public static ISet<string> GetDefaultExcludes<T>(this T options) where T : ICommandOptions {
-            return options.SafeGetOption<ISet<string>>(SetElasticOptionsExtensions.DefaultExcludesKey, new HashSet<string>());
+        public static ElasticTypeSettings GetElasticTypeSettings<T>(this T options) where T : ICommandOptions {
+            return options.SafeGetOption<ElasticTypeSettings>(ElasticTypeSettingsKey);
+        }
+
+        public static ISet<string> GetExcludes<T>(this T options) where T : ICommandOptions {
+            return options.SafeGetOption<ISet<string>>(SetElasticOptionsExtensions.ExcludesKey, new HashSet<string>());
+        }
+
+        internal const string RootAliasResolverKey = "@RootAliasResolver";
+        public static T RootAliasResolver<T>(this T options, AliasResolver rootAliasResolver) where T : ICommandOptions {
+            options.SetOption(RootAliasResolverKey, rootAliasResolver);
+            return options;
         }
 
         public static AliasResolver GetRootAliasResolver<T>(this T options) where T : ICommandOptions {
-            return options.SafeGetOption<AliasResolver>(SetElasticOptionsExtensions.RootAliasResolverKey);
+            return options.SafeGetOption<AliasResolver>(RootAliasResolverKey);
         }
 
         public static bool ShouldUseSnapshotPaging<T>(this T options) where T : ICommandOptions {
-            return options.SafeGetOption<bool>(SetElasticOptionsExtensions.UseSnapshotPagingKey, false);
+            return options.SafeGetOption<bool>(SetElasticOptionsExtensions.SnapshotPagingKey, false);
         }
 
         public static bool HasSnapshotScrollId<T>(this T options) where T : ICommandOptions {
@@ -111,8 +111,17 @@ namespace Foundatio.Repositories.Options {
             return options.SafeGetOption<TimeSpan>(SetElasticOptionsExtensions.SnapshotPagingLifetimeKey, TimeSpan.FromMinutes(1));
         }
 
-        public static Refresh GetRefreshMode<T>(this T options, Refresh defaultRefresh = Refresh.False) where T : ICommandOptions {
-            return options.SafeGetOption<Refresh>(SetElasticOptionsExtensions.RefreshModeKey, defaultRefresh);
+        public static Refresh GetRefreshMode<T>(this T options, Consistency defaultMode = Consistency.Eventual) where T : ICommandOptions {
+            return ToRefresh(options.SafeGetOption<Consistency>(SetElasticOptionsExtensions.ConsistencyModeKey, defaultMode));
+        }
+
+        private static Refresh ToRefresh(Consistency mode) {
+            if (mode == Consistency.Immediate)
+                return Refresh.True;
+            if (mode == Consistency.Wait)
+                return Refresh.WaitFor;
+
+            return Refresh.False;
         }
     }
 

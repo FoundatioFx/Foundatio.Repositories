@@ -141,7 +141,6 @@
     <Compile Include="Models\ISupportSoftDeletes.cs" />
     <Compile Include="Queries\IRepositoryQuery.cs" />
     <Compile Include="Queries\SoftDeletesQuery.cs" />
-    <Compile Include="Queries\SystemFilter.cs" />
     <Compile Include="RepositoryConstants.cs" />
     <Compile Include="Utility\ObjectId.cs" />
     <Compile Include="Utility\TaskHelper.cs" />

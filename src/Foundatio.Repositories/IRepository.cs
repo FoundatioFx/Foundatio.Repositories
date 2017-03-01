@@ -29,44 +29,12 @@ namespace Foundatio.Repositories {
     }
 
     public static class RepositoryExtensions {
-        public static Task<T> AddAsync<T>(this IRepository<T> repository, T document, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotification = true) where T : class, IIdentity, new() {
-            return repository.AddAsync(document, new CommandOptions().EnableCache(addToCache, expiresIn).SendNotifications(sendNotification));
+        public static Task PatchAsync<T>(this IRepository<T> repository, IEnumerable<string> ids, object update, ICommandOptions options = null) where T : class, IIdentity, new() {
+            return repository.PatchAsync(new Ids(ids), update, options);
         }
 
-        public static Task AddAsync<T>(this IRepository<T> repository, IEnumerable<T> documents, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotification = true) where T : class, IIdentity, new() {
-            return repository.AddAsync(documents, new CommandOptions().EnableCache(addToCache, expiresIn).SendNotifications(sendNotification));
+        public static Task RemoveAsync<T>(this IRepository<T> repository, Ids ids, ICommandOptions options = null) where T : class, IIdentity, new() {
+            return repository.RemoveAsync(new Ids(ids), options);
         }
-
-        public static Task<T> SaveAsync<T>(this IRepository<T> repository, T document, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotification = true) where T : class, IIdentity, new() {
-            return repository.SaveAsync(document, new CommandOptions().EnableCache(addToCache, expiresIn).SendNotifications(sendNotification));
-        }
-
-        public static Task SaveAsync<T>(this IRepository<T> repository, IEnumerable<T> documents, bool addToCache = false, TimeSpan? expiresIn = null, bool sendNotification = true) where T : class, IIdentity, new() {
-            return repository.SaveAsync(documents, new CommandOptions().EnableCache(addToCache, expiresIn).SendNotifications(sendNotification));
-        }
-
-        public static Task PatchAsync<T>(this IRepository<T> repository, Id id, object update, bool sendNotification = true) where T : class, IIdentity, new() {
-            return repository.PatchAsync(id, update, new CommandOptions().SendNotifications(sendNotification));
-        }
-
-        public static Task PatchAsync<T>(this IRepository<T> repository, IEnumerable<string> ids, object update, bool sendNotification = true) where T : class, IIdentity, new() {
-            return repository.PatchAsync(new Ids(ids), update, new CommandOptions().SendNotifications(sendNotification));
-        }
-
-        public static Task RemoveAsync<T>(this IRepository<T> repository, Id id, bool sendNotification = true) where T : class, IIdentity, new() {
-            return repository.RemoveAsync(id, new CommandOptions().SendNotifications(sendNotification));
-        }
-
-        public static Task RemoveAsync<T>(this IRepository<T> repository, T document, bool sendNotification = true) where T : class, IIdentity, new() {
-            return repository.RemoveAsync(document, new CommandOptions().SendNotifications(sendNotification));
-        }
-
-        public static Task RemoveAsync<T>(this IRepository<T> repository, IEnumerable<T> documents, bool sendNotification = true) where T : class, IIdentity, new() {
-            return repository.RemoveAsync(documents, new CommandOptions().SendNotifications(sendNotification));
-        }
-
-        public static Task<long> RemoveAllAsync<T>(this IRepository<T> repository, bool sendNotification = true) where T : class, IIdentity, new() {
-            return repository.RemoveAllAsync(new CommandOptions().SendNotifications(sendNotification));
-        }
-   }
- }
+    }
+}

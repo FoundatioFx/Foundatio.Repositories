@@ -1,8 +1,21 @@
 ﻿using System;
+using Foundatio.Repositories.Options;
 
-namespace Foundatio.Repositories.Queries {
-    public interface ISoftDeletesQuery : IRepositoryQuery {
-        SoftDeleteQueryMode? SoftDeleteMode { get; set; }
+namespace Foundatio.Repositories {
+    public static class SoftDeleteQueryExtensions {
+        internal const string SoftDeleteModeKey = "@SoftDeleteMode";
+
+        public static T IncludeDeleted<T>(this T query, bool includeDeleted = true) where T : IRepositoryQuery {
+            return query.BuildOption(SoftDeleteModeKey, includeDeleted ? SoftDeleteQueryMode.All : SoftDeleteQueryMode.ActiveOnly);
+        }
+
+        public static T IncludeOnlyDeleted<T>(this T query) where T : IRepositoryQuery {
+            return query.BuildOption(SoftDeleteModeKey, SoftDeleteQueryMode.DeletedOnly);
+        }
+
+        public static T WithSoftDeleteMode<T>(this T query, SoftDeleteQueryMode mode) where T : IRepositoryQuery {
+            return query.BuildOption(SoftDeleteModeKey, mode);
+        }
     }
 
     public enum SoftDeleteQueryMode {
@@ -10,16 +23,12 @@ namespace Foundatio.Repositories.Queries {
         DeletedOnly,
         All
     }
+}
 
-    public static class SoftDeletesQueryExtensions {
-        public static T IncludeDeleted<T>(this T query, bool includeDeleted = true) where T : ISoftDeletesQuery {
-            query.SoftDeleteMode = includeDeleted ? SoftDeleteQueryMode.All : SoftDeleteQueryMode.ActiveOnly;
-            return query;
-        }
-
-        public static T IncludeOnlyDeleted<T>(this T query, bool includeDeleted = true) where T : ISoftDeletesQuery {
-            query.SoftDeleteMode = SoftDeleteQueryMode.DeletedOnly;
-            return query;
+namespace Foundatio.Repositories.Queries {
+    public static class ReadCacheOptionsExtensions {
+        public static SoftDeleteQueryMode GetSoftDeleteMode<T>(this T options) where T : IRepositoryQuery {
+            return options.SafeGetOption<SoftDeleteQueryMode>(SoftDeleteQueryExtensions.SoftDeleteModeKey, SoftDeleteQueryMode.ActiveOnly);
         }
     }
 }

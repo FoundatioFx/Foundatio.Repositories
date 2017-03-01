@@ -32,7 +32,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public Task<CountResult> GetCountByCompanyAsync(string company) {
-            return CountAsync(new MyAppQuery().WithCompany(company), new CommandOptions().WithCacheKey(company));
+            return CountAsync(new MyAppQuery().WithCompany(company), new CommandOptions().CacheKey(company));
         }
 
         public async Task<long> IncrementValueAsync(string[] ids, int value = 1) {
