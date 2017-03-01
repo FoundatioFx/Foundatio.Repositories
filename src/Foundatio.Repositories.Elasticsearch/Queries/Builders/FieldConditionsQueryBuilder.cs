@@ -27,7 +27,7 @@ namespace Foundatio.Repositories {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = field, Value = value, Operator = op });
         }
 
-        public static T FieldCondition<T, TModel>(this T query, Expression<Func<TModel, object>> objectPath, ComparisonOperator op, object value = null) where T : IRepositoryQuery {
+        public static IRepositoryQuery<T> FieldCondition<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, ComparisonOperator op, object value = null) where T : class {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = value, Operator = op });
         }
     }
@@ -35,12 +35,11 @@ namespace Foundatio.Repositories {
 
 namespace Foundatio.Repositories.Options {
     public static class ReadFieldConditionQueryExtensions {
-        public static ICollection<FieldCondition> GetFieldConditions<T>(this T options) where T : IRepositoryQuery {
-            return options.SafeGetCollection<FieldCondition>(FieldConditionQueryExtensions.FieldConditionsKey);
+        public static ICollection<FieldCondition> GetFieldConditions(this IRepositoryQuery query) {
+            return query.SafeGetCollection<FieldCondition>(FieldConditionQueryExtensions.FieldConditionsKey);
         }
     }
 }
-
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class FieldConditionsQueryBuilder : IElasticQueryBuilder {

@@ -15,8 +15,8 @@ namespace Foundatio.Repositories {
 
 namespace Foundatio.Repositories.Options {
     public static class ReadElasticFilterQueryExtensions {
-        public static ICollection<QueryContainer> GetElasticFilters<T>(this T options) where T : IRepositoryQuery {
-            return options.SafeGetCollection<QueryContainer>(ElasticFilterQueryExtensions.ElasticFiltersKey);
+        public static ICollection<QueryContainer> GetElasticFilters(this IRepositoryQuery query) {
+            return query.SafeGetCollection<QueryContainer>(ElasticFilterQueryExtensions.ElasticFiltersKey);
         }
     }
 }

@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Extensions;
-using Foundatio.Repositories.Queries;
 using Nest;
 using Foundatio.Repositories.Options;
 
@@ -47,19 +46,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         Func<string, IProperty> IElasticQueryVisitorContext.GetPropertyMappingFunc { get; set; }
 
         private DateRange GetDateRange() {
-            var rangeQueries = new List<IDateRangeQuery> {
-                this.GetSourceAs<IDateRangeQuery>(),
-                this.GetSourceAs<ISystemFilterQuery>()?.SystemFilter as IDateRangeQuery
-            };
-
-            foreach (var query in rangeQueries) {
-                if (query == null)
-                    continue;
-
-                foreach (DateRange dateRange in query.DateRanges) {
-                    if (dateRange.UseDateRange)
-                        return dateRange;
-                }
+            foreach (DateRange dateRange in Source.GetDateRanges()) {
+                if (dateRange.UseDateRange)
+                    return dateRange;
             }
 
             return null;
@@ -67,7 +56,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public class ContextType {
-        public const string SystemFilter = "SystemFilter";
         public const string Child = "Child";
         public const string Parent = "Parent";
         public const string Default = "Default";

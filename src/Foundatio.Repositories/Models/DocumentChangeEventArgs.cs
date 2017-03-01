@@ -1,10 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
-using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories.Models {
     public class DocumentsChangeEventArgs<T> : EventArgs where T : class, IIdentity, new() {
-        public DocumentsChangeEventArgs(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, IRepository<T> repository, ICommandOptions options) {
+        public DocumentsChangeEventArgs(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, IRepository<T> repository, ICommandOptions<T> options) {
             ChangeType = changeType;
             Documents = documents ?? EmptyReadOnly<ModifiedDocument<T>>.Collection;
             Repository = repository;
@@ -14,11 +13,11 @@ namespace Foundatio.Repositories.Models {
         public ChangeType ChangeType { get; private set; }
         public IReadOnlyCollection<ModifiedDocument<T>> Documents { get; private set; }
         public IRepository<T> Repository { get; private set; }
-        public ICommandOptions Options { get; private set; }
+        public ICommandOptions<T> Options { get; private set; }
     }
 
     public class DocumentsEventArgs<T> : EventArgs where T : class, IIdentity, new() {
-        public DocumentsEventArgs(IReadOnlyCollection<T> documents, IRepository<T> repository, ICommandOptions options) {
+        public DocumentsEventArgs(IReadOnlyCollection<T> documents, IRepository<T> repository, ICommandOptions<T> options) {
             Documents = documents ?? EmptyReadOnly<T>.Collection;
             Repository = repository;
             Options = options;
@@ -26,11 +25,11 @@ namespace Foundatio.Repositories.Models {
 
         public IReadOnlyCollection<T> Documents { get; private set; }
         public IRepository<T> Repository { get; private set; }
-        public ICommandOptions Options { get; private set; }
+        public ICommandOptions<T> Options { get; private set; }
     }
 
     public class ModifiedDocumentsEventArgs<T> : EventArgs where T : class, IIdentity, new() {
-        public ModifiedDocumentsEventArgs(IReadOnlyCollection<ModifiedDocument<T>> documents, IRepository<T> repository, ICommandOptions options) {
+        public ModifiedDocumentsEventArgs(IReadOnlyCollection<ModifiedDocument<T>> documents, IRepository<T> repository, ICommandOptions<T> options) {
             Documents = documents ?? EmptyReadOnly<ModifiedDocument<T>>.Collection;
             Repository = repository;
             Options = options;
@@ -38,7 +37,7 @@ namespace Foundatio.Repositories.Models {
 
         public IReadOnlyCollection<ModifiedDocument<T>> Documents { get; private set; }
         public IRepository<T> Repository { get; private set; }
-        public ICommandOptions Options { get; private set; }
+        public ICommandOptions<T> Options { get; private set; }
     }
 
     public class ModifiedDocument<T> where T : class, new() {

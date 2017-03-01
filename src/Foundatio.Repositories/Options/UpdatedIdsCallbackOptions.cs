@@ -14,7 +14,7 @@ namespace Foundatio.Repositories {
 
 namespace Foundatio.Repositories.Options {
     public static class ReadUpdatedIdsCallbackOptionsExtensions {
-        public static Action<IEnumerable<string>> GetUpdatedIdsCallback<T>(this T options) where T : ICommandOptions {
+        public static Action<IEnumerable<string>> GetUpdatedIdsCallback(this ICommandOptions options) {
             return options.SafeGetOption<Action<IEnumerable<string>>>(UpdatedIdsCallbackOptionsExtensions.UpdatedIdsCallbackKey, null);
         }
     }

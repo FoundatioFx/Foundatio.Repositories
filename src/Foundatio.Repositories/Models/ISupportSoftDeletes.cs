@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace Foundatio.Repositories.Models {
+﻿namespace Foundatio.Repositories.Models {
     public interface ISupportSoftDeletes {
         bool IsDeleted { get; set; }
     }

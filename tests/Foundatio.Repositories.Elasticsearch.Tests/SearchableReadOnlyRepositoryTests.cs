@@ -1,9 +1,7 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Nest;
 using Xunit;
 using Xunit.Abstractions;
@@ -28,7 +26,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _client.RefreshAsync(Indices.All);
             var searchRepository = (ISearchableReadOnlyRepository<Employee>)_employeeRepository;
-            var results = await searchRepository.SearchAsync(new MyAppQuery(), sort: "age");
+            var results = await searchRepository.SearchAsync(null, sort: "age");
             var employees = results.Documents.ToArray();
             Assert.Equal(4, employees.Length);
             Assert.Equal(9, employees[0].Age);
@@ -36,7 +34,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(20, employees[2].Age);
             Assert.Equal(119, employees[3].Age);
 
-            results = await searchRepository.SearchAsync(new MyAppQuery(), sort: "-age");
+            results = await searchRepository.SearchAsync(null, sort: "-age");
             employees = results.Documents.ToArray();
             Assert.Equal(4, employees.Length);
             Assert.Equal(119, employees[0].Age);
@@ -56,7 +54,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _client.RefreshAsync(Indices.All);
             var searchRepository = (ISearchableReadOnlyRepository<Employee>)_employeeRepository;
-            var results = await searchRepository.SearchAsync(new MyAppQuery(), sort: "name");
+            var results = await searchRepository.SearchAsync(null, sort: "name");
             var employees = results.Documents.ToArray();
             Assert.Equal(4, employees.Length);
             Assert.Equal("Blake", employees[0].Name);
@@ -64,7 +62,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal("Jason AA", employees[2].Name);
             Assert.Equal("Marylou", employees[3].Name);
 
-            results = await searchRepository.SearchAsync(new MyAppQuery(), sort: "-name");
+            results = await searchRepository.SearchAsync(null, sort: "-name");
             employees = results.Documents.ToArray();
             Assert.Equal(4, employees.Length);
             Assert.Equal("Marylou", employees[0].Name);
@@ -91,15 +89,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _client.RefreshAsync(Indices.All);
             var searchRepository = (ISearchableReadOnlyRepository<Employee>)_employeeRepository;
-            var results = await searchRepository.SearchAsync(new MyAppQuery(), "name:Blake");
+            var results = await searchRepository.SearchAsync(null, "name:Blake");
             var employees = results.Documents.ToArray();
             Assert.Equal(1, employees.Length);
 
-            results = await searchRepository.SearchAsync(new MyAppQuery(), "name:\"Blake Niemyjski\"");
+            results = await searchRepository.SearchAsync(null, "name:\"Blake Niemyjski\"");
             employees = results.Documents.ToArray();
             Assert.Equal(1, employees.Length);
 
-            results = await searchRepository.SearchAsync(new MyAppQuery(), "name:Eric");
+            results = await searchRepository.SearchAsync(null, "name:Eric");
             employees = results.Documents.ToArray();
             Assert.Equal(0, employees.Length);
         }

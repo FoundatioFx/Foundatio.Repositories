@@ -1,6 +1,4 @@
-﻿using Foundatio.Repositories.Options;
-
-namespace Foundatio.Repositories {
+﻿namespace Foundatio.Repositories {
     public static class SetPagingOptionsExtensions {
         internal const string PageLimitKey = "@PageLimit";
         internal const string PageNumberKey = "@PageNumber";
@@ -23,11 +21,11 @@ namespace Foundatio.Repositories {
 
 namespace Foundatio.Repositories.Options {
     public static class ReadPagingOptionsExtensions {
-        public static bool ShouldUseLimit<T>(this T options) where T : ICommandOptions {
+        public static bool ShouldUseLimit(this ICommandOptions options) {
             return options.SafeHasOption(SetPagingOptionsExtensions.PageLimitKey);
         }
 
-        public static int GetLimit<T>(this T options) where T : ICommandOptions {
+        public static int GetLimit(this ICommandOptions options) {
             var limit = options.SafeGetOption(SetPagingOptionsExtensions.PageLimitKey, RepositoryConstants.DEFAULT_LIMIT);
 
             if (limit > RepositoryConstants.MAX_LIMIT)
@@ -36,19 +34,19 @@ namespace Foundatio.Repositories.Options {
             return limit;
         }
 
-        public static bool ShouldUsePage<T>(this T options) where T : ICommandOptions {
+        public static bool ShouldUsePage(this ICommandOptions options) {
             return options.SafeHasOption(SetPagingOptionsExtensions.PageNumberKey);
         }
 
-        public static int GetPage<T>(this T options) where T : ICommandOptions {
+        public static int GetPage(this ICommandOptions options) {
             return options.SafeGetOption(SetPagingOptionsExtensions.PageNumberKey, 1);
         }
 
-        public static bool ShouldUseSkip<T>(this T options) where T : ICommandOptions {
+        public static bool ShouldUseSkip(this ICommandOptions options) {
             return options.ShouldUseLimit() && options.GetPage() > 1;
         }
 
-        public static int GetSkip<T>(this T options) where T : ICommandOptions {
+        public static int GetSkip(this ICommandOptions options) {
             if (!options.ShouldUseLimit() && !options.ShouldUsePage())
                 return 0;
 

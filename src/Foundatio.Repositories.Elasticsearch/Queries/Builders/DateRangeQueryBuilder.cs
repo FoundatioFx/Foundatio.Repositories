@@ -51,8 +51,8 @@ namespace Foundatio.Repositories {
 
 namespace Foundatio.Repositories.Options {
     public static class ReadDateRangesQueryExtensions {
-        public static ICollection<DateRange> GetDateRanges<T>(this T options) where T : IRepositoryQuery {
-            return options.SafeGetCollection<DateRange>(DateRangesQueryExtensions.DateRangesKey);
+        public static ICollection<DateRange> GetDateRanges(this IRepositoryQuery query) {
+            return query.SafeGetCollection<DateRange>(DateRangesQueryExtensions.DateRangesKey);
         }
     }
 }

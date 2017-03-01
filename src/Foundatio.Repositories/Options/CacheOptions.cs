@@ -34,19 +34,19 @@ namespace Foundatio.Repositories {
 
 namespace Foundatio.Repositories.Options {
     public static class ReadCacheOptionsExtensions {
-        public static bool ShouldUseCache<T>(this T options) where T : ICommandOptions {
+        public static bool ShouldUseCache(this ICommandOptions options) {
             return options.SafeHasOption(SetCacheOptionsExtensions.CacheKeyKey) || options.SafeGetOption(SetCacheOptionsExtensions.AutoCacheKey, false);
         }
 
-        public static bool HasCacheKey<T>(this T options) where T : ICommandOptions {
+        public static bool HasCacheKey(this ICommandOptions options) {
             return options.SafeGetOption<bool>(SetCacheOptionsExtensions.CacheKeyKey);
         }
 
-        public static string GetCacheKey<T>(this T options) where T : ICommandOptions {
+        public static string GetCacheKey(this ICommandOptions options) {
             return options.SafeGetOption<string>(SetCacheOptionsExtensions.CacheKeyKey, null);
         }
 
-        public static TimeSpan GetExpiresIn<T>(this T options) where T : ICommandOptions {
+        public static TimeSpan GetExpiresIn(this ICommandOptions options) {
             return options.SafeGetOption(SetCacheOptionsExtensions.CacheExpiresInKey, RepositoryConstants.DEFAULT_CACHE_EXPIRATION_TIMESPAN);
         }
     }

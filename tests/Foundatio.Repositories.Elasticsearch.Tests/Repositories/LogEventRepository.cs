@@ -3,13 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Configuration;
-using Foundatio.Repositories.Elasticsearch.Queries;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Models;
-using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent> {
@@ -20,19 +16,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public Task<FindResults<LogEvent>> GetByCompanyAsync(string company) {
-            return FindAsync(new MyAppQuery().WithCompany(company));
+            return FindAsync(q => q.Company(company));
         }
 
         public Task<FindResults<LogEvent>> GetPartialByCompanyAsync(string company) {
-            return FindAsync(new MyAppQuery().WithCompany(company).IncludeFields((LogEvent l) => l.Id, l => l.CreatedUtc));
+            return FindAsync(q => q.Company(company).Include(e => e.Id).Include(l => l.CreatedUtc));
         }
 
         public Task<FindResults<LogEvent>> GetAllByCompanyAsync(string company) {
-            return FindAsync(new MyAppQuery().WithCompany(company));
+            return FindAsync(q => q.Company(company));
         }
 
         public Task<CountResult> GetCountByCompanyAsync(string company) {
-            return CountAsync(new MyAppQuery().WithCompany(company), new CommandOptions().CacheKey(company));
+            return CountAsync(q => q.Company(company), o => o.CacheKey(company));
         }
 
         public async Task<long> IncrementValueAsync(string[] ids, int value = 1) {
@@ -41,13 +37,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             string script = $"ctx._source.value += {value};";
             if (ids.Length == 0)
-                return await PatchAllAsync(new Query(), script, new CommandOptions().DisableNotifications());
+                return await PatchAllAsync(null, script, o => o.Notifications(false));
 
             await PatchAsync(ids, script);
             return ids.Length;
         }
 
-        public async Task<long> IncrementValueAsync(MyAppQuery query, int value = 1) {
+        public async Task<long> IncrementValueAsync(RepositoryQueryDescriptor<LogEvent> query, int value = 1) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
@@ -55,7 +51,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return await PatchAllAsync(query, script);
         }
 
-        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents, ICommandOptions options = null) {
+        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents, ICommandOptions<LogEvent> options = null) {
             if (!IsCacheEnabled)
                 return;
 

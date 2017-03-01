@@ -1,14 +1,38 @@
 ﻿using System;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Extensions;
-using Foundatio.Repositories.Queries;
+using Foundatio.Repositories.Options;
 using Nest;
 
-namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public interface IChildQuery : IRepositoryQuery {
-        ITypeQuery ChildQuery { get; set; }
+namespace Foundatio.Repositories {
+    public class ChildQuery {
+        public TypeName Type { get; set; }
+        public IRepositoryQuery Query { get; set; }
     }
 
+    public static class ChildQueryExtensions {
+        internal const string ChildQueryKey = "@ChildQuery";
+
+        public static T ChildQuery<T>(this T query, TypeName childType, IRepositoryQuery childQuery) where T : IRepositoryQuery {
+            if (childType == null)
+                throw new ArgumentNullException(nameof(childType));
+            if (childQuery == null)
+                throw new ArgumentNullException(nameof(childQuery));
+
+            return query.BuildOption(ChildQueryKey, new ChildQuery { Type = childType, Query = childQuery });
+        }
+    }
+}
+
+namespace Foundatio.Repositories.Options {
+    public static class ReadChildQueryExtensions {
+        public static ChildQuery GetChildQuery(this IRepositoryQuery query) {
+            return query.SafeGetOption<ChildQuery>(ChildQueryExtensions.ChildQueryKey);
+        }
+    }
+}
+
+namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class ChildQueryBuilder : IElasticQueryBuilder {
         private readonly ElasticQueryBuilder _queryBuilder;
 
@@ -17,14 +41,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
 
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var childQuery = ctx.GetSourceAs<IChildQuery>();
-            if (childQuery?.ChildQuery == null)
+            var childQuery = ctx.Source.GetChildQuery();
+            if (childQuery == null)
                 return;
             
-            if (String.IsNullOrEmpty(childQuery.ChildQuery.Type))
-                throw new ArgumentException("Must specify a child type for child queries.");
-
-            var childContext = new QueryBuilderContext<T>(childQuery.ChildQuery, ctx.Options, null, ctx, ContextType.Child);
+            var childContext = new QueryBuilderContext<T>(childQuery.Query, ctx.Options, null, ctx, ContextType.Child);
             await _queryBuilder.BuildAsync(childContext).AnyContext();
 
             if ((childContext.Query == null || ((IQueryContainer)childContext.Query).IsConditionless)
@@ -32,54 +53,12 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return;
 
             ctx.Filter &= new HasChildQuery {
-                Type = childQuery.ChildQuery.Type,
+                Type = childQuery.Type,
                 Query = new BoolQuery {
                     Must = new QueryContainer[] { childContext.Query },
                     Filter = new QueryContainer[] { childContext.Filter },
                 }
             };
-        }
-    }
-
-    public static class ChildQueryExtensions {
-        public static TQuery WithChildQuery<TQuery, TChildQuery>(this TQuery query, Func<TChildQuery, TChildQuery> childQueryFunc) where TQuery : IChildQuery where TChildQuery : class, ITypeQuery, new() {
-            if (childQueryFunc == null)
-                throw new ArgumentNullException(nameof(childQueryFunc));
-
-            var childQuery = query.ChildQuery as TChildQuery ?? new TChildQuery();
-            query.ChildQuery = childQueryFunc(childQuery);
-
-            return query;
-        }
-
-        public static Query WithChildQuery<T>(this Query query, Func<T, T> childQueryFunc) where T : class, ITypeQuery, new() {
-            if (childQueryFunc == null)
-                throw new ArgumentNullException(nameof(childQueryFunc));
-
-            var childQuery = query.ChildQuery as T ?? new T();
-            query.ChildQuery = childQueryFunc(childQuery);
-
-            return query;
-        }
-
-        public static ElasticQuery WithChildQuery<T>(this ElasticQuery query, Func<T, T> childQueryFunc) where T : class, ITypeQuery, new() {
-            if (childQueryFunc == null)
-                throw new ArgumentNullException(nameof(childQueryFunc));
-
-            var childQuery = query.ChildQuery as T ?? new T();
-            query.ChildQuery = childQueryFunc(childQuery);
-
-            return query;
-        }
-
-        public static ElasticQuery WithChildQuery(this ElasticQuery query, Func<ChildQuery, ChildQuery> childQueryFunc) {
-            if (childQueryFunc == null)
-                throw new ArgumentNullException(nameof(childQueryFunc));
-
-            var childQuery = query.ChildQuery as ChildQuery ?? new ChildQuery();
-            query.ChildQuery = childQueryFunc(childQuery);
-
-            return query;
         }
     }
 }

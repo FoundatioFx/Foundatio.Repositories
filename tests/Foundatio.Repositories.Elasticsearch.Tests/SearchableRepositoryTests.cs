@@ -1,8 +1,4 @@
-﻿using Foundatio.Repositories.Elasticsearch.Queries;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
-using Foundatio.Repositories.Queries;
-using Foundatio.Repositories.Utility;
+﻿using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Nito.AsyncEx;
 using System;
@@ -114,7 +110,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             searchResults = await _dailyRepository.SearchAsync(new MyAppQuery().WithCompany(yesterdayLog.CompanyId).WithDateRange(utcNow.Subtract(TimeSpan.FromHours(1)), utcNow, "created"));
             Assert.Equal(0, searchResults.Total);
 
-            searchResults = await _dailyRepository.SearchAsync(new ElasticQuery().WithId(yesterdayLog.Id));
+            searchResults = await _dailyRepository.SearchAsync((IRepositoryQuery)new ElasticQuery().WithId(yesterdayLog.Id));
             Assert.Equal(1, searchResults.Total);
         }
 

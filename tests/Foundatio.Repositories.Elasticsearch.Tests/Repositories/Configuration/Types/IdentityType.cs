@@ -1,6 +1,4 @@
-﻿using System;
-using Foundatio.Repositories.Elasticsearch.Configuration;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+﻿using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Nest;
 

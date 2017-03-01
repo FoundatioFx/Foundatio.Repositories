@@ -1,11 +1,7 @@
 ﻿using System;
 using System.Threading.Tasks;
-using Foundatio.Repositories.Elasticsearch.Queries;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
-using Foundatio.Repositories.Queries;
 using Nest;
 using Xunit;
 using Xunit.Abstractions;

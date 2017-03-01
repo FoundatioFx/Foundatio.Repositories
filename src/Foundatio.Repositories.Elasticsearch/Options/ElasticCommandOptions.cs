@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using Elasticsearch.Net;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Configuration;
@@ -15,15 +14,6 @@ namespace Foundatio.Repositories {
     }
 
     public static class SetElasticOptionsExtensions {
-        internal const string ExcludesKey = "@Excludes";
-        public static T Exclude<T>(this T options, string exclude) where T : ICommandOptions {
-            return options.AddSetOptionValue(ExcludesKey, exclude);
-        }
-
-        public static T Exclude<T>(this T options, IEnumerable<string> excludes) where T : ICommandOptions {
-            return options.AddSetOptionValue(ExcludesKey, excludes);
-        }
-
         internal const string ConsistencyModeKey = "@ConsistencyMode";
         public static T Consistency<T>(this T options, Consistency mode) where T : ICommandOptions {
             options.SetOption(ConsistencyModeKey, mode);
@@ -68,17 +58,13 @@ namespace Foundatio.Repositories {
 namespace Foundatio.Repositories.Options {
     public static class ReadElasticOptionsExtensions {
         internal const string ElasticTypeSettingsKey = "@ElasticTypeSettings";
-        public static T ElasticType<T>(this T options, IIndexType indexType) where T : ICommandOptions {
+        public static T ElasticType<T>(this T options, IIndexType indexType) where T: ICommandOptions {
             options.SetOption(ElasticTypeSettingsKey, new ElasticTypeSettings(indexType));
             return options;
         }
 
-        public static ElasticTypeSettings GetElasticTypeSettings<T>(this T options) where T : ICommandOptions {
+        public static ElasticTypeSettings GetElasticTypeSettings(this ICommandOptions options) {
             return options.SafeGetOption<ElasticTypeSettings>(ElasticTypeSettingsKey);
-        }
-
-        public static ISet<string> GetExcludes<T>(this T options) where T : ICommandOptions {
-            return options.SafeGetOption<ISet<string>>(SetElasticOptionsExtensions.ExcludesKey, new HashSet<string>());
         }
 
         internal const string RootAliasResolverKey = "@RootAliasResolver";
@@ -87,31 +73,31 @@ namespace Foundatio.Repositories.Options {
             return options;
         }
 
-        public static AliasResolver GetRootAliasResolver<T>(this T options) where T : ICommandOptions {
+        public static AliasResolver GetRootAliasResolver(this ICommandOptions options) {
             return options.SafeGetOption<AliasResolver>(RootAliasResolverKey);
         }
 
-        public static bool ShouldUseSnapshotPaging<T>(this T options) where T : ICommandOptions {
+        public static bool ShouldUseSnapshotPaging(this ICommandOptions options) {
             return options.SafeGetOption<bool>(SetElasticOptionsExtensions.SnapshotPagingKey, false);
         }
 
-        public static bool HasSnapshotScrollId<T>(this T options) where T : ICommandOptions {
+        public static bool HasSnapshotScrollId(this ICommandOptions options) {
             return options.SafeHasOption(SetElasticOptionsExtensions.SnapshotPagingScrollIdKey);
         }
 
-        public static string GetSnapshotScrollId<T>(this T options) where T : ICommandOptions {
+        public static string GetSnapshotScrollId(this ICommandOptions options) {
             return options.SafeGetOption<string>(SetElasticOptionsExtensions.SnapshotPagingScrollIdKey, null);
         }
 
-        public static bool HasSnapshotLifetime<T>(this T options) where T : ICommandOptions {
+        public static bool HasSnapshotLifetime(this ICommandOptions options) {
             return options.SafeHasOption(SetElasticOptionsExtensions.SnapshotPagingLifetimeKey);
         }
 
-        public static TimeSpan GetSnapshotLifetime<T>(this T options) where T : ICommandOptions {
+        public static TimeSpan GetSnapshotLifetime(this ICommandOptions options) {
             return options.SafeGetOption<TimeSpan>(SetElasticOptionsExtensions.SnapshotPagingLifetimeKey, TimeSpan.FromMinutes(1));
         }
 
-        public static Refresh GetRefreshMode<T>(this T options, Consistency defaultMode = Consistency.Eventual) where T : ICommandOptions {
+        public static Refresh GetRefreshMode(this ICommandOptions options, Consistency defaultMode = Consistency.Eventual) {
             return ToRefresh(options.SafeGetOption<Consistency>(SetElasticOptionsExtensions.ConsistencyModeKey, defaultMode));
         }
 

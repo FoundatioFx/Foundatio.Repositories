@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using Foundatio.Repositories.Extensions;
-using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries {
     public interface IElasticIndexesQuery : IRepositoryQuery {

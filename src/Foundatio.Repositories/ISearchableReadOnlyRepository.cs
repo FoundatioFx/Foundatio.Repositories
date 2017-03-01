@@ -1,6 +1,6 @@
-﻿using System.Threading.Tasks;
+﻿using System;
+using System.Threading.Tasks;
 using Foundatio.Repositories.Models;
-using Foundatio.Repositories.Queries;
 
 namespace Foundatio.Repositories {
     public interface ISearchableReadOnlyRepository<T> : IReadOnlyRepository<T> where T : class, new() {
@@ -12,7 +12,7 @@ namespace Foundatio.Repositories {
         /// <param name="aggregations">Aggregation expression used to return aggregated data within any given filters</param>
         /// <param name="options">Command options used to control things like paging, caching, etc</param>
         /// <returns></returns>
-        Task<CountResult> CountBySearchAsync(IRepositoryQuery systemFilter, string filter = null, string aggregations = null, ICommandOptions options = null);
+        Task<CountResult> CountBySearchAsync(ISystemFilter systemFilter, string filter = null, string aggregations = null, ICommandOptions<T> options = null);
 
         /// <summary>
         /// Find documents using search criteria
@@ -24,6 +24,20 @@ namespace Foundatio.Repositories {
         /// <param name="aggregations">Aggregation expression used to return aggregated data within any given filters</param>
         /// <param name="options">Command options used to control things like paging, caching, etc</param>
         /// <returns></returns>
-        Task<FindResults<T>> SearchAsync(IRepositoryQuery systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, ICommandOptions options = null);
+        Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, ICommandOptions<T> options = null);
+    }
+
+    public static class SearchableReadOnlyRepositoryExtensions {
+        public static Task<CountResult> CountBySearchAsync<T>(this ISearchableReadOnlyRepository<T> repository, ISystemFilter systemFilter, string filter = null, string aggregations = null, CommandOptionsDescriptor<T> options = null) where T : class, new() {
+            return repository.CountBySearchAsync(systemFilter, filter, aggregations, options.Configure());
+        }
+
+        public static Task<FindResults<T>> SearchAsync<T>(this ISearchableReadOnlyRepository<T> repository, ISystemFilter systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, CommandOptionsDescriptor<T> options = null) where T : class, new() {
+            return repository.SearchAsync(systemFilter, filter, criteria, sort, aggregations, options.Configure());
+        }
+    }
+
+    public interface ISystemFilter {
+        IRepositoryQuery GetQuery();
     }
 }

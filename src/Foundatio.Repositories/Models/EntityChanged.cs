@@ -1,5 +1,4 @@
-﻿using System;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Models {

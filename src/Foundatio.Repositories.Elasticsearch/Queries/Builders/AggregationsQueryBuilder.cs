@@ -6,9 +6,9 @@ using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories {
     public static class AggregationQueryExtensions {
-        internal const string AggregationsKey = "@AggregationsKey";
+        internal const string AggregationsKey = "@AggregationsExpressionKey";
 
-        public static T WithAggregations<T>(this T options, string aggregations) where T : IRepositoryQuery {
+        public static T AggregationsExression<T>(this T options, string aggregations) where T : IRepositoryQuery {
             return options.BuildOption(AggregationsKey, aggregations);
         }
     }
@@ -16,8 +16,8 @@ namespace Foundatio.Repositories {
 
 namespace Foundatio.Repositories.Options {
     public static class ReadAggregationQueryExtensions {
-        public static string GetAggregations<T>(this T options) where T : IRepositoryQuery {
-            return options.SafeGetOption<string>(AggregationQueryExtensions.AggregationsKey, null);
+        public static string GetAggregationsExression(this IRepositoryQuery query) {
+            return query.SafeGetOption<string>(AggregationQueryExtensions.AggregationsKey, null);
         }
     }
 }
@@ -29,7 +29,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (elasticOptions?.IndexType?.QueryParser == null)
                 return;
 
-            var aggregations = ctx.Source.GetAggregations();
+            var aggregations = ctx.Source.GetAggregationsExression();
             if (String.IsNullOrEmpty(aggregations))
                 return;
 

@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
-using Foundatio.Repositories.Queries;
 using Foundatio.Repositories.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
@@ -110,10 +109,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public virtual string[] GetIndexesByQuery(IRepositoryQuery query) {
             var indexes = GetIndexes(query);
-
-            var systemFilterQuery = query as ISystemFilterQuery;
-            if (systemFilterQuery != null)
-                indexes.AddRange(GetIndexes(systemFilterQuery.SystemFilter));
 
             return indexes.Count > 0 ? indexes.ToArray() : _defaultIndexes;
         }

@@ -1,5 +1,4 @@
-﻿using Foundatio.Logging;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+﻿using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
 using Nest;
 using System;
@@ -9,8 +8,7 @@ using Xunit;
 using Xunit.Abstractions;
 using LogLevel = Foundatio.Logging.LogLevel;
 
-namespace Foundatio.Repositories.Elasticsearch.Tests
-{
+namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class QueryTests : ElasticRepositoryTestBase {
         private readonly DailyLogEventRepository _dailyRepository;
         private readonly EmployeeRepository _employeeRepository;

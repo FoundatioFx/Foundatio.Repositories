@@ -12,7 +12,7 @@ namespace Foundatio.Repositories {
 
 namespace Foundatio.Repositories.Options {
     public static class ReadNotificationOptionsExtensions {
-        public static bool ShouldNotify<T>(this T options) where T : ICommandOptions {
+        public static bool ShouldNotify(this ICommandOptions options) {
             return options.SafeGetOption(SetNotificationOptionsExtensions.NotificationsKey, true);
         }
     }

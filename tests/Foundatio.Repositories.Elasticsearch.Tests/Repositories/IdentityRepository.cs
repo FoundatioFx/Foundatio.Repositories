@@ -1,5 +1,4 @@
-﻿using System;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
+﻿using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {

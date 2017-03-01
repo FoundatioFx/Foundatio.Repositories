@@ -11,7 +11,6 @@ using System.Linq.Expressions;
 using System.Reflection;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries.Visitors;
-using Elasticsearch.Net;
 using Foundatio.Parsers.ElasticQueries;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
@@ -21,7 +20,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         ElasticQueryParser QueryParser { get; }
         IIndex Index { get; }
         IElasticConfiguration Configuration { get; }
-        Refresh DefaultRefresh { get; }
+        Consistency DefaultConsistency { get; }
         int BulkBatchSize { get; set; }
         Task ConfigureAsync();
         AliasesDescriptor ConfigureIndexAliases(AliasesDescriptor aliases);
@@ -49,14 +48,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private readonly Lazy<ElasticQueryParser> _queryParser;
         private readonly Lazy<AliasMap> _aliasMap;
 
-        public IndexTypeBase(IIndex index, string name = null, Refresh defaultRefresh = Refresh.False) {
+        public IndexTypeBase(IIndex index, string name = null, Consistency defaultConsistency = Consistency.Eventual) {
             if (index == null)
                 throw new ArgumentNullException(nameof(index));
 
             Name = name ?? _typeName;
             Index = index;
             Type = typeof(T);
-            DefaultRefresh = defaultRefresh;
+            DefaultConsistency = defaultConsistency;
             _queryBuilder = new Lazy<IElasticQueryBuilder>(CreateQueryBuilder);
             _queryParser = new Lazy<ElasticQueryParser>(CreateQueryParser);
             _aliasMap = new Lazy<AliasMap>(GetAliasMap);
@@ -90,7 +89,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public Type Type { get; }
         public IIndex Index { get; }
         public IElasticConfiguration Configuration => Index.Configuration;
-        public Refresh DefaultRefresh { get; }
+        public Consistency DefaultConsistency { get; }
         public ISet<string> AllowedQueryFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public ISet<string> AllowedAggregationFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public ISet<string> AllowedSortFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
