@@ -41,7 +41,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return FindAsAsync<T>(query.Configure(), options.Configure());
         }
 
-        protected Task<FindResults<T>> FindAsync(IRepositoryQuery<T> query, ICommandOptions<T> options = null) {
+        protected Task<FindResults<T>> FindAsync(IRepositoryQuery query, ICommandOptions options = null) {
             return FindAsAsync<T>(query, options);
         }
 
@@ -51,14 +51,15 @@ namespace Foundatio.Repositories.Elasticsearch {
             return FindAsAsync<TResult>(query.Configure(), options.Configure());
         }
 
-        protected async Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery<T> query, ICommandOptions<T> options = null) where TResult : class, new() {
+        protected async Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions options = null) where TResult : class, new() {
             if (query == null)
-                throw new ArgumentNullException(nameof(query));
+                query = new RepositoryQuery();
 
             bool useSnapshotPaging = options.ShouldUseSnapshotPaging();
             // don't use caching with snapshot paging.
             bool allowCaching = IsCacheEnabled && useSnapshotPaging == false;
 
+            options = ConfigureOptions(options);
             await OnBeforeQueryAsync(query, options, typeof(TResult)).AnyContext();
 
             Func<FindResults<TResult>, Task<FindResults<TResult>>> getNextPageFunc = async r => {
@@ -148,7 +149,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return FindOneAsync(query.Configure(), options.Configure());
         }
 
-        protected async Task<FindHit<T>> FindOneAsync(IRepositoryQuery<T> query, ICommandOptions<T> options = null) {
+        protected async Task<FindHit<T>> FindOneAsync(IRepositoryQuery query, ICommandOptions options = null) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
@@ -179,9 +180,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             return result;
         }
 
-        public Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, ICommandOptions<T> options = null) {
+        public Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, ICommandOptions options = null) {
             var search = ConfigureQuery(null)
-                .MergeFrom(systemFilter.GetQuery())
+                .MergeFrom(systemFilter?.GetQuery())
                 .FilterExpression(filter)
                 .SearchExpression(criteria)
                 .AggregationsExression(aggregations)
@@ -190,7 +191,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return FindAsync(search, options);
         }
 
-        public async Task<T> GetByIdAsync(Id id, ICommandOptions<T> options = null) {
+        public async Task<T> GetByIdAsync(Id id, ICommandOptions options = null) {
             if (String.IsNullOrEmpty(id.Value))
                 return null;
             
@@ -225,7 +226,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return hit;
         }
 
-        public async Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, ICommandOptions<T> options = null) {
+        public async Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, ICommandOptions options = null) {
             var idList = ids?.Distinct().Where(i => !String.IsNullOrEmpty(i)).ToList();
             if (idList == null || idList.Count == 0)
                 return EmptyList;
@@ -282,7 +283,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return hits.AsReadOnly();
         }
 
-        public Task<FindResults<T>> GetAllAsync(ICommandOptions<T> options = null) {
+        public Task<FindResults<T>> GetAllAsync(ICommandOptions options = null) {
             return FindAsync(null, options);
         }
 
@@ -310,7 +311,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return ExistsAsync(query.Configure());
         }
 
-        protected async Task<bool> ExistsAsync(IRepositoryQuery<T> query) {
+        protected async Task<bool> ExistsAsync(IRepositoryQuery query) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
@@ -338,7 +339,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return CountAsync(query.Configure(), options.Configure());
         }
 
-        protected async Task<CountResult> CountAsync(IRepositoryQuery<T> query, ICommandOptions<T> options = null) {
+        protected async Task<CountResult> CountAsync(IRepositoryQuery query, ICommandOptions options = null) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
@@ -369,7 +370,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return result;
         }
 
-        public async Task<long> CountAsync(ICommandOptions<T> options = null) {
+        public async Task<long> CountAsync(ICommandOptions options = null) {
             var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null))).Type(ElasticType.Name)).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
@@ -385,16 +386,16 @@ namespace Foundatio.Repositories.Elasticsearch {
             return response.Count;
         }
 
-        public Task<CountResult> CountBySearchAsync(ISystemFilter systemFilter, string filter = null, string aggregations = null, ICommandOptions<T> options = null) {
+        public Task<CountResult> CountBySearchAsync(ISystemFilter systemFilter, string filter = null, string aggregations = null, ICommandOptions options = null) {
             var search = ConfigureQuery(null)
-                .MergeFrom(systemFilter.GetQuery())
+                .MergeFrom(systemFilter?.GetQuery())
                 .FilterExpression(filter)
                 .AggregationsExression(aggregations);
 
             return CountAsync(search, options);
         }
 
-        protected virtual IRepositoryQuery<T> ConfigureQuery(IRepositoryQuery<T> query) {
+        protected virtual IRepositoryQuery ConfigureQuery(IRepositoryQuery query) {
             if (query == null)
                 query = new RepositoryQuery<T>();
 
@@ -417,7 +418,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             _scopedCacheClient = new ScopedCacheClient(new NullCacheClient(), EntityTypeName);
         }
 
-        protected virtual async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions<T> options = null) {
+        protected virtual async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options = null) {
             if (!IsCacheEnabled)
                 return;
 
@@ -433,7 +434,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
         }
 
-        public Task InvalidateCacheAsync(T document, ICommandOptions<T> options = null) {
+        public Task InvalidateCacheAsync(T document, ICommandOptions options = null) {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
 
@@ -443,7 +444,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return InvalidateCacheAsync(new[] { document });
         }
 
-        public Task InvalidateCacheAsync(IEnumerable<T> documents, ICommandOptions<T> options = null) {
+        public Task InvalidateCacheAsync(IEnumerable<T> documents, ICommandOptions options = null) {
             var docs = documents?.ToList();
             if (docs == null || docs.Any(d => d == null))
                 throw new ArgumentNullException(nameof(documents));
@@ -454,11 +455,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             return InvalidateCacheAsync(docs.Select(d => new ModifiedDocument<T>(d, null)).ToList(), options);
         }
 
-        protected Task<SearchDescriptor<T>> CreateSearchDescriptorAsync(IRepositoryQuery<T> query, ICommandOptions<T> options) {
+        protected Task<SearchDescriptor<T>> CreateSearchDescriptorAsync(IRepositoryQuery query, ICommandOptions options) {
             return ConfigureSearchDescriptorAsync(null, query, options);
         }
 
-        protected async Task<SearchDescriptor<T>> ConfigureSearchDescriptorAsync(SearchDescriptor<T> search, IRepositoryQuery<T> query, ICommandOptions<T> options) {
+        protected async Task<SearchDescriptor<T>> ConfigureSearchDescriptorAsync(SearchDescriptor<T> search, IRepositoryQuery query, ICommandOptions options) {
             if (search == null)
                 search = new SearchDescriptor<T>();
 
@@ -476,7 +477,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return search;
         }
 
-        protected ICommandOptions<T> ConfigureOptions(ICommandOptions<T> options) {
+        protected ICommandOptions ConfigureOptions(ICommandOptions options) {
             if (options == null)
                 options = new CommandOptions<T>();
 
@@ -485,7 +486,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return options;
         }
 
-        protected string[] GetIndexesByQuery(IRepositoryQuery<T> query, ICommandOptions<T> options = null) {
+        protected string[] GetIndexesByQuery(IRepositoryQuery query, ICommandOptions options = null) {
             return HasMultipleIndexes ? TimeSeriesType.GetIndexesByQuery(query) : new[] { ElasticIndex.Name };
         }
 
@@ -496,7 +497,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected Func<T, string> GetParentIdFunc => HasParent ? d => ChildType.GetParentId(d) : (Func<T, string>)null;
         protected Func<T, string> GetDocumentIndexFunc => HasMultipleIndexes ? d => TimeSeriesType.GetDocumentIndex(d) : (Func<T, string>)(d => ElasticIndex.Name);
 
-        protected async Task<TResult> GetCachedQueryResultAsync<TResult>(ICommandOptions<T> options, string cachePrefix = null, string cacheSuffix = null) {
+        protected async Task<TResult> GetCachedQueryResultAsync<TResult>(ICommandOptions options, string cachePrefix = null, string cacheSuffix = null) {
             if (!IsCacheEnabled || options == null || !options.ShouldUseCache())
                 return default(TResult);
 
@@ -508,7 +509,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return result;
         }
 
-        protected async Task SetCachedQueryResultAsync<TResult>(ICommandOptions<T> options, TResult result, string cachePrefix = null, string cacheSuffix = null) {
+        protected async Task SetCachedQueryResultAsync<TResult>(ICommandOptions options, TResult result, string cachePrefix = null, string cacheSuffix = null) {
             if (!IsCacheEnabled || result == null || options == null || !options.ShouldUseCache())
                 return;
 
@@ -558,7 +559,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         public AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; } = new AsyncEvent<BeforeQueryEventArgs<T>>();
 
-        private async Task OnBeforeQueryAsync(IRepositoryQuery<T> query, ICommandOptions<T> options, Type resultType) {
+        private async Task OnBeforeQueryAsync(IRepositoryQuery query, ICommandOptions options, Type resultType) {
             if (SupportsSoftDeletes && IsCacheEnabled) {
                 var deletedIds = await Cache.GetSetAsync<string>("deleted").AnyContext();
                 if (deletedIds.HasValue)

@@ -6,17 +6,17 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories {
     public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdentity, new() {
-        Task<T> AddAsync(T document, ICommandOptions<T> options = null);
-        Task AddAsync(IEnumerable<T> documents, ICommandOptions<T> options = null);
-        Task<T> SaveAsync(T document, ICommandOptions<T> options = null);
-        Task SaveAsync(IEnumerable<T> documents, ICommandOptions<T> options = null);
-        Task PatchAsync(Id id, object update, ICommandOptions<T> options = null);
-        Task PatchAsync(Ids ids, object update, ICommandOptions<T> options = null);
-        Task RemoveAsync(Id id, ICommandOptions<T> options = null);
-        Task RemoveAsync(Ids ids, ICommandOptions<T> options = null);
-        Task RemoveAsync(T document, ICommandOptions<T> options = null);
-        Task RemoveAsync(IEnumerable<T> documents, ICommandOptions<T> options = null);
-        Task<long> RemoveAllAsync(ICommandOptions<T> options = null);
+        Task<T> AddAsync(T document, ICommandOptions options = null);
+        Task AddAsync(IEnumerable<T> documents, ICommandOptions options = null);
+        Task<T> SaveAsync(T document, ICommandOptions options = null);
+        Task SaveAsync(IEnumerable<T> documents, ICommandOptions options = null);
+        Task PatchAsync(Id id, object update, ICommandOptions options = null);
+        Task PatchAsync(Ids ids, object update, ICommandOptions options = null);
+        Task RemoveAsync(Id id, ICommandOptions options = null);
+        Task RemoveAsync(Ids ids, ICommandOptions options = null);
+        Task RemoveAsync(T document, ICommandOptions options = null);
+        Task RemoveAsync(IEnumerable<T> documents, ICommandOptions options = null);
+        Task<long> RemoveAllAsync(ICommandOptions options = null);
 
         AsyncEvent<DocumentsEventArgs<T>> DocumentsAdding { get; }
         AsyncEvent<DocumentsEventArgs<T>> DocumentsAdded { get; }

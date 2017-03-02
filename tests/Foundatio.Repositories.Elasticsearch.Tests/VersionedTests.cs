@@ -242,21 +242,21 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
 
-            var results = await _employeeRepository.GetAllByCompanyAsync("1", new CommandOptions().PageLimit(PAGE_SIZE).EnableCache());
+            var results = await _employeeRepository.GetAllByCompanyAsync("1", o => o.PageLimit(PAGE_SIZE).Cache());
             Assert.True(results.HasMore);
             Assert.Equal(PAGE_SIZE, results.Documents.Count);
             Assert.Equal(1, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(2, _cache.Misses);
 
-            results = await _employeeRepository.GetAllByCompanyAsync("1", new CommandOptions().PageLimit(PAGE_SIZE).EnableCache());
+            results = await _employeeRepository.GetAllByCompanyAsync("1", o => o.PageLimit(PAGE_SIZE).Cache());
             Assert.True(results.HasMore);
             Assert.Equal(PAGE_SIZE, results.Documents.Count);
             Assert.Equal(1, _cache.Count);
             Assert.Equal(1, _cache.Hits);
             Assert.Equal(3, _cache.Misses); // Supports soft deletes check increments misses.
 
-            results = await _employeeRepository.GetAllByCompanyAsync("1", new CommandOptions().PageLimit(20).EnableCache());
+            results = await _employeeRepository.GetAllByCompanyAsync("1", o => o.PageLimit(20).Cache());
             Assert.True(results.HasMore);
             Assert.Equal(20, results.Documents.Count);
             Assert.Equal(2, _cache.Count);
@@ -277,7 +277,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.All);
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
-            var results = await _employeeRepository.GetAllAsync(new CommandOptions().PageLimit(PAGE_SIZE).WithSnapshotPaging());
+            var results = await _employeeRepository.GetAllAsync(o => o.PageLimit(PAGE_SIZE).SnapshotPaging());
             Assert.True(results.HasMore);
 
             var viewedIds = new HashSet<string>();
@@ -314,7 +314,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.All);
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
-            var results = await _employeeRepository.GetAllAsync(new CommandOptions().PageLimit(PAGE_SIZE).WithSnapshotPaging());
+            var results = await _employeeRepository.GetAllAsync(o => o.PageLimit(PAGE_SIZE).SnapshotPaging());
             Assert.True(results.HasMore);
 
             var viewedIds = new HashSet<string>();
@@ -332,7 +332,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 newEmployees.Add(await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: "1")));
                 await _client.RefreshAsync(Indices.All);
 
-                results = await _employeeRepository.GetAllAsync(new CommandOptions().SnapshotScrollId(results));
+                results = await _employeeRepository.GetAllAsync(o => o.SnapshotPagingScrollId(results));
             } while (results != null && results.Hits.Count > 0);
 
             Assert.False(results.HasMore);
@@ -352,7 +352,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.All);
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
-            var results = await _employeeRepository.GetAllAsync(new CommandOptions().PageLimit(PAGE_SIZE));
+            var results = await _employeeRepository.GetAllAsync(o => o.PageLimit(PAGE_SIZE));
             Assert.True(results.HasMore);
 
             var viewedIds = new HashSet<string>();
@@ -382,7 +382,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company", limit: 100));
 
             await _client.RefreshAsync(Indices.All);
-            var results = await _employeeRepository.GetAllByCompanyAsync("1", new CommandOptions().PageLimit(NUMBER_OF_EMPLOYEES));
+            var results = await _employeeRepository.GetAllByCompanyAsync("1", o => o.PageLimit(NUMBER_OF_EMPLOYEES));
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Documents.Count);
             foreach (var document in results.Documents) {
                 Assert.Equal(2, document.Version);
@@ -400,7 +400,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company"));
 
             await _client.RefreshAsync(Indices.All);
-            var results = await _employeeRepository.GetAllByCompanyAsync("1", new CommandOptions().PageLimit(NUMBER_OF_EMPLOYEES));
+            var results = await _employeeRepository.GetAllByCompanyAsync("1", o => o.PageLimit(NUMBER_OF_EMPLOYEES));
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Documents.Count);
             foreach (var document in results.Documents) {
                 Assert.Equal(2, document.Version);

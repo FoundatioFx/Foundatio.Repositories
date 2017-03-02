@@ -21,6 +21,15 @@ namespace Foundatio.Repositories {
 
             return query.BuildOption(ChildQueryKey, new ChildQuery { Type = childType, Query = childQuery });
         }
+
+        public static T ChildQuery<T>(this T query, TypeName childType, RepositoryQueryDescriptor childQuery) where T : IRepositoryQuery {
+            if (childType == null)
+                throw new ArgumentNullException(nameof(childType));
+            if (childQuery == null)
+                throw new ArgumentNullException(nameof(childQuery));
+
+            return query.BuildOption(ChildQueryKey, new ChildQuery { Type = childType, Query = childQuery.Configure() });
+        }
     }
 }
 

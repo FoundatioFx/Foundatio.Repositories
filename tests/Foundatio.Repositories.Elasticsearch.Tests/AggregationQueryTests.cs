@@ -65,7 +65,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await CreateDataAsync();
 
             const string aggregations = "min:aliasedage max:aliasedage avg:aliasedage sum:aliasedage";
-            var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithFilter("aliasedage: <40").Aggregations(aggregations));
+            var result = await _employeeRepository.GetCountByQueryAsync(q => q.FilterExpression("aliasedage: <40").AggregationsExression(aggregations));
             Assert.Equal(7, result.Total);
             Assert.Equal(4, result.Aggregations.Count);
             Assert.Equal(19, result.Aggregations.Min("min_aliasedage").Value);
@@ -84,7 +84,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.AllIndices);
 
             const string aggregations = "min:followers max:followers avg:followers sum:followers cardinality:twitter";
-            var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().Aggregations(aggregations));
+            var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression(aggregations));
             Assert.Equal(1, result.Total);
             Assert.Equal(5, result.Aggregations.Count);
             Assert.Equal(1000, result.Aggregations.Min("min_followers").Value);
@@ -145,10 +145,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             });
             await _client.RefreshAsync(Indices.AllIndices);
 
-            var thisWillTriggerMappingRefresh = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().WithFilter("fieldDoestExist:true"));
+            var thisWillTriggerMappingRefresh = await _employeeRepository.GetCountByQueryAsync(q => q.FilterExpression("fieldDoestExist:true"));
             Assert.Equal(0, thisWillTriggerMappingRefresh.Total);
 
-            var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().Aggregations("cardinality:twitter"));
+            var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression("cardinality:twitter"));
             Assert.Equal(1, result.Total);
             Assert.Equal(1, result.Aggregations.Count);
             Assert.Equal(1, result.Aggregations.Cardinality("cardinality_twitter").Value);
@@ -159,7 +159,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await CreateDataAsync();
 
             const string aggregations = "cardinality:location";
-            var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().Aggregations(aggregations));
+            var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression(aggregations));
             Assert.Equal(10, result.Total);
             Assert.Equal(1, result.Aggregations.Count);
             Assert.Equal(2, result.Aggregations.Cardinality("cardinality_location").Value);
@@ -170,7 +170,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await CreateDataAsync();
 
             const string aggregations = "missing:companyName";
-            var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().Aggregations(aggregations));
+            var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression(aggregations));
             Assert.Equal(10, result.Total);
             Assert.Equal(1, result.Aggregations.Count);
             Assert.Equal(10, result.Aggregations.Missing("missing_companyName").Total);
@@ -187,7 +187,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.AllIndices);
 
             const string aggregations = "min:nextReview max:nextReview date:nextReview";
-            var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().Aggregations(aggregations));
+            var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression(aggregations));
             Assert.Equal(3, result.Total);
             Assert.Equal(3, result.Aggregations.Count);
 
@@ -215,7 +215,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.AllIndices);
 
             const string aggregations = "min:nextReview^1h max:nextReview^1h date:nextReview^1h";
-            var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().Aggregations(aggregations));
+            var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression(aggregations));
             Assert.Equal(3, result.Total);
             Assert.Equal(3, result.Aggregations.Count);
 
@@ -244,7 +244,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             const double offsetInMinutes = 600;
             string aggregations = $"min:nextReview^-{offsetInMinutes}m max:nextReview^-{offsetInMinutes}m date:nextReview^-{offsetInMinutes}m";
-            var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().Aggregations(aggregations));
+            var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression(aggregations));
             Assert.Equal(3, result.Total);
             Assert.Equal(3, result.Aggregations.Count);
 
@@ -272,7 +272,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.AllIndices);
 
             const string aggregations = "min:nextReview max:nextReview date:nextReview";
-            var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().Aggregations(aggregations));
+            var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression(aggregations));
             Assert.Equal(3, result.Total);
             Assert.Equal(3, result.Aggregations.Count);
 
@@ -301,7 +301,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.RefreshAsync(Indices.AllIndices);
 
             const string aggregations = "min:nextReview^1h max:nextReview^1h date:nextReview^1h";
-            var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().Aggregations(aggregations));
+            var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression(aggregations));
             Assert.Equal(3, result.Total);
             Assert.Equal(3, result.Aggregations.Count);
 
@@ -330,7 +330,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await CreateDataAsync();
 
             const string aggregations = "geogrid:location";
-            var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().Aggregations(aggregations));
+            var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression(aggregations));
             Assert.Equal(10, result.Total);
             Assert.Equal(1, result.Aggregations.Count);
 
@@ -346,7 +346,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await CreateDataAsync();
 
             const string aggregations = "terms:age";
-            var result = await _employeeRepository.GetCountByQueryAsync(new MyAppQuery().Aggregations(aggregations));
+            var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression(aggregations));
             Assert.Equal(10, result.Total);
             Assert.Equal(1, result.Aggregations.Count);
             Assert.Equal(10, result.Aggregations.Terms<int>("terms_age").Buckets.Count);

@@ -51,7 +51,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return await PatchAllAsync(query, script);
         }
 
-        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents, ICommandOptions<LogEvent> options = null) {
+        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents, ICommandOptions options = null) {
             if (!IsCacheEnabled)
                 return;
 

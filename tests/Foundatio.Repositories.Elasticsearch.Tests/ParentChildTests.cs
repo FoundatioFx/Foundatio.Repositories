@@ -72,7 +72,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(child?.Id);
 
             await _client.RefreshAsync(Indices.All);
-            var childResults = await _childRepository.QueryAsync(new MyAppQuery().WithParentQuery(q => q.WithId(parent.Id)));
+            var childResults = await _childRepository.QueryAsync(q => q.ParentQuery(p => p.Id(parent.Id)));
             Assert.Equal(1, childResults.Total);
         }
 
@@ -91,7 +91,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(2, await _childRepository.CountAsync());
 
             await _client.RefreshAsync(Indices.All);
-            var parentResults = await _parentRepository.QueryAsync(new MyAppQuery().WithChildQuery(q => q.WithType("child").WithFilter("id:" + child.Id)));
+            var parentResults = await _parentRepository.QueryAsync(q => q.ChildQuery(typeof(Child), c => c.FilterExpression("id:" + child.Id)));
             Assert.Equal(1, parentResults.Total);
         }
 

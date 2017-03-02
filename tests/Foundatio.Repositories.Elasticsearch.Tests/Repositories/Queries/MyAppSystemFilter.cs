@@ -1,9 +1,7 @@
 ﻿namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries {
-    public class MyAppSystemFilter : ISystemFilter {
-        public SoftDeleteQueryMode SoftDeleteMode { get; set; }
-
+    public class MyAppSystemFilter : RepositoryQuery, ISystemFilter {
         IRepositoryQuery ISystemFilter.GetQuery() {
-            return new RepositoryQuery().SoftDeleteMode(SoftDeleteMode);
+            return this;
         }
     }
 }

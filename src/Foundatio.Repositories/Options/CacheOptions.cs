@@ -4,10 +4,10 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories {
     public static class SetCacheOptionsExtensions {
-        internal const string AutoCacheKey = "@AutoCache";
+        internal const string CacheEnabledKey = "@CacheEnabled";
 
-        public static T AutoCache<T>(this T options, bool enabled = true) where T : ICommandOptions {
-            return options.BuildOption(AutoCacheKey, enabled);
+        public static T Cache<T>(this T options, bool enabled = true) where T : ICommandOptions {
+            return options.BuildOption(CacheEnabledKey, enabled);
         }
 
         internal const string CacheKeyKey = "@CacheKey";
@@ -17,15 +17,19 @@ namespace Foundatio.Repositories {
 
         internal const string CacheExpiresInKey = "@CacheExpiresIn";
         public static T CacheExpiresIn<T>(this T options, TimeSpan? expiresIn) where T : ICommandOptions {
-            if (expiresIn.HasValue)
+            if (expiresIn.HasValue) {
+                options.SetOption(CacheEnabledKey, true);
                 return options.BuildOption(CacheExpiresInKey, expiresIn.Value);
+            }
 
             return options;
         }
 
         public static T CacheExpiresAt<T>(this T options, DateTime? expiresAtUtc) where T : ICommandOptions {
-            if (expiresAtUtc.HasValue)
+            if (expiresAtUtc.HasValue) {
+                options.SetOption(CacheEnabledKey, true);
                 return options.BuildOption(CacheExpiresInKey, expiresAtUtc.Value.Subtract(SystemClock.UtcNow));
+            }
 
             return options;
         }
@@ -35,7 +39,7 @@ namespace Foundatio.Repositories {
 namespace Foundatio.Repositories.Options {
     public static class ReadCacheOptionsExtensions {
         public static bool ShouldUseCache(this ICommandOptions options) {
-            return options.SafeHasOption(SetCacheOptionsExtensions.CacheKeyKey) || options.SafeGetOption(SetCacheOptionsExtensions.AutoCacheKey, false);
+            return options.SafeHasOption(SetCacheOptionsExtensions.CacheKeyKey) || options.SafeGetOption(SetCacheOptionsExtensions.CacheEnabledKey, false);
         }
 
         public static bool HasCacheKey(this ICommandOptions options) {

@@ -8,7 +8,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories {
         public ParentRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.ParentChild.Parent) {
         }
 
-        public Task<FindResults<Parent>> QueryAsync(IRepositoryQuery query) {
+        public Task<FindResults<Parent>> QueryAsync(RepositoryQueryDescriptor<Parent> query) {
             return FindAsync(query);
         }
     }

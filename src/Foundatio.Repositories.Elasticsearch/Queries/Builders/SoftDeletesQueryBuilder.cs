@@ -13,7 +13,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (ctx.Parent?.Type == ContextType.Child)
                 return Task.CompletedTask;
 
-            var mode = ctx.Source.GetSoftDeleteMode(ctx.Parent.Source.GetSoftDeleteMode());
+            var mode = ctx.Source.GetSoftDeleteMode(ctx.Parent?.Source?.GetSoftDeleteMode() ?? SoftDeleteQueryMode.ActiveOnly);
 
             // no filter needed if we want all
             if (mode == SoftDeleteQueryMode.All)

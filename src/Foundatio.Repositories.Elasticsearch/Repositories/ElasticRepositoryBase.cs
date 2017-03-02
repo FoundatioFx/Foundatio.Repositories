@@ -38,7 +38,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
         }
 
-        public async Task<T> AddAsync(T document, ICommandOptions<T> options = null) {
+        public async Task<T> AddAsync(T document, ICommandOptions options = null) {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
 
@@ -46,7 +46,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return document;
         }
 
-        public async Task AddAsync(IEnumerable<T> documents, ICommandOptions<T> options = null) {
+        public async Task AddAsync(IEnumerable<T> documents, ICommandOptions options = null) {
             var docs = documents?.ToList();
             if (docs == null || docs.Any(d => d == null))
                 throw new ArgumentNullException(nameof(documents));
@@ -66,7 +66,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             await OnDocumentsAddedAsync(docs, options).AnyContext();
         }
 
-        public async Task<T> SaveAsync(T document, ICommandOptions<T> options = null) {
+        public async Task<T> SaveAsync(T document, ICommandOptions options = null) {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
 
@@ -74,7 +74,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return document;
         }
 
-        public async Task SaveAsync(IEnumerable<T> documents, ICommandOptions<T> options = null) {
+        public async Task SaveAsync(IEnumerable<T> documents, ICommandOptions options = null) {
             var docs = documents?.ToList();
             if (docs == null || docs.Any(d => d == null))
                 throw new ArgumentNullException(nameof(documents));
@@ -99,7 +99,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             await OnDocumentsSavedAsync(docs, originalDocuments, options).AnyContext();
         }
 
-        public async Task PatchAsync(Id id, object update, ICommandOptions<T> options = null) {
+        public async Task PatchAsync(Id id, object update, ICommandOptions options = null) {
             if (String.IsNullOrEmpty(id.Value))
                 throw new ArgumentNullException(nameof(id));
 
@@ -188,7 +188,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
         }
 
-        public async Task PatchAsync(Ids ids, object update, ICommandOptions<T> options = null) {
+        public async Task PatchAsync(Ids ids, object update, ICommandOptions options = null) {
             if (ids == null)
                 throw new ArgumentNullException(nameof(ids));
 
@@ -269,7 +269,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return PatchAllAsync(query.Configure(), update, options.Configure());
         }
 
-        protected async Task<long> PatchAllAsync(IRepositoryQuery<T> query, object update, ICommandOptions<T> options = null) {
+        protected async Task<long> PatchAllAsync(IRepositoryQuery query, object update, ICommandOptions options = null) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
@@ -414,14 +414,14 @@ namespace Foundatio.Repositories.Elasticsearch {
             return affectedRecords;
         }
 
-        public async Task RemoveAsync(Id id, ICommandOptions<T> options = null) {
+        public async Task RemoveAsync(Id id, ICommandOptions options = null) {
             if (String.IsNullOrEmpty(id))
                 throw new ArgumentNullException(nameof(id));
 
             await RemoveAsync((Ids)id, options).AnyContext();
         }
 
-        public async Task RemoveAsync(Ids ids, ICommandOptions<T> options = null) {
+        public async Task RemoveAsync(Ids ids, ICommandOptions options = null) {
             if (ids == null)
                 throw new ArgumentNullException(nameof(ids));
 
@@ -432,14 +432,14 @@ namespace Foundatio.Repositories.Elasticsearch {
             await RemoveAsync(documents, options).AnyContext();
         }
 
-        public Task RemoveAsync(T document, ICommandOptions<T> options = null) {
+        public Task RemoveAsync(T document, ICommandOptions options = null) {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
 
             return RemoveAsync(new[] { document }, options);
         }
 
-        public async Task RemoveAsync(IEnumerable<T> documents, ICommandOptions<T> options = null) {
+        public async Task RemoveAsync(IEnumerable<T> documents, ICommandOptions options = null) {
             var docs = documents?.ToList();
             if (docs == null || docs.Any(d => d == null))
                 throw new ArgumentNullException(nameof(documents));
@@ -488,7 +488,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             await OnDocumentsRemovedAsync(docs, options).AnyContext();
         }
 
-        public async Task<long> RemoveAllAsync(ICommandOptions<T> options = null) {
+        public async Task<long> RemoveAllAsync(ICommandOptions options = null) {
             if (IsCacheEnabled)
                 await Cache.RemoveAllAsync().AnyContext();
 
@@ -497,7 +497,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         protected List<string> FieldsRequiredForRemove { get; } = new List<string>();
 
-        protected async Task<long> RemoveAllAsync(IRepositoryQuery<T> query, ICommandOptions<T> options = null) {
+        protected async Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions options = null) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
@@ -534,11 +534,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             return response.Deleted;
         }
 
-        protected Task<long> BatchProcessAsync(IRepositoryQuery<T> query, Func<FindResults<T>, Task<bool>> processAsync, ICommandOptions<T> options = null) {
+        protected Task<long> BatchProcessAsync(IRepositoryQuery query, Func<FindResults<T>, Task<bool>> processAsync, ICommandOptions options = null) {
             return BatchProcessAsAsync(query, processAsync, options);
         }
 
-        protected async Task<long> BatchProcessAsAsync<TResult>(IRepositoryQuery<T> query, Func<FindResults<TResult>, Task<bool>> processAsync, ICommandOptions<T> options = null)
+        protected async Task<long> BatchProcessAsAsync<TResult>(IRepositoryQuery query, Func<FindResults<TResult>, Task<bool>> processAsync, ICommandOptions options = null)
             where TResult : class, new() {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
@@ -575,7 +575,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         public AsyncEvent<DocumentsEventArgs<T>> DocumentsAdding { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
 
-        private async Task OnDocumentsAddingAsync(IReadOnlyCollection<T> documents, ICommandOptions<T> options) {
+        private async Task OnDocumentsAddingAsync(IReadOnlyCollection<T> documents, ICommandOptions options) {
             if (HasDates)
                 documents.OfType<IHaveDates>().SetDates();
             else if (HasCreatedDate)
@@ -593,7 +593,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         public AsyncEvent<DocumentsEventArgs<T>> DocumentsAdded { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
 
-        private async Task OnDocumentsAddedAsync(IReadOnlyCollection<T> documents, ICommandOptions<T> options) {
+        private async Task OnDocumentsAddedAsync(IReadOnlyCollection<T> documents, ICommandOptions options) {
             if (DocumentsAdded != null)
                 await DocumentsAdded.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
@@ -604,7 +604,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         public AsyncEvent<ModifiedDocumentsEventArgs<T>> DocumentsSaving { get; } = new AsyncEvent<ModifiedDocumentsEventArgs<T>>();
 
-        private async Task OnDocumentsSavingAsync(IReadOnlyCollection<T> documents, IReadOnlyCollection<T> originalDocuments, ICommandOptions<T> options) {
+        private async Task OnDocumentsSavingAsync(IReadOnlyCollection<T> documents, IReadOnlyCollection<T> originalDocuments, ICommandOptions options) {
             if (HasDates)
                 documents.Cast<IHaveDates>().SetDates();
 
@@ -634,7 +634,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         public AsyncEvent<ModifiedDocumentsEventArgs<T>> DocumentsSaved { get; } = new AsyncEvent<ModifiedDocumentsEventArgs<T>>();
 
-        private async Task OnDocumentsSavedAsync(IReadOnlyCollection<T> documents, IReadOnlyCollection<T> originalDocuments, ICommandOptions<T> options) {
+        private async Task OnDocumentsSavedAsync(IReadOnlyCollection<T> documents, IReadOnlyCollection<T> originalDocuments, ICommandOptions options) {
             var modifiedDocs = originalDocuments.FullOuterJoin(
                 documents, cf => cf.Id, cf => cf.Id,
                 (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m => new ModifiedDocument<T>(m.Modified, m.Original)).ToList();
@@ -667,7 +667,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         public AsyncEvent<DocumentsEventArgs<T>> DocumentsRemoving { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
 
-        private async Task OnDocumentsRemovingAsync(IReadOnlyCollection<T> documents, ICommandOptions<T> options) {
+        private async Task OnDocumentsRemovingAsync(IReadOnlyCollection<T> documents, ICommandOptions options) {
             await InvalidateCacheAsync(documents).AnyContext();
 
             if (DocumentsRemoving != null)
@@ -678,7 +678,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         public AsyncEvent<DocumentsEventArgs<T>> DocumentsRemoved { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
 
-        private async Task OnDocumentsRemovedAsync(IReadOnlyCollection<T> documents, ICommandOptions<T> options) {
+        private async Task OnDocumentsRemovedAsync(IReadOnlyCollection<T> documents, ICommandOptions options) {
             if (DocumentsRemoved != null)
                 await DocumentsRemoved.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
@@ -688,11 +688,11 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         public AsyncEvent<DocumentsChangeEventArgs<T>> DocumentsChanging { get; } = new AsyncEvent<DocumentsChangeEventArgs<T>>();
 
-        private Task OnDocumentsChangingAsync(ChangeType changeType, IReadOnlyCollection<T> documents, ICommandOptions<T> options) {
+        private Task OnDocumentsChangingAsync(ChangeType changeType, IReadOnlyCollection<T> documents, ICommandOptions options) {
             return OnDocumentsChangingAsync(changeType, documents.Select(d => new ModifiedDocument<T>(d, null)).ToList(), options);
         }
 
-        private async Task OnDocumentsChangingAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions<T> options) {
+        private async Task OnDocumentsChangingAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
             if (DocumentsChanging == null)
                 return;
 
@@ -701,11 +701,11 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         public AsyncEvent<DocumentsChangeEventArgs<T>> DocumentsChanged { get; } = new AsyncEvent<DocumentsChangeEventArgs<T>>();
 
-        private Task OnDocumentsChangedAsync(ChangeType changeType, IReadOnlyCollection<T> documents, ICommandOptions<T> options) {
+        private Task OnDocumentsChangedAsync(ChangeType changeType, IReadOnlyCollection<T> documents, ICommandOptions options) {
             return OnDocumentsChangedAsync(changeType, documents.Select(d => new ModifiedDocument<T>(d, null)).ToList(), options);
         }
 
-        private async Task OnDocumentsChangedAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions<T> options) {
+        private async Task OnDocumentsChangedAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
             if (DocumentsChanged == null)
                 return;
 
@@ -714,7 +714,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         #endregion
 
-        private async Task IndexDocumentsAsync(IReadOnlyCollection<T> documents, bool isCreateOperation, ICommandOptions<T> options) {
+        private async Task IndexDocumentsAsync(IReadOnlyCollection<T> documents, bool isCreateOperation, ICommandOptions options) {
             if (HasMultipleIndexes) {
                 foreach (var documentGroup in documents.GroupBy(TimeSeriesType.GetDocumentIndex))
                     await TimeSeriesType.EnsureIndexAsync(documentGroup.First()).AnyContext();
@@ -824,7 +824,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             // 429 // 503
         }
 
-        protected virtual async Task AddToCacheAsync(ICollection<T> documents, ICommandOptions<T> options) {
+        protected virtual async Task AddToCacheAsync(ICollection<T> documents, ICommandOptions options) {
             if (!IsCacheEnabled || Cache == null || !options.ShouldUseCache())
                 return;
 
@@ -836,15 +836,15 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         public bool BatchNotifications { get; set; }
 
-        private Task SendNotificationsAsync(ChangeType changeType, ICommandOptions<T> options) {
+        private Task SendNotificationsAsync(ChangeType changeType, ICommandOptions options) {
             return SendNotificationsAsync(changeType, EmptyList, options);
         }
 
-        private Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<T> documents, ICommandOptions<T> options) {
+        private Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<T> documents, ICommandOptions options) {
             return SendNotificationsAsync(changeType, documents.Select(d => new ModifiedDocument<T>(d, null)).ToList(), options);
         }
 
-        protected virtual async Task SendQueryNotificationsAsync(ChangeType changeType, IRepositoryQuery<T> query, ICommandOptions<T> options) {
+        protected virtual async Task SendQueryNotificationsAsync(ChangeType changeType, IRepositoryQuery query, ICommandOptions options) {
             if (!NotificationsEnabled)
                 return;
 
@@ -868,7 +868,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }, delay).AnyContext();
         }
 
-        protected virtual async Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions<T> options) {
+        protected virtual async Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
             if (!NotificationsEnabled)
                 return;
 

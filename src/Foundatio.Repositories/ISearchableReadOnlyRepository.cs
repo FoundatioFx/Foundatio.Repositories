@@ -12,7 +12,7 @@ namespace Foundatio.Repositories {
         /// <param name="aggregations">Aggregation expression used to return aggregated data within any given filters</param>
         /// <param name="options">Command options used to control things like paging, caching, etc</param>
         /// <returns></returns>
-        Task<CountResult> CountBySearchAsync(ISystemFilter systemFilter, string filter = null, string aggregations = null, ICommandOptions<T> options = null);
+        Task<CountResult> CountBySearchAsync(ISystemFilter systemFilter, string filter = null, string aggregations = null, ICommandOptions options = null);
 
         /// <summary>
         /// Find documents using search criteria
@@ -24,7 +24,7 @@ namespace Foundatio.Repositories {
         /// <param name="aggregations">Aggregation expression used to return aggregated data within any given filters</param>
         /// <param name="options">Command options used to control things like paging, caching, etc</param>
         /// <returns></returns>
-        Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, ICommandOptions<T> options = null);
+        Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, ICommandOptions options = null);
     }
 
     public static class SearchableReadOnlyRepositoryExtensions {

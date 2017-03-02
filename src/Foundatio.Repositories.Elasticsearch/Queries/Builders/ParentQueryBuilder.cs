@@ -15,6 +15,20 @@ namespace Foundatio.Repositories {
 
             return query.BuildOption(ParentQueryKey, parentQuery);
         }
+
+        public static T ParentQuery<T>(this T query, RepositoryQueryDescriptor parentQuery) where T : IRepositoryQuery {
+            if (parentQuery == null)
+                throw new ArgumentNullException(nameof(parentQuery));
+
+            return query.BuildOption(ParentQueryKey, parentQuery.Configure());
+        }
+
+        public static IRepositoryQuery<TChild> ParentQuery<TChild, TParent>(this IRepositoryQuery<TChild> query, RepositoryQueryDescriptor<TParent> parentQuery) where TChild : class where TParent : class {
+            if (parentQuery == null)
+                throw new ArgumentNullException(nameof(parentQuery));
+
+            return query.BuildOption(ParentQueryKey, parentQuery.Configure());
+        }
     }
 }
 
