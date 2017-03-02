@@ -42,7 +42,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
         Operator IElasticQueryVisitorContext.DefaultOperator { get; set; }
         bool IElasticQueryVisitorContext.UseScoring { get; set; }
-        string IElasticQueryVisitorContext.DefaultField { get; set; }
+        string[] IElasticQueryVisitorContext.DefaultFields { get; set; }
         Func<string, IProperty> IElasticQueryVisitorContext.GetPropertyMappingFunc { get; set; }
 
         private DateRange GetDateRange() {
