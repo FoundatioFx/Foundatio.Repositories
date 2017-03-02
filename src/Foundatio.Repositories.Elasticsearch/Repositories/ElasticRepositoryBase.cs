@@ -26,6 +26,7 @@ namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IRepository<T> where T : class, IIdentity, new() {
         protected readonly IValidator<T> _validator;
         protected readonly IMessagePublisher _messagePublisher;
+        private readonly Field _idField = new Field(typeof(T).GetProperty("Id"));
 
         protected ElasticRepositoryBase(IIndexType<T> indexType, IValidator<T> validator = null) : base(indexType) {
             _validator = validator;
@@ -495,14 +496,14 @@ namespace Foundatio.Repositories.Elasticsearch {
             return await RemoveAllAsync(ConfigureQuery(null), options).AnyContext();
         }
 
-        protected List<string> FieldsRequiredForRemove { get; } = new List<string>();
+        protected List<Field> FieldsRequiredForRemove { get; } = new List<Field>();
 
         protected async Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions options = null) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
-
+            
             if (IsCacheEnabled) {
-                foreach (var field in FieldsRequiredForRemove.Union(new[] { "id" }))
+                foreach (var field in FieldsRequiredForRemove.Union(new Field[] { _idField }))
                     if (!query.GetIncludes().Contains(field))
                         query.Include(field);
 

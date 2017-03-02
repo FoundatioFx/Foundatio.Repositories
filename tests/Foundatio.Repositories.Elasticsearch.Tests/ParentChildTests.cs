@@ -2,7 +2,6 @@
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
-using Nest;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -21,17 +20,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task Add() {
             var parent = ParentGenerator.Default;
-            parent = await _parentRepository.AddAsync(parent);
+            parent = await _parentRepository.AddAsync(parent, o => o.ImmediateConsistency());
             Assert.NotNull(parent?.Id);
 
             var child = ChildGenerator.Default;
-            child = await _childRepository.AddAsync(child);
+            child = await _childRepository.AddAsync(child, o => o.ImmediateConsistency());
             Assert.NotNull(child?.Id);
 
             child = await _childRepository.GetByIdAsync(new Id(child.Id, parent.Id));
             Assert.NotNull(child?.Id);
 
-            await _client.RefreshAsync(Indices.All);
             child = await _childRepository.GetByIdAsync(child.Id);
             Assert.NotNull(child?.Id);
         }
@@ -39,23 +37,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task DeletedParentWillFilterChild() {
             var parent = ParentGenerator.Default;
-            parent = await _parentRepository.AddAsync(parent);
+            parent = await _parentRepository.AddAsync(parent, o => o.ImmediateConsistency());
             Assert.NotNull(parent?.Id);
 
             var child = ChildGenerator.Default;
-            child = await _childRepository.AddAsync(child);
+            child = await _childRepository.AddAsync(child, o => o.ImmediateConsistency());
             Assert.NotNull(child?.Id);
 
             parent.IsDeleted = true;
-            await _parentRepository.SaveAsync(parent);
-
-            await _client.RefreshAsync(Indices.All);
+            await _parentRepository.SaveAsync(parent, o => o.ImmediateConsistency());
             Assert.Equal(0, await _childRepository.CountBySearchAsync(null));
 
             parent.IsDeleted = false;
-            await _parentRepository.SaveAsync(parent);
-
-            await _client.RefreshAsync(Indices.All);
+            await _parentRepository.SaveAsync(parent, o => o.ImmediateConsistency());
             Assert.Equal(1, await _childRepository.CountBySearchAsync(null));
         }
 
@@ -68,10 +62,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _parentRepository.AddAsync(ParentGenerator.Generate());
 
             var child = ChildGenerator.Default;
-            child = await _childRepository.AddAsync(child);
+            child = await _childRepository.AddAsync(child, o => o.ImmediateConsistency());
             Assert.NotNull(child?.Id);
 
-            await _client.RefreshAsync(Indices.All);
             var childResults = await _childRepository.QueryAsync(q => q.ParentQuery(p => p.Id(parent.Id)));
             Assert.Equal(1, childResults.Total);
         }
@@ -79,18 +72,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task CanQueryByChild() {
             var parent = ParentGenerator.Default;
-            parent = await _parentRepository.AddAsync(parent);
+            parent = await _parentRepository.AddAsync(parent, o => o.ImmediateConsistency());
             Assert.NotNull(parent?.Id);
 
             var child = ChildGenerator.Default;
-            child = await _childRepository.AddAsync(child);
+            child = await _childRepository.AddAsync(child, o => o.ImmediateConsistency());
             Assert.NotNull(child?.Id);
 
-            await _childRepository.AddAsync(ChildGenerator.Generate(parentId: parent.Id));
-            await _client.RefreshAsync(Indices.All);
+            await _childRepository.AddAsync(ChildGenerator.Generate(parentId: parent.Id), o => o.ImmediateConsistency());
             Assert.Equal(2, await _childRepository.CountAsync());
 
-            await _client.RefreshAsync(Indices.All);
             var parentResults = await _parentRepository.QueryAsync(q => q.ChildQuery(typeof(Child), c => c.FilterExpression("id:" + child.Id)));
             Assert.Equal(1, parentResults.Total);
         }

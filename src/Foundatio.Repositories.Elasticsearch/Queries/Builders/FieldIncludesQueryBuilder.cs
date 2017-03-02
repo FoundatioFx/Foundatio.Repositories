@@ -47,7 +47,7 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static ICollection<Field> GetExcludes(this IRepositoryQuery options) {
-            return options.SafeGetCollection<Field>(FieldIncludesQueryExtensions.IncludesKey);
+            return options.SafeGetCollection<Field>(FieldIncludesQueryExtensions.ExcludesKey);
         }
     }
 }

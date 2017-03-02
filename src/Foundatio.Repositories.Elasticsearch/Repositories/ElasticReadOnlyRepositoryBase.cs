@@ -399,7 +399,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (query == null)
                 query = new RepositoryQuery<T>();
 
-            if (query.GetExcludes().Count == 0)
+            if (DefaultExcludes.Count > 0 && query.GetExcludes().Count == 0)
                 query.Exclude(DefaultExcludes);
 
             return query;

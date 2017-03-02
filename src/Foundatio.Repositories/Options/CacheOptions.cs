@@ -18,7 +18,7 @@ namespace Foundatio.Repositories {
         internal const string CacheExpiresInKey = "@CacheExpiresIn";
         public static T CacheExpiresIn<T>(this T options, TimeSpan? expiresIn) where T : ICommandOptions {
             if (expiresIn.HasValue) {
-                options.SetOption(CacheEnabledKey, true);
+                options.Values.Set(CacheEnabledKey, true);
                 return options.BuildOption(CacheExpiresInKey, expiresIn.Value);
             }
 
@@ -27,7 +27,7 @@ namespace Foundatio.Repositories {
 
         public static T CacheExpiresAt<T>(this T options, DateTime? expiresAtUtc) where T : ICommandOptions {
             if (expiresAtUtc.HasValue) {
-                options.SetOption(CacheEnabledKey, true);
+                options.Values.Set(CacheEnabledKey, true);
                 return options.BuildOption(CacheExpiresInKey, expiresAtUtc.Value.Subtract(SystemClock.UtcNow));
             }
 

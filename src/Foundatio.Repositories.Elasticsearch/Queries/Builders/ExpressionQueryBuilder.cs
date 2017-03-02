@@ -26,7 +26,7 @@ namespace Foundatio.Repositories {
         internal const string CriteriaDefaultOperatorKey = "@SearchExpressionDefaultOperator";
 
         public static T SearchExpression<T>(this T query, string search, SearchOperator defaultOperator = SearchOperator.Or) where T : IRepositoryQuery {
-            query.SetOption(SearchKey, search);
+            query.Values.Set(SearchKey, search);
             return query.BuildOption(CriteriaDefaultOperatorKey, defaultOperator);
         }
 

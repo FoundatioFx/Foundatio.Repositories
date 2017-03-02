@@ -102,10 +102,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _employeeRepository.AddAsync(EmployeeGenerator.Generate());
 
             await _client.RefreshAsync(Indices.All);
-            var allEmployees = await _employeeRepository.SearchAsync(new MyAppSystemFilter().SoftDeleteMode(SoftDeleteQueryMode.All));
+            var allEmployees = await _employeeRepository.SearchAsync(new RepositoryQuery().SoftDeleteMode(SoftDeleteQueryMode.All));
             Assert.Equal(2, allEmployees.Total);
 
-            var onlyDeleted = await _employeeRepository.SearchAsync(new MyAppSystemFilter().SoftDeleteMode(SoftDeleteQueryMode.All), "isDeleted:true");
+            var onlyDeleted = await _employeeRepository.SearchAsync(new RepositoryQuery().SoftDeleteMode(SoftDeleteQueryMode.All), "isDeleted:true");
             Assert.Equal(1, onlyDeleted.Total);
             Assert.Equal(employee1.Id, onlyDeleted.Documents.First().Id);
 
@@ -824,8 +824,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _identityRepository.RemoveAllAsync();
 
             var identities = new List<Identity> { IdentityGenerator.Default };
-            await _identityRepository.AddAsync(identities);
-            await _client.RefreshAsync(Indices.All);
+            await _identityRepository.AddAsync(identities, o => o.ImmediateConsistency());
 
             var disposables = new List<IDisposable>(2);
             var countdownEvent = new AsyncCountdownEvent(2);
@@ -838,7 +837,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     countdownEvent.Signal();
                 }));
 
-                await _identityRepository.RemoveAllAsync();
+                await _identityRepository.RemoveAllAsync(o => o.ImmediateConsistency());
                 await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
                 Assert.Equal(0, countdownEvent.CurrentCount);
 
@@ -849,7 +848,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 disposables.Clear();
             }
 
-            await _client.RefreshAsync(Indices.All);
             Assert.Equal(0, await _identityRepository.CountAsync());
         }
 

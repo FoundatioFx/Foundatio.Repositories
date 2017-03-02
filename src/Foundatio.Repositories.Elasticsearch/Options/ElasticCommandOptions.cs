@@ -16,7 +16,12 @@ namespace Foundatio.Repositories {
     public static class SetElasticOptionsExtensions {
         internal const string ConsistencyModeKey = "@ConsistencyMode";
         public static T Consistency<T>(this T options, Consistency mode) where T : ICommandOptions {
-            options.SetOption(ConsistencyModeKey, mode);
+            options.Values.Set(ConsistencyModeKey, mode);
+            return options;
+        }
+
+        public static T ImmediateConsistency<T>(this T options, bool shouldWait = false) where T : ICommandOptions {
+            options.Values.Set(ConsistencyModeKey, shouldWait ? Repositories.Consistency.Wait : Repositories.Consistency.Immediate);
             return options;
         }
 
@@ -30,8 +35,8 @@ namespace Foundatio.Repositories {
 
         public static T SnapshotPagingLifetime<T>(this T options, TimeSpan? snapshotLifetime) where T : ICommandOptions {
             if (snapshotLifetime.HasValue) {
-                options.SetOption(SnapshotPagingKey, true);
-                options.SetOption(SnapshotPagingLifetimeKey, snapshotLifetime.Value);
+                options.Values.Set(SnapshotPagingKey, true);
+                options.Values.Set(SnapshotPagingLifetimeKey, snapshotLifetime.Value);
             }
 
             return options;
@@ -39,16 +44,16 @@ namespace Foundatio.Repositories {
 
         public static T SnapshotPagingScrollId<T>(this T options, string scrollId) where T : ICommandOptions {
             if (scrollId != null) {
-                options.SetOption(SnapshotPagingKey, true);
-                options.SetOption(SnapshotPagingScrollIdKey, scrollId);
+                options.Values.Set(SnapshotPagingKey, true);
+                options.Values.Set(SnapshotPagingScrollIdKey, scrollId);
             }
 
             return options;
         }
 
         public static T SnapshotPagingScrollId<T>(this T options, IHaveData target) where T : ICommandOptions {
-            options.SetOption(SnapshotPagingKey, true);
-            options.SetOption(SnapshotPagingScrollIdKey, target.GetScrollId());
+            options.Values.Set(SnapshotPagingKey, true);
+            options.Values.Set(SnapshotPagingScrollIdKey, target.GetScrollId());
 
             return options;
         }
@@ -59,7 +64,7 @@ namespace Foundatio.Repositories.Options {
     public static class ReadElasticOptionsExtensions {
         internal const string ElasticTypeSettingsKey = "@ElasticTypeSettings";
         public static T ElasticType<T>(this T options, IIndexType indexType) where T: ICommandOptions {
-            options.SetOption(ElasticTypeSettingsKey, new ElasticTypeSettings(indexType));
+            options.Values.Set(ElasticTypeSettingsKey, new ElasticTypeSettings(indexType));
             return options;
         }
 
@@ -69,7 +74,7 @@ namespace Foundatio.Repositories.Options {
 
         internal const string RootAliasResolverKey = "@RootAliasResolver";
         public static T RootAliasResolver<T>(this T options, AliasResolver rootAliasResolver) where T : ICommandOptions {
-            options.SetOption(RootAliasResolverKey, rootAliasResolver);
+            options.Values.Set(RootAliasResolverKey, rootAliasResolver);
             return options;
         }
 

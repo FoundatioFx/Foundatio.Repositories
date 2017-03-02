@@ -7,7 +7,7 @@ namespace Foundatio.Repositories {
         /// <summary>
         /// Gets a document count and optional aggregation data using search criteria
         /// </summary>
-        /// <param name="systemFilter">A query object used to enforce any tennancy or other system level filters</param>
+        /// <param name="systemFilter">A object containing filter criteria used to enforce any tennancy or other system level filters</param>
         /// <param name="filter">Used to filter the documents (defaults to AND and does not score)</param>
         /// <param name="aggregations">Aggregation expression used to return aggregated data within any given filters</param>
         /// <param name="options">Command options used to control things like paging, caching, etc</param>
@@ -17,7 +17,7 @@ namespace Foundatio.Repositories {
         /// <summary>
         /// Find documents using search criteria
         /// </summary>
-        /// <param name="systemFilter">A query object used to enforce any tennancy or other system level filters</param>
+        /// <param name="systemFilter">A object containing filter criteria used to enforce any tennancy or other system level filters</param>
         /// <param name="filter">Used to filter the documents (defaults to AND and does not score)</param>
         /// <param name="criteria">Search criteria to find documents and score the results within any given filters (defaults to OR)</param>
         /// <param name="sort">How to sort the results. Must be null if you want the results ordered by score</param>

@@ -1,33 +1,37 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
 
 namespace Foundatio.Repositories.Options {
     public interface IOptions {
-        void SetOption(string name, object value);
-        bool HasOption(string name);
-        bool RemoveOption(string name);
-        T GetOption<T>(string name, T defaultValue = default(T));
-        IEnumerable<KeyValuePair<string, object>> GetAllOptions();
+        IOptionsDictionary Values { get; }
     }
 
-    public abstract class OptionsBase : IOptions {
+    public interface IOptionsDictionary : IEnumerable<KeyValuePair<string, object>> {
+        void Set(string name, object value);
+        bool Contains(string name);
+        bool Remove(string name);
+        T Get<T>(string name, T defaultValue = default(T));
+    }
+
+    public class OptionsDictionary : IOptionsDictionary {
         protected readonly IDictionary<string, object> _options = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
 
-        void IOptions.SetOption(string name, object value) {
+        public void Set(string name, object value) {
             _options[name] = value;
         }
 
-        bool IOptions.HasOption(string name) {
+        public bool Contains(string name) {
             return _options.ContainsKey(name);
         }
 
-        bool IOptions.RemoveOption(string name) {
+        public bool Remove(string name) {
             return _options.Remove(name);
         }
 
-        T IOptions.GetOption<T>(string name, T defaultValue) {
+        public T Get<T>(string name, T defaultValue) {
             if (!_options.ContainsKey(name))
                 return defaultValue;
 
@@ -43,14 +47,22 @@ namespace Foundatio.Repositories.Options {
             return (T)data;
         }
 
-        IEnumerable<KeyValuePair<string, object>> IOptions.GetAllOptions() {
-            return _options;
+        public IEnumerator<KeyValuePair<string, object>> GetEnumerator() {
+            return _options.GetEnumerator();
         }
+
+        IEnumerator IEnumerable.GetEnumerator() {
+            return _options.GetEnumerator();
+        }
+    }
+
+    public abstract class OptionsBase : IOptions {
+        public IOptionsDictionary Values { get; } = new OptionsDictionary();
     }
 
     public static class OptionsExtensions {
         public static T BuildOption<T>(this T options, string name, object value) where T : IOptions {
-            options.SetOption(name, value);
+            options.Values.Set(name, value);
             return options;
         }
 
@@ -58,27 +70,27 @@ namespace Foundatio.Repositories.Options {
             if (options == null)
                 return defaultValue;
 
-            return options.GetOption(name, defaultValue);
+            return options.Values.Get(name, defaultValue);
         }
 
         public static bool SafeHasOption(this IOptions options, string name) {
             if (options == null)
                 return false;
 
-            return options.HasOption(name);
+            return options.Values.Contains(name);
         }
 
         public static ICollection<T> SafeGetCollection<T>(this IOptions options, string name) {
             if (options == null)
                 return new List<T>();
 
-            return options.GetOption(name, new List<T>());
+            return options.Values.Get(name, new List<T>());
         }
 
         public static TOptions AddCollectionOptionValue<TOptions, TValue>(this TOptions options, string name, TValue value) where TOptions : IOptions {
             var setOption = options.SafeGetOption(name, new List<TValue>());
             setOption.Add(value);
-            options.SetOption(name, setOption);
+            options.Values.Set(name, setOption);
 
             return options;
         }
@@ -86,7 +98,7 @@ namespace Foundatio.Repositories.Options {
         public static TOptions AddCollectionOptionValue<TOptions, TValue>(this TOptions options, string name, IEnumerable<TValue> values) where TOptions : IOptions {
             var setOption = options.SafeGetOption(name, new List<TValue>());
             setOption.AddRange(values);
-            options.SetOption(name, setOption);
+            options.Values.Set(name, setOption);
 
             return options;
         }
@@ -95,13 +107,13 @@ namespace Foundatio.Repositories.Options {
             if (options == null)
                 return new HashSet<T>();
 
-            return options.GetOption(name, new HashSet<T>());
+            return options.Values.Get(name, new HashSet<T>());
         }
 
         public static T AddSetOptionValue<T>(this T options, string name, string value) where T : IOptions {
             var setOption = options.SafeGetOption(name, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             setOption.Add(value);
-            options.SetOption(name, setOption);
+            options.Values.Set(name, setOption);
 
             return options;
         }
@@ -109,7 +121,7 @@ namespace Foundatio.Repositories.Options {
         public static T AddSetOptionValue<T>(this T options, string name, IEnumerable<string> values) where T : IOptions {
             var setOption = options.SafeGetOption(name, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             setOption.AddRange(values);
-            options.SetOption(name, setOption);
+            options.Values.Set(name, setOption);
 
             return options;
         }
@@ -117,8 +129,8 @@ namespace Foundatio.Repositories.Options {
         public static T Clone<T>(this IOptions source) where T: IOptions, new() {
             var clone = new T();
 
-            foreach (var kvp in source.GetAllOptions())
-                clone.SetOption(kvp.Key, kvp.Value);
+            foreach (var kvp in source.Values)
+                clone.Values.Set(kvp.Key, kvp.Value);
 
             return clone;
         }
@@ -127,10 +139,10 @@ namespace Foundatio.Repositories.Options {
             if (source == null)
                 return target;
 
-            foreach (var kvp in source.GetAllOptions()) {
+            foreach (var kvp in source.Values) {
                 // TODO: Collection option values should get added to instead of replaced
-                if (overrideExisting || !target.HasOption(kvp.Key))
-                    target.SetOption(kvp.Key, kvp.Value);
+                if (overrideExisting || !target.Values.Contains(kvp.Key))
+                    target.Values.Set(kvp.Key, kvp.Value);
             }
 
             return target;

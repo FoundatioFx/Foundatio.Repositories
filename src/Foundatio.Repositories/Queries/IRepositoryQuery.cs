@@ -1,4 +1,5 @@
-﻿using Foundatio.Repositories.Options;
+﻿using System;
+using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories {
     /// <summary>
@@ -7,6 +8,11 @@ namespace Foundatio.Repositories {
     public interface IRepositoryQuery : IOptions {}
     public interface IRepositoryQuery<T> : IRepositoryQuery where T: class { }
 
-    public class RepositoryQuery : OptionsBase, IRepositoryQuery { }
+    public class RepositoryQuery : OptionsBase, IRepositoryQuery, ISystemFilter {
+        IRepositoryQuery ISystemFilter.GetQuery() {
+            return this;
+        }
+    }
+
     public class RepositoryQuery<T> : RepositoryQuery, IRepositoryQuery<T> where T : class { }
 }

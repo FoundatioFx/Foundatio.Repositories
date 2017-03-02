@@ -82,6 +82,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return await PatchAllAsync(query, script);
         }
 
+        public Task<FindResults<Employee>> GetByFilterAsync(string filter) {
+            return SearchAsync(null, filter);
+        }
+
+        public Task<FindResults<Employee>> GetByCriteriaAsync(string criteria) {
+            return SearchAsync(null, null, criteria);
+        }
+
         protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<Employee>> documents, ICommandOptions options = null) {
             if (!IsCacheEnabled)
                 return;

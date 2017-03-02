@@ -5,14 +5,14 @@
 
         public static T PageNumber<T>(this T options, int? page) where T : ICommandOptions {
             if (page.HasValue)
-                options.SetOption(PageNumberKey, page.Value);
+                options.Values.Set(PageNumberKey, page.Value);
 
             return options;
         }
 
         public static T PageLimit<T>(this T options, int? limit) where T : ICommandOptions {
             if (limit.HasValue)
-                options.SetOption(PageLimitKey, limit.Value);
+                options.Values.Set(PageLimitKey, limit.Value);
 
             return options;
         }
