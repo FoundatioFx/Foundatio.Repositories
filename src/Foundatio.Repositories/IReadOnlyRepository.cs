@@ -5,11 +5,6 @@ using Foundatio.Repositories.Models;
 using Foundatio.Utility;
 
 namespace Foundatio.Repositories {
-    public delegate IRepositoryQuery<T> RepositoryQueryDescriptor<T>(IRepositoryQuery<T> query) where T : class;
-    public delegate ICommandOptions<T> CommandOptionsDescriptor<T>(ICommandOptions<T> options) where T : class;
-    public delegate IRepositoryQuery RepositoryQueryDescriptor(IRepositoryQuery query);
-    public delegate ICommandOptions CommandOptionsDescriptor(ICommandOptions options);
-
     public interface IReadOnlyRepository<T> where T : class, new() {
         Task InvalidateCacheAsync(IEnumerable<T> documents, ICommandOptions options = null);
         Task<long> CountAsync(ICommandOptions options = null);
@@ -40,38 +35,6 @@ namespace Foundatio.Repositories {
 
         public static Task<FindResults<T>> GetAllAsync<T>(this IReadOnlyRepository<T> repository, CommandOptionsDescriptor<T> options = null) where T : class, new() {
             return repository.GetAllAsync(options.Configure());
-        }
-
-        public static ICommandOptions<T> Configure<T>(this CommandOptionsDescriptor<T> configure) where T: class {
-            ICommandOptions<T> o = new CommandOptions<T>();
-            if (configure != null)
-                o = configure(o);
-
-            return o;
-        }
-
-        public static IRepositoryQuery<T> Configure<T>(this RepositoryQueryDescriptor<T> configure) where T : class {
-            IRepositoryQuery<T> o = new RepositoryQuery<T>();
-            if (configure != null)
-                o = configure(o);
-
-            return o;
-        }
-
-        public static ICommandOptions Configure(this CommandOptionsDescriptor configure) {
-            ICommandOptions o = new CommandOptions();
-            if (configure != null)
-                o = configure(o);
-
-            return o;
-        }
-
-        public static IRepositoryQuery Configure(this RepositoryQueryDescriptor configure) {
-            IRepositoryQuery o = new RepositoryQuery();
-            if (configure != null)
-                o = configure(o);
-
-            return o;
         }
     }
 }

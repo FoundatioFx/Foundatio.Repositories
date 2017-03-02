@@ -54,7 +54,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             Assert.Equal(1, await _employeeRepository.GetCountByCompanyAsync(employee1.CompanyId));
             await _employeeRepository.RemoveAsync(employee1, o => o.Cache().ImmediateConsistency());
-            
+
+           await  _employeeRepository.GetByQueryAsync(q => q.FieldCondition(e => e.Age, ComparisonOperator.Equals, 12));
             Assert.Equal(1, await _employeeRepository.CountAsync());
             Assert.Equal(0, await _employeeRepository.GetCountByCompanyAsync(employee1.CompanyId));
         }

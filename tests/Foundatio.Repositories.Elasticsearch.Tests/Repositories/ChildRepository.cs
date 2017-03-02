@@ -10,7 +10,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories {
         }
 
         public Task<FindResults<Child>> QueryAsync(RepositoryQueryDescriptor<Child> query, CommandOptionsDescriptor<Child> options = null) {
-            return FindAsync(q => q, options);
+            return FindAsync(query, options);
         }
     }
 }
