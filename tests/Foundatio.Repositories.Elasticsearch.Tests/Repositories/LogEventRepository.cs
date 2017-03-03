@@ -37,9 +37,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             string script = $"ctx._source.value += {value};";
             if (ids.Length == 0)
-                return await PatchAllAsync(null, script, o => o.Notifications(false));
+                return await PatchAllAsync(null, script, o => o.Notifications(false).ImmediateConsistency(true));
 
-            await PatchAsync(ids, script);
+            await this.PatchAsync(ids, script, o => o.Notifications(false).ImmediateConsistency(true));
             return ids.Length;
         }
 
@@ -48,7 +48,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 throw new ArgumentNullException(nameof(query));
 
             string script = $"ctx._source.value += {value};";
-            return await PatchAllAsync(query, script);
+            return await PatchAllAsync(query, script, o => o.ImmediateConsistency(true));
         }
 
         protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents, ICommandOptions options = null) {

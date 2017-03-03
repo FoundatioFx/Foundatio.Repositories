@@ -80,8 +80,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Name = "Blake",
                 Age = 30,
                 Data = new Dictionary<string, object> { { "@user_meta", new { twitter_id = "blaken", twitter_followers = 1000 } } }
-            });
-            await _client.RefreshAsync(Indices.AllIndices);
+            }, o => o.ImmediateConsistency());
 
             const string aggregations = "min:followers max:followers avg:followers sum:followers cardinality:twitter";
             var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression(aggregations));
@@ -106,8 +105,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             employees[0].PeerReviews = new PeerReview[] { new PeerReview { ReviewerEmployeeId = employees[1].Id, Rating = 4 } };
             employees[1].PeerReviews = new PeerReview[] { new PeerReview { ReviewerEmployeeId = employees[0].Id, Rating = 5 } };
 
-            await _employeeRepository.AddAsync(employees);
-            await _client.RefreshAsync(Indices.AllIndices);
+            await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
             var nestedAggQuery = _client.Search<Employee>(d => d.Index("employees").Aggregations(a => a
                .Nested("nested_reviewRating", h => h.Path("peerReviews")
@@ -142,8 +140,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Age = 30,
                 NextReview = DateTimeOffset.UtcNow,
                 Data = new Dictionary<string, object> { { "@user_meta", new { twitter_id = "blaken", twitter_followers = 1000 } } }
-            });
-            await _client.RefreshAsync(Indices.AllIndices);
+            }, o => o.ImmediateConsistency());
 
             var thisWillTriggerMappingRefresh = await _employeeRepository.GetCountByQueryAsync(q => q.FilterExpression("fieldDoestExist:true"));
             Assert.Equal(0, thisWillTriggerMappingRefresh.Total);
@@ -183,8 +180,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(2)),
                 EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(1)),
                 EmployeeGenerator.Generate(nextReview: utcToday)
-            });
-            await _client.RefreshAsync(Indices.AllIndices);
+            }, o => o.ImmediateConsistency());
 
             const string aggregations = "min:nextReview max:nextReview date:nextReview";
             var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression(aggregations));
@@ -211,8 +207,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(2)),
                 EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(1)),
                 EmployeeGenerator.Generate(nextReview: utcToday)
-            });
-            await _client.RefreshAsync(Indices.AllIndices);
+            }, o => o.ImmediateConsistency());
 
             const string aggregations = "min:nextReview^1h max:nextReview^1h date:nextReview^1h";
             var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression(aggregations));
@@ -239,8 +234,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(2)),
                 EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(1)),
                 EmployeeGenerator.Generate(nextReview: utcToday)
-            });
-            await _client.RefreshAsync(Indices.AllIndices);
+            }, o => o.ImmediateConsistency());
 
             const double offsetInMinutes = 600;
             string aggregations = $"min:nextReview^-{offsetInMinutes}m max:nextReview^-{offsetInMinutes}m date:nextReview^-{offsetInMinutes}m";
@@ -268,8 +262,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 EmployeeGenerator.Generate(nextReview: today.SubtractDays(2)),
                 EmployeeGenerator.Generate(nextReview: today.SubtractDays(1)),
                 EmployeeGenerator.Generate(nextReview: today)
-            });
-            await _client.RefreshAsync(Indices.AllIndices);
+            }, o => o.ImmediateConsistency());
 
             const string aggregations = "min:nextReview max:nextReview date:nextReview";
             var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression(aggregations));
@@ -297,8 +290,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 EmployeeGenerator.Generate(nextReview: today.SubtractDays(2)),
                 EmployeeGenerator.Generate(nextReview: today.SubtractDays(1)),
                 EmployeeGenerator.Generate(nextReview: today)
-            });
-            await _client.RefreshAsync(Indices.AllIndices);
+            }, o => o.ImmediateConsistency());
 
             const string aggregations = "min:nextReview^1h max:nextReview^1h date:nextReview^1h";
             var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression(aggregations));
@@ -366,8 +358,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 EmployeeGenerator.Generate(age: 45, yearsEmployed: 8,  location: "20,20", createdUtc: utcToday.SubtractYears(8), updatedUtc: utcToday.SubtractYears(8)),
                 EmployeeGenerator.Generate(age: 51, yearsEmployed: 9,  location: "20,20", createdUtc: utcToday.SubtractYears(9), updatedUtc: utcToday.SubtractYears(9)),
                 EmployeeGenerator.Generate(age: 60, yearsEmployed: 10, location: "20,20", createdUtc: utcToday.SubtractYears(10), updatedUtc: utcToday.SubtractYears(10))
-            });
-            await _client.RefreshAsync(Indices.AllIndices);
+            }, o => o.ImmediateConsistency());
         }
     }
 }

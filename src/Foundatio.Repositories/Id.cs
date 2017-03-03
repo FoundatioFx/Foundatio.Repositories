@@ -57,6 +57,10 @@ namespace Foundatio.Repositories {
 
         public Ids(IEnumerable<Id> ids) : base(ids) { }
 
+        public Ids(params string[] ids) : base(ids != null ? ids.Select(i => (Id)i) : new Id[] { }) { }
+
+        public Ids(params Id[] ids) : base(ids) { }
+
         public static implicit operator Ids(Id id) {
             var result = new Ids();
             result.Add(id);
@@ -65,6 +69,15 @@ namespace Foundatio.Repositories {
         }
 
         public static implicit operator Ids(List<string> ids) {
+            var result = new Ids();
+
+            foreach (string id in ids)
+                result.Add(id);
+
+            return result;
+        }
+
+        public static implicit operator Ids(HashSet<string> ids) {
             var result = new Ids();
 
             foreach (string id in ids)
@@ -107,7 +120,7 @@ namespace Foundatio.Repositories {
             return result;
         }
 
-        public static implicit operator string[] (Ids ids) {
+        public static implicit operator string[](Ids ids) {
             string[] result = new string[ids.Count];
             for (int i = 0; i < ids.Count; i++)
                 result[i] = ids[i].ToString();

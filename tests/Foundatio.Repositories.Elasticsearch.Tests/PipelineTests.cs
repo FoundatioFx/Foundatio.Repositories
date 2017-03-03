@@ -42,7 +42,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             };
             await _employeeRepository.AddAsync(employees);
 
-            var result = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id));
+            var result = await _employeeRepository.GetByIdsAsync(new Ids(employees.Select(e => e.Id)));
             Assert.Equal(2, result.Count);
             Assert.True(result.All(e => String.Equals(e.Name, "blake")));
         }
@@ -82,13 +82,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "2", yearsEmployed: 0),
             };
 
-            await _employeeRepository.AddAsync(employees);
+            await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
-            await _client.RefreshAsync(Indices.All);
             var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
-            await _employeeRepository.PatchAsync(employees.Select(l => l.Id), patch);
+            await _employeeRepository.PatchAsync(employees.Select(l => l.Id).ToArray(), patch, o => o.ImmediateConsistency());
 
-            await _client.RefreshAsync(Indices.All);
             var results = await _employeeRepository.GetAllByCompanyAsync("1");
             Assert.Equal(2, results.Documents.Count);
             foreach (var document in results.Documents) {
@@ -117,12 +115,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "2", yearsEmployed: 0),
             };
 
-            await _employeeRepository.AddAsync(employees);
+            await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+            await _employeeRepository.PatchAsync(employees.Select(l => l.Id).ToArray(), new { name = "Patched" }, o => o.ImmediateConsistency());
 
-            await _client.RefreshAsync(Indices.All);
-            await _employeeRepository.PatchAsync(employees.Select(l => l.Id), new { name = "Patched" });
-
-            await _client.RefreshAsync(Indices.All);
             var results = await _employeeRepository.GetAllByCompanyAsync("1");
             Assert.Equal(2, results.Documents.Count);
             foreach (var document in results.Documents) {
@@ -151,12 +146,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "2", yearsEmployed: 0),
             };
 
-            await _employeeRepository.AddAsync(employees);
+            await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+            await _employeeRepository.PatchAsync(employees.Select(l => l.Id).ToArray(), "ctx._source.name = 'Patched';", o => o.ImmediateConsistency());
 
-            await _client.RefreshAsync(Indices.All);
-            await _employeeRepository.PatchAsync(employees.Select(l => l.Id), "ctx._source.name = 'Patched';");
-
-            await _client.RefreshAsync(Indices.All);
             var results = await _employeeRepository.GetAllByCompanyAsync("1");
             Assert.Equal(2, results.Documents.Count);
             foreach (var document in results.Documents) {

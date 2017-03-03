@@ -22,9 +22,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 EmployeeGenerator.Generate(age: 9),
                 EmployeeGenerator.Generate(age: 119),
                 EmployeeGenerator.Generate(age: 20)
-            });
+            }, o => o.ImmediateConsistency());
 
-            await _client.RefreshAsync(Indices.All);
             var searchRepository = (ISearchableReadOnlyRepository<Employee>)_employeeRepository;
             var results = await searchRepository.SearchAsync(null, sort: "age");
             var employees = results.Documents.ToArray();
@@ -50,9 +49,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 EmployeeGenerator.Generate(name: "Eric"),
                 EmployeeGenerator.Generate(name: "Jason AA"),
                 EmployeeGenerator.Generate(name: "Marylou")
-            });
+            }, o => o.ImmediateConsistency());
 
-            await _client.RefreshAsync(Indices.All);
             var searchRepository = (ISearchableReadOnlyRepository<Employee>)_employeeRepository;
             var results = await searchRepository.SearchAsync(null, sort: "name");
             var employees = results.Documents.ToArray();
@@ -74,9 +72,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task SearchByQueryWithIncludesAnAliases() {
             var employees = EmployeeGenerator.GenerateEmployees(age: 10);
-            await _employeeRepository.AddAsync(employees);
+            await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
-            await _client.RefreshAsync(Indices.All);
             var result = await _employeeRepository.SearchAsync(null, null, "@include:myquery");
             Assert.Equal(10, result.Total);
         }
@@ -85,9 +82,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task SearchByAnalyzedTextFieldAsync() {
             await _employeeRepository.AddAsync(new List<Employee> {
                 EmployeeGenerator.Generate(age: 19, name: "Blake Niemyjski")
-            });
+            }, o => o.ImmediateConsistency());
 
-            await _client.RefreshAsync(Indices.All);
             var searchRepository = (ISearchableReadOnlyRepository<Employee>)_employeeRepository;
             var results = await searchRepository.SearchAsync(null, "name:Blake");
             var employees = results.Documents.ToArray();

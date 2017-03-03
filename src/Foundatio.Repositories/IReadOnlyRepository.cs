@@ -29,8 +29,8 @@ namespace Foundatio.Repositories {
             return repository.GetByIdAsync(id, options.Configure());
         }
 
-        public static Task<IReadOnlyCollection<T>> GetByIdsAsync<T>(this IReadOnlyRepository<T> repository, IEnumerable<string> ids, CommandOptionsDescriptor<T> options = null) where T : class, new() {
-            return repository.GetByIdsAsync(new Ids(ids), options.Configure());
+        public static Task<IReadOnlyCollection<T>> GetByIdsAsync<T>(this IReadOnlyRepository<T> repository, Ids ids, CommandOptionsDescriptor<T> options = null) where T : class, new() {
+            return repository.GetByIdsAsync(ids, options.Configure());
         }
 
         public static Task<FindResults<T>> GetAllAsync<T>(this IReadOnlyRepository<T> repository, CommandOptionsDescriptor<T> options = null) where T : class, new() {

@@ -57,16 +57,8 @@ namespace Foundatio.Repositories {
             return repository.RemoveAsync(id, options.Configure());
         }
 
-        public static Task PatchAsync<T>(this IRepository<T> repository, IEnumerable<string> ids, object update, ICommandOptions<T> options = null) where T : class, IIdentity, new() {
-            return repository.PatchAsync(new Ids(ids), update, options);
-        }
-
         public static Task RemoveAsync<T>(this IRepository<T> repository, Ids ids, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {
             return repository.RemoveAsync(ids, options.Configure());
-        }
-
-        public static Task RemoveAsync<T>(this IRepository<T> repository, IEnumerable<string> ids, ICommandOptions<T> options = null) where T : class, IIdentity, new() {
-            return repository.RemoveAsync(new Ids(ids), options);
         }
 
         public static Task RemoveAsync<T>(this IRepository<T> repository, T document, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {

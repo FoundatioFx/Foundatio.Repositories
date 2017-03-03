@@ -338,6 +338,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                         Pipeline = pipeline,
                         Version = HasVersion
                     };
+                    request.Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency) != Refresh.False;
 
                     var response = await _client.UpdateByQueryAsync(request).AnyContext();
                     _logger.Trace(() => response.GetRequest());
@@ -501,7 +502,8 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected async Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions options = null) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
-            
+
+            options = ConfigureOptions(options);
             if (IsCacheEnabled) {
                 foreach (var field in FieldsRequiredForRemove.Union(new Field[] { _idField }))
                     if (!query.GetIncludes().Contains(field))
@@ -514,8 +516,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }).AnyContext();
             }
 
-            options = ConfigureOptions(options);
             var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(ElasticType.Index.Name, ElasticType.Name) {
+                Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency) != Refresh.False,
                 Query = await ElasticType.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext()
             }).AnyContext();
             _logger.Trace(() => response.GetRequest());

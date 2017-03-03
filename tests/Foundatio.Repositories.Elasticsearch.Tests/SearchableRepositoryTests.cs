@@ -29,10 +29,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(0, await _identityRepository.CountAsync());
 
             var identity = IdentityGenerator.Default;
-            var result = await _identityRepository.AddAsync(identity);
+            var result = await _identityRepository.AddAsync(identity, o => o.ImmediateConsistency());
             Assert.Equal(identity, result);
 
-            await _client.RefreshAsync(Indices.All);
             Assert.Equal(0, await _identityRepository.CountBySearchAsync(null, "id:test"));
             Assert.Equal(1, await _identityRepository.CountBySearchAsync(null, $"id:{identity.Id}"));
         }
@@ -42,13 +41,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(0, await _dailyRepository.CountAsync());
 
             var utcNow = SystemClock.UtcNow;
-            var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1)));
+            var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
             Assert.NotNull(yesterdayLog?.Id);
 
-            var nowLog = await _dailyRepository.AddAsync(LogEventGenerator.Default);
+            var nowLog = await _dailyRepository.AddAsync(LogEventGenerator.Default, o => o.ImmediateConsistency());
             Assert.NotNull(nowLog?.Id);
 
-            await _client.RefreshAsync(Indices.All);
             Assert.Equal(0, await _dailyRepository.CountBySearchAsync(null, "id:test"));
             Assert.Equal(1, await _dailyRepository.CountBySearchAsync(null, $"id:{nowLog.Id}"));
             Assert.Equal(1, await _dailyRepository.CountBySearchAsync(new RepositoryQuery().DateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "createdUtc"), $"id:{nowLog.Id}"));
@@ -60,10 +58,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task SearchByQueryAsync() {
             var identity = IdentityGenerator.Default;
-            var result = await _identityRepository.AddAsync(identity);
+            var result = await _identityRepository.AddAsync(identity, o => o.ImmediateConsistency());
             Assert.Equal(identity, result);
 
-            await _client.RefreshAsync(Indices.All);
             var results = await _identityRepository.SearchAsync(null, "id:test");
             Assert.Equal(0, results.Documents.Count);
 
@@ -92,17 +89,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task SearchByQueryWithTimeSeriesAsync() {
             var utcNow = SystemClock.UtcNow;
-            var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1234567890"));
+            var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1234567890"), o => o.ImmediateConsistency());
             Assert.NotNull(yesterdayLog?.Id);
 
-            var nowLog = await _dailyRepository.AddAsync(LogEventGenerator.Default);
+            var nowLog = await _dailyRepository.AddAsync(LogEventGenerator.Default, o => o.ImmediateConsistency());
             Assert.NotNull(nowLog?.Id);
 
             var results = await _dailyRepository.GetByIdsAsync(new[] { yesterdayLog.Id, nowLog.Id });
             Assert.NotNull(results);
             Assert.Equal(2, results.Count);
 
-            await _client.RefreshAsync(Indices.All);
             var searchResults = await _dailyRepository.SearchAsync(new RepositoryQuery().Company("test"));
             Assert.Equal(0, searchResults.Total);
 
