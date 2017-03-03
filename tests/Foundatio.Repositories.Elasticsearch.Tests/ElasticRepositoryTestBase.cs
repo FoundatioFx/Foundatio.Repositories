@@ -1,8 +1,6 @@
-﻿using System;
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Foundatio.Caching;
 using Foundatio.Jobs;
-using Foundatio.Logging;
 using Foundatio.Logging.Xunit;
 using Foundatio.Messaging;
 using Foundatio.Queues;

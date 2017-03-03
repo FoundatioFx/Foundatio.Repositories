@@ -148,7 +148,6 @@
     <Compile Include="Repositories\Models\LogEvent.cs" />
     <Compile Include="Repositories\Models\Parent.cs" />
     <Compile Include="Repositories\ParentRepository.cs" />
-    <Compile Include="Repositories\Queries\MyAppQuery.cs" />
     <Compile Include="IndexTests.cs" />
     <Compile Include="Repositories\Models\Employee.cs" />
     <Compile Include="Repositories\Queries\AgeQuery.cs" />

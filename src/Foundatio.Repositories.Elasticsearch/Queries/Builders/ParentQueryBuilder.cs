@@ -1,15 +1,46 @@
 ﻿using System;
 using System.Threading.Tasks;
-using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Queries;
 using Nest;
 
-namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public interface IParentQuery: IRepositoryQuery {
-        IRepositoryQuery ParentQuery { get; set; }
-    }
+namespace Foundatio.Repositories {
+    public static class ParentQueryExtensions {
+        internal const string ParentQueryKey = "@ParentQuery";
 
+        public static T ParentQuery<T>(this T query, IRepositoryQuery parentQuery) where T : IRepositoryQuery {
+            if (parentQuery == null)
+                throw new ArgumentNullException(nameof(parentQuery));
+
+            return query.BuildOption(ParentQueryKey, parentQuery);
+        }
+
+        public static T ParentQuery<T>(this T query, RepositoryQueryDescriptor parentQuery) where T : IRepositoryQuery {
+            if (parentQuery == null)
+                throw new ArgumentNullException(nameof(parentQuery));
+
+            return query.BuildOption(ParentQueryKey, parentQuery.Configure());
+        }
+
+        public static IRepositoryQuery<TChild> ParentQuery<TChild, TParent>(this IRepositoryQuery<TChild> query, RepositoryQueryDescriptor<TParent> parentQuery) where TChild : class where TParent : class {
+            if (parentQuery == null)
+                throw new ArgumentNullException(nameof(parentQuery));
+
+            return query.BuildOption(ParentQueryKey, parentQuery.Configure());
+        }
+    }
+}
+
+namespace Foundatio.Repositories.Options {
+    public static class ReadParentQueryExtensions {
+        public static IRepositoryQuery GetParentQuery(this IRepositoryQuery query) {
+            return query.SafeGetOption<IRepositoryQuery>(ParentQueryExtensions.ParentQueryKey);
+        }
+    }
+}
+
+namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class ParentQueryBuilder : IElasticQueryBuilder {
         private readonly ElasticQueryBuilder _queryBuilder;
 
@@ -18,32 +49,27 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
 
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var parentQuery = ctx.GetSourceAs<IParentQuery>();
-            bool hasIds = ctx.GetSourceAs<IIdentityQuery>()?.Ids.Count > 0;
+            var options = ctx.Options.GetElasticTypeSettings();
+            if (options.HasParent == false)
+                return;
+
+            var parentQuery = ctx.Source.GetParentQuery();
+            bool hasIds = ctx.Source.GetIds().Count > 0;
+
+            // even if no parent query has been set, run it through to get soft delete filter
+            if (options.ParentSupportsSoftDeletes && hasIds == false && parentQuery == null)
+                parentQuery = new RepositoryQuery();
+
             if (parentQuery == null)
                 return;
 
-            var options = ctx.GetOptionsAs<IElasticQueryOptions>();
-            IQueryOptions parentOptions = null;
+            var parentType = options.ChildType.GetParentIndexType();
+            if (parentType == null)
+                throw new ApplicationException("ParentIndexTypeName on child index type must match the name of the parent type.");
 
-            if (options != null && options.HasParent == false)
-                return;
+            var parentOptions = new CommandOptions().ElasticType(parentType);
 
-            if (options != null && options.ParentSupportsSoftDeletes && hasIds == false) {
-                if (parentQuery.ParentQuery == null)
-                    parentQuery.ParentQuery = new ParentQuery();
-
-                var parentType = options.ChildType.GetParentIndexType();
-                if (parentType == null)
-                    throw new ApplicationException("ParentIndexTypeName on child index type must match the name of the parent type.");
-
-                parentOptions = new ElasticQueryOptions(parentType);
-            }
-
-            if (parentQuery.ParentQuery == null)
-                return;
-
-            var parentContext = new QueryBuilderContext<object>(parentQuery.ParentQuery, parentOptions, null, ctx, ContextType.Parent);
+            var parentContext = new QueryBuilderContext<object>(parentQuery, parentOptions, null, ctx, ContextType.Parent);
             await _queryBuilder.BuildAsync(parentContext).AnyContext();
 
             if ((parentContext.Query == null || ((IQueryContainer)parentContext.Query).IsConditionless)
@@ -51,54 +77,12 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return;
 
             ctx.Filter &= new HasParentQuery {
-                Type = options?.ChildType?.GetParentIndexType().Name,
+                Type = parentType.Name,
                 Query = new BoolQuery {
                     Must = new QueryContainer[] { parentContext.Query },
                     Filter = new QueryContainer[] { parentContext.Filter },
                 }
             };
-        }
-    }
-
-    public static class ParentQueryExtensions {
-        public static TQuery WithParentQuery<TQuery, TParentQuery>(this TQuery query, Func<TParentQuery, TParentQuery> parentQueryFunc) where TQuery : IParentQuery where TParentQuery : class, IRepositoryQuery, new() {
-            if (parentQueryFunc == null)
-                throw new ArgumentNullException(nameof(parentQueryFunc));
-
-            var parentQuery = query.ParentQuery as TParentQuery ?? new TParentQuery();
-            query.ParentQuery = parentQueryFunc(parentQuery);
-
-            return query;
-        }
-
-        public static Query WithParentQuery<T>(this Query query, Func<T, T> parentQueryFunc) where T : class, IRepositoryQuery, new() {
-            if (parentQueryFunc == null)
-                throw new ArgumentNullException(nameof(parentQueryFunc));
-
-            var parentQuery = query.ParentQuery as T ?? new T();
-            query.ParentQuery = parentQueryFunc(parentQuery);
-
-            return query;
-        }
-
-        public static ElasticQuery WithParentQuery<T>(this ElasticQuery query, Func<T, T> parentQueryFunc) where T : class, IRepositoryQuery, new() {
-            if (parentQueryFunc == null)
-                throw new ArgumentNullException(nameof(parentQueryFunc));
-
-            var parentQuery = query.ParentQuery as T ?? new T();
-            query.ParentQuery = parentQueryFunc(parentQuery);
-
-            return query;
-        }
-
-        public static ElasticQuery WithParentQuery(this ElasticQuery query, Func<ParentQuery, ParentQuery> parentQueryFunc) {
-            if (parentQueryFunc == null)
-                throw new ArgumentNullException(nameof(parentQueryFunc));
-
-            var parentQuery = query.ParentQuery as ParentQuery ?? new ParentQuery();
-            query.ParentQuery = parentQueryFunc(parentQuery);
-
-            return query;
         }
     }
 }

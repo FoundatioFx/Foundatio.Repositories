@@ -1,20 +1,15 @@
-﻿using System;
-using System.Threading.Tasks;
-using Foundatio.Repositories.Queries;
+﻿using System.Threading.Tasks;
+using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class PagableQueryBuilder : IElasticQueryBuilder {
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var pagableQuery = ctx.GetSourceAs<IPagableQuery>();
-            if (pagableQuery == null)
-                return Task.CompletedTask;
+            // add 1 to limit if not snapshot paging so we can know if we have more results
+            if (ctx.Options.ShouldUseLimit())
+                ctx.Search.Size(ctx.Options.GetLimit() + (ctx.Options.ShouldUseSnapshotPaging() == false ? 1 : 0));
 
-            // add 1 to limit if not auto paging so we can know if we have more results
-            if (pagableQuery.ShouldUseLimit())
-                ctx.Search.Size(pagableQuery.GetLimit() + (pagableQuery.ShouldUseSnapshotPaging() == false ? 1 : 0));
-
-            if (pagableQuery.ShouldUseSkip())
-                ctx.Search.Skip(pagableQuery.GetSkip());
+            if (ctx.Options.ShouldUseSkip())
+                ctx.Search.Skip(ctx.Options.GetSkip());
 
             return Task.CompletedTask;
         }

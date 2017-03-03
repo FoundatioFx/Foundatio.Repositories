@@ -1,5 +1,4 @@
-﻿using System;
-using Nest;
+﻿using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class DynamicIndexType<T> : IndexTypeBase<T> where T : class {

@@ -3,9 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
-using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Extensions;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class ElasticQueryBuilder : IElasticQueryBuilder {
@@ -46,30 +44,29 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
 
         public void UseQueryParser(ElasticQueryParser parser) {
-            Unregister<SearchQueryBuilder>();
-            Register(new ParsedSearchQueryBuilder(parser));
+            Unregister<ExpressionQueryBuilder>();
+            Register(new ParsedExpressionQueryBuilder(parser));
 
             Unregister<AggregationsQueryBuilder>();
-            Register(new AggregationsQueryBuilder(parser));
+            Register(new AggregationsQueryBuilder());
         }
 
         public void UseAliases(AliasMap aliasMap) {
-            Unregister<SearchQueryBuilder>();
-            Register(new AliasedSearchQueryBuilder(aliasMap));
+            Unregister<ExpressionQueryBuilder>();
+            Register(new AliasedExpressionQueryBuilder(aliasMap));
         }
 
         public void RegisterDefaults() {
             Register<PagableQueryBuilder>();
             Register<FieldIncludesQueryBuilder>();
-            Register<SortableQueryBuilder>();
-            Register(new AggregationsQueryBuilder(new ElasticQueryParser()));
+            Register<SortQueryBuilder>();
+            Register(new AggregationsQueryBuilder());
             Register(new ParentQueryBuilder(this));
             Register(new ChildQueryBuilder(this));
             Register<IdentityQueryBuilder>();
             Register<SoftDeletesQueryBuilder>();
             Register<DateRangeQueryBuilder>();
-            Register(new SearchQueryBuilder());
-            Register(new SystemFilterQueryBuilder(this));
+            Register(new ExpressionQueryBuilder());
             Register<ElasticFilterQueryBuilder>();
             Register<FieldConditionsQueryBuilder>();
         }

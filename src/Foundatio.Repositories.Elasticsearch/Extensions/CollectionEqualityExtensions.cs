@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     internal static class CollectionEqualityExtensions {

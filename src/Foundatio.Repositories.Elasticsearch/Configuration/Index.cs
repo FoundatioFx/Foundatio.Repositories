@@ -1,5 +1,4 @@
-﻿using System;
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Foundatio.Repositories.Extensions;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {

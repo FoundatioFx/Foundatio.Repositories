@@ -113,8 +113,7 @@
     <Compile Include="Jobs\ReindexWorkItem.cs" />
     <Compile Include="Jobs\ReindexWorkItemHandler.cs" />
     <Compile Include="Configuration\DailyIndex.cs" />
-    <Compile Include="Models\ElasticPagingOptions.cs" />
-    <Compile Include="Queries\ElasticPagableQuery.cs" />
+    <Compile Include="Options\ElasticCommandOptions.cs" />
     <Compile Include="Repositories\ElasticReindexer.cs" />
     <Compile Include="Configuration\IElasticConfiguration.cs" />
     <Compile Include="Configuration\IIndex.cs" />
@@ -127,12 +126,6 @@
     <Compile Include="Configuration\VersionedIndex.cs" />
     <Compile Include="Repositories\MigrationsRepository.cs" />
     <Compile Include="Queries\Builders\ElasticQueryBuilder.cs" />
-    <Compile Include="Queries\Builders\SystemFilterQueryBuilder.cs" />
-    <Compile Include="Queries\ChildQuery.cs" />
-    <Compile Include="Queries\ElasticQuery.cs" />
-    <Compile Include="Queries\Options\ElasticQueryOptions.cs" />
-    <Compile Include="Queries\ParentQuery.cs" />
-    <Compile Include="Queries\QueryParts\CachableQuery.cs" />
     <Compile Include="Queries\Builders\ChildQueryBuilder.cs" />
     <Compile Include="Queries\Builders\DateRangeQueryBuilder.cs" />
     <Compile Include="Queries\Builders\ElasticFilterQueryBuilder.cs" />
@@ -143,12 +136,10 @@
     <Compile Include="Queries\Builders\PagableQueryBuilder.cs" />
     <Compile Include="Queries\QueryParts\ElasticIndexesQuery.cs" />
     <Compile Include="Queries\Builders\ParentQueryBuilder.cs" />
-    <Compile Include="Queries\Builders\SearchQueryBuilder.cs" />
+    <Compile Include="Queries\Builders\ExpressionQueryBuilder.cs" />
     <Compile Include="Queries\Builders\FieldIncludesQueryBuilder.cs" />
     <Compile Include="Queries\Builders\SoftDeletesQueryBuilder.cs" />
-    <Compile Include="Queries\Builders\SortableQueryBuilder.cs" />
-    <Compile Include="Queries\QueryParts\TypeQuery.cs" />
-    <Compile Include="Queries\Query.cs" />
+    <Compile Include="Queries\Builders\SortQueryBuilder.cs" />
     <Compile Include="Repositories\ElasticReadOnlyRepositoryBase.cs" />
     <Compile Include="Repositories\ElasticRepositoryBase.cs" />
     <Compile Include="Utility\Run.cs" />

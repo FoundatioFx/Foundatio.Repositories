@@ -1,43 +1,45 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using Foundatio.Repositories.Extensions;
+﻿using System.Collections.Generic;
+using Foundatio.Repositories.Options;
+
+namespace Foundatio.Repositories {
+    public static class IdentityQueryExtensions {
+        internal const string IdsKey = "@Ids";
+
+        public static T Id<T>(this T query, string id) where T : IRepositoryQuery {
+            return query.AddSetOptionValue(IdsKey, id);
+        }
+
+        public static T Id<T>(this T query, params string[] ids) where T : IRepositoryQuery {
+            return query.AddSetOptionValue(IdsKey, ids);
+        }
+
+        public static T Id<T>(this T query, IEnumerable<string> ids) where T : IRepositoryQuery {
+            return query.AddSetOptionValue(IdsKey, ids);
+        }
+
+        internal const string ExcludedIdsKey = "@ExcludedIds";
+        public static T ExcludedId<T>(this T query, string id) where T : IRepositoryQuery {
+            return query.AddSetOptionValue(ExcludedIdsKey, id);
+        }
+
+        public static T ExcludedId<T>(this T query, params string[] ids) where T : IRepositoryQuery {
+            return query.AddSetOptionValue(ExcludedIdsKey, ids);
+        }
+
+        public static T ExcludedId<T>(this T query, IEnumerable<string> ids) where T : IRepositoryQuery {
+            return query.AddSetOptionValue(ExcludedIdsKey, ids);
+        }
+    }
+}
 
 namespace Foundatio.Repositories.Queries {
-    public interface IIdentityQuery : IRepositoryQuery {
-        ISet<string> Ids { get; }
-        ISet<string> ExcludedIds { get; }
-    }
-
-    public static class IdentityQueryExtensions {
-        public static T WithId<T>(this T query, string id) where T : IIdentityQuery {
-            query.Ids.Add(id);
-            return query;
+    public static class ReadIdentityQueryExtensions {
+        public static ISet<string> GetIds<T>(this T options) where T : IRepositoryQuery {
+            return options.SafeGetSet<string>(IdentityQueryExtensions.IdsKey);
         }
 
-        public static T WithIds<T>(this T query, params string[] ids) where T : IIdentityQuery {
-            query.Ids.AddRange(ids.Distinct());
-            return query;
-        }
-
-        public static T WithIds<T>(this T query, IEnumerable<string> ids) where T : IIdentityQuery {
-            query.Ids.AddRange(ids.Distinct());
-            return query;
-        }
-
-        public static T WithExcludedId<T>(this T query, string id) where T : IIdentityQuery {
-            query.ExcludedIds.Add(id);
-            return query;
-        }
-
-        public static T WithExcludedIds<T>(this T query, params string[] ids) where T : IIdentityQuery {
-            query.ExcludedIds.AddRange(ids.Distinct());
-            return query;
-        }
-
-        public static T WithExcludedIds<T>(this T query, IEnumerable<string> ids) where T : IIdentityQuery {
-            query.ExcludedIds.AddRange(ids.Distinct());
-            return query;
+        public static ISet<string> GetExcludedIds<T>(this T options) where T : IRepositoryQuery {
+            return options.SafeGetSet<string>(IdentityQueryExtensions.ExcludedIdsKey);
         }
     }
 }

@@ -1,39 +1,40 @@
 ﻿using System;
 using System.Threading.Tasks;
-using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Options;
+
+namespace Foundatio.Repositories {
+    public static class AggregationQueryExtensions {
+        internal const string AggregationsKey = "@AggregationsExpressionKey";
+
+        public static T AggregationsExression<T>(this T options, string aggregations) where T : IRepositoryQuery {
+            return options.BuildOption(AggregationsKey, aggregations);
+        }
+    }
+}
+
+namespace Foundatio.Repositories.Options {
+    public static class ReadAggregationQueryExtensions {
+        public static string GetAggregationsExression(this IRepositoryQuery query) {
+            return query.SafeGetOption<string>(AggregationQueryExtensions.AggregationsKey, null);
+        }
+    }
+}
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public interface IAggregationQuery {
-        string Aggregations { get; set; }
-    }
-
     public class AggregationsQueryBuilder : IElasticQueryBuilder {
-        private readonly ElasticQueryParser _parser;
-
-        public AggregationsQueryBuilder(ElasticQueryParser parser) {
-            if (parser == null)
-                throw new ArgumentNullException(nameof(parser));
-
-            _parser = parser;
-        }
-
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var aggregationQuery = ctx.GetSourceAs<IAggregationQuery>();
-            if (String.IsNullOrEmpty(aggregationQuery?.Aggregations))
+            var elasticOptions = ctx.Options.GetElasticTypeSettings();
+            if (elasticOptions?.IndexType?.QueryParser == null)
                 return;
 
-            var result = await _parser.BuildAggregationsAsync(aggregationQuery.Aggregations, ctx).AnyContext();
+            var aggregations = ctx.Source.GetAggregationsExression();
+            if (String.IsNullOrEmpty(aggregations))
+                return;
+
+            var result = await elasticOptions.IndexType.QueryParser.BuildAggregationsAsync(aggregations, ctx).AnyContext();
             ctx.Search.Aggregations(result);
-        }
-    }
-
-    public static class AggregationQueryExtensions {
-        public static T WithAggregations<T>(this T query, string aggregations) where T : IAggregationQuery {
-            query.Aggregations = aggregations;
-
-            return query;
         }
     }
 }

@@ -1,8 +1,18 @@
 ﻿using System;
+using Foundatio.Repositories.Options;
 
-namespace Foundatio.Repositories.Queries {
+namespace Foundatio.Repositories {
     /// <summary>
-    /// Marker interface to enforce that queries are queries
+    /// Query options that control the result of the repository query operations
     /// </summary>
-    public interface IRepositoryQuery {}
+    public interface IRepositoryQuery : IOptions {}
+    public interface IRepositoryQuery<T> : IRepositoryQuery where T: class { }
+
+    public class RepositoryQuery : OptionsBase, IRepositoryQuery, ISystemFilter {
+        IRepositoryQuery ISystemFilter.GetQuery() {
+            return this;
+        }
+    }
+
+    public class RepositoryQuery<T> : RepositoryQuery, IRepositoryQuery<T> where T : class { }
 }

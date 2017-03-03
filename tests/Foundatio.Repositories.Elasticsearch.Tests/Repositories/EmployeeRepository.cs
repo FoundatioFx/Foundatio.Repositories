@@ -3,13 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Configuration;
-using Foundatio.Repositories.Elasticsearch.Queries;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Models;
-using Foundatio.Repositories.Queries;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
@@ -23,40 +19,39 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         /// <summary>
         /// This allows us easily test aggregations
         /// </summary>
-        public Task<CountResult> GetCountByQueryAsync(IRepositoryQuery query) {
+        public Task<CountResult> GetCountByQueryAsync(RepositoryQueryDescriptor<Employee> query) {
             return CountAsync(query);
         }
 
         public Task<FindResults<Employee>> GetAllByAgeAsync(int age) {
-            return FindAsync(new MyAppQuery().WithAge(age));
+            return FindAsync(q => q.Age(age));
         }
 
         /// <summary>
         /// Exposed only for testing purposes.
         /// </summary>
-        public Task<FindResults<Employee>> GetByQueryAsync(MyAppQuery query) {
+        public Task<FindResults<Employee>> GetByQueryAsync(RepositoryQueryDescriptor<Employee> query) {
             return FindAsync(query);
         }
 
-        public Task<FindResults<Employee>> GetAllByCompanyAsync(string company, PagingOptions paging = null, bool useCache = false) {
-            return FindAsync(new MyAppQuery().WithCompany(company).WithPaging(paging).WithCacheKey(useCache ? "by-company" : null));
+        public Task<FindResults<Employee>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<Employee> options = null) {
+            return FindAsync(q => q.Company(company), options);
         }
 
-        public Task<FindResults<Employee>> GetAllByCompaniesWithFieldEqualsAsync(string[] companies)
-        {
-            return FindAsync(new MyAppQuery().WithFieldEquals("companyId", companies));
+        public Task<FindResults<Employee>> GetAllByCompaniesWithFieldEqualsAsync(string[] companies) {
+            return FindAsync(q => q.FieldCondition(c => c.CompanyId, ComparisonOperator.Equals, companies));
         }
 
         public Task<CountResult> GetCountByCompanyAsync(string company) {
-            return CountAsync(new MyAppQuery().WithCompany(company).WithCacheKey(company));
+            return CountAsync(q => q.Company(company), o => o.CacheKey(company));
         }
 
         public Task<CountResult> GetNumberOfEmployeesWithMissingCompanyName(string company) {
-            return CountAsync(new MyAppQuery().WithCompany(company).WithElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.CompanyName))));
+            return CountAsync(q => q.Company(company).ElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.CompanyName))));
         }
 
         public Task<CountResult> GetNumberOfEmployeesWithMissingName(string company) {
-            return CountAsync(new MyAppQuery().WithCompany(company).WithElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.Name))));
+            return CountAsync(q => q.Company(company).ElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.Name))));
         }
 
         /// <summary>
@@ -67,27 +62,35 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         /// <param name="limit">OPTIONAL limit that should be applied to bulk updates. This is here only for tests...</param>
         /// <returns></returns>
         public Task<long> UpdateCompanyNameByCompanyAsync(string company, string name, int? limit = null) {
-            return PatchAllAsync(new MyAppQuery().WithCompany(company).WithLimit(limit), new { CompanyName = name });
+            return PatchAllAsync(q => q.Company(company), new { CompanyName = name }, o => o.PageLimit(limit).ImmediateConsistency(true));
         }
 
         public async Task<long> IncrementYearsEmployeedAsync(string[] ids, int years = 1) {
             string script = $"ctx._source.yearsEmployed += {years};";
             if (ids.Length == 0)
-                return await PatchAllAsync(new Query(), script, false);
+                return await PatchAllAsync(null, script, o => o.Notifications(false).ImmediateConsistency(true));
 
-            await PatchAsync(ids, script);
+            await this.PatchAsync(ids, script, o => o.ImmediateConsistency(true));
             return ids.Length;
         }
 
-        public async Task<long> IncrementYearsEmployeedAsync(MyAppQuery query, int years = 1) {
+        public async Task<long> IncrementYearsEmployeedAsync(RepositoryQueryDescriptor<Employee> query, int years = 1) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
             string script = $"ctx._source.yearsEmployed += {years};";
-            return await PatchAllAsync(query, script);
+            return await PatchAllAsync(query, script, o => o.ImmediateConsistency(true));
         }
 
-        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<Employee>> documents) {
+        public Task<FindResults<Employee>> GetByFilterAsync(string filter) {
+            return SearchAsync(null, filter);
+        }
+
+        public Task<FindResults<Employee>> GetByCriteriaAsync(string criteria) {
+            return SearchAsync(null, null, criteria);
+        }
+
+        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<Employee>> documents, ICommandOptions options = null) {
             if (!IsCacheEnabled)
                 return;
 

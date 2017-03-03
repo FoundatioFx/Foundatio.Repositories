@@ -3,11 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Configuration;
-using Foundatio.Repositories.Elasticsearch.Queries;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
@@ -19,19 +16,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public Task<FindResults<LogEvent>> GetByCompanyAsync(string company) {
-            return FindAsync(new MyAppQuery().WithCompany(company));
+            return FindAsync(q => q.Company(company));
         }
 
         public Task<FindResults<LogEvent>> GetPartialByCompanyAsync(string company) {
-            return FindAsync(new MyAppQuery().WithCompany(company).IncludeFields((LogEvent l) => l.Id, l => l.CreatedUtc));
+            return FindAsync(q => q.Company(company).Include(e => e.Id).Include(l => l.CreatedUtc));
         }
 
         public Task<FindResults<LogEvent>> GetAllByCompanyAsync(string company) {
-            return FindAsync(new MyAppQuery().WithCompany(company));
+            return FindAsync(q => q.Company(company));
         }
 
         public Task<CountResult> GetCountByCompanyAsync(string company) {
-            return CountAsync(new MyAppQuery().WithCompany(company).WithCacheKey(company));
+            return CountAsync(q => q.Company(company), o => o.CacheKey(company));
         }
 
         public async Task<long> IncrementValueAsync(string[] ids, int value = 1) {
@@ -40,21 +37,21 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             string script = $"ctx._source.value += {value};";
             if (ids.Length == 0)
-                return await PatchAllAsync(new Query(), script, false);
+                return await PatchAllAsync(null, script, o => o.Notifications(false).ImmediateConsistency(true));
 
-            await PatchAsync(ids, script);
+            await this.PatchAsync(ids, script, o => o.Notifications(false).ImmediateConsistency(true));
             return ids.Length;
         }
 
-        public async Task<long> IncrementValueAsync(MyAppQuery query, int value = 1) {
+        public async Task<long> IncrementValueAsync(RepositoryQueryDescriptor<LogEvent> query, int value = 1) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
             string script = $"ctx._source.value += {value};";
-            return await PatchAllAsync(query, script);
+            return await PatchAllAsync(query, script, o => o.ImmediateConsistency(true));
         }
 
-        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents) {
+        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents, ICommandOptions options = null) {
             if (!IsCacheEnabled)
                 return;
 

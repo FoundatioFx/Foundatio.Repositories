@@ -125,10 +125,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var logEvent = await repository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow));
             Assert.NotNull(logEvent?.Id);
 
-            logEvent = await repository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow.SubtractDays(1)));
+            logEvent = await repository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow.SubtractDays(1)), o => o.ImmediateConsistency());
             Assert.NotNull(logEvent?.Id);
 
-            await _client.RefreshAsync(Indices.All);
             alias = await _client.GetAliasAsync(descriptor => descriptor.Name(_configuration.DailyLogEvents.Name));
             _logger.Trace(() => alias.GetRequest());
             Assert.True(alias.IsValid);
@@ -137,8 +136,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             indexes = await _client.GetIndicesPointingToAliasAsync(_configuration.DailyLogEvents.Name);
             Assert.Equal(2, indexes.Count());
 
-            await repository.RemoveAllAsync();
-            await _client.RefreshAsync(Indices.All);
+            await repository.RemoveAllAsync(o => o.ImmediateConsistency());
 
             Assert.Equal(0, await repository.CountAsync());
         }
@@ -264,9 +262,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     var repository = new EmployeeRepository(index.Employee);
 
                     SystemClock.Test.SetFixedTime(DateTime.UtcNow.Subtract(TimeSpan.FromDays(15)));
-                    var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: SystemClock.UtcNow));
+                    var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: SystemClock.UtcNow), o => o.ImmediateConsistency());
                     Assert.NotNull(employee?.Id);
-                    await _client.RefreshAsync(Indices.All);
 
                     await index.MaintainAsync();
                     Assert.Equal(1, await index.GetCurrentVersionAsync());
@@ -469,9 +466,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     await index.ConfigureAsync();
                     var version1Repository = new EmployeeRepository(index.Employee);
 
-                    var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow));
+                    var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
                     Assert.NotNull(employee?.Id);
-                    await _client.RefreshAsync(Indices.All);
 
                     var existsResponse = await _client.IndexExistsAsync(index.GetIndex(employee.CreatedUtc));
                     _logger.Trace(() => existsResponse.GetRequest());
@@ -486,9 +482,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     aliases.Sort();
                     Assert.Equal(GetExpectedEmployeeDailyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
-                    employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(2)));
+                    employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(2)), o => o.ImmediateConsistency());
                     Assert.NotNull(employee?.Id);
-                    await _client.RefreshAsync(Indices.All);
 
                     existsResponse = await _client.IndexExistsAsync(index.GetIndex(employee.CreatedUtc));
                     _logger.Trace(() => existsResponse.GetRequest());
@@ -503,9 +498,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     aliases.Sort();
                     Assert.Equal(GetExpectedEmployeeDailyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
-                    employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(35)));
+                    employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(35)), o => o.ImmediateConsistency());
                     Assert.NotNull(employee?.Id);
-                    await _client.RefreshAsync(Indices.All);
 
                     existsResponse = await _client.IndexExistsAsync(index.GetIndex(employee.CreatedUtc));
                     _logger.Trace(() => existsResponse.GetRequest());
@@ -538,9 +532,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     await index.ConfigureAsync();
                     var repository = new EmployeeRepository(index.Employee);
 
-                    var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow));
+                    var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
                     Assert.NotNull(employee?.Id);
-                    await _client.RefreshAsync(Indices.All);
 
                     var existsResponse = await _client.IndexExistsAsync(index.GetIndex(employee.CreatedUtc));
                     _logger.Trace(() => existsResponse.GetRequest());
@@ -555,9 +548,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     aliases.Sort();
                     Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
-                    employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(2)));
+                    employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(2)), o => o.ImmediateConsistency());
                     Assert.NotNull(employee?.Id);
-                    await _client.RefreshAsync(Indices.All);
 
                     existsResponse = await _client.IndexExistsAsync(index.GetIndex(employee.CreatedUtc));
                     _logger.Trace(() => existsResponse.GetRequest());
@@ -572,9 +564,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     aliases.Sort();
                     Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
-                    employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(35)));
+                    employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(35)), o => o.ImmediateConsistency());
                     Assert.NotNull(employee?.Id);
-                    await _client.RefreshAsync(Indices.All);
 
                     existsResponse = await _client.IndexExistsAsync(index.GetIndex(employee.CreatedUtc));
                     _logger.Trace(() => existsResponse.GetRequest());

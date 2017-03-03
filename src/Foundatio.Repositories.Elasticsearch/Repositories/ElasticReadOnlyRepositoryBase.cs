@@ -3,17 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Caching;
-using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Logging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
-using Foundatio.Repositories.Elasticsearch.Models;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Foundatio.Repositories.Elasticsearch.Queries.Options;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
-using Foundatio.Repositories.Queries;
+using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Nest;
@@ -40,26 +37,30 @@ namespace Foundatio.Repositories.Elasticsearch {
             _logger = indexType.Configuration.LoggerFactory.CreateLogger(GetType());
         }
 
-        protected Task<FindResults<T>> FindAsync(IRepositoryQuery query) {
-            return FindAsAsync<T>(query);
+        protected Task<FindResults<T>> FindAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
+            return FindAsAsync<T>(query.Configure(), options.Configure());
         }
 
-        protected ISet<string> DefaultExcludes { get; } = new HashSet<string>();
+        protected Task<FindResults<T>> FindAsync(IRepositoryQuery query, ICommandOptions options = null) {
+            return FindAsAsync<T>(query, options);
+        }
 
-        protected async Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query) where TResult : class, new() {
+        protected ICollection<Field> DefaultExcludes { get; } = new List<Field>();
+
+        protected Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) where TResult : class, new() {
+            return FindAsAsync<TResult>(query.Configure(), options.Configure());
+        }
+
+        protected async Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions options = null) where TResult : class, new() {
             if (query == null)
-                throw new ArgumentNullException(nameof(query));
+                query = new RepositoryQuery();
 
-            var pagableQuery = query as IPagableQuery;
-            var pagingOptions = pagableQuery?.Options as IPagingOptions;
-            var elasticPagingOptions = pagableQuery?.Options as ElasticPagingOptions;
-            bool useSnapshotPaging = elasticPagingOptions?.UseSnapshotPaging ?? false;
-
+            bool useSnapshotPaging = options.ShouldUseSnapshotPaging();
             // don't use caching with snapshot paging.
             bool allowCaching = IsCacheEnabled && useSnapshotPaging == false;
 
-            var queryOptions = GetQueryOptions();
-            await OnBeforeQueryAsync(query, queryOptions, typeof(TResult)).AnyContext();
+            options = ConfigureOptions(options);
+            await OnBeforeQueryAsync(query, options, typeof(TResult)).AnyContext();
 
             Func<FindResults<TResult>, Task<FindResults<TResult>>> getNextPageFunc = async r => {
                 var previousResults = r;
@@ -67,29 +68,29 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ArgumentException(nameof(r));
 
                 if (!String.IsNullOrEmpty(previousResults.GetScrollId())) {
-                    var scrollResponse = await _client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), previousResults.GetScrollId()).AnyContext();
+                    var scrollResponse = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), previousResults.GetScrollId()).AnyContext();
                     _logger.Trace(() => scrollResponse.GetRequest());
 
                     var results = scrollResponse.ToFindResults();
                     results.Page = previousResults.Page + 1;
-                    results.HasMore = scrollResponse.Hits.Count() >= pagableQuery.GetLimit();
+                    results.HasMore = scrollResponse.Hits.Count() >= options.GetLimit();
                     return results;
                 }
 
-                if (pagableQuery == null)
+                if (options == null)
                     return new FindResults<TResult>();
 
-                if (pagingOptions != null)
-                    pagingOptions.Page = pagingOptions.Page == null ? 2 : pagingOptions.Page + 1;
+                if (options != null)
+                    options.PageNumber(!options.ShouldUsePage() ? 2 : options.GetPage() + 1);
 
-                return await FindAsAsync<TResult>(query).AnyContext();
+                return await FindAsAsync<TResult>(query, options).AnyContext();
             };
 
-            string cacheSuffix = pagableQuery?.ShouldUseLimit() == true ? String.Concat(pagingOptions.Page?.ToString() ?? "1", ":", pagableQuery.GetLimit().ToString()) : String.Empty;
+            string cacheSuffix = options?.ShouldUseLimit() == true ? String.Concat(options.GetPage().ToString(), ":", options.GetLimit().ToString()) : String.Empty;
 
             FindResults<TResult> result;
             if (allowCaching) {
-                result = await GetCachedQueryResultAsync<FindResults<TResult>>(query, cacheSuffix: cacheSuffix).AnyContext();
+                result = await GetCachedQueryResultAsync<FindResults<TResult>>(options, cacheSuffix: cacheSuffix).AnyContext();
                 if (result != null) {
                     ((IGetNextPage<TResult>)result).GetNextPageFunc = async r => await getNextPageFunc(r).AnyContext();
                     return result;
@@ -98,14 +99,14 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             ISearchResponse<TResult> response = null;
 
-            if (useSnapshotPaging == false || String.IsNullOrEmpty(elasticPagingOptions?.ScrollId)) {
-                SearchDescriptor<T> searchDescriptor = await CreateSearchDescriptorAsync(query, queryOptions).AnyContext();
+            if (useSnapshotPaging == false || !options.HasSnapshotScrollId()) {
+                var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
                 if (useSnapshotPaging)
-                    searchDescriptor.Scroll(pagableQuery.GetLifetime());
+                    searchDescriptor.Scroll(options.GetSnapshotLifetime());
 
                 response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
             } else {
-                response = await _client.ScrollAsync<TResult>(pagableQuery.GetLifetime(), elasticPagingOptions.ScrollId).AnyContext();
+                response = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), options.GetSnapshotScrollId()).AnyContext();
             }
 
             _logger.Trace(() => response.GetRequest());
@@ -121,41 +122,45 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (useSnapshotPaging) {
                 result = response.ToFindResults();
                 // TODO: Is there a better way to figure out if you are done scrolling?
-                result.HasMore = response.Hits.Count() >= pagableQuery.GetLimit();
+                result.HasMore = response.Hits.Count() >= options.GetLimit();
                 ((IGetNextPage<TResult>)result).GetNextPageFunc = getNextPageFunc;
-            } else if (pagableQuery?.ShouldUseLimit() == true) {
-                result = response.ToFindResults(pagableQuery.GetLimit());
-                result.HasMore = response.Hits.Count() > pagableQuery.GetLimit();
+            } else if (options.ShouldUseLimit() == true) {
+                result = response.ToFindResults(options.GetLimit());
+                result.HasMore = response.Hits.Count() > options.GetLimit();
                 ((IGetNextPage<TResult>)result).GetNextPageFunc = getNextPageFunc;
             } else {
                 result = response.ToFindResults();
             }
 
-            result.Page = pagingOptions?.Page ?? 1;
+            result.Page = options.GetPage();
 
             if (!allowCaching)
                 return result;
 
             var nextPageFunc = ((IGetNextPage<TResult>)result).GetNextPageFunc;
             ((IGetNextPage<TResult>)result).GetNextPageFunc = null;
-            await SetCachedQueryResultAsync(query, result, cacheSuffix: cacheSuffix).AnyContext();
+            await SetCachedQueryResultAsync(options, result, cacheSuffix: cacheSuffix).AnyContext();
             ((IGetNextPage<TResult>)result).GetNextPageFunc = nextPageFunc;
 
             return result;
         }
 
-        protected async Task<FindHit<T>> FindOneAsync(IRepositoryQuery query) {
+        protected Task<FindHit<T>> FindOneAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
+            return FindOneAsync(query.Configure(), options.Configure());
+        }
+
+        protected async Task<FindHit<T>> FindOneAsync(IRepositoryQuery query, ICommandOptions options = null) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
-            var result = IsCacheEnabled ? await GetCachedQueryResultAsync<FindHit<T>>(query).AnyContext() : null;
+            var result = IsCacheEnabled ? await GetCachedQueryResultAsync<FindHit<T>>(options).AnyContext() : null;
             if (result != null)
                 return result;
 
-            var queryOptions = GetQueryOptions();
-            await OnBeforeQueryAsync(query, queryOptions, typeof(T)).AnyContext();
+            options = ConfigureOptions(options);
+            await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
-            var searchDescriptor = (await CreateSearchDescriptorAsync(query, queryOptions).AnyContext()).Size(1);
+            var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
@@ -170,29 +175,28 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             result = response.Hits.FirstOrDefault()?.ToFindHit();
             if (IsCacheEnabled)
-                await SetCachedQueryResultAsync(query, result).AnyContext();
+                await SetCachedQueryResultAsync(options, result).AnyContext();
 
             return result;
         }
 
-        public Task<FindResults<T>> SearchAsync(IRepositoryQuery systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, PagingOptions paging = null) {
-            var search = NewQuery()
-                .WithSystemFilter(systemFilter)
-                .WithFilter(filter)
-                .WithSearchQuery(criteria, false)
-                .WithAggregations(aggregations)
-                .WithSort(sort)
-                .WithPaging(paging);
+        public Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, ICommandOptions options = null) {
+            var search = ConfigureQuery(null)
+                .MergeFrom(systemFilter?.GetQuery())
+                .FilterExpression(filter)
+                .SearchExpression(criteria)
+                .AggregationsExression(aggregations)
+                .SortExpression(sort);
 
-            return FindAsync(search);
+            return FindAsync(search, options);
         }
 
-        public async Task<T> GetByIdAsync(Id id, bool useCache = false, TimeSpan? expiresIn = null) {
+        public async Task<T> GetByIdAsync(Id id, ICommandOptions options = null) {
             if (String.IsNullOrEmpty(id.Value))
                 return null;
             
             T hit = null;
-            if (IsCacheEnabled && useCache)
+            if (IsCacheEnabled && options.ShouldUseCache())
                 hit = await Cache.GetAsync<T>(id, default(T)).AnyContext();
 
             if (hit != null) {
@@ -211,18 +215,18 @@ namespace Foundatio.Repositories.Elasticsearch {
             } else {
                 // we don't have the parent id so we have to do a query
                 // TODO: Ensure this is find one query is not cached.
-                var findResult = await FindOneAsync(NewQuery().WithId(id)).AnyContext();
+                var findResult = await FindOneAsync(ConfigureQuery(null).Id(id)).AnyContext();
                 if (findResult != null)
                     hit = findResult.Document;
             }
 
-            if (IsCacheEnabled && hit != null && useCache)
-                await Cache.SetAsync(id, hit, expiresIn ?? TimeSpan.FromSeconds(ElasticType.DefaultCacheExpirationSeconds)).AnyContext();
+            if (IsCacheEnabled && hit != null && options.ShouldUseCache())
+                await Cache.SetAsync(id, hit, options.GetExpiresIn()).AnyContext();
 
             return hit;
         }
 
-        public async Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, bool useCache = false, TimeSpan? expiresIn = null) {
+        public async Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, ICommandOptions options = null) {
             var idList = ids?.Distinct().Where(i => !String.IsNullOrEmpty(i)).ToList();
             if (idList == null || idList.Count == 0)
                 return EmptyList;
@@ -231,7 +235,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new NotSupportedException("Model type must implement IIdentity.");
 
             var hits = new List<T>();
-            if (IsCacheEnabled && useCache) {
+            if (IsCacheEnabled && options.ShouldUseCache()) {
                 var cacheHits = await Cache.GetAllAsync<T>(idList.Select(id => id.Value)).AnyContext();
                 hits.AddRange(cacheHits.Where(kvp => kvp.Value.HasValue).Select(kvp => kvp.Value.Value));
             }
@@ -264,26 +268,23 @@ namespace Foundatio.Repositories.Elasticsearch {
             
             // fallback to doing a find
             if (itemsToFind.Count > 0 && (HasParent || HasMultipleIndexes)) {
-                var response = await FindAsync(NewQuery().WithIds(itemsToFind.Select(id => id.Value)).WithLimit(1000)).AnyContext();
+                var response = await FindAsync(q => q.Id(itemsToFind.Select(id => id.Value)), o => o.PageLimit(1000)).AnyContext();
                 do {
                     if (response.Hits.Count > 0)
                         hits.AddRange(response.Hits.Where(h => h.Document != null).Select(h => h.Document));
                 } while (await response.NextPageAsync().AnyContext());
             }
 
-            if (IsCacheEnabled && useCache) {
+            if (IsCacheEnabled && options.ShouldUseCache()) {
                 foreach (var item in hits.OfType<IIdentity>())
-                    await Cache.SetAsync(item.Id, item, expiresIn.HasValue ? SystemClock.UtcNow.Add(expiresIn.Value) : SystemClock.UtcNow.AddSeconds(ElasticType.DefaultCacheExpirationSeconds)).AnyContext();
+                    await Cache.SetAsync(item.Id, item, options.GetExpiresIn()).AnyContext();
             }
 
             return hits.AsReadOnly();
         }
 
-        public Task<FindResults<T>> GetAllAsync(PagingOptions paging = null) {
-            var search = NewQuery()
-                .WithPaging(paging);
-
-            return FindAsync(search);
+        public Task<FindResults<T>> GetAllAsync(ICommandOptions options = null) {
+            return FindAsync(null, options);
         }
 
         public async Task<bool> ExistsAsync(Id id) {
@@ -302,18 +303,22 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 return response.Exists;
             } else {
-                return await ExistsAsync(new Query().WithId(id)).AnyContext();
+                return await ExistsAsync(q => q.Id(id)).AnyContext();
             }
+        }
+
+        protected Task<bool> ExistsAsync(RepositoryQueryDescriptor<T> query) {
+            return ExistsAsync(query.Configure());
         }
 
         protected async Task<bool> ExistsAsync(IRepositoryQuery query) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
-            var queryOptions = GetQueryOptions();
-            await OnBeforeQueryAsync(query, queryOptions, typeof(T)).AnyContext();
+            var options = ConfigureOptions(null);
+            await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
-            var searchDescriptor = (await CreateSearchDescriptorAsync(query, queryOptions).AnyContext()).Size(1);
+            var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
             searchDescriptor.DocvalueFields("id");
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
@@ -330,18 +335,22 @@ namespace Foundatio.Repositories.Elasticsearch {
             return response.HitsMetaData.Total > 0;
         }
 
-        protected async Task<CountResult> CountAsync(IRepositoryQuery query) {
+        protected Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
+            return CountAsync(query.Configure(), options.Configure());
+        }
+
+        protected async Task<CountResult> CountAsync(IRepositoryQuery query, ICommandOptions options = null) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
-            var result = await GetCachedQueryResultAsync<CountResult>(query, "count").AnyContext();
+            var result = await GetCachedQueryResultAsync<CountResult>(options, "count").AnyContext();
             if (result != null)
                 return result;
 
-            var queryOptions = GetQueryOptions();
-            await OnBeforeQueryAsync(query, queryOptions, typeof(T)).AnyContext();
+            options = ConfigureOptions(options);
+            await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
-            var searchDescriptor = await CreateSearchDescriptorAsync(query, queryOptions).AnyContext();
+            var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
             searchDescriptor.Size(0);
 
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
@@ -357,11 +366,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             result = new CountResult(response.Total, response.ToAggregations());
-            await SetCachedQueryResultAsync(query, result, "count").AnyContext();
+            await SetCachedQueryResultAsync(options, result, "count").AnyContext();
             return result;
         }
 
-        public async Task<long> CountAsync() {
+        public async Task<long> CountAsync(ICommandOptions options = null) {
             var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null))).Type(ElasticType.Name)).AnyContext();
             _logger.Trace(() => response.GetRequest());
 
@@ -377,17 +386,23 @@ namespace Foundatio.Repositories.Elasticsearch {
             return response.Count;
         }
 
-        public Task<CountResult> CountBySearchAsync(IRepositoryQuery systemFilter, string filter = null, string aggregations = null) {
-            var search = NewQuery()
-                .WithSystemFilter(systemFilter)
-                .WithFilter(filter)
-                .WithAggregations(aggregations);
+        public Task<CountResult> CountBySearchAsync(ISystemFilter systemFilter, string filter = null, string aggregations = null, ICommandOptions options = null) {
+            var search = ConfigureQuery(null)
+                .MergeFrom(systemFilter?.GetQuery())
+                .FilterExpression(filter)
+                .AggregationsExression(aggregations);
 
-            return CountAsync(search);
+            return CountAsync(search, options);
         }
 
-        protected virtual IElasticQuery NewQuery() {
-            return new ElasticQuery();
+        protected virtual IRepositoryQuery ConfigureQuery(IRepositoryQuery query) {
+            if (query == null)
+                query = new RepositoryQuery<T>();
+
+            if (DefaultExcludes.Count > 0 && query.GetExcludes().Count == 0)
+                query.Exclude(DefaultExcludes);
+
+            return query;
         }
 
         public bool IsCacheEnabled { get; private set; } = true;
@@ -403,7 +418,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             _scopedCacheClient = new ScopedCacheClient(new NullCacheClient(), EntityTypeName);
         }
 
-        protected virtual async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>> documents) {
+        protected virtual async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options = null) {
             if (!IsCacheEnabled)
                 return;
 
@@ -419,7 +434,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
         }
 
-        public Task InvalidateCacheAsync(T document) {
+        public Task InvalidateCacheAsync(T document, ICommandOptions options = null) {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
 
@@ -429,7 +444,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return InvalidateCacheAsync(new[] { document });
         }
 
-        public Task InvalidateCacheAsync(IEnumerable<T> documents) {
+        public Task InvalidateCacheAsync(IEnumerable<T> documents, ICommandOptions options = null) {
             var docs = documents?.ToList();
             if (docs == null || docs.Any(d => d == null))
                 throw new ArgumentNullException(nameof(documents));
@@ -437,14 +452,14 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (!IsCacheEnabled)
                 return TaskHelper.Completed();
 
-            return InvalidateCacheAsync(docs.Select(d => new ModifiedDocument<T>(d, null)).ToList());
+            return InvalidateCacheAsync(docs.Select(d => new ModifiedDocument<T>(d, null)).ToList(), options);
         }
 
-        protected Task<SearchDescriptor<T>> CreateSearchDescriptorAsync(IRepositoryQuery query, IQueryOptions options) {
+        protected Task<SearchDescriptor<T>> CreateSearchDescriptorAsync(IRepositoryQuery query, ICommandOptions options) {
             return ConfigureSearchDescriptorAsync(null, query, options);
         }
 
-        protected async Task<SearchDescriptor<T>> ConfigureSearchDescriptorAsync(SearchDescriptor<T> search, IRepositoryQuery query, IQueryOptions options) {
+        protected async Task<SearchDescriptor<T>> ConfigureSearchDescriptorAsync(SearchDescriptor<T> search, IRepositoryQuery query, ICommandOptions options) {
             if (search == null)
                 search = new SearchDescriptor<T>();
 
@@ -462,13 +477,16 @@ namespace Foundatio.Repositories.Elasticsearch {
             return search;
         }
 
-        protected virtual IQueryOptions GetQueryOptions() {
-            return new ElasticQueryOptions(ElasticType) {
-                DefaultExcludes = DefaultExcludes
-            };
+        protected ICommandOptions ConfigureOptions(ICommandOptions options) {
+            if (options == null)
+                options = new CommandOptions<T>();
+
+            options.ElasticType(ElasticType);
+
+            return options;
         }
 
-        protected string[] GetIndexesByQuery(IRepositoryQuery query) {
+        protected string[] GetIndexesByQuery(IRepositoryQuery query, ICommandOptions options = null) {
             return HasMultipleIndexes ? TimeSeriesType.GetIndexesByQuery(query) : new[] { ElasticIndex.Name };
         }
 
@@ -479,12 +497,11 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected Func<T, string> GetParentIdFunc => HasParent ? d => ChildType.GetParentId(d) : (Func<T, string>)null;
         protected Func<T, string> GetDocumentIndexFunc => HasMultipleIndexes ? d => TimeSeriesType.GetDocumentIndex(d) : (Func<T, string>)(d => ElasticIndex.Name);
 
-        protected async Task<TResult> GetCachedQueryResultAsync<TResult>(IRepositoryQuery query, string cachePrefix = null, string cacheSuffix = null) {
-            var cachedQuery = query as ICachableQuery;
-            if (!IsCacheEnabled || cachedQuery == null || !cachedQuery.ShouldUseCache())
+        protected async Task<TResult> GetCachedQueryResultAsync<TResult>(ICommandOptions options, string cachePrefix = null, string cacheSuffix = null) {
+            if (!IsCacheEnabled || options == null || !options.ShouldUseCache())
                 return default(TResult);
 
-            string cacheKey = cachePrefix != null ? cachePrefix + ":" + cachedQuery.CacheKey : cachedQuery.CacheKey;
+            string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey();
             cacheKey = cacheSuffix != null ? cacheKey + ":" + cacheSuffix : cacheKey;
             var result = await Cache.GetAsync<TResult>(cacheKey, default(TResult)).AnyContext();
             _logger.Trace(() => $"Cache {(result != null ? "hit" : "miss")}: type={ElasticType.Name} key={cacheKey}");
@@ -492,14 +509,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             return result;
         }
 
-        protected async Task SetCachedQueryResultAsync<TResult>(IRepositoryQuery query, TResult result, string cachePrefix = null, string cacheSuffix = null) {
-            var cachedQuery = query as ICachableQuery;
-            if (!IsCacheEnabled || result == null || cachedQuery == null || !cachedQuery.ShouldUseCache())
+        protected async Task SetCachedQueryResultAsync<TResult>(ICommandOptions options, TResult result, string cachePrefix = null, string cacheSuffix = null) {
+            if (!IsCacheEnabled || result == null || options == null || !options.ShouldUseCache())
                 return;
 
-            string cacheKey = cachePrefix != null ? cachePrefix + ":" + cachedQuery.CacheKey : cachedQuery.CacheKey;
+            string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey();
             cacheKey = cacheSuffix != null ? cacheKey + ":" + cacheSuffix : cacheKey;
-            await Cache.SetAsync(cacheKey, result, cachedQuery.GetCacheExpirationDateUtc() ?? SystemClock.UtcNow.AddSeconds(ElasticType.DefaultCacheExpirationSeconds)).AnyContext();
+            await Cache.SetAsync(cacheKey, result, options.GetExpiresIn()).AnyContext();
             _logger.Trace(() => $"Set cache: type={ElasticType.Name} key={cacheKey}");
         }
 
@@ -543,12 +559,11 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         public AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; } = new AsyncEvent<BeforeQueryEventArgs<T>>();
 
-        private async Task OnBeforeQueryAsync(IRepositoryQuery query, IQueryOptions options, Type resultType) {
-            var identityQuery = query as IIdentityQuery;
-            if (SupportsSoftDeletes && IsCacheEnabled && identityQuery != null) {
+        private async Task OnBeforeQueryAsync(IRepositoryQuery query, ICommandOptions options, Type resultType) {
+            if (SupportsSoftDeletes && IsCacheEnabled) {
                 var deletedIds = await Cache.GetSetAsync<string>("deleted").AnyContext();
                 if (deletedIds.HasValue)
-                    identityQuery.WithExcludedIds(deletedIds.Value);
+                    query.ExcludedId(deletedIds.Value);
             }
 
             if (BeforeQuery == null)

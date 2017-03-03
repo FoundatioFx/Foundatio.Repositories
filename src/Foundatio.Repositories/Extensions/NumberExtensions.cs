@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace Foundatio.Repositories.Extensions {
+﻿namespace Foundatio.Repositories.Extensions {
     public static class NumericExtensions {
         public static string ToOrdinal(this int num) {
             switch (num % 100) {
