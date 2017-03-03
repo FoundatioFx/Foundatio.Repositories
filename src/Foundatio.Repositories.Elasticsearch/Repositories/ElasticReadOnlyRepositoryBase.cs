@@ -24,6 +24,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected static readonly bool HasVersion = typeof(IVersioned).IsAssignableFrom(typeof(T));
         protected static readonly string EntityTypeName = typeof(T).Name;
         protected static readonly IReadOnlyCollection<T> EmptyList = new List<T>(0).AsReadOnly();
+        protected readonly string _idField = null;
 
         protected readonly ILogger _logger;
         protected readonly IElasticClient _client;
@@ -32,6 +33,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         protected ElasticReadOnlyRepositoryBase(IIndexType<T> indexType) {
             ElasticType = indexType;
+            if (HasIdentity)
+                _idField = indexType.GetFieldName((T doc) => ((IIdentity)doc).Id) ?? "id";
             _client = indexType.Configuration.Client;
             SetCache(indexType.Configuration.Cache);
             _logger = indexType.Configuration.LoggerFactory.CreateLogger(GetType());
@@ -81,12 +84,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                     return new FindResults<TResult>();
 
                 if (options != null)
-                    options.PageNumber(!options.ShouldUsePage() ? 2 : options.GetPage() + 1);
+                    options.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
 
                 return await FindAsAsync<TResult>(query, options).AnyContext();
             };
 
-            string cacheSuffix = options?.ShouldUseLimit() == true ? String.Concat(options.GetPage().ToString(), ":", options.GetLimit().ToString()) : String.Empty;
+            string cacheSuffix = options?.HasPageLimit() == true ? String.Concat(options.GetPage().ToString(), ":", options.GetLimit().ToString()) : String.Empty;
 
             FindResults<TResult> result;
             if (allowCaching) {
@@ -124,7 +127,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 // TODO: Is there a better way to figure out if you are done scrolling?
                 result.HasMore = response.Hits.Count() >= options.GetLimit();
                 ((IGetNextPage<TResult>)result).GetNextPageFunc = getNextPageFunc;
-            } else if (options.ShouldUseLimit() == true) {
+            } else if (options.HasPageLimit() == true) {
                 result = response.ToFindResults(options.GetLimit());
                 result.HasMore = response.Hits.Count() > options.GetLimit();
                 ((IGetNextPage<TResult>)result).GetNextPageFunc = getNextPageFunc;
@@ -319,7 +322,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
             var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
-            searchDescriptor.DocvalueFields("id");
+            searchDescriptor.DocvalueFields(_idField);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.Trace(() => response.GetRequest());
 

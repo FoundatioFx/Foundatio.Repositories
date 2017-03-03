@@ -21,7 +21,7 @@
 
 namespace Foundatio.Repositories.Options {
     public static class ReadPagingOptionsExtensions {
-        public static bool ShouldUseLimit(this ICommandOptions options) {
+        public static bool HasPageLimit(this ICommandOptions options) {
             return options.SafeHasOption(SetPagingOptionsExtensions.PageLimitKey);
         }
 
@@ -34,7 +34,7 @@ namespace Foundatio.Repositories.Options {
             return limit;
         }
 
-        public static bool ShouldUsePage(this ICommandOptions options) {
+        public static bool HasPageNumber(this ICommandOptions options) {
             return options.SafeHasOption(SetPagingOptionsExtensions.PageNumberKey);
         }
 
@@ -43,11 +43,11 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static bool ShouldUseSkip(this ICommandOptions options) {
-            return options.ShouldUseLimit() && options.GetPage() > 1;
+            return options.HasPageLimit() && options.GetPage() > 1;
         }
 
         public static int GetSkip(this ICommandOptions options) {
-            if (!options.ShouldUseLimit() && !options.ShouldUsePage())
+            if (!options.HasPageLimit() && !options.HasPageNumber())
                 return 0;
 
             int limit = options.GetLimit();

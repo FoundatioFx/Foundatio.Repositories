@@ -633,9 +633,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             const int COUNT = 1000 * 10;
             int added = 0;
             do {
-                await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(1000), o => o.ImmediateConsistency(true));
+                await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(1000));
                 added += 1000;
             } while (added < COUNT);
+            await _client.RefreshAsync(Indices.All);
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Trace);
 
             var tasks = Enumerable.Range(1, 6).Select(async i => {
@@ -643,6 +644,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             });
 
             await Task.WhenAll(tasks);
+            var events = await _dailyRepository.GetAllAsync();
+            foreach (var ev in events.Documents)
+                Assert.Equal(21, ev.Value);
         }
 
         [Fact]

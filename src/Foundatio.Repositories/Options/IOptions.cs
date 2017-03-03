@@ -126,13 +126,21 @@ namespace Foundatio.Repositories.Options {
             return options;
         }
 
-        public static T Clone<T>(this IOptions source) where T: IOptions, new() {
+        public static T Clone<T>(this IOptions source) where T : IOptions, new() {
             var clone = new T();
 
             foreach (var kvp in source.Values)
                 clone.Values.Set(kvp.Key, kvp.Value);
 
             return clone;
+        }
+
+        public static ICommandOptions Clone(this ICommandOptions source) {
+            return source.Clone<CommandOptions>();
+        }
+
+        public static IRepositoryQuery Clone(this IRepositoryQuery source) {
+            return source.Clone<RepositoryQuery>();
         }
 
         public static T MergeFrom<T>(this T target, IOptions source, bool overrideExisting = true) where T : IOptions {

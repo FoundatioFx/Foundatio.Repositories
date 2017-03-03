@@ -26,7 +26,6 @@ namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IRepository<T> where T : class, IIdentity, new() {
         protected readonly IValidator<T> _validator;
         protected readonly IMessagePublisher _messagePublisher;
-        private readonly Field _idField = new Field(typeof(T).GetProperty("Id"));
 
         protected ElasticRepositoryBase(IIndexType<T> indexType, IValidator<T> validator = null) : base(indexType) {
             _validator = validator;
@@ -327,7 +326,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     }
 
                     return true;
-                }, options).AnyContext();
+                }, options.Clone()).AnyContext();
             } else {
                 string script = update as string;
                 if (!IsCacheEnabled && script != null) {
@@ -352,8 +351,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                     affectedRecords += response.Updated + response.Noops;
                     Debug.Assert(response.Total == affectedRecords, "Unable to update all documents");
                 } else {
-                    if (!query.GetIncludes().Contains("id"))
-                        query.Include("id");
+                    if (!query.GetIncludes().Contains(_idField))
+                        query.Include(_idField);
 
                     affectedRecords += await BatchProcessAsync(query, async results => {
                         var bulkResult = await _client.BulkAsync(b => {
@@ -551,6 +550,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             options = ConfigureOptions(options);
             options.SnapshotPaging();
+            if (!options.HasPageLimit())
+                options.PageLimit(500);
             if (!options.HasSnapshotLifetime())
                 options.SnapshotPagingLifetime(TimeSpan.FromMinutes(5));
 
