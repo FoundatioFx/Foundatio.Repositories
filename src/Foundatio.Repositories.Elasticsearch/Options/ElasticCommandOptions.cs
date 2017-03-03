@@ -7,24 +7,7 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories {
-    public enum Consistency {
-        Eventual,
-        Immediate,
-        Wait
-    }
-
     public static class SetElasticOptionsExtensions {
-        internal const string ConsistencyModeKey = "@ConsistencyMode";
-        public static T Consistency<T>(this T options, Consistency mode) where T : ICommandOptions {
-            options.Values.Set(ConsistencyModeKey, mode);
-            return options;
-        }
-
-        public static T ImmediateConsistency<T>(this T options, bool shouldWait = false) where T : ICommandOptions {
-            options.Values.Set(ConsistencyModeKey, shouldWait ? Repositories.Consistency.Wait : Repositories.Consistency.Immediate);
-            return options;
-        }
-
         internal const string SnapshotPagingKey = "@SnapshotPaging";
         internal const string SnapshotPagingScrollIdKey = "@SnapshotPagingScrollId";
         public static T SnapshotPaging<T>(this T options) where T : ICommandOptions {
@@ -103,7 +86,7 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static Refresh GetRefreshMode(this ICommandOptions options, Consistency defaultMode = Consistency.Eventual) {
-            return ToRefresh(options.SafeGetOption<Consistency>(SetElasticOptionsExtensions.ConsistencyModeKey, defaultMode));
+            return ToRefresh(options.GetConsistency(defaultMode));
         }
 
         private static Refresh ToRefresh(Consistency mode) {
