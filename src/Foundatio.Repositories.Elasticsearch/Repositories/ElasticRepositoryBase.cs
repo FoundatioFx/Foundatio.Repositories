@@ -512,7 +512,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return await BatchProcessAsync(query, async results => {
                     await RemoveAsync(results.Documents, options).AnyContext();
                     return true;
-                }).AnyContext();
+                }, options.Clone()).AnyContext();
             }
 
             var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(ElasticType.Index.Name, ElasticType.Name) {

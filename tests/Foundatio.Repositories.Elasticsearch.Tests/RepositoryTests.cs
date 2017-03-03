@@ -830,14 +830,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Log.SetLogLevel<IdentityRepository>(LogLevel.Trace);
 
             var disposables = new List<IDisposable>(2);
-            var countdownEvent = new AsyncCountdownEvent(200);
+            var countdownEvent = new AsyncCountdownEvent(COUNT * 2);
 
             try {
                 disposables.Add(_identityRepository.DocumentsRemoving.AddSyncHandler((o, args) => {
-                    countdownEvent.Signal();
+                    countdownEvent.Signal(args.Documents.Count);
                 }));
                 disposables.Add(_identityRepository.DocumentsRemoved.AddSyncHandler((o, args) => {
-                    countdownEvent.Signal();
+                    countdownEvent.Signal(args.Documents.Count);
                 }));
 
                 var sw = Stopwatch.StartNew();
