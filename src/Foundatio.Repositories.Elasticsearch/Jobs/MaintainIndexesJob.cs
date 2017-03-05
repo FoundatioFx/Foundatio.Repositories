@@ -21,7 +21,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             _logger = loggerFactory.CreateLogger(GetType());
         }
 
-        public async Task<JobResult> RunAsync(CancellationToken cancellationToken = default(CancellationToken)) {
+        public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default(CancellationToken)) {
             _logger.Info("Starting index maintenance...");
 
             var sw = Stopwatch.StartNew();

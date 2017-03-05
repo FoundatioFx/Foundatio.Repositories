@@ -42,7 +42,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             }));
         }
 
-        public async Task<JobResult> RunAsync(CancellationToken cancellationToken = default(CancellationToken)) {
+        public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default(CancellationToken)) {
             _logger.Info("Starting index cleanup...");
 
             var sw = Stopwatch.StartNew();
