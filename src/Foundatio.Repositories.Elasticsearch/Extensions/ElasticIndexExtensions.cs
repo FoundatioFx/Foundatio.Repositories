@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Exceptionless.DateTimeExtensions;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Utility;
@@ -201,18 +202,22 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             bool supportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(typeof(T));
 
             if (hasIdentity)
-                pd.Keyword(p => p.Name(d => (d as IIdentity).Id));
+                pd.Keyword(p => p.Name(d => ((IIdentity)d).Id));
 
             if (supportsSoftDeletes)
-                pd.Boolean(p => p.Name(d => (d as ISupportSoftDeletes).IsDeleted));
+                pd.Boolean(p => p.Name(d => ((ISupportSoftDeletes)d).IsDeleted).Alias("deleted"));
 
             if (hasCreatedDate)
-                pd.Date(p => p.Name(d => (d as IHaveCreatedDate).CreatedUtc));
+                pd.Date(p => p.Name(d => ((IHaveCreatedDate)d).CreatedUtc).Alias("created"));
 
             if (hasDates)
-                pd.Date(p => p.Name(d => (d as IHaveDates).UpdatedUtc));
+                pd.Date(p => p.Name(d => ((IHaveDates)d).UpdatedUtc).Alias("updated"));
 
             return pd;
+        }
+
+        public static Nest.TextPropertyDescriptor<T> AddKeywordField<T>(this Nest.TextPropertyDescriptor<T> descriptor) where T : class {
+            return descriptor.Fields(f => f.Keyword(s => s.Name("keyword").IgnoreAbove(256)));
         }
     }
 }

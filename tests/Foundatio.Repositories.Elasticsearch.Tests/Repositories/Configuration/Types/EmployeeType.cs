@@ -23,18 +23,18 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Keyword(f => f.Name(e => e.Id))
                     .Keyword(f => f.Name(e => e.CompanyId))
                     .Keyword(f => f.Name(e => e.CompanyName))
-                    .Text(f => f.Name(e => e.Name).Fields(f1 => f1.Keyword(s => s.Name("keyword").IgnoreAbove(256))))
+                    .Text(f => f.Name(e => e.Name).AddKeywordField())
                     .Scalar(f => f.Age, f => f.Name(e => e.Age).Alias("aliasedage"))
                     .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview).Alias("next"))
                     .GeoPoint(f => f.Name(e => e.Location))
                     .Object<Dictionary<string, object>>(f => f.Name(e => e.Data).Properties(p1 => p1
                         .Object<object>(f2 => f2.Name("@user_meta").Properties(p2 => p2
-                            .Text(f3 => f3.Name("twitter_id").RootAlias("twitter").IncludeInAll().Boost(1.1).Fields(f4 => f4.Keyword(f5 => f5.Name("keyword"))))
+                            .Text(f3 => f3.Name("twitter_id").RootAlias("twitter").IncludeInAll().Boost(1.1).AddKeywordField())
                             .Number(f3 => f3.Name("twitter_followers").RootAlias("followers").IncludeInAll().Boost(1.1))))
                         ))
                     .Nested<PeerReview>(f => f.Name(e => e.PeerReviews).Properties(p1 => p1
                         .Keyword(f2 => f2.Name(p2 => p2.ReviewerEmployeeId))
-                        .Number(f2 => f2.Name(p3 => p3.Rating).Type(NumberType.Integer))))
+                        .Scalar(p3 => p3.Rating, f2 => f2.Name(p3 => p3.Rating))))
                     ));
         }
 
@@ -64,7 +64,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Keyword(f => f.Name(e => e.Id))
                     .Keyword(f => f.Name(e => e.CompanyId))
                     .Keyword(f => f.Name(e => e.CompanyName))
-                    .Text(f => f.Name(e => e.Name).Fields(f1 => f1.Keyword(s => s.Name("keyword").IgnoreAbove(256))))
+                    .Text(f => f.Name(e => e.Name).AddKeywordField())
                     .Scalar(f => f.Age, f => f.Name(e => e.Age))
                     .Scalar(f => f.YearsEmployed, f => f.Name(e => e.YearsEmployed))
                     .Date(f => f.Name(e => e.LastReview))
@@ -107,7 +107,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Keyword(f => f.Name(e => e.Id))
                     .Keyword(f => f.Name(e => e.CompanyId))
                     .Keyword(f => f.Name(e => e.CompanyName))
-                    .Text(f => f.Name(e => e.Name).Fields(f1 => f1.Keyword(s => s.Name("keyword").IgnoreAbove(256))))
+                    .Text(f => f.Name(e => e.Name).AddKeywordField())
                     .Scalar(f => f.Age, f => f.Name(e => e.Age))
                     .Date(f => f.Name(e => e.LastReview))
                     .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview).Alias("next"))
@@ -131,7 +131,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Keyword(f => f.Name(e => e.Id))
                     .Keyword(f => f.Name(e => e.CompanyId))
                     .Keyword(f => f.Name(e => e.CompanyName))
-                    .Text(f => f.Name(e => e.Name).Fields(f1 => f1.Keyword(s => s.Name("keyword").IgnoreAbove(256))))
+                    .Text(f => f.Name(e => e.Name).AddKeywordField())
                     .Scalar(f => f.Age, f => f.Name(e => e.Age))
                     .Date(f => f.Name(e => e.LastReview))
                     .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview).Alias("next"))
