@@ -12,7 +12,13 @@ namespace Foundatio.Repositories {
 
         internal const string CacheKeyKey = "@CacheKey";
         public static T CacheKey<T>(this T options, string cacheKey) where T : ICommandOptions {
+            options.Values.Set(CacheEnabledKey, true);
             return options.BuildOption(CacheKeyKey, cacheKey);
+        }
+
+        internal const string DefaultCacheKeyKey = "@DefaultCacheKey";
+        public static T DefaultCacheKey<T>(this T options, string defaultCacheKey) where T : ICommandOptions {
+            return options.BuildOption(DefaultCacheKeyKey, defaultCacheKey);
         }
 
         internal const string CacheExpiresInKey = "@CacheExpiresIn";
@@ -43,10 +49,14 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static bool HasCacheKey(this ICommandOptions options) {
-            return options.SafeGetOption<bool>(SetCacheOptionsExtensions.CacheKeyKey);
+            return options.Values.Contains(SetCacheOptionsExtensions.CacheKeyKey) || options.Values.Contains(SetCacheOptionsExtensions.DefaultCacheKeyKey);
         }
 
-        public static string GetCacheKey(this ICommandOptions options) {
+        public static string GetCacheKey(this ICommandOptions options, string defaultCacheKey = null) {
+            return options.SafeGetOption<string>(SetCacheOptionsExtensions.CacheKeyKey, defaultCacheKey ?? options.GetDefaultCacheKey());
+        }
+
+        public static string GetDefaultCacheKey(this ICommandOptions options) {
             return options.SafeGetOption<string>(SetCacheOptionsExtensions.CacheKeyKey, null);
         }
 
