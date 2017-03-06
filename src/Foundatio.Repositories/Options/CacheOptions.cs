@@ -39,7 +39,7 @@ namespace Foundatio.Repositories {
 namespace Foundatio.Repositories.Options {
     public static class ReadCacheOptionsExtensions {
         public static bool ShouldUseCache(this ICommandOptions options) {
-            return options.SafeHasOption(SetCacheOptionsExtensions.CacheKeyKey) || options.SafeGetOption(SetCacheOptionsExtensions.CacheEnabledKey, false);
+            return options.SafeGetOption(SetCacheOptionsExtensions.CacheEnabledKey, false);
         }
 
         public static bool HasCacheKey(this ICommandOptions options) {
