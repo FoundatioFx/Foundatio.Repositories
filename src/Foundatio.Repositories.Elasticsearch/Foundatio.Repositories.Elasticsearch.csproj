@@ -7,6 +7,7 @@
     <Compile Include="..\Foundatio.Repositories\Extensions\TaskExtensions.cs" Link="Extensions\TaskExtensions.cs" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="AsyncFixer" Version="1.1.5" PrivateAssets="All" />
     <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="5.0.274-pre" />
   </ItemGroup>
   <ItemGroup>

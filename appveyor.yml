@@ -1,5 +1,5 @@
 ﻿version: 5.0.{build}
-os: Visual Studio 2015
+os: Visual Studio 2017
 clone_depth: 2
 configuration: Release
 
@@ -10,36 +10,30 @@ environment:
   JAVA_HOME: C:\Progra~1\Java\jdk1.8.0
 
 init:
-  - git config --global core.autocrlf true
+  - git config --global core.autocrlf input
   - ps: $env:GIT_HASH=$env:APPVEYOR_REPO_COMMIT.Substring(0, 10)
   - ps: If ("$env:APPVEYOR_REPO_BRANCH" -ne "master") { $env:VERSION_SUFFIX="-pre" }
 
 install:
-  - choco install gitlink
   - ps: .\build\Start-ElasticSearch.ps1 -NodeCount 3 -StartKibana $false
 
-assembly_info:
-  patch: true
-  file: AssemblyInfo.*
-  assembly_version: "{version}.0"
-  assembly_file_version: "{version}.0"
-  assembly_informational_version: "{version}$(VERSION_SUFFIX) $(GIT_HASH)"
-
 before_build:
-  - nuget restore
-  - ps: .\build\Replace-FileString -Pattern '\$version\$' -Replacement "$($env:appveyor_build_version)$($env:VERSION_SUFFIX)" -Path src\**\*.nuspec -Overwrite
+  - ps: |
+      [xml]$versionXml = Get-Content .\build\version.props
+      $versionXml.Project.PropertyGroup.VersionPrefix = "$($env:APPVEYOR_BUILD_VERSION)"
+      $versionXml.Project.PropertyGroup.VersionSuffix = "$($env:VERSION_SUFFIX)"
+      $versionXml.Save("$pwd\build\version.props")
+  - appveyor-retry dotnet restore -v Minimal
 
-build:
-  project: Foundatio.Repositories.sln
-  verbosity: minimal
-  publish_nuget: true
-  publish_nuget_symbols: true
-
-before_package:
-  - ps: if (-not $env:APPVEYOR_PULL_REQUEST_NUMBER) { & "GitLink" .\ }
+build_script:
+  - ps: dotnet pack -c Release
 
 #on_failure:
 #  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
+
+artifacts:
+  - path: artifacts\*.nupkg
+    name: ReleaseArtifacts
 
 nuget:
   account_feed: true
@@ -52,7 +46,7 @@ deploy:
     on:
       branch: master
   - provider: Environment
-    name: NuGet
+    name: NuGet 5.x
     on:
       branch: feature/elastic5
   - provider: GitHub
