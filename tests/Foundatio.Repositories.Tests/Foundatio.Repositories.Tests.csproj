@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net46</TargetFramework>
+    <IsPackable>False</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Foundatio.Logging.Xunit" Version="4.3.1317" />

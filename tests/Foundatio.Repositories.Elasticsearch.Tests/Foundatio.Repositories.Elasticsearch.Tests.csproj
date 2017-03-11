@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net46</TargetFramework>
+    <IsPackable>False</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Exceptionless.RandomData" Version="1.1.27" />
