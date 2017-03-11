@@ -38,9 +38,9 @@ namespace Foundatio.Repositories.Migrations {
             }
         }
 
-        private async Task MarkMigrationStartedAsync(int version) {
+        private Task MarkMigrationStartedAsync(int version) {
             _logger.Info($"Starting migration for version {version}...");
-            await _migrationRepository.AddAsync(new Migration { Version = version, StartedUtc = SystemClock.UtcNow }).AnyContext();
+            return _migrationRepository.AddAsync(new Migration { Version = version, StartedUtc = SystemClock.UtcNow });
         }
 
         private async Task MarkMigrationCompleteAsync(int version) {

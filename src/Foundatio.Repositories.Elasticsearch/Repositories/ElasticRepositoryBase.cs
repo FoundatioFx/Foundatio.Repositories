@@ -415,11 +415,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             return affectedRecords;
         }
 
-        public async Task RemoveAsync(Id id, ICommandOptions options = null) {
+        public Task RemoveAsync(Id id, ICommandOptions options = null) {
             if (String.IsNullOrEmpty(id))
                 throw new ArgumentNullException(nameof(id));
 
-            await RemoveAsync((Ids)id, options).AnyContext();
+            return RemoveAsync((Ids)id, options);
         }
 
         public async Task RemoveAsync(Ids ids, ICommandOptions options = null) {

@@ -26,9 +26,9 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             return _lockProvider.AcquireAsync(String.Join(":", "reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex), TimeSpan.FromMinutes(20), cancellationToken);
         }
 
-        public override async Task HandleItemAsync(WorkItemContext context) {
+        public override Task HandleItemAsync(WorkItemContext context) {
             var workItem = context.GetData<ReindexWorkItem>();
-            await _reindexer.ReindexAsync(workItem, context.ReportProgressAsync).AnyContext();
+            return _reindexer.ReindexAsync(workItem, context.ReportProgressAsync);
         }
     }
 }

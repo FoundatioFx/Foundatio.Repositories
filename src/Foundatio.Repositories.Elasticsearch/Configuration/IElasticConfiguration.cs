@@ -156,7 +156,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 await idx.MaintainAsync().AnyContext();
         }
 
-        public async Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null) {
+        public Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null) {
             if (indexes == null)
                 indexes = Indexes;
 
@@ -164,7 +164,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             foreach (var idx in indexes)
                 tasks.Add(idx.DeleteAsync());
 
-            await Task.WhenAll(tasks).AnyContext();
+            return Task.WhenAll(tasks);
         }
 
         public async Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func<int, string, Task> progressCallbackAsync = null) {
