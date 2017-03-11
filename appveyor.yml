@@ -36,7 +36,7 @@ artifacts:
     name: ReleaseArtifacts
 
 nuget:
-  account_feed: true
+#  account_feed: true
   project_feed: true
   disable_publish_on_pr: true
 
@@ -46,7 +46,7 @@ deploy:
     on:
       branch: master
   - provider: Environment
-    name: NuGet 5.x
+    name: NuGet
     on:
       branch: feature/elastic5
   - provider: GitHub

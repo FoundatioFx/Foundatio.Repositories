@@ -8,7 +8,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="AsyncFixer" Version="1.1.5" PrivateAssets="All" />
-    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="5.0.274-pre" />
+    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="5.0.292-pre" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Foundatio.Repositories\Foundatio.Repositories.csproj" />
