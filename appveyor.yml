@@ -12,7 +12,7 @@ environment:
 init:
   - git config --global core.autocrlf input
   - ps: $env:GIT_HASH=$env:APPVEYOR_REPO_COMMIT.Substring(0, 10)
-  - ps: If ("$env:APPVEYOR_REPO_BRANCH" -ne "master") { $env:VERSION_SUFFIX="-pre" }
+  - ps: If ("$env:APPVEYOR_REPO_BRANCH" -ne "master") { $env:VERSION_SUFFIX="pre" }
 
 install:
   - ps: .\build\Start-ElasticSearch.ps1 -NodeCount 3 -StartKibana $false
