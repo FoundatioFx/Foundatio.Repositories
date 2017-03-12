@@ -222,7 +222,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.Equal(log, args.Documents.First().Value);
                     countdownEvent.Signal();
                 }));
-                _messgeBus.Subscribe<EntityChanged>((msg, ct) => {
+                await _messgeBus.SubscribeAsync<EntityChanged>((msg, ct) => {
                     Assert.Equal(nameof(LogEvent), msg.Type);
                     Assert.Equal(log.Id, msg.Id);
                     Assert.Equal(ChangeType.Saved, msg.ChangeType);
@@ -272,7 +272,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.Equal(log, args.Documents.First().Value);
                     saveCountdownEvent.Signal();
                 }));
-                _messgeBus.Subscribe<EntityChanged>((msg, ct) => {
+                await _messgeBus.SubscribeAsync<EntityChanged>((msg, ct) => {
                     Assert.Equal(nameof(LogEvent), msg.Type);
                     Assert.Equal(log.Id, msg.Id);
                     Assert.Equal(ChangeType.Saved, msg.ChangeType);
