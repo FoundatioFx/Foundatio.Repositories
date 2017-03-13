@@ -197,7 +197,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public async Task<T> GetByIdAsync(Id id, ICommandOptions options = null) {
             if (String.IsNullOrEmpty(id.Value))
                 return null;
-            
+
             T hit = null;
             if (IsCacheEnabled && options.ShouldUseCache())
                 hit = await Cache.GetAsync<T>(id, default(T)).AnyContext();
@@ -233,7 +233,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var idList = ids?.Distinct().Where(i => !String.IsNullOrEmpty(i)).ToList();
             if (idList == null || idList.Count == 0)
                 return EmptyList;
-            
+
             if (!HasIdentity)
                 throw new NotSupportedException("Model type must implement IIdentity.");
 
@@ -268,7 +268,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 hits.Add(((IMultiGetHit<T>)doc).ToFindHit().Document);
                 itemsToFind.Remove(doc.Id);
             }
-            
+
             // fallback to doing a find
             if (itemsToFind.Count > 0 && (HasParent || HasMultipleIndexes)) {
                 var response = await FindAsync(q => q.Id(itemsToFind.Select(id => id.Value)), o => o.PageLimit(1000)).AnyContext();

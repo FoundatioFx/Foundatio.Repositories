@@ -277,7 +277,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ArgumentNullException(nameof(update));
 
             options = ConfigureOptions(options);
-            
+
             long affectedRecords = 0;
             string pipeline = ElasticType is IHavePipelinedIndexType ? ((IHavePipelinedIndexType)ElasticType).Pipeline : null;
             var patch = update as PatchDocument;
@@ -498,6 +498,10 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         protected List<Field> FieldsRequiredForRemove { get; } = new List<Field>();
 
+        protected Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
+            return RemoveAllAsync(query.Configure(), options.Configure());
+        }
+
         protected async Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions options = null) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
@@ -534,6 +538,10 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             Debug.Assert(response.Total == response.Deleted, "All records were not removed");
             return response.Deleted;
+        }
+
+        protected Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<FindResults<T>, Task<bool>> processAsync, CommandOptionsDescriptor<T> options = null) {
+            return BatchProcessAsAsync(query.Configure(), processAsync, options.Configure());
         }
 
         protected Task<long> BatchProcessAsync(IRepositoryQuery query, Func<FindResults<T>, Task<bool>> processAsync, ICommandOptions options = null) {

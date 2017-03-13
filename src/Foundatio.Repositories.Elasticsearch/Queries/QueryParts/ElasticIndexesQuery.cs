@@ -19,7 +19,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries {
             query.Indexes?.AddRange(indexes);
             return query;
         }
-        
+
         public static T WithIndexes<T>(this T query, IEnumerable<string> indexes) where T : IElasticIndexesQuery {
             query.Indexes?.AddRange(indexes);
             return query;

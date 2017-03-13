@@ -24,7 +24,6 @@ namespace Foundatio.Repositories.Options {
     }
 }
 
-
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries {
     public class CompanyQueryBuilder : IElasticQueryBuilder {
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
