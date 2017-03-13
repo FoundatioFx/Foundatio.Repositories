@@ -18,13 +18,6 @@ namespace Foundatio.Repositories {
 
             return options;
         }
-
-        public static T Paging<T>(this T options, PagingOptions paging) where T : ICommandOptions {
-            if (paging != null)
-                options.PageLimit(paging.Limit).PageNumber(paging.Page);
-
-            return options;
-        }
     }
 }
 

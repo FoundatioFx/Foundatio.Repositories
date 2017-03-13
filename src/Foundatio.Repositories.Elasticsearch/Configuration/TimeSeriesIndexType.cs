@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Queries;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
@@ -113,18 +114,15 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return indexes.Count > 0 ? indexes.ToArray() : _defaultIndexes;
         }
 
-        private HashSet<string> GetIndexes(object query) {
+        private HashSet<string> GetIndexes(IRepositoryQuery query) {
             var indexes = new HashSet<string>();
 
-            var withIndexesQuery = query as IElasticIndexesQuery;
-            if (withIndexesQuery == null)
-                return indexes;
+            var elasticIndexes = query.GetElasticIndexes();
+            if (elasticIndexes.Count > 0)
+                indexes.AddRange(elasticIndexes);
 
-            if (withIndexesQuery.Indexes.Count > 0)
-                indexes.AddRange(withIndexesQuery.Indexes);
-
-            if (withIndexesQuery.UtcStartIndex.HasValue || withIndexesQuery.UtcEndIndex.HasValue)
-                indexes.AddRange(TimeSeriesIndex.GetIndexes(withIndexesQuery.UtcStartIndex, withIndexesQuery.UtcEndIndex));
+            if (query.GetElasticIndexesStartUtc().HasValue || query.GetElasticIndexesEndUtc().HasValue)
+                indexes.AddRange(TimeSeriesIndex.GetIndexes(query.GetElasticIndexesStartUtc(), query.GetElasticIndexesEndUtc()));
 
             return indexes;
         }

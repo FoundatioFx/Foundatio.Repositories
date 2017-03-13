@@ -72,10 +72,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public static class QueryBuilderContextExtensions {
-        public static TQuery GetSourceAs<TQuery>(this IQueryBuilderContext context) where TQuery : class, IRepositoryQuery {
-            return context.Source as TQuery;
-        }
-
         public static void SetTimeZone(this IQueryBuilderContext context, string timeZone) {
             context.Data["timezone"] = timeZone;
         }
