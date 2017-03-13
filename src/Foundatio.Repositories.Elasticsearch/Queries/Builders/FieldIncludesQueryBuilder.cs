@@ -25,6 +25,13 @@ namespace Foundatio.Repositories {
             return query.AddCollectionOptionValue<IRepositoryQuery<T>, Field>(IncludesKey, objectPath);
         }
 
+        public static IRepositoryQuery<T> Include<T>(this IRepositoryQuery<T> query, params Expression<Func<T, object>>[] objectPaths) where T : class {
+            foreach (var objectPath in objectPaths)
+                query.Include(objectPath);
+
+            return query;
+        }
+
         internal const string ExcludesKey = "@Excludes";
         public static T Exclude<T>(this T query, Field field) where T : IRepositoryQuery {
             return query.AddCollectionOptionValue(ExcludesKey, field);
@@ -36,6 +43,13 @@ namespace Foundatio.Repositories {
 
         public static IRepositoryQuery<T> Exclude<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath) where T : class {
             return query.AddCollectionOptionValue<IRepositoryQuery<T>, Field>(ExcludesKey, objectPath);
+        }
+
+        public static IRepositoryQuery<T> Exclude<T>(this IRepositoryQuery<T> query, params Expression<Func<T, object>>[] objectPaths) where T : class {
+            foreach (var objectPath in objectPaths)
+                query.Exclude(objectPath);
+
+            return query;
         }
     }
 }
