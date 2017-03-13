@@ -11,6 +11,7 @@ using Foundatio.Repositories.Extensions;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
+    
     public class VersionedIndex : IndexBase, IMaintainableIndex {
         public VersionedIndex(IElasticConfiguration configuration, string name, int version = 1)
             : base(configuration, name) {
@@ -21,6 +22,16 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public int Version { get; }
         public string VersionedName { get; }
         public bool DiscardIndexesOnReindex { get; set; } = true;
+        private List<ReindexScript> ReindexScripts { get; } = new List<ReindexScript>();
+    
+        private class ReindexScript {
+            public Func<int, int, bool> ShouldRun { get; set; }
+            public string Script { get; set; }
+        }
+
+        protected virtual void AddReindexScript(Func<int, int, bool> shouldRun, string script) {
+            this.ReindexScripts.Add(new ReindexScript { ShouldRun = shouldRun, Script = script });
+        }
 
         public override async Task ConfigureAsync() {
             await base.ConfigureAsync().AnyContext();
@@ -71,12 +82,19 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 OldIndex = String.Concat(Name, "-v", currentVersion),
                 NewIndex = VersionedName,
                 Alias = Name,
+                Script = GetReindexScripts(currentVersion),
                 TimestampField = GetTimeStampField()
             };
 
             reindexWorkItem.DeleteOld = DiscardIndexesOnReindex && reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;
 
             return reindexWorkItem;
+        }
+
+        private string GetReindexScripts(int currentVersion) {
+            if (!ReindexScripts.Any(s => s.ShouldRun(currentVersion, Version))) return null;
+
+            return string.Join("\n\r", ReindexScripts.Where(s => s.ShouldRun(currentVersion, Version)).Select(s => s.Script));
         }
 
 

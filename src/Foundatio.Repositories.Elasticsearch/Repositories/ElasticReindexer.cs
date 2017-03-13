@@ -86,9 +86,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             var response = await _client.ReindexOnServerAsync(d => d
                 .Source(src => src
                     .Index(workItem.OldIndex)
-                    .Query<object>(q => query)
+                    .Query<object>(q => query)                    
                     .Sort<object>(s => s.Ascending(new Field(workItem.TimestampField ?? ID_FIELD))))
                 .Destination(dest => dest.Index(workItem.NewIndex))
+                .Script(workItem.Script)
                 .Conflicts(Conflicts.Proceed)).AnyContext();
 
             _logger.Trace(() => response.GetRequest());
