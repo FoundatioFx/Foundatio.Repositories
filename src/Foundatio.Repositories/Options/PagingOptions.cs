@@ -1,4 +1,6 @@
-﻿namespace Foundatio.Repositories {
+﻿using Foundatio.Repositories.Models;
+
+namespace Foundatio.Repositories {
     public static class SetPagingOptionsExtensions {
         internal const string PageLimitKey = "@PageLimit";
         internal const string PageNumberKey = "@PageNumber";
@@ -13,6 +15,13 @@
         public static T PageLimit<T>(this T options, int? limit) where T : ICommandOptions {
             if (limit.HasValue)
                 options.Values.Set(PageLimitKey, limit.Value);
+
+            return options;
+        }
+
+        public static T Paging<T>(this T options, PagingOptions paging) where T : ICommandOptions {
+            if (paging != null)
+                options.PageLimit(paging.Limit).PageNumber(paging.Page);
 
             return options;
         }
