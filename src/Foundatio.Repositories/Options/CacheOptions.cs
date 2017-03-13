@@ -12,33 +12,39 @@ namespace Foundatio.Repositories {
 
         internal const string CacheKeyKey = "@CacheKey";
         public static T CacheKey<T>(this T options, string cacheKey) where T : ICommandOptions {
-            if (String.IsNullOrEmpty(cacheKey))
-                return options;
+            if (!String.IsNullOrEmpty(cacheKey)) {
+                options.Values.Set(CacheEnabledKey, true);
+                return options.BuildOption(CacheKeyKey, cacheKey);
+            }
 
-            options.Values.Set(CacheEnabledKey, true);
-            return options.BuildOption(CacheKeyKey, cacheKey);
+            return options;
         }
 
         internal const string DefaultCacheKeyKey = "@DefaultCacheKey";
         public static T DefaultCacheKey<T>(this T options, string defaultCacheKey) where T : ICommandOptions {
-            if (String.IsNullOrEmpty(defaultCacheKey))
-                return options;
+            if (!String.IsNullOrEmpty(defaultCacheKey)) {
+                options.Values.Set(CacheEnabledKey, true);
+                return options.BuildOption(DefaultCacheKeyKey, defaultCacheKey);
+            }
 
-            options.Values.Set(CacheEnabledKey, true);
-            return options.BuildOption(DefaultCacheKeyKey, defaultCacheKey);
+            return options;
         }
 
         internal const string CacheExpiresInKey = "@CacheExpiresIn";
         public static T CacheExpiresIn<T>(this T options, TimeSpan? expiresIn) where T : ICommandOptions {
-            if (expiresIn.HasValue)
+            if (expiresIn.HasValue) {
+                options.Values.Set(CacheEnabledKey, true);
                 return options.BuildOption(CacheExpiresInKey, expiresIn.Value);
+            }
 
             return options;
         }
 
         public static T CacheExpiresAt<T>(this T options, DateTime? expiresAtUtc) where T : ICommandOptions {
-            if (expiresAtUtc.HasValue)
+            if (expiresAtUtc.HasValue) {
+                options.Values.Set(CacheEnabledKey, true);
                 return options.BuildOption(CacheExpiresInKey, expiresAtUtc.Value.Subtract(SystemClock.UtcNow));
+            }
 
             return options;
         }

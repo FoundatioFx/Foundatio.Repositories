@@ -13,7 +13,7 @@ namespace Foundatio.Repositories {
         Task<FindResults<T>> GetAllAsync(ICommandOptions options = null);
         Task<bool> ExistsAsync(Id id);
 
-        AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; }        
+        AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; }
     }
 
     public static class ReadOnlyRepositoryExtensions {

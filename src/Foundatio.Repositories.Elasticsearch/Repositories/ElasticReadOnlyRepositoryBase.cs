@@ -501,11 +501,13 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected Func<T, string> GetDocumentIndexFunc => HasMultipleIndexes ? d => TimeSeriesType.GetDocumentIndex(d) : (Func<T, string>)(d => ElasticIndex.Name);
 
         protected async Task<TResult> GetCachedQueryResultAsync<TResult>(ICommandOptions options, string cachePrefix = null, string cacheSuffix = null) {
-            if (!IsCacheEnabled || options == null || !options.ShouldUseCache())
+            if (!IsCacheEnabled || options == null || !options.ShouldUseCache() || !options.HasCacheKey())
                 return default(TResult);
 
             string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey();
-            cacheKey = cacheSuffix != null ? cacheKey + ":" + cacheSuffix : cacheKey;
+            if (cacheSuffix != null)
+                cacheKey += ":" + cacheSuffix;
+
             var result = await Cache.GetAsync<TResult>(cacheKey, default(TResult)).AnyContext();
             _logger.Trace(() => $"Cache {(result != null ? "hit" : "miss")}: type={ElasticType.Name} key={cacheKey}");
 
@@ -513,11 +515,13 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected async Task SetCachedQueryResultAsync<TResult>(ICommandOptions options, TResult result, string cachePrefix = null, string cacheSuffix = null) {
-            if (!IsCacheEnabled || result == null || options == null || !options.ShouldUseCache())
+            if (!IsCacheEnabled || result == null || options == null || !options.ShouldUseCache() || !options.HasCacheKey())
                 return;
 
             string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey();
-            cacheKey = cacheSuffix != null ? cacheKey + ":" + cacheSuffix : cacheKey;
+            if (cacheSuffix != null)
+                cacheKey += ":" + cacheSuffix;
+
             await Cache.SetAsync(cacheKey, result, options.GetExpiresIn()).AnyContext();
             _logger.Trace(() => $"Set cache: type={ElasticType.Name} key={cacheKey}");
         }
