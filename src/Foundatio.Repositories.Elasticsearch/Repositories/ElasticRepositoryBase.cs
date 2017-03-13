@@ -185,7 +185,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (IsCacheEnabled)
                 await Cache.RemoveAsync(id).AnyContext();
 
-            await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
+            if (options.ShouldNotify())
+                await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
         }
 
         public async Task PatchAsync(Ids ids, object update, ICommandOptions options = null) {
@@ -857,7 +858,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected virtual async Task SendQueryNotificationsAsync(ChangeType changeType, IRepositoryQuery query, ICommandOptions options) {
-            if (!NotificationsEnabled)
+            if (!NotificationsEnabled || !options.ShouldNotify())
                 return;
 
             var delay = TimeSpan.FromSeconds(1.5);
@@ -881,7 +882,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected virtual async Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
-            if (!NotificationsEnabled)
+            if (!NotificationsEnabled || !options.ShouldNotify())
                 return;
 
             var delay = TimeSpan.FromSeconds(1.5);
