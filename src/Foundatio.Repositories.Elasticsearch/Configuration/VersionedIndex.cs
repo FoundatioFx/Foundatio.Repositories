@@ -11,7 +11,7 @@ using Foundatio.Repositories.Extensions;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
-    
+
     public class VersionedIndex : IndexBase, IMaintainableIndex {
         public VersionedIndex(IElasticConfiguration configuration, string name, int version = 1)
             : base(configuration, name) {
@@ -23,14 +23,15 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public string VersionedName { get; }
         public bool DiscardIndexesOnReindex { get; set; } = true;
         private List<ReindexScript> ReindexScripts { get; } = new List<ReindexScript>();
-    
+
         private class ReindexScript {
-            public int VersionNumber { get; set; }
+            public int Version { get; set; }
             public string Script { get; set; }
+            public string Type { get; set; }
         }
 
-        protected virtual void AddReindexScript(int versionNumber, string script) {
-            this.ReindexScripts.Add(new ReindexScript { VersionNumber = versionNumber, Script = script });
+        protected virtual void AddReindexScript(int versionNumber, string script, string type = null) {
+            this.ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script });
         }
 
         public override async Task ConfigureAsync() {
@@ -92,11 +93,28 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         private string GetReindexScripts(int currentVersion) {
-            var scriptsToRun = ReindexScripts.Where(s => s.VersionNumber > currentVersion && Version >= s.VersionNumber);
+            var scriptsToRun = ReindexScripts.Where(s => s.Version > currentVersion && Version >= s.Version).OrderBy(s => s.Version).ToList();
 
             if (!scriptsToRun.Any()) return null;
-            
-            return string.Join("\r\n", scriptsToRun.OrderBy(s => s.VersionNumber).Select(s => s.Script));
+
+            if (scriptsToRun.Count() == 1)
+                return WrapScriptInTypeCheck(scriptsToRun.First().Script, scriptsToRun.First().Type);
+            else {
+                string fullScriptWithFunctions = string.Empty;
+                string functionCalls = string.Empty;
+                for (int i = 0; i < scriptsToRun.Count(); i++) {
+                    fullScriptWithFunctions += $"void f{i:000}(def ctx) {{ {WrapScriptInTypeCheck(scriptsToRun[i].Script, scriptsToRun[i].Type)} }}\r\n";
+                    functionCalls += $"f{i:000}(ctx); ";
+                }
+                return fullScriptWithFunctions + functionCalls;
+            }
+
+        }
+
+        private string WrapScriptInTypeCheck(string script, string type) {
+            if (string.IsNullOrWhiteSpace(type)) return script;
+
+            return $"if (ctx._type == '{type}') {{ {script} }}";
         }
 
         public override async Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {

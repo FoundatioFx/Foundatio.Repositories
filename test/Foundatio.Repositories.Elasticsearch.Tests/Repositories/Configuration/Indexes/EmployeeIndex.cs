@@ -32,6 +32,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
         public VersionedEmployeeIndex(IElasticConfiguration configuration, int version) : base(configuration, "employees", version) {
             AddType(Employee = new EmployeeType(this));
             AddReindexScript(20, "ctx._source.companyName = 'scripted';");
+            AddReindexScript(21, "ctx._source.companyName = 'NOOO';", "notEmployee");
+            AddReindexScript(21, "ctx._source.companyName = 'typed script';", "employee");
         }
 
         public EmployeeType Employee { get; }
