@@ -25,12 +25,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private List<ReindexScript> ReindexScripts { get; } = new List<ReindexScript>();
     
         private class ReindexScript {
-            public Func<int, int, bool> ShouldRun { get; set; }
+            public int VersionNumber { get; set; }
             public string Script { get; set; }
         }
 
-        protected virtual void AddReindexScript(Func<int, int, bool> shouldRun, string script) {
-            this.ReindexScripts.Add(new ReindexScript { ShouldRun = shouldRun, Script = script });
+        protected virtual void AddReindexScript(int versionNumber, string script) {
+            this.ReindexScripts.Add(new ReindexScript { VersionNumber = versionNumber, Script = script });
         }
 
         public override async Task ConfigureAsync() {
@@ -92,11 +92,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         private string GetReindexScripts(int currentVersion) {
-            if (!ReindexScripts.Any(s => s.ShouldRun(currentVersion, Version))) return null;
+            var scriptsToRun = ReindexScripts.Where(s => s.VersionNumber > currentVersion && Version >= s.VersionNumber);
 
-            return string.Join("\n\r", ReindexScripts.Where(s => s.ShouldRun(currentVersion, Version)).Select(s => s.Script));
+            if (!scriptsToRun.Any()) return null;
+            
+            return string.Join("\r\n", scriptsToRun.OrderBy(s => s.VersionNumber).Select(s => s.Script));
         }
-
 
         public override async Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
             int currentVersion = await GetCurrentVersionAsync().AnyContext();

@@ -513,7 +513,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 var employee = await repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
                 Assert.NotNull(employee?.Id);
 
-                using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult())) {
+                using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult()))  {
                     await version2Index.ConfigureAsync();
                     Assert.True(_client.IndexExists(version2Index.VersionedName).Exists);
                     Assert.Equal(1, await version2Index.GetCurrentVersionAsync());

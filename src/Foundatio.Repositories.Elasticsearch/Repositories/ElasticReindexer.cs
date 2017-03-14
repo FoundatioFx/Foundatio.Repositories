@@ -82,15 +82,21 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync, int startProgress = 0, int endProgress = 100, DateTime? startTime = null) {
-            var query = await GetResumeQueryAsync(workItem.NewIndex, workItem.TimestampField, startTime).AnyContext();
-            var response = await _client.ReindexOnServerAsync(d => d
-                .Source(src => src
+            var query = await GetResumeQueryAsync(workItem.NewIndex, workItem.TimestampField, startTime).AnyContext();            
+
+            var response = await _client.ReindexOnServerAsync(d => {
+                d.Source(src => src
                     .Index(workItem.OldIndex)
-                    .Query<object>(q => query)                    
+                    .Query<object>(q => query)
                     .Sort<object>(s => s.Ascending(new Field(workItem.TimestampField ?? ID_FIELD))))
                 .Destination(dest => dest.Index(workItem.NewIndex))
-                .Script(workItem.Script)
-                .Conflicts(Conflicts.Proceed)).AnyContext();
+                .Conflicts(Conflicts.Proceed);
+
+                //NEST client emitting script if null, inline this when that's fixed
+                if (!string.IsNullOrWhiteSpace(workItem.Script)) d.Script(workItem.Script);
+
+                return d;                
+            }).AnyContext();
 
             _logger.Trace(() => response.GetRequest());
 
