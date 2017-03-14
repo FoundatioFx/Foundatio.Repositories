@@ -9,7 +9,7 @@ namespace Foundatio.Repositories.Migrations {
             _logger = loggerFactory.CreateLogger(GetType());
         }
 
-        public abstract int Version { get; }
+        public virtual int? Version { get; } = null;
         public abstract Task RunAsync();
 
         protected int CalculateProgress(long total, long completed, int startProgress = 0, int endProgress = 100) {
