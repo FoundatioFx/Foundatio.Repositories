@@ -6,6 +6,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Inde
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Types;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.JsonPatch;
+using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Nest;
@@ -65,7 +66,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task JsonPatchAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
             var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
-            await _employeeRepository.PatchAsync(employee.Id, patch);
+            await _employeeRepository.PatchAsync(employee.Id, new Models.JsonPatch(patch));
 
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
             Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
@@ -85,7 +86,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
             var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
-            await _employeeRepository.PatchAsync(employees.Select(l => l.Id).ToArray(), patch, o => o.ImmediateConsistency());
+            await _employeeRepository.PatchAsync(employees.Select(l => l.Id).ToArray(), new Models.JsonPatch(patch), o => o.ImmediateConsistency());
 
             var results = await _employeeRepository.GetAllByCompanyAsync("1");
             Assert.Equal(2, results.Documents.Count);
@@ -98,7 +99,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact (Skip = "Not yet supported: https://github.com/elastic/elasticsearch/issues/17895")]
         public async Task PartialPatchAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
-            await _employeeRepository.PatchAsync(employee.Id, new { name = "Patched" });
+            await _employeeRepository.PatchAsync(employee.Id, new PartialPatch(new { name = "Patched" }));
 
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
             Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
@@ -116,7 +117,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             };
 
             await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
-            await _employeeRepository.PatchAsync(employees.Select(l => l.Id).ToArray(), new { name = "Patched" }, o => o.ImmediateConsistency());
+            await _employeeRepository.PatchAsync(employees.Select(l => l.Id).ToArray(), new PartialPatch(new { name = "Patched" }), o => o.ImmediateConsistency());
 
             var results = await _employeeRepository.GetAllByCompanyAsync("1");
             Assert.Equal(2, results.Documents.Count);
@@ -129,7 +130,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact(Skip = "Not yet supported: https://github.com/elastic/elasticsearch/issues/17895")]
         public async Task ScriptPatchAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
-            await _employeeRepository.PatchAsync(employee.Id, "ctx._source.name = 'Patched';");
+            await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'Patched';"));
 
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
             Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
@@ -147,7 +148,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             };
 
             await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
-            await _employeeRepository.PatchAsync(employees.Select(l => l.Id).ToArray(), "ctx._source.name = 'Patched';", o => o.ImmediateConsistency());
+            await _employeeRepository.PatchAsync(employees.Select(l => l.Id).ToArray(), new ScriptPatch("ctx._source.name = 'Patched';"), o => o.ImmediateConsistency());
 
             var results = await _employeeRepository.GetAllByCompanyAsync("1");
             Assert.Equal(2, results.Documents.Count);

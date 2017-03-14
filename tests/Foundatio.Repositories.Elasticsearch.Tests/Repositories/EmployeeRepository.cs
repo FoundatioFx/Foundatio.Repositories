@@ -62,15 +62,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         /// <param name="limit">OPTIONAL limit that should be applied to bulk updates. This is here only for tests...</param>
         /// <returns></returns>
         public Task<long> UpdateCompanyNameByCompanyAsync(string company, string name, int? limit = null) {
-            return PatchAllAsync(q => q.Company(company), new { CompanyName = name }, o => o.PageLimit(limit).ImmediateConsistency(true));
+            return PatchAllAsync(q => q.Company(company), new PartialPatch(new { CompanyName = name }), o => o.PageLimit(limit).ImmediateConsistency(true));
         }
 
         public async Task<long> IncrementYearsEmployeedAsync(string[] ids, int years = 1) {
             string script = $"ctx._source.yearsEmployed += {years};";
             if (ids.Length == 0)
-                return await PatchAllAsync(null, script, o => o.Notifications(false).ImmediateConsistency(true));
+                return await PatchAllAsync(null, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
 
-            await this.PatchAsync(ids, script, o => o.ImmediateConsistency(true));
+            await this.PatchAsync(ids, new ScriptPatch(script), o => o.ImmediateConsistency(true));
             return ids.Length;
         }
 
@@ -79,7 +79,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 throw new ArgumentNullException(nameof(query));
 
             string script = $"ctx._source.yearsEmployed += {years};";
-            return await PatchAllAsync(query, script, o => o.ImmediateConsistency(true));
+            return await PatchAllAsync(query, new ScriptPatch(script), o => o.ImmediateConsistency(true));
         }
 
         public Task<FindResults<Employee>> GetByFilterAsync(string filter) {
@@ -101,7 +101,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     await Cache.RemoveAllAsync(keys);
             }
 
-            await base.InvalidateCacheAsync(documents);
+            await base.InvalidateCacheAsync(documents, options);
         }
     }
 }

@@ -10,8 +10,8 @@ namespace Foundatio.Repositories {
         Task AddAsync(IEnumerable<T> documents, ICommandOptions options = null);
         Task<T> SaveAsync(T document, ICommandOptions options = null);
         Task SaveAsync(IEnumerable<T> documents, ICommandOptions options = null);
-        Task PatchAsync(Id id, object update, ICommandOptions options = null);
-        Task PatchAsync(Ids ids, object update, ICommandOptions options = null);
+        Task PatchAsync(Id id, IPatchOperation operation, ICommandOptions options = null);
+        Task PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions options = null);
         Task RemoveAsync(Id id, ICommandOptions options = null);
         Task RemoveAsync(Ids ids, ICommandOptions options = null);
         Task RemoveAsync(T document, ICommandOptions options = null);
@@ -45,12 +45,12 @@ namespace Foundatio.Repositories {
             return repository.SaveAsync(documents, options.Configure());
         }
 
-        public static Task PatchAsync<T>(this IRepository<T> repository, Id id, object update, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {
-            return repository.PatchAsync(id, update, options.Configure());
+        public static Task PatchAsync<T>(this IRepository<T> repository, Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {
+            return repository.PatchAsync(id, operation, options.Configure());
         }
 
-        public static Task PatchAsync<T>(this IRepository<T> repository, Ids ids, object update, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {
-            return repository.PatchAsync(ids, update, options.Configure());
+        public static Task PatchAsync<T>(this IRepository<T> repository, Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {
+            return repository.PatchAsync(ids, operation, options.Configure());
         }
 
         public static Task RemoveAsync<T>(this IRepository<T> repository, Id id, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {

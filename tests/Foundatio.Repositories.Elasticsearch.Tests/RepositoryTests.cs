@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.JsonPatch;
 using Foundatio.Repositories.Models;
@@ -518,7 +517,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task JsonPatchAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
             var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
-            await _employeeRepository.PatchAsync(employee.Id, patch);
+            await _employeeRepository.PatchAsync(employee.Id, new Models.JsonPatch(patch));
 
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
             Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
@@ -529,7 +528,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task PartialPatchAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
-            await _employeeRepository.PatchAsync(employee.Id, new { name = "Patched" });
+            await _employeeRepository.PatchAsync(employee.Id, new PartialPatch(new { name = "Patched" }));
 
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
             Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
@@ -540,7 +539,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task ScriptPatchAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
-            await _employeeRepository.PatchAsync(employee.Id, "ctx._source.name = 'Patched';");
+            await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'Patched';"));
 
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
             Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
