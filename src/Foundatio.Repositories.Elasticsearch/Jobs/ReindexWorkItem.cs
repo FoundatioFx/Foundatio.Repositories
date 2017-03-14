@@ -3,7 +3,7 @@
 namespace Foundatio.Repositories.Elasticsearch.Jobs {
     public class ReindexWorkItem {
         protected bool Equals(ReindexWorkItem other) {
-            return string.Equals(OldIndex, other.OldIndex) && string.Equals(NewIndex, other.NewIndex) && string.Equals(Alias, other.Alias) && DeleteOld == other.DeleteOld && string.Equals(TimestampField, other.TimestampField) && StartUtc.Equals(other.StartUtc);
+            return string.Equals(OldIndex, other.OldIndex) && string.Equals(NewIndex, other.NewIndex) && string.Equals(Alias, other.Alias) && DeleteOld == other.DeleteOld && string.Equals(TimestampField, other.TimestampField) && StartUtc.Equals(other.StartUtc) && string.Equals(Script,other.Script);
         }
 
         public override bool Equals(object obj) {
@@ -21,6 +21,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 var hashCode = (OldIndex != null ? OldIndex.GetHashCode() : 0);
                 hashCode = (hashCode * 397) ^ (NewIndex != null ? NewIndex.GetHashCode() : 0);
                 hashCode = (hashCode * 397) ^ (Alias != null ? Alias.GetHashCode() : 0);
+                hashCode = (hashCode * 397) ^ (Script != null ? Script.GetHashCode() : 0);
                 hashCode = (hashCode * 397) ^ DeleteOld.GetHashCode();
                 hashCode = (hashCode * 397) ^ (TimestampField != null ? TimestampField.GetHashCode() : 0);
                 hashCode = (hashCode * 397) ^ (StartUtc != null ? StartUtc.GetHashCode() : 0);
@@ -39,6 +40,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         public string OldIndex { get; set; }
         public string NewIndex { get; set; }
         public string Alias { get; set; }
+        public string Script { get; set; }
         public bool DeleteOld { get; set; }
         public string TimestampField { get; set; }
         public DateTime? StartUtc { get; set; }

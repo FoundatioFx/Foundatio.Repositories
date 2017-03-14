@@ -322,6 +322,63 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task CanReindexVersionedIndexWithReindexScriptAsync() {
+            var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+            await version1Index.DeleteAsync();
+
+            var version20Index = new VersionedEmployeeIndex(_configuration, 20) { DiscardIndexesOnReindex = false };
+            await version20Index.DeleteAsync();
+
+            var version21Index = new VersionedEmployeeIndex(_configuration, 21) { DiscardIndexesOnReindex = false };
+            await version21Index.DeleteAsync();
+
+            using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
+                await version1Index.ConfigureAsync();
+                var version1Repository = new EmployeeRepository(version1Index.Employee);
+
+                var utcNow = SystemClock.UtcNow;
+                var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
+                Assert.NotNull(employee?.Id);
+
+                using (new DisposableAction(() => version20Index.DeleteAsync().GetAwaiter().GetResult())) {
+                    await version20Index.ConfigureAsync();
+                    await version20Index.ReindexAsync();
+
+                    var version20Repository = new EmployeeRepository(version20Index.Employee);
+                    var result = await version20Repository.GetByIdAsync(employee.Id);
+                    Assert.Equal("scripted", result.CompanyName);
+
+                    using (new DisposableAction(() => version21Index.DeleteAsync().GetAwaiter().GetResult())) {
+                        await version21Index.ConfigureAsync();
+                        await version21Index.ReindexAsync();
+
+                        var version21Repository = new EmployeeRepository(version21Index.Employee);
+                        result = await version21Repository.GetByIdAsync(employee.Id);
+                        Assert.Equal("typed script", result.CompanyName);
+                    }
+                }
+            }
+
+            using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
+                await version1Index.ConfigureAsync();
+                var version1Repository = new EmployeeRepository(version1Index.Employee);
+
+                var utcNow = SystemClock.UtcNow;
+                var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
+                Assert.NotNull(employee?.Id);
+
+                using (new DisposableAction(() => version21Index.DeleteAsync().GetAwaiter().GetResult())) {
+                    await version21Index.ConfigureAsync();
+                    await version21Index.ReindexAsync();
+
+                    var version21Repository = new EmployeeRepository(version21Index.Employee);
+                    var result = await version21Repository.GetByIdAsync(employee.Id);
+                    Assert.Equal("typed script", result.CompanyName);
+                }
+            }
+        }
+
+        [Fact]
         public async Task CanReindexVersionedIndexWithDataInBothIndexesAsync() {
             var version1Index = new VersionedEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
