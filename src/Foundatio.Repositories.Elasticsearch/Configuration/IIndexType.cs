@@ -49,11 +49,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private readonly Lazy<AliasMap> _aliasMap;
 
         public IndexTypeBase(IIndex index, string name = null, Consistency defaultConsistency = Consistency.Eventual) {
-            if (index == null)
-                throw new ArgumentNullException(nameof(index));
-
             Name = name ?? _typeName;
-            Index = index;
+            Index = index ?? throw new ArgumentNullException(nameof(index));
             Type = typeof(T);
             DefaultConsistency = defaultConsistency;
             _queryBuilder = new Lazy<IElasticQueryBuilder>(CreateQueryBuilder);

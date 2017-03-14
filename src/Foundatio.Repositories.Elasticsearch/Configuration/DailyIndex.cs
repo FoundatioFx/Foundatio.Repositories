@@ -96,12 +96,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected override DateTime GetIndexDate(string index) {
-            var version = GetIndexVersion(index);
+            int version = GetIndexVersion(index);
             if (version < 0)
                 version = Version;
 
-            DateTime result;
-            if (DateTime.TryParseExact(index, $"\'{Name}-v{version}-\'{DateFormat}", EnUs, DateTimeStyles.AdjustToUniversal, out result))
+            if (DateTime.TryParseExact(index, $"\'{Name}-v{version}-\'{DateFormat}", EnUs, DateTimeStyles.AdjustToUniversal, out DateTime result))
                 return DateTime.SpecifyKind(result.Date, DateTimeKind.Utc);
 
             return DateTime.MaxValue;
@@ -124,7 +123,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
 
             // Try creating the index.
-            var index = GetVersionedIndex(utcDate);
+            string index = GetVersionedIndex(utcDate);
             await CreateIndexAsync(index, descriptor => {
                 var aliasesDescriptor = new AliasesDescriptor().Alias(alias);
                 foreach (var a in Aliases.Where(a => ShouldCreateAlias(utcDate, a)))
@@ -305,7 +304,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             // TODO: Optimize with cat aliases.
             // TODO: Should this return indexes that fall outside of the max age?
             foreach (var indexGroup in indexes.GroupBy(i => GetIndex(i.DateUtc))) {
-                var v = await GetVersionFromAliasAsync(indexGroup.Key).AnyContext();
+                int v = await GetVersionFromAliasAsync(indexGroup.Key).AnyContext();
                 foreach (var indexInfo in indexGroup)
                     indexInfo.CurrentVersion = v;
             }

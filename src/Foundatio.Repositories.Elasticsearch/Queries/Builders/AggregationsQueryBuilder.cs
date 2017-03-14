@@ -29,7 +29,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (elasticOptions?.IndexType?.QueryParser == null)
                 return;
 
-            var aggregations = ctx.Source.GetAggregationsExression();
+            string aggregations = ctx.Source.GetAggregationsExression();
             if (String.IsNullOrEmpty(aggregations))
                 return;
 

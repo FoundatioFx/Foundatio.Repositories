@@ -136,8 +136,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (index > 0)
                 input = input.Substring(0, index);
 
-            int version;
-            if (Int32.TryParse(input, out version))
+            if (Int32.TryParse(input, out int version))
                 return version;
 
             return -1;

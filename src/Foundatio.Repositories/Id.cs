@@ -32,7 +32,7 @@ namespace Foundatio.Repositories {
         public override bool Equals(object obj) {
             if (ReferenceEquals(null, obj)) return false;
             if (ReferenceEquals(this, obj)) return true;
-            return obj.GetType() == this.GetType() && Equals((Id)obj);
+            return obj.GetType() == GetType() && Equals((Id)obj);
         }
 
         public override int GetHashCode() {
@@ -62,10 +62,7 @@ namespace Foundatio.Repositories {
         public Ids(params Id[] ids) : base(ids) { }
 
         public static implicit operator Ids(Id id) {
-            var result = new Ids();
-            result.Add(id);
-
-            return result;
+            return new Ids { id };
         }
 
         public static implicit operator Ids(List<string> ids) {

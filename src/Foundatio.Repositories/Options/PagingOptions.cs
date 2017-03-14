@@ -28,7 +28,7 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static int GetLimit(this ICommandOptions options) {
-            var limit = options.SafeGetOption(SetPagingOptionsExtensions.PageLimitKey, RepositoryConstants.DEFAULT_LIMIT);
+            int limit = options.SafeGetOption(SetPagingOptionsExtensions.PageLimitKey, RepositoryConstants.DEFAULT_LIMIT);
 
             if (limit > RepositoryConstants.MAX_LIMIT)
                 return RepositoryConstants.MAX_LIMIT;

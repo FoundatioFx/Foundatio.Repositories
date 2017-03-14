@@ -46,8 +46,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 if (HasIdentity) {
                     // This is also called when trying to create the document id.
                     string id = ((IIdentity)document).Id;
-                    ObjectId objectId;
-                    if (id != null && ObjectId.TryParse(id, out objectId) && objectId.CreationTime != DateTime.MinValue)
+                    if (id != null && ObjectId.TryParse(id, out ObjectId objectId) && objectId.CreationTime != DateTime.MinValue)
                         return objectId.CreationTime;
                 }
 
@@ -100,8 +99,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (String.IsNullOrEmpty(id.Value))
                 throw new ArgumentNullException(nameof(id));
 
-            ObjectId objectId;
-            if (!ObjectId.TryParse(id.Value, out objectId))
+            if (!ObjectId.TryParse(id.Value, out ObjectId objectId))
                 throw new ArgumentException("Unable to parse ObjectId", nameof(id));
 
             return TimeSeriesIndex.GetIndex(objectId.CreationTime);

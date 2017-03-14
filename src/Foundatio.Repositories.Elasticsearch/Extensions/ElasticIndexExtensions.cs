@@ -49,10 +49,8 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
         private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
         public static IAggregate ToAggregate(this Nest.IAggregate aggregate) {
-            var valueAggregate = aggregate as Nest.ValueAggregate;
-            if (valueAggregate != null) {
-                object value;
-                if (valueAggregate.Meta != null && valueAggregate.Meta.TryGetValue("@type", out value)) {
+            if (aggregate is Nest.ValueAggregate valueAggregate) {
+                if (valueAggregate.Meta != null && valueAggregate.Meta.TryGetValue("@type", out object value)) {
                     string type = value.ToString();
                     if (type == "date" && valueAggregate.Value.HasValue) {
                         return new ValueAggregate<DateTime> {
@@ -65,15 +63,13 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 return new ValueAggregate { Value = valueAggregate.Value, Data = valueAggregate.Meta.ToData() };
             }
 
-            var scriptedAggregate = aggregate as Nest.ScriptedMetricAggregate;
-            if (scriptedAggregate != null)
+            if (aggregate is Nest.ScriptedMetricAggregate scriptedAggregate)
                 return new ObjectValueAggregate {
                     Value = scriptedAggregate.Value<object>(),
                     Data = scriptedAggregate.Meta.ToData()
                 };
 
-            var statsAggregate = aggregate as Nest.StatsAggregate;
-            if (statsAggregate != null)
+            if (aggregate is Nest.StatsAggregate statsAggregate)
                 return new StatsAggregate {
                     Count = statsAggregate.Count,
                     Min = statsAggregate.Min,
@@ -83,8 +79,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     Data = statsAggregate.Meta.ToData()
                 };
 
-            var extendedStatsAggregate = aggregate as Nest.ExtendedStatsAggregate;
-            if (extendedStatsAggregate != null)
+            if (aggregate is Nest.ExtendedStatsAggregate extendedStatsAggregate)
                 return new ExtendedStatsAggregate {
                     Count = extendedStatsAggregate.Count,
                     Min = extendedStatsAggregate.Min,
@@ -101,21 +96,18 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     Data = extendedStatsAggregate.Meta.ToData()
                 };
 
-            var percentilesAggregate = aggregate as Nest.PercentilesAggregate;
-            if (percentilesAggregate != null)
-                return new PercentilesAggregate(percentilesAggregate.Items.Select(i => new PercentileItem { Percentile = i.Percentile, Value = i.Value } )) {
+            if (aggregate is Nest.PercentilesAggregate percentilesAggregate)
+                return new PercentilesAggregate(percentilesAggregate.Items.Select(i => new PercentileItem { Percentile = i.Percentile, Value = i.Value })) {
                     Data = percentilesAggregate.Meta.ToData()
                 };
 
-            var singleBucketAggregate = aggregate as Nest.SingleBucketAggregate;
-            if (singleBucketAggregate != null)
+            if (aggregate is Nest.SingleBucketAggregate singleBucketAggregate)
                 return new SingleBucketAggregate(singleBucketAggregate.Aggregations.ToAggregations()) {
                     Data = singleBucketAggregate.Meta.ToData(),
                     Total = singleBucketAggregate.DocCount
                 };
 
-            var bucketAggregation = aggregate as Nest.BucketAggregate;
-            if (bucketAggregation != null) {
+            if (aggregate is Nest.BucketAggregate bucketAggregation) {
                 var data = new Dictionary<string, object>((IDictionary<string, object>)bucketAggregation.Meta ?? new Dictionary<string, object>());
                 if (bucketAggregation.DocCountErrorUpperBound.GetValueOrDefault() > 0)
                     data.Add(nameof(bucketAggregation.DocCountErrorUpperBound), bucketAggregation.DocCountErrorUpperBound);
@@ -139,8 +131,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             var kind = DateTimeKind.Utc;
             long ticks = _epochTicks + ((long)valueAggregate.Value * TimeSpan.TicksPerMillisecond);
 
-            object value;
-            if (valueAggregate.Meta.TryGetValue("@timezone", out value) && value != null) {
+            if (valueAggregate.Meta.TryGetValue("@timezone", out object value) && value != null) {
                 kind = DateTimeKind.Unspecified;
                 ticks -= TimeUnit.Parse(value.ToString()).Ticks;
             }
@@ -149,8 +140,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         }
 
         public static IBucket ToBucket(this Nest.IBucket bucket, IDictionary<string, object> parentData = null) {
-            var dateHistogramBucket = bucket as Nest.DateHistogramBucket;
-            if (dateHistogramBucket != null) {
+            if (bucket is Nest.DateHistogramBucket dateHistogramBucket) {
                 var kind = parentData != null && parentData.ContainsKey("@timezone") ? DateTimeKind.Unspecified : DateTimeKind.Utc;
                 var date = new DateTime(_epochTicks + ((long)dateHistogramBucket.Key * TimeSpan.TicksPerMillisecond), kind);
                 return new DateHistogramBucket(date, dateHistogramBucket.Aggregations.ToAggregations()) {
@@ -160,24 +150,21 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 };
             }
 
-            var stringKeyedBucket = bucket as Nest.KeyedBucket<string>;
-            if (stringKeyedBucket != null)
+            if (bucket is Nest.KeyedBucket<string> stringKeyedBucket)
                 return new KeyedBucket<string>(stringKeyedBucket.Aggregations.ToAggregations()) {
                     Total = stringKeyedBucket.DocCount,
                     Key = stringKeyedBucket.Key,
                     KeyAsString = stringKeyedBucket.KeyAsString
                 };
 
-            var doubleKeyedBucket = bucket as Nest.KeyedBucket<double>;
-            if (doubleKeyedBucket != null)
+            if (bucket is Nest.KeyedBucket<double> doubleKeyedBucket)
                 return new KeyedBucket<double>(doubleKeyedBucket.Aggregations.ToAggregations()) {
                     Total = doubleKeyedBucket.DocCount,
                     Key = doubleKeyedBucket.Key,
                     KeyAsString = doubleKeyedBucket.KeyAsString
                 };
 
-            var objectKeyedBucket = bucket as Nest.KeyedBucket<object>;
-            if (objectKeyedBucket != null)
+            if (bucket is Nest.KeyedBucket<object> objectKeyedBucket)
                 return new KeyedBucket<object>(objectKeyedBucket.Aggregations.ToAggregations()) {
                     Total = objectKeyedBucket.DocCount,
                     Key = objectKeyedBucket.Key,

@@ -121,8 +121,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         }
 
         private DateTime GetSnapshotDate(string repo, string name) {
-            DateTime result;
-            if (DateTime.TryParseExact(name, "'" + repo + "-'yyyy-MM-dd-HH-mm", _enUS, DateTimeStyles.None, out result))
+            if (DateTime.TryParseExact(name, "'" + repo + "-'yyyy-MM-dd-HH-mm", _enUS, DateTimeStyles.None, out DateTime result))
                 return result;
 
             return DateTime.MaxValue;

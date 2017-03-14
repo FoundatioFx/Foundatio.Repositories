@@ -68,9 +68,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
 
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var filter = ctx.Source.GetFilterExpression();
-            var search = ctx.Source.GetSearchExpression();
-            var sort = ctx.Source.GetSortExpression();
+            string filter = ctx.Source.GetFilterExpression();
+            string search = ctx.Source.GetSearchExpression();
+            string sort = ctx.Source.GetSortExpression();
 
             if (!String.IsNullOrEmpty(filter)) {
                 var result = _parser.Parse(filter);
@@ -114,9 +114,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         private readonly LuceneQueryParser _parser = new LuceneQueryParser();
 
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var filter = ctx.Source.GetFilterExpression();
-            var search = ctx.Source.GetSearchExpression();
-            var sort = ctx.Source.GetSortExpression();
+            string filter = ctx.Source.GetFilterExpression();
+            string search = ctx.Source.GetSearchExpression();
+            string sort = ctx.Source.GetSortExpression();
 
             if (!String.IsNullOrEmpty(filter))
                 ctx.Filter &= new QueryStringQuery {
@@ -151,16 +151,13 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         private readonly ElasticQueryParser _parser;
 
         public ParsedExpressionQueryBuilder(ElasticQueryParser parser) {
-            if (parser == null)
-                throw new ArgumentNullException(nameof(parser));
-
-            _parser = parser;
+            _parser = parser ?? throw new ArgumentNullException(nameof(parser));
         }
 
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var filter = ctx.Source.GetFilterExpression();
-            var search = ctx.Source.GetSearchExpression();
-            var sort = ctx.Source.GetSortExpression();
+            string filter = ctx.Source.GetFilterExpression();
+            string search = ctx.Source.GetSearchExpression();
+            string sort = ctx.Source.GetSortExpression();
 
             // NOTE: Calling UseScoring here to keep the query from being wrapped in a filter which happens ElasticQueryBuilderExtensions.BuildQuery
             if (!String.IsNullOrEmpty(filter))

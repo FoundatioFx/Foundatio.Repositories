@@ -246,7 +246,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         private async Task DeleteAliasesAsync(string index) {
             var aliasesResponse = await _client.GetAliasAsync(a => a.Index(index));
             var aliases = aliasesResponse.Indices.Single(a => a.Key == index).Value.Select(a => a.Name).ToList();
-            foreach (var alias in aliases) {
+            foreach (string alias in aliases) {
                 await _client.DeleteAliasAsync(new DeleteAliasRequest(index, alias));
             }
         }

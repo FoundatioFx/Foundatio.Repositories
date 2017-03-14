@@ -68,7 +68,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var countdownEvent = new AsyncCountdownEvent(1);
 
             try {
-                var filter = $"id:{identity.Id}";
+                string filter = $"id:{identity.Id}";
                 disposables.Add(_identityRepository.BeforeQuery.AddSyncHandler((o, args) => {
                     Assert.Equal(filter, args.Query.GetFilterExpression());
                     countdownEvent.Signal();
