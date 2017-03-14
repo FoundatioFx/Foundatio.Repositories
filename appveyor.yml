@@ -26,11 +26,12 @@ before_build:
   - appveyor-retry dotnet restore -v Minimal
 
 build_script:
+  - dotnet build -c Release
   - dotnet pack -c Release
 
-test_script:
-  - dotnet test test\Foundatio.Repositories.Tests\Foundatio.Repositories.Tests.csproj -c Release
-  - dotnet test test\Foundatio.Repositories.Elasticsearch.Tests\Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release
+#test_script:
+#  - dotnet test test\Foundatio.Repositories.Tests\Foundatio.Repositories.Tests.csproj -c Release
+#  - dotnet test test\Foundatio.Repositories.Elasticsearch.Tests\Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release
 
 #on_failure:
 #  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
