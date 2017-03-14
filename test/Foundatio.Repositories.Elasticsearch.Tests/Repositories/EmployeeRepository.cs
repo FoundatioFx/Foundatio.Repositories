@@ -6,6 +6,7 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Options;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
@@ -35,7 +36,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public Task<FindResults<Employee>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<Employee> options = null) {
-            return FindAsync(q => q.Company(company), options);
+            var commandOptions = options.Configure();
+            if (commandOptions.ShouldUseCache())
+                commandOptions.CacheKey(company);
+
+            return FindAsync(q => q.Company(company), o => commandOptions);
         }
 
         public Task<FindResults<Employee>> GetAllByCompaniesWithFieldEqualsAsync(string[] companies) {
