@@ -35,7 +35,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         /// Creates a new document id. If a date can be resolved, it will be taken into account when creating a new id.
         /// </summary>
         string CreateDocumentId(T document);
+        /// <summary>
+        /// Used for sorting
+        /// </summary>
         string GetFieldName(Expression<Func<T, object>> objectPath);
+        /// <summary>
+        /// Used for everything not sorting
+        /// </summary>
         string GetPropertyName(Expression<Func<T, object>> objectPath);
     }
 

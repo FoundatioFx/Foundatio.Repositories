@@ -717,6 +717,31 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task RemoveByIdsWithCachingAsync() {
+            var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
+            Assert.Equal(0, _cache.Count);
+            Assert.Equal(0, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            await _identityRepository.RemoveAsync(identity.Id, o => o.ImmediateConsistency());
+            Assert.Equal(0, _cache.Count);
+            Assert.Equal(0, _cache.Hits);
+            Assert.Equal(1, _cache.Misses);
+
+            identity = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.Cache().ImmediateConsistency());
+            Assert.Equal(1, _cache.Count);
+            Assert.Equal(0, _cache.Hits);
+            Assert.Equal(1, _cache.Misses);
+
+            await _identityRepository.RemoveAsync(identity.Id, o => o.ImmediateConsistency());
+            Assert.Equal(0, _cache.Count);
+            Assert.Equal(1, _cache.Hits);
+            Assert.Equal(1, _cache.Misses);
+
+            Assert.Equal(0, await _identityRepository.CountAsync());
+        }
+
+        [Fact]
         public async Task RemoveWithCachingAsync() {
             var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
             await _identityRepository.AddAsync(identities, o => o.Cache().ImmediateConsistency());

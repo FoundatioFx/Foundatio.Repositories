@@ -5,9 +5,13 @@ using Foundatio.Utility;
 namespace Foundatio.Repositories {
     public static class SetCacheOptionsExtensions {
         internal const string CacheEnabledKey = "@CacheEnabled";
-
         public static T Cache<T>(this T options, bool enabled = true) where T : ICommandOptions {
             return options.BuildOption(CacheEnabledKey, enabled);
+        }
+
+        internal const string ReadCacheEnabledKey = "@ReadCacheEnabled";
+        public static T ReadCache<T>(this T options) where T : ICommandOptions {
+            return options.BuildOption(ReadCacheEnabledKey, true);
         }
 
         internal const string CacheKeyKey = "@CacheKey";
@@ -55,6 +59,10 @@ namespace Foundatio.Repositories.Options {
     public static class ReadCacheOptionsExtensions {
         public static bool ShouldUseCache(this ICommandOptions options) {
             return options.SafeGetOption(SetCacheOptionsExtensions.CacheEnabledKey, false);
+        }
+
+        public static bool ShouldReadCache(this ICommandOptions options) {
+            return options.SafeGetOption(SetCacheOptionsExtensions.ReadCacheEnabledKey, options.ShouldUseCache());
         }
 
         public static bool HasCacheKey(this ICommandOptions options) {

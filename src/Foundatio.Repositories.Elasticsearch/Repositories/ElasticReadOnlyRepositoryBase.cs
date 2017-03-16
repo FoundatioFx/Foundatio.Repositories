@@ -199,7 +199,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return null;
 
             T hit = null;
-            if (IsCacheEnabled && options.ShouldUseCache())
+            if (IsCacheEnabled && options.ShouldReadCache())
                 hit = await Cache.GetAsync<T>(id, default(T)).AnyContext();
 
             if (hit != null) {
@@ -223,7 +223,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     hit = findResult.Document;
             }
 
-            if (IsCacheEnabled && hit != null && options.ShouldUseCache())
+            if (hit != null && IsCacheEnabled && options.ShouldUseCache())
                 await Cache.SetAsync(id, hit, options.GetExpiresIn()).AnyContext();
 
             return hit;
@@ -238,7 +238,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new NotSupportedException("Model type must implement IIdentity.");
 
             var hits = new List<T>();
-            if (IsCacheEnabled && options.ShouldUseCache()) {
+            if (IsCacheEnabled && options.ShouldReadCache()) {
                 var cacheHits = await Cache.GetAllAsync<T>(idList.Select(id => id.Value)).AnyContext();
                 hits.AddRange(cacheHits.Where(kvp => kvp.Value.HasValue).Select(kvp => kvp.Value.Value));
             }
@@ -501,7 +501,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected Func<T, string> GetDocumentIndexFunc => HasMultipleIndexes ? d => TimeSeriesType.GetDocumentIndex(d) : (Func<T, string>)(d => ElasticIndex.Name);
 
         protected async Task<TResult> GetCachedQueryResultAsync<TResult>(ICommandOptions options, string cachePrefix = null, string cacheSuffix = null) {
-            if (!IsCacheEnabled || options == null || !options.ShouldUseCache() || !options.HasCacheKey())
+            if (!IsCacheEnabled || options == null || !options.ShouldReadCache() || !options.HasCacheKey())
                 return default(TResult);
 
             string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey();
