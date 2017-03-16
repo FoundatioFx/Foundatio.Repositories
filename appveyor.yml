@@ -13,25 +13,18 @@ init:
   - git config --global core.autocrlf input
   - ps: $env:GIT_HASH=$env:APPVEYOR_REPO_COMMIT.Substring(0, 10)
   - ps: If ("$env:APPVEYOR_REPO_BRANCH" -ne "master") { $env:VERSION_SUFFIX="pre" }
+  - ps: 'Write-Output "Version: $($env:APPVEYOR_BUILD_VERSION)-$($env:VERSION_SUFFIX)"'
 
 install:
   - ps: .\build\Start-ElasticSearch.ps1 -NodeCount 3 -StartKibana $false
 
 before_build:
-  - ps: |
-      [xml]$versionXml = Get-Content .\build\version.props
-      $versionXml.Project.PropertyGroup.VersionPrefix = "$($env:APPVEYOR_BUILD_VERSION)"
-      $versionXml.Project.PropertyGroup.VersionSuffix = "$($env:VERSION_SUFFIX)"
-      $versionXml.Save("$pwd\build\version.props")
+  - ps: .\build\Set-BuildVersion -Version $env:APPVEYOR_BUILD_VERSION -Suffix $env:VERSION_SUFFIX
   - appveyor-retry dotnet restore -v Minimal
 
 build_script:
   - dotnet build -c Release
   - dotnet pack -c Release
-
-#test_script:
-#  - dotnet test test\Foundatio.Repositories.Tests\Foundatio.Repositories.Tests.csproj -c Release
-#  - dotnet test test\Foundatio.Repositories.Elasticsearch.Tests\Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release
 
 #on_failure:
 #  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
@@ -49,7 +42,7 @@ deploy:
   - provider: Environment
     name: NuGet
     on:
-      branch: master
+      appveyor_repo_tag: true
   - provider: Environment
     name: NuGet
     on:
