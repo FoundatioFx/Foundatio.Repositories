@@ -12,8 +12,11 @@ environment:
 init:
   - git config --global core.autocrlf input
   - ps: $env:GIT_HASH=$env:APPVEYOR_REPO_COMMIT.Substring(0, 10)
-  - ps: If ("$env:APPVEYOR_REPO_BRANCH" -ne "master") { $env:VERSION_SUFFIX="pre" }
+  - ps: If ("$env:APPVEYOR_REPO_TAG" -ne "true") { $env:VERSION_SUFFIX="pre" }
   - ps: 'Write-Output "Version: $($env:APPVEYOR_BUILD_VERSION)-$($env:VERSION_SUFFIX)"'
+  - nuget sources add -name Foundatio -source https://ci.appveyor.com/nuget/foundatio
+  - nuget sources add -name Parsers -source https://ci.appveyor.com/nuget/foundatio-parsers
+  - nuget sources add -name DateTimeExtensions -source https://ci.appveyor.com/nuget/exceptionless-datetimeextensions
 
 install:
   - ps: .\build\Start-ElasticSearch.ps1 -NodeCount 3 -StartKibana $false
@@ -34,7 +37,6 @@ artifacts:
     name: ReleaseArtifacts
 
 nuget:
-#  account_feed: true
   project_feed: true
   disable_publish_on_pr: true
 
