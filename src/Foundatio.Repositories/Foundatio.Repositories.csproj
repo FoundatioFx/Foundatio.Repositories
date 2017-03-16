@@ -6,8 +6,8 @@
   <ItemGroup>
     <PackageReference Include="AsyncFixer" Version="1.1.5" PrivateAssets="All" />
     <PackageReference Include="Exceptionless.DateTimeExtensions" Version="3.2.65" />
-    <PackageReference Include="FluentValidation" Version="6.4.0" />
-    <PackageReference Include="Foundatio" Version="5.0.1331" />
+    <PackageReference Include="FluentValidation" Version="6.4.1" />
+    <PackageReference Include="Foundatio" Version="5.0.1336" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Update="SourceLink.Create.GitHub" Version="2.0.2" />

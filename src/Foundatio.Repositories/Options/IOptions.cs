@@ -62,6 +62,9 @@ namespace Foundatio.Repositories.Options {
 
     public static class OptionsExtensions {
         public static T BuildOption<T>(this T options, string name, object value) where T : IOptions {
+            if (options == null)
+                throw new ArgumentNullException(nameof(options));
+
             options.Values.Set(name, value);
             return options;
         }
@@ -88,6 +91,9 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static TOptions AddCollectionOptionValue<TOptions, TValue>(this TOptions options, string name, TValue value) where TOptions : IOptions {
+            if (options == null)
+                throw new ArgumentNullException(nameof(options));
+
             var setOption = options.SafeGetOption(name, new List<TValue>());
             setOption.Add(value);
             options.Values.Set(name, setOption);
@@ -96,6 +102,9 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static TOptions AddCollectionOptionValue<TOptions, TValue>(this TOptions options, string name, IEnumerable<TValue> values) where TOptions : IOptions {
+            if (options == null)
+                throw new ArgumentNullException(nameof(options));
+
             var setOption = options.SafeGetOption(name, new List<TValue>());
             setOption.AddRange(values);
             options.Values.Set(name, setOption);
@@ -111,6 +120,9 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static T AddSetOptionValue<T>(this T options, string name, string value) where T : IOptions {
+            if (options == null)
+                throw new ArgumentNullException(nameof(options));
+
             var setOption = options.SafeGetOption(name, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             setOption.Add(value);
             options.Values.Set(name, setOption);
@@ -119,6 +131,9 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static T AddSetOptionValue<T>(this T options, string name, IEnumerable<string> values) where T : IOptions {
+            if (options == null)
+                throw new ArgumentNullException(nameof(options));
+
             var setOption = options.SafeGetOption(name, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             setOption.AddRange(values);
             options.Values.Set(name, setOption);
@@ -129,8 +144,9 @@ namespace Foundatio.Repositories.Options {
         public static T Clone<T>(this IOptions source) where T : IOptions, new() {
             var clone = new T();
 
-            foreach (var kvp in source.Values)
-                clone.Values.Set(kvp.Key, kvp.Value);
+            if (source != null)
+                foreach (var kvp in source.Values)
+                    clone.Values.Set(kvp.Key, kvp.Value);
 
             return clone;
         }
@@ -144,6 +160,9 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static T MergeFrom<T>(this T target, IOptions source, bool overrideExisting = true) where T : IOptions {
+            if (target == null)
+                throw new ArgumentNullException(nameof(target));
+
             if (source == null)
                 return target;
 

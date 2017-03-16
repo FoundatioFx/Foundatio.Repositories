@@ -433,7 +433,15 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (ids == null)
                 throw new ArgumentNullException(nameof(ids));
 
-            var documents = await GetByIdsAsync(ids, options).AnyContext();
+            ICommandOptions getOptions;
+            if (IsCacheEnabled) {
+                getOptions = options.Clone();
+                getOptions.ReadCache();
+            } else {
+                getOptions = options;
+            }
+
+            var documents = await GetByIdsAsync(ids, getOptions).AnyContext();
             if (documents == null)
                 return;
 
