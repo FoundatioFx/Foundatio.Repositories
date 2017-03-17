@@ -4,17 +4,19 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Foundatio.Logging;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
-using Foundatio.Repositories.JsonPatch;
-using Foundatio.Repositories.Models;
-using Foundatio.Repositories.Utility;
-using Foundatio.Utility;
+using FluentValidation;
 using Nito.AsyncEx;
 using Xunit;
 using Xunit.Abstractions;
+using Foundatio.Logging;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Validators;
+using Foundatio.Repositories.JsonPatch;
+using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
+using Foundatio.Repositories.Utility;
+using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class RepositoryTests : ElasticRepositoryTestBase {
@@ -865,6 +867,32 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _client.RefreshAsync();
             Assert.Equal(0, await _dailyRepository.CountAsync());
+        }
+
+        [Fact]
+        public async Task ValidatorThrowsOnAdd() {
+            var employeeRepositoryWithValidator = new EmployeeRepository(_configuration, new EmployeeValidatorWithValidateException());
+
+            await Assert.ThrowsAsync<ValidationException>(async () => await employeeRepositoryWithValidator.AddAsync(EmployeeGenerator.Default));
+
+            employeeRepositoryWithValidator = new EmployeeRepository(_configuration, new EmployeeValidatorWithRequiredFields());
+            
+            await Assert.ThrowsAsync<ValidationException>(async () => await employeeRepositoryWithValidator.AddAsync(EmployeeGenerator.Generate(age: 50, yearsEmployed: 10, companyId: EmployeeGenerator.DefaultCompanyId)));
+        }
+
+        [Fact]
+        public async Task ValidatorThrowsOnSave() {
+            var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate());
+            Assert.NotNull(employee1?.Id);
+            await _client.RefreshAsync();
+
+            var employeeRepositoryWithValidator = new EmployeeRepository(_configuration, new EmployeeValidatorWithValidateException());
+            await Assert.ThrowsAsync<ValidationException>(async () => await employeeRepositoryWithValidator.SaveAsync(employee1));
+
+            employeeRepositoryWithValidator = new EmployeeRepository(_configuration, new EmployeeValidatorWithRequiredFields());
+            employee1.Name = null;
+            employee1.CompanyName = null;
+            await Assert.ThrowsAsync<ValidationException>(async () => await employeeRepositoryWithValidator.SaveAsync(employee1));
         }
     }
 }

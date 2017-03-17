@@ -141,6 +141,7 @@
     <Compile Include="Repositories\Models\Employee.cs" />
     <Compile Include="Repositories\Queries\AgeQuery.cs" />
     <Compile Include="Repositories\Queries\CompanyQuery.cs" />
+    <Compile Include="Repositories\Validators\EmployeeValidators.cs" />
     <Compile Include="VersionedTests.cs" />
     <Compile Include="RepositoryTests.cs" />
     <Compile Include="SearchableRepositoryTests.cs" />
