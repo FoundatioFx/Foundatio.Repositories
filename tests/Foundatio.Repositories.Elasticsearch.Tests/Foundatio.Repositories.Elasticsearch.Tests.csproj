@@ -43,21 +43,20 @@
     <Reference Include="Exceptionless.RandomData, Version=1.1.27.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\..\packages\Exceptionless.RandomData.1.1.27\lib\net45\Exceptionless.RandomData.dll</HintPath>
     </Reference>
-    <Reference Include="FluentValidation, Version=6.2.1.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\FluentValidation.6.2.1.0\lib\Net45\FluentValidation.dll</HintPath>
-      <Private>True</Private>
+    <Reference Include="FluentValidation, Version=6.4.1.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\FluentValidation.6.4.1\lib\Net45\FluentValidation.dll</HintPath>
     </Reference>
-    <Reference Include="Foundatio, Version=4.3.1314.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Foundatio.4.3.1314\lib\net46\Foundatio.dll</HintPath>
+    <Reference Include="Foundatio, Version=5.0.1336.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Foundatio.5.0.1336\lib\net46\Foundatio.dll</HintPath>
     </Reference>
-    <Reference Include="Foundatio.Logging.Xunit, Version=4.3.1314.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Foundatio.Logging.Xunit.4.3.1314\lib\net46\Foundatio.Logging.Xunit.dll</HintPath>
+    <Reference Include="Foundatio.Logging.Xunit, Version=5.0.1336.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Foundatio.Logging.Xunit.5.0.1336\lib\net46\Foundatio.Logging.Xunit.dll</HintPath>
     </Reference>
-    <Reference Include="Foundatio.Parsers.ElasticQueries, Version=1.0.269.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Foundatio.Parsers.ElasticQueries.1.0.269\lib\net46\Foundatio.Parsers.ElasticQueries.dll</HintPath>
+    <Reference Include="Foundatio.Parsers.ElasticQueries, Version=1.0.305.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Foundatio.Parsers.ElasticQueries.1.0.305\lib\net46\Foundatio.Parsers.ElasticQueries.dll</HintPath>
     </Reference>
-    <Reference Include="Foundatio.Parsers.LuceneQueries, Version=1.0.269.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Foundatio.Parsers.LuceneQueries.1.0.269\lib\net46\Foundatio.Parsers.LuceneQueries.dll</HintPath>
+    <Reference Include="Foundatio.Parsers.LuceneQueries, Version=1.0.305.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Foundatio.Parsers.LuceneQueries.1.0.305\lib\net46\Foundatio.Parsers.LuceneQueries.dll</HintPath>
     </Reference>
     <Reference Include="Nest, Version=1.0.0.0, Culture=neutral, PublicKeyToken=96c599bbe3e70f5d, processorArchitecture=MSIL">
       <HintPath>..\..\packages\NEST.1.9.2\lib\net45\Nest.dll</HintPath>
@@ -75,8 +74,8 @@
     <Reference Include="Nito.Collections.Deque, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\..\packages\Nito.Collections.Deque.1.0.0\lib\portable45-net45+win8+wp8+wpa81\Nito.Collections.Deque.dll</HintPath>
     </Reference>
-    <Reference Include="Nito.Disposables, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Nito.Disposables.1.0.0\lib\portable45-net45+win8+wp8+wpa81\Nito.Disposables.dll</HintPath>
+    <Reference Include="Nito.Disposables, Version=1.1.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Nito.Disposables.1.1.0\lib\portable45-net45+win8+wp8+wpa81\Nito.Disposables.dll</HintPath>
     </Reference>
     <Reference Include="Pegasus.Common, Version=4.0.0.0, Culture=neutral, PublicKeyToken=28c69b6c6d100f4a, processorArchitecture=MSIL">
       <HintPath>..\..\packages\Pegasus.4.0.0\lib\net40\Pegasus.Common.dll</HintPath>

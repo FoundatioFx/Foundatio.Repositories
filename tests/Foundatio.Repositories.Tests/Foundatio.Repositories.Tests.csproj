@@ -37,11 +37,11 @@
     <Reference Include="Exceptionless.DateTimeExtensions, Version=3.2.65.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\..\packages\Exceptionless.DateTimeExtensions.3.2.65\lib\net45\Exceptionless.DateTimeExtensions.dll</HintPath>
     </Reference>
-    <Reference Include="Foundatio, Version=4.3.1314.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Foundatio.4.3.1314\lib\net46\Foundatio.dll</HintPath>
+    <Reference Include="Foundatio, Version=5.0.1336.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Foundatio.5.0.1336\lib\net46\Foundatio.dll</HintPath>
     </Reference>
-    <Reference Include="Foundatio.Logging.Xunit, Version=4.3.1314.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Foundatio.Logging.Xunit.4.3.1314\lib\net46\Foundatio.Logging.Xunit.dll</HintPath>
+    <Reference Include="Foundatio.Logging.Xunit, Version=5.0.1336.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Foundatio.Logging.Xunit.5.0.1336\lib\net46\Foundatio.Logging.Xunit.dll</HintPath>
     </Reference>
     <Reference Include="Newtonsoft.Json, Version=9.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <HintPath>..\..\packages\Newtonsoft.Json.9.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
@@ -56,8 +56,8 @@
     <Reference Include="Nito.Collections.Deque, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\..\packages\Nito.Collections.Deque.1.0.0\lib\portable45-net45+win8+wp8+wpa81\Nito.Collections.Deque.dll</HintPath>
     </Reference>
-    <Reference Include="Nito.Disposables, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\..\packages\Nito.Disposables.1.0.0\lib\portable45-net45+win8+wp8+wpa81\Nito.Disposables.dll</HintPath>
+    <Reference Include="Nito.Disposables, Version=1.1.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\..\packages\Nito.Disposables.1.1.0\lib\portable45-net45+win8+wp8+wpa81\Nito.Disposables.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Collections.Immutable, Version=1.2.1.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
