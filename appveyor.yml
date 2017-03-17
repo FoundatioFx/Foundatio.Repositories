@@ -26,7 +26,7 @@ build_script:
 #on_failure:
 #  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
 
-befpre_test:
+before_test:
   - ps: .\build\Start-ElasticSearch.ps1 -NodeCount 3 -StartKibana $false
 
 after_test:
