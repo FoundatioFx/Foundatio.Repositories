@@ -8,7 +8,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="AsyncFixer" Version="1.1.5" PrivateAssets="All" />
-    <PackageReference Include="Foundatio.Jobs.Commands" Version="5.0.1336" />
+    <PackageReference Include="Foundatio.Jobs.Commands" Version="5.1.1360-pre" />
     <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="5.0.293-pre" />
   </ItemGroup>
   <ItemGroup>

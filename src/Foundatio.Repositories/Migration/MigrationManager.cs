@@ -13,7 +13,7 @@ namespace Foundatio.Repositories.Migrations {
         private readonly IServiceProvider _container;
         private readonly IMigrationRepository _migrationRepository;
         protected readonly ILogger _logger;
-        private readonly IList<Assembly> _assemblies = new List<Assembly>();
+        private readonly List<IMigration> _migrations = new List<IMigration>();
 
         public MigrationManager(IServiceProvider container, IMigrationRepository migrationRepository, ILogger<MigrationManager> logger = null) {
             _container = container;
@@ -21,41 +21,52 @@ namespace Foundatio.Repositories.Migrations {
             _logger = logger ?? NullLogger.Instance;
         }
 
-        public void RegisterAssemblyMigrations(Assembly assembly) {
-            _assemblies.Add(assembly);
+        public void AddMigrationsFromLoadedAssemblies() {
+            var migrationTypes = GetDerivedTypes<IMigration>(AppDomain.CurrentDomain.GetAssemblies());
+            AddMigration(migrationTypes);
         }
 
-        public void RegisterAssemblyMigrations<T>() {
-            _assemblies.Add(typeof(T).Assembly);
+        public void AddMigrationsFromAssembly(Assembly assembly) {
+            var migrationTypes = GetDerivedTypes<IMigration>(new[] { assembly });
+            AddMigration(migrationTypes);
         }
 
-        public async Task RunAsync() {
-            var migrations = await GetPendingMigrationsAsync().AnyContext();
-            foreach (var m in migrations.Where(m => m.Version.HasValue)) {
-                await MarkMigrationStartedAsync(m.Version.Value).AnyContext();
-                await m.RunAsync().AnyContext();
-                await MarkMigrationCompleteAsync(m.Version.Value).AnyContext();
+        public void AddMigrationsFromAssembly<T>() {
+            AddMigrationsFromAssembly(typeof(T).Assembly);
+        }
+
+        public void AddMigration<T>() {
+            AddMigration(typeof(T));
+        }
+
+        public void AddMigration(Type migrationType) {
+            var migration = (IMigration)_container.GetService(migrationType);
+            _migrations.Add(migration);
+        }
+
+        public void AddMigration(IEnumerable<Type> migrationTypes) {
+            foreach (var migrationType in migrationTypes)
+                AddMigration(migrationType);
+        }
+
+        public ICollection<IMigration> Migrations => _migrations;
+
+        public bool ShouldRunUnversionedMigrations { get; set; } = false;
+
+        public async Task RunMigrationsAsync() {
+            if (Migrations.Count == 0)
+                AddMigrationsFromLoadedAssemblies();
+
+            var migrations = await GetPendingMigrationsAsync();
+            foreach (var migration in migrations) {
+                if (migration.Version.HasValue)
+                    await MarkMigrationStartedAsync(migration.Version.Value).AnyContext();
+
+                await migration.RunAsync().AnyContext();
+
+                if (migration.Version.HasValue)
+                    await MarkMigrationCompleteAsync(migration.Version.Value).AnyContext();
             }
-        }
-
-        public Task RunAsync<T>() {
-            var migration = _container.GetService(typeof(T)) as IMigration;
-            return RunAsync(migration);
-        }
-
-        public Task RunAsync(Type migrationType) {
-            var migration = _container.GetService(migrationType) as IMigration;
-            return RunAsync(migration);
-        }
-
-        public async Task RunAsync(IMigration migration) {
-            if (migration.Version.HasValue)
-                await MarkMigrationStartedAsync(migration.Version.Value).AnyContext();
-
-            await migration.RunAsync().AnyContext();
-
-            if (migration.Version.HasValue)
-                await MarkMigrationCompleteAsync(migration.Version.Value).AnyContext();
         }
 
         private Task MarkMigrationStartedAsync(int version) {
@@ -73,23 +84,15 @@ namespace Foundatio.Repositories.Migrations {
             _logger.Info($"Completed migration for version {version}.");
         }
 
-        private ICollection<IMigration> GetAllMigrations() {
-            var migrationTypes = GetDerivedTypes<IMigration>(_assemblies);
-            return migrationTypes
-                .Select(migrationType => (IMigration)_container.GetService(migrationType))
-                .OrderBy(m => m.Version)
-                .ToList();
-        }
-
         public async Task<ICollection<IMigration>> GetPendingMigrationsAsync() {
-            var allMigrations = GetAllMigrations();
+            var migrations = Migrations.OrderBy(m => m.Version).ToList();
             var completedMigrations = await _migrationRepository.GetAllAsync(o => o.PageLimit(1000)).AnyContext();
 
             int max = 0;
             // if migrations have never run before, mark highest version as completed
             if (completedMigrations.Documents.Count == 0) {
-                if (allMigrations.Count > 0)
-                    max = allMigrations.Where(m => m.Version.HasValue).Max(m => m.Version.Value);
+                if (migrations.Count > 0)
+                    max = migrations.Where(m => m.Version.HasValue).Max(m => m.Version.Value);
 
                 await MarkMigrationCompleteAsync(max);
 
@@ -97,7 +100,7 @@ namespace Foundatio.Repositories.Migrations {
             }
 
             int currentVersion = completedMigrations.Documents.Max(m => m.Version);
-            return allMigrations.Where(m => m.Version > currentVersion).ToList();
+            return migrations.Where(m => (m.Version.HasValue == false && ShouldRunUnversionedMigrations) || (m.Version.HasValue && m.Version > currentVersion)).ToList();
         }
 
         private static IEnumerable<Type> GetDerivedTypes<TAction>(IList<Assembly> assemblies = null) {
