@@ -105,7 +105,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 return new SingleBucketAggregate(singleBucketAggregate.Aggregations.ToAggregations()) {
                     Data = singleBucketAggregate.Meta.ToData(),
                     Total = singleBucketAggregate.DocCount
-                };
+                };            
 
             if (aggregate is Nest.BucketAggregate bucketAggregation) {
                 var data = new Dictionary<string, object>((IDictionary<string, object>)bucketAggregation.Meta ?? new Dictionary<string, object>());
@@ -149,6 +149,13 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     KeyAsString = date.ToString("O")
                 };
             }
+
+            if (bucket is Nest.RangeBucket rangeBucket)
+                return new KeyedBucket<string>(rangeBucket.Aggregations.ToAggregations()) {
+                    Total = rangeBucket.DocCount,
+                    Key = rangeBucket.Key,
+                    KeyAsString = rangeBucket.Key
+                };
 
             if (bucket is Nest.KeyedBucket<string> stringKeyedBucket)
                 return new KeyedBucket<string>(stringKeyedBucket.Aggregations.ToAggregations()) {
