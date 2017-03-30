@@ -51,7 +51,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _lockProvider = new CacheLockProvider(Cache, messageBus, loggerFactory);
             _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15));
             _shouldDisposeCache = cacheClient == null;
-            MessageBus = messageBus ?? new InMemoryMessageBus(loggerFactory);
+            MessageBus = messageBus ?? new InMemoryMessageBus(new InMemoryMessageBusOptions { LoggerFactory = loggerFactory });
             _frozenIndexes = new Lazy<IReadOnlyCollection<IIndex>>(() => _indexes.AsReadOnly());
             _client = new Lazy<IElasticClient>(CreateElasticClient);
         }

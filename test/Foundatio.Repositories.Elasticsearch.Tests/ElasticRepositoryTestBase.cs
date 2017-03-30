@@ -23,8 +23,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Log.SetLogLevel<ScheduledTimer>(LogLevel.Warning);
 
             _cache = new InMemoryCacheClient(Log);
-            _messgeBus = new InMemoryMessageBus(Log);
-            _workItemQueue = new InMemoryQueue<WorkItemData>(loggerFactory: Log);
+            _messgeBus = new InMemoryMessageBus(new InMemoryMessageBusOptions { LoggerFactory = Log });
+            _workItemQueue = new InMemoryQueue<WorkItemData>(new InMemoryQueueOptions<WorkItemData> { LoggerFactory = Log });
             _configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messgeBus, Log);
             _client = _configuration.Client;
         }
