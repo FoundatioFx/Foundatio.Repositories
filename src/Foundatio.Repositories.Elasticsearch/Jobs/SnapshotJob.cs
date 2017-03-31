@@ -14,9 +14,9 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs {
     public class SnapshotJob : IJob {
-        private readonly IElasticClient _client;
-        private readonly ILockProvider _lockProvider;
-        private readonly ILogger _logger;
+        protected readonly IElasticClient _client;
+        protected readonly ILockProvider _lockProvider;
+        protected readonly ILogger _logger;
 
         public SnapshotJob(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory) {
             _client = client;
