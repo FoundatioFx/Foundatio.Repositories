@@ -112,30 +112,26 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ArgumentException($"Index max age exceeded: {indexExpirationUtcDate}", nameof(utcDate));
 
             var expires = indexExpirationUtcDate < DateTime.MaxValue ? indexExpirationUtcDate : (DateTime?)null;
-            string alias = GetIndex(utcDate);
-            if (await _aliasCache.ExistsAsync(alias).AnyContext()) {
+            string unversionedIndexAlias = GetIndex(utcDate);
+            if (await _aliasCache.ExistsAsync(unversionedIndexAlias).AnyContext())
+                return;
+
+            if (await AliasExistsAsync(unversionedIndexAlias).AnyContext()) {
+                await _aliasCache.SetAsync(unversionedIndexAlias, unversionedIndexAlias, expires).AnyContext();
                 return;
             }
 
-            if (await AliasExistsAsync(alias).AnyContext()) {
-                await _aliasCache.AddAsync(alias, alias, expires).AnyContext();
-                return;
-            }
-
-            // Try creating the index.
+            // try creating the index.
             string index = GetVersionedIndex(utcDate);
             await CreateIndexAsync(index, descriptor => {
-                var aliasesDescriptor = new AliasesDescriptor().Alias(alias);
+                var aliasesDescriptor = new AliasesDescriptor().Alias(unversionedIndexAlias);
                 foreach (var a in Aliases.Where(a => ShouldCreateAlias(utcDate, a)))
                     aliasesDescriptor.Alias(a.Name);
 
                 return ConfigureIndex(descriptor).Aliases(a => aliasesDescriptor);
             }).AnyContext();
 
-            if (!await AliasExistsAsync(alias).AnyContext())
-                throw new ApplicationException($"Unable to create alias {alias} for index {index}.");
-
-            await _aliasCache.AddAsync(alias, alias, expires).AnyContext();
+            await _aliasCache.SetAsync(unversionedIndexAlias, unversionedIndexAlias, expires).AnyContext();
         }
 
         protected virtual bool ShouldCreateAlias(DateTime documentDateUtc, IndexAliasAge alias) {

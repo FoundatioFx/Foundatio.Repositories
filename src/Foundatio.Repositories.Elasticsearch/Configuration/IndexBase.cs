@@ -57,33 +57,16 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (name == null)
                 throw new ArgumentNullException(nameof(name));
 
-            bool result = await _lockProvider.TryUsingAsync("create-index:" + name, async t => {
-                if (await IndexExistsAsync(name).AnyContext()) {
-                    var healthResponse = await Configuration.Client.ClusterHealthAsync(h => h
-                        .Index(name)
-                        .WaitForStatus(WaitForStatus.Yellow)
-                        .Timeout("10s")).AnyContext();
+            var response = await Configuration.Client.CreateIndexAsync(name, descriptor).AnyContext();
+            _logger.Info(() => response.GetRequest());
 
-                    if (!healthResponse.IsValid || (healthResponse.Status != "green" && healthResponse.Status != "yellow") || healthResponse.TimedOut)
-                        throw new ApplicationException($"Index {name} exists but is unhealthy: {healthResponse.Status}.", healthResponse.OriginalException);
+            // check for valid response or that the index already exists
+            if (response.IsValid || response.ServerError.Status == 400 && response.ServerError.Error.Type == "index_already_exists_exception")
+                return;
 
-                    return;
-                }
-
-                // NOTE: Create index should wait for all active shards to be available.
-                var response = await Configuration.Client.CreateIndexAsync(name, descriptor).AnyContext();
-                _logger.Trace(() => response.GetRequest());
-
-                if (response.IsValid)
-                    return;
-
-                string message = $"Error creating the index {name}: {response.GetErrorMessage()}";
-                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
-                throw new ApplicationException(message, response.OriginalException);
-            }, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
-
-            if (!result)
-                throw new ApplicationException($"Unable to acquire index creation lock for \"{name}\".");
+            string message = $"Error creating the index {name}: {response.GetErrorMessage()}";
+            _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            throw new ApplicationException(message, response.OriginalException);
         }
 
         protected virtual async Task DeleteIndexAsync(string name) {
