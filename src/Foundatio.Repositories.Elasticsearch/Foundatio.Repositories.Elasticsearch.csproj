@@ -8,13 +8,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="AsyncFixer" Version="1.1.5" PrivateAssets="All" />
-    <PackageReference Include="Foundatio.Jobs.Commands" Version="5.1.1402-pre" />
-    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="5.0.307-pre" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\Foundatio.Repositories\Foundatio.Repositories.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Update="SourceLink.Create.GitHub" Version="2.0.2" />
+    <PackageReference Include="Foundatio.Jobs.Commands" Version="5.1.1409-pre" />
+    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="5.0.309-pre" />
   </ItemGroup>
 </Project>
