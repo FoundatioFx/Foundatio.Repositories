@@ -9,7 +9,7 @@ namespace Foundatio.Repositories {
             Value = id;
             Routing = routing;
         }
-
+        
         public string Value { get; }
         public string Routing { get; }
 

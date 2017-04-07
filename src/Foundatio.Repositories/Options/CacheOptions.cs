@@ -9,6 +9,18 @@ namespace Foundatio.Repositories {
             return options.BuildOption(CacheEnabledKey, enabled);
         }
 
+        public static T Cache<T>(this T options, string cacheKey) where T : ICommandOptions {
+            return options.Cache().CacheKey(cacheKey);
+        }
+
+        public static T Cache<T>(this T options, string cacheKey, TimeSpan? expiresIn) where T : ICommandOptions {
+            return options.Cache().CacheKey(cacheKey).CacheExpiresIn(expiresIn);
+        }
+
+        public static T Cache<T>(this T options, string cacheKey, DateTime? expiresAtUtc) where T : ICommandOptions {
+            return options.Cache().CacheKey(cacheKey).CacheExpiresAt(expiresAtUtc);
+        }
+
         internal const string ReadCacheEnabledKey = "@ReadCacheEnabled";
         public static T ReadCache<T>(this T options) where T : ICommandOptions {
             return options.BuildOption(ReadCacheEnabledKey, true);
@@ -16,20 +28,16 @@ namespace Foundatio.Repositories {
 
         internal const string CacheKeyKey = "@CacheKey";
         public static T CacheKey<T>(this T options, string cacheKey) where T : ICommandOptions {
-            if (!String.IsNullOrEmpty(cacheKey)) {
-                options.Values.Set(CacheEnabledKey, true);
+            if (!String.IsNullOrEmpty(cacheKey))
                 return options.BuildOption(CacheKeyKey, cacheKey);
-            }
 
             return options;
         }
 
         internal const string DefaultCacheKeyKey = "@DefaultCacheKey";
         public static T DefaultCacheKey<T>(this T options, string defaultCacheKey) where T : ICommandOptions {
-            if (!String.IsNullOrEmpty(defaultCacheKey)) {
-                options.Values.Set(CacheEnabledKey, true);
+            if (!String.IsNullOrEmpty(defaultCacheKey))
                 return options.BuildOption(DefaultCacheKeyKey, defaultCacheKey);
-            }
 
             return options;
         }

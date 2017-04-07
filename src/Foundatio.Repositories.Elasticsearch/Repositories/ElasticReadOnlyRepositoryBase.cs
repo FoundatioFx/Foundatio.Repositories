@@ -11,7 +11,6 @@ using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
-using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Nest;
 
@@ -89,7 +88,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return await FindAsAsync<TResult>(query, options).AnyContext();
             };
 
-            string cacheSuffix = options?.HasPageLimit() == true ? String.Concat(options.GetPage().ToString(), ":", options.GetLimit().ToString()) : String.Empty;
+            string cacheSuffix = options?.HasPageLimit() == true ? String.Concat(options.GetPage().ToString(), ":", options.GetLimit().ToString()) : null;
 
             FindResults<TResult> result;
             if (allowCaching) {
@@ -421,7 +420,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             _scopedCacheClient = new ScopedCacheClient(new NullCacheClient(), EntityTypeName);
         }
 
-        protected virtual async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options = null) {
+        protected virtual async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
             if (!IsCacheEnabled)
                 return;
 
@@ -444,7 +443,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (!IsCacheEnabled)
                 return TaskHelper.Completed();
 
-            return InvalidateCacheAsync(new[] { document });
+            return InvalidateCacheAsync(new[] { document }, options);
         }
 
         public Task InvalidateCacheAsync(IEnumerable<T> documents, ICommandOptions options = null) {
@@ -505,7 +504,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return default(TResult);
 
             string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey();
-            if (cacheSuffix != null)
+            if (!String.IsNullOrEmpty(cacheSuffix))
                 cacheKey += ":" + cacheSuffix;
 
             var result = await Cache.GetAsync<TResult>(cacheKey, default(TResult)).AnyContext();
@@ -519,7 +518,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return;
 
             string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey();
-            if (cacheSuffix != null)
+            if (!String.IsNullOrEmpty(cacheSuffix))
                 cacheKey += ":" + cacheSuffix;
 
             await Cache.SetAsync(cacheKey, result, options.GetExpiresIn()).AnyContext();

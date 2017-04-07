@@ -642,7 +642,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var savingDocs = modifiedDocs.Where(m => m.Original != null).ToList();
             if (savingDocs.Count > 0)
-                await InvalidateCacheAsync(savingDocs).AnyContext();
+                await InvalidateCacheAsync(savingDocs, options).AnyContext();
 
             // if we couldn't find an original document, then it must be new.
             var addingDocs = modifiedDocs.Where(m => m.Original == null).Select(m => m.Value).ToList();
@@ -696,7 +696,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public AsyncEvent<DocumentsEventArgs<T>> DocumentsRemoving { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
 
         private async Task OnDocumentsRemovingAsync(IReadOnlyCollection<T> documents, ICommandOptions options) {
-            await InvalidateCacheAsync(documents).AnyContext();
+            await InvalidateCacheAsync(documents, options).AnyContext();
 
             if (DocumentsRemoving != null)
                 await DocumentsRemoving.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();

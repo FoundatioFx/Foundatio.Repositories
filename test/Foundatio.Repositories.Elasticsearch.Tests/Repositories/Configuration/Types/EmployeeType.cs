@@ -10,6 +10,7 @@ using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Nest;
+#pragma warning disable 618
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Types {
     public class EmployeeType : IndexTypeBase<Employee> {
