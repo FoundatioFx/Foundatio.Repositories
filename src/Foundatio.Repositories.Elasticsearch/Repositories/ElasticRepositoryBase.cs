@@ -425,7 +425,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public Task RemoveAsync(Id id, ICommandOptions options = null) {
             if (String.IsNullOrEmpty(id))
                 throw new ArgumentNullException(nameof(id));
-
+            
             return RemoveAsync((Ids)id, options);
         }
 
@@ -433,15 +433,14 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (ids == null)
                 throw new ArgumentNullException(nameof(ids));
 
-            ICommandOptions getOptions;
-            if (IsCacheEnabled) {
-                getOptions = options.Clone();
-                getOptions.ReadCache();
-            } else {
-                getOptions = options;
-            }
+            if (options == null)
+                options = new CommandOptions();
 
-            var documents = await GetByIdsAsync(ids, getOptions).AnyContext();
+            if (IsCacheEnabled)
+                options = options.ReadCache();
+
+            // TODO: Delete by id using GetIndexById and id.Routing if its a child doc
+            var documents = await GetByIdsAsync(ids, options).AnyContext();
             if (documents == null)
                 return;
 
@@ -469,27 +468,36 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             await OnDocumentsRemovingAsync(docs, options).AnyContext();
-
+            
             if (docs.Count == 1) {
                 var document = docs.Single();
                 var request = new DeleteRequest(GetDocumentIndexFunc?.Invoke(document), ElasticType.Name, document.Id) {
                     Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency)
                 };
 
+                if (GetParentIdFunc != null)
+                    request.Parent = GetParentIdFunc(document);
+
                 var response = await _client.DeleteAsync(request).AnyContext();
                 _logger.Trace(() => response.GetRequest());
 
-                if (!response.IsValid && response.Found) {
+                if (!response.IsValid) {
                     string message = response.GetErrorMessage();
                     _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
                     throw new ApplicationException(message, response.OriginalException);
                 }
             } else {
-                var documentsByIndex = docs.GroupBy(d => GetDocumentIndexFunc?.Invoke(d));
                 var response = await _client.BulkAsync(bulk => {
                     bulk.Refresh(options.GetRefreshMode(ElasticType.DefaultConsistency));
-                    foreach (var group in documentsByIndex)
-                        bulk.DeleteMany<T>(group.Select(g => g.Id), (b, id) => b.Index(group.Key).Type(ElasticType.Name));
+                    foreach (var doc in docs)
+                        bulk.Delete<T>(d => {
+                            d.Id(doc.Id).Index(GetDocumentIndexFunc?.Invoke(doc)).Type(ElasticType.Name);
+
+                            if (GetParentIdFunc != null)
+                                d.Parent(GetParentIdFunc(doc));
+
+                            return d;
+                        });
 
                     return bulk;
                 }).AnyContext();

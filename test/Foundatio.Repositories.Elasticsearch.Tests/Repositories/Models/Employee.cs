@@ -11,6 +11,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
         public int Rating { get; set; }
     }
 
+    public class PhoneInfo {
+        public string Number { get; set; }
+        public string Extension { get; set; }
+    }
+
     public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes {
         public string Id { get; set; }
         public string CompanyId { get; set; }
@@ -27,6 +32,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
         public bool IsDeleted { get; set; }
         public PeerReview[] PeerReviews { get; set; }
         public Dictionary<string, object> Data { get; set; }
+        public IList<PhoneInfo> PhoneNumbers { get; set; } = new List<PhoneInfo>();
 
         protected bool Equals(Employee other) {
             return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase) &&

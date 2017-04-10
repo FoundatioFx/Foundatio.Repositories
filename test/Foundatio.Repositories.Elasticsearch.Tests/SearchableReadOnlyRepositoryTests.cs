@@ -43,6 +43,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task SearchByObjectWithAlias() {
+            var employee = EmployeeGenerator.Generate(age: 19);
+            employee.PhoneNumbers.Add(new PhoneInfo { Number = "214-222-2222" });
+            await _employeeRepository.AddAsync(employee, o => o.ImmediateConsistency());
+
+            var searchRepository = (ISearchableReadOnlyRepository<Employee>)_employeeRepository;
+            var results = await searchRepository.SearchAsync(null, filter: "phone:214");
+            var employees = results.Documents.ToArray();
+            Assert.Equal(1, employees.Length);
+            Assert.Equal(19, employees[0].Age);
+        }
+
+        [Fact]
         public async Task SortByTextWithKeywordFieldAsync() {
             await _employeeRepository.AddAsync(new List<Employee> {
                 EmployeeGenerator.Generate(name: "Blake"),

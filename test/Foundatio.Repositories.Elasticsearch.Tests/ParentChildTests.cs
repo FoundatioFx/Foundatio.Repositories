@@ -86,9 +86,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, parentResults.Total);
         }
 
-        [Fact(Skip = "Test parent that doesn't support soft deletes")]
-        public void CanDeleteParentChild() {
-            throw new NotImplementedException();
+        [Fact]
+        public async Task CanDeleteParentChild() {
+            var parent = ParentGenerator.Default;
+            parent = await _parentRepository.AddAsync(parent, o => o.ImmediateConsistency());
+            Assert.NotNull(parent?.Id);
+
+            var child = ChildGenerator.Default;
+            child = await _childRepository.AddAsync(child, o => o.ImmediateConsistency());
+            Assert.NotNull(child?.Id);
+
+            await _childRepository.RemoveAsync(child.Id, o => o.ImmediateConsistency());
+            var result = await _childRepository.GetByIdAsync(child.Id);
+            Assert.Null(result);
         }
     }
 }

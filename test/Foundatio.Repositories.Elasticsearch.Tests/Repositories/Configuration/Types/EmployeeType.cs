@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Logging;
 using Foundatio.Parsers.ElasticQueries;
@@ -28,6 +29,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Scalar(f => f.Age, f => f.Name(e => e.Age).Alias("aliasedage"))
                     .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview).Alias("next"))
                     .GeoPoint(f => f.Name(e => e.Location))
+                    .Object<PhoneInfo>(f => f
+                        .Name(u => u.PhoneNumbers.First()).Properties(mp => mp
+                            .Text(fu => fu.Name(m => m.Number).RootAlias("phone").IncludeInAll())))
                     .Object<Dictionary<string, object>>(f => f.Name(e => e.Data).Properties(p1 => p1
                         .Object<object>(f2 => f2.Name("@user_meta").Properties(p2 => p2
                             .Text(f3 => f3.Name("twitter_id").RootAlias("twitter").IncludeInAll().Boost(1.1).AddKeywordField())
