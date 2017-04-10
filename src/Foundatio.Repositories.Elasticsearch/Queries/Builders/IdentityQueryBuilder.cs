@@ -12,7 +12,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             var excludesIds = ctx.Source.GetExcludedIds();
             if (excludesIds.Count > 0)
-                ctx.Filter &= !new IdsQuery { Values = ids.Select(id => new Nest.Id(id)) };
+                ctx.Filter &= !new IdsQuery { Values = excludesIds.Select(id => new Nest.Id(id)) };
 
             return Task.CompletedTask;
         }

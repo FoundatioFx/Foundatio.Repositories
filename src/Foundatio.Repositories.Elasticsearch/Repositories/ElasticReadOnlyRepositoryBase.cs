@@ -82,8 +82,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (options == null)
                     return new FindResults<TResult>();
 
-                if (options != null)
-                    options.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
+                options?.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
 
                 return await FindAsAsync<TResult>(query, options).AnyContext();
             };
