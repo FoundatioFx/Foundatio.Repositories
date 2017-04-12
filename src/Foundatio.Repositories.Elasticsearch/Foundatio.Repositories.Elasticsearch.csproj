@@ -7,9 +7,8 @@
     <Compile Include="..\Foundatio.Repositories\Extensions\TaskExtensions.cs" Link="Extensions\TaskExtensions.cs" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="AsyncFixer" Version="1.1.5" PrivateAssets="All" />
-    <PackageReference Include="Foundatio.Jobs.Commands" Version="5.1.1409-pre" />
-    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="5.0.311-pre" />
+    <PackageReference Include="Foundatio.Jobs.Commands" Version="5.1.1426-pre" />
+    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="5.0.312-pre" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Foundatio.Repositories\Foundatio.Repositories.csproj" />
