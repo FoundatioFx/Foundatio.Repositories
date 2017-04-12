@@ -106,14 +106,15 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (operation == null)
                 throw new ArgumentNullException(nameof(operation));
 
-            string pipeline = ElasticType is IHavePipelinedIndexType ? ((IHavePipelinedIndexType)ElasticType).Pipeline : null;
+            var pipelinedIndexType = ElasticType as IHavePipelinedIndexType;
+            string pipeline = pipelinedIndexType?.Pipeline;
             if (operation is ScriptPatch scriptOperation) {
                 // TODO: Figure out how to specify a pipeline here.
                 var request = new UpdateRequest<T, T>(GetIndexById(id), ElasticType.Name, id.Value) {
                     Script = new InlineScript(scriptOperation.Script),
-                    RetryOnConflict = 10
+                    RetryOnConflict = 10,
+                    Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency)
                 };
-                request.Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
 
@@ -283,7 +284,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             options = ConfigureOptions(options);
 
             long affectedRecords = 0;
-            string pipeline = ElasticType is IHavePipelinedIndexType ? ((IHavePipelinedIndexType)ElasticType).Pipeline : null;
+            var pipelinedIndexType = ElasticType as IHavePipelinedIndexType;
+            string pipeline = pipelinedIndexType?.Pipeline;
             if (operation is Models.JsonPatch jsonOperation) {
                 var patcher = new JsonPatcher();
                 affectedRecords += await BatchProcessAsAsync<JObject>(query, async results => {
@@ -337,14 +339,15 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ArgumentException("Unknown operation type", nameof(operation));
 
                 if (!IsCacheEnabled && scriptOperation != null) {
-                    var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", GetIndexesByQuery(query))), ElasticType.Name) {
+                    var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", GetIndexesByQuery(query))),
+                        ElasticType.Name) {
                         Query = await ElasticType.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext(),
                         Conflicts = Conflicts.Proceed,
                         Script = new InlineScript(scriptOperation.Script),
                         Pipeline = pipeline,
-                        Version = HasVersion
+                        Version = HasVersion,
+                        Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency) != Refresh.False
                     };
-                    request.Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency) != Refresh.False;
 
                     var response = await _client.UpdateByQueryAsync(request).AnyContext();
                     _logger.Trace(() => response.GetRequest());
