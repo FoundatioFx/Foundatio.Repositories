@@ -34,6 +34,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
             AddReindexScript(20, "ctx._source.companyName = 'scripted';");
             AddReindexScript(21, "ctx._source.companyName = 'NOOO';", "notEmployee");
             AddReindexScript(21, "ctx._source.companyName = 'typed script';", "employee");
+            AddReindexScript(22, "ctx._source.FAIL = 'should not work");
         }
 
         public EmployeeType Employee { get; }
