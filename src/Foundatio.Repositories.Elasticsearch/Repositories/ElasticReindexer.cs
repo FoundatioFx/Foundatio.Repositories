@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Elasticsearch.Net;
+﻿using Elasticsearch.Net;
 using Foundatio.Logging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
@@ -11,8 +7,13 @@ using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Nest;
 using Newtonsoft.Json.Linq;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace Foundatio.Repositories.Elasticsearch {
+
     public class ElasticReindexer {
         private readonly IElasticClient _client;
         private readonly ILogger _logger;
@@ -37,10 +38,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                 };
             }
 
-            _logger.Info("Received reindex work item for new index {0}", workItem.NewIndex);
+            _logger.Info().Message("Received reindex work item for new index {0}", workItem.NewIndex).Property("request", workItem).Write();
             var startTime = SystemClock.UtcNow.AddSeconds(-1);
             await progressCallbackAsync(0, "Starting reindex...").AnyContext();
             var firstPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 0, 90, workItem.StartUtc).AnyContext();
+
+            if (!firstPassResult.Succeeded) return;
+
             await progressCallbackAsync(91, $"Total: {firstPassResult.Total} Completed: {firstPassResult.Completed}").AnyContext();
 
             // TODO: Check to make sure the docs have been added to the new index before changing alias
@@ -64,6 +68,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             await _client.RefreshAsync(Indices.All).AnyContext();
             var secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime).AnyContext();
+            if (!secondPassResult.Succeeded) return;
+
             await progressCallbackAsync(97, $"Total: {secondPassResult.Total} Completed: {secondPassResult.Completed}").AnyContext();
 
             bool hasFailures = (firstPassResult.Failures + secondPassResult.Failures) > 0;
@@ -82,7 +88,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync, int startProgress = 0, int endProgress = 100, DateTime? startTime = null) {
-            var query = await GetResumeQueryAsync(workItem.NewIndex, workItem.TimestampField, startTime).AnyContext();            
+            var query = await GetResumeQueryAsync(workItem.NewIndex, workItem.TimestampField, startTime).AnyContext();
 
             var response = await _client.ReindexOnServerAsync(d => {
                 d.Source(src => src
@@ -95,13 +101,14 @@ namespace Foundatio.Repositories.Elasticsearch {
                 //NEST client emitting script if null, inline this when that's fixed
                 if (!string.IsNullOrWhiteSpace(workItem.Script)) d.Script(workItem.Script);
 
-                return d;                
+                return d;
             }).AnyContext();
 
-            _logger.Trace(() => response.GetRequest());
+            _logger.Info(() => response.GetRequest());
 
             long failures = 0;
-            if (!response.IsValid) {
+            bool succeeded = true;
+            if (!response.IsValid || response.ApiCall.HttpStatusCode != 200) {
                 _logger.Error().Exception(response.OriginalException).Message("Error while reindexing result: {0}", response.GetErrorMessage()).Write();
 
                 if (await CreateFailureIndexAsync(workItem).AnyContext()) {
@@ -110,12 +117,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                         failures++;
                     }
                 }
+                succeeded = false;
             }
 
             long completed = response.Created + response.Updated + response.Noops;
             string message = $"Total: {response.Total} Completed: {completed} VersionConflicts: {response.VersionConflicts}";
             await progressCallbackAsync(CalculateProgress(response.Total, completed, startProgress, endProgress), message).AnyContext();
-            return new ReindexResult { Total = response.Total, Completed = completed, Failures = failures };
+            return new ReindexResult { Total = response.Total, Completed = completed, Failures = failures, Succeeded = succeeded };
         }
 
         private async Task<bool> CreateFailureIndexAsync(ReindexWorkItem workItem) {
@@ -226,6 +234,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             public long Total { get; set; }
             public long Completed { get; set; }
             public long Failures { get; set; }
+            public bool Succeeded { get; set; }
         }
     }
 }

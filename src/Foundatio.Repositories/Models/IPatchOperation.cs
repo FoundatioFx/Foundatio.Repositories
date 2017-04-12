@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using Foundatio.Repositories.JsonPatch;
 
 namespace Foundatio.Repositories.Models {
@@ -29,5 +30,7 @@ namespace Foundatio.Repositories.Models {
         }
 
         public string Script { get; }
+        public Dictionary<string, object> Params { get; set; }
+        
     }
 }

@@ -379,6 +379,35 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task HandleFailureInReindexScriptAsync() {
+            var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+            await version1Index.DeleteAsync();
+
+
+            var version22Index = new VersionedEmployeeIndex(_configuration, 22) { DiscardIndexesOnReindex = false };
+            await version22Index.DeleteAsync();
+
+            using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
+                await version1Index.ConfigureAsync();
+                var version1Repository = new EmployeeRepository(version1Index.Employee);
+
+                var utcNow = SystemClock.UtcNow;
+                var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
+                Assert.NotNull(employee?.Id);
+
+                using (new DisposableAction(() => version22Index.DeleteAsync().GetAwaiter().GetResult())) {
+                    await version22Index.ConfigureAsync();
+                    await version22Index.ReindexAsync();
+
+                    var aliasResponse = await _client.GetAliasAsync(descriptor => descriptor.Name(version1Index.Name));
+                    Assert.True(aliasResponse.IsValid);
+                    Assert.Equal(1, aliasResponse.Indices.Count);
+                    Assert.Equal(version1Index.VersionedName, aliasResponse.Indices.First().Key);
+                }
+            }
+        }
+
+        [Fact]
         public async Task CanReindexVersionedIndexWithDataInBothIndexesAsync() {
             var version1Index = new VersionedEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();

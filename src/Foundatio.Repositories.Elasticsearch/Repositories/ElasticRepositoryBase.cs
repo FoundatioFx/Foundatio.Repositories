@@ -226,7 +226,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                             u.Id(id.Value)
                               .Index(GetIndexById(id))
                               .Type(ElasticType.Name)
-                              .Script(s => s.Inline(scriptOperation.Script))
+                              .Script(s => s.Inline(scriptOperation.Script).Params(scriptOperation.Params))
                               .RetriesOnConflict(10);
 
                             if (id.Routing != null)
