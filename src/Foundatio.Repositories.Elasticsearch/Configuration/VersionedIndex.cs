@@ -31,7 +31,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected virtual void AddReindexScript(int versionNumber, string script, string type = null) {
-            this.ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script });
+            this.ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script, Type = type });
+        }
+
+        protected void AddRenameScript(int versionNumber, string originalName, string currentName, string type = null) {
+            var script = $"if (ctx._source.containsKey(\'{originalName}\')) {{ ctx._source[\'{currentName}\'] = ctx._source.{originalName}; }}";
+            this.ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script, Type = type });
         }
 
         public override async Task ConfigureAsync() {
