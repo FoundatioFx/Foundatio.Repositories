@@ -445,7 +445,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task ExistsAsync() {
-            Assert.False(await _identityRepository.ExistsAsync(null));
+            Assert.False(await _identityRepository.ExistsAsync(Id.Null));
 
             var identity = IdentityGenerator.Default;
             Assert.False(await _identityRepository.ExistsAsync(identity.Id));
@@ -458,7 +458,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task ExistsWithTimeSeriesAsync() {
-            Assert.False(await _dailyRepository.ExistsAsync(null));
+            Assert.False(await _dailyRepository.ExistsAsync(Id.Null));
 
             var utcNow = SystemClock.UtcNow;
             var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());

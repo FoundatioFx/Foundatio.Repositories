@@ -23,7 +23,18 @@ using Newtonsoft.Json.Linq;
 using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories.Elasticsearch {
-    public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IRepository<T> where T : class, IIdentity, new() {
+    public interface IElasticRepository<T> : IRepository<T> where T : class, IIdentity, new() {
+        Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> query, IPatchOperation operation, CommandOptionsDescriptor<T> options = null);
+        Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null);
+        Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
+        Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions options = null);
+        Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<FindResults<T>, Task<bool>> processAsync, CommandOptionsDescriptor<T> options = null);
+        Task<long> BatchProcessAsync(IRepositoryQuery query, Func<FindResults<T>, Task<bool>> processAsync, ICommandOptions options = null);
+        Task<long> BatchProcessAsAsync<TResult>(IRepositoryQuery query, Func<FindResults<TResult>, Task<bool>> processAsync, ICommandOptions options = null)
+            where TResult : class, new();
+    }
+
+    public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IElasticRepository<T> where T : class, IIdentity, new() {
         protected readonly IValidator<T> _validator;
         protected readonly IMessagePublisher _messagePublisher;
 
@@ -270,11 +281,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                     await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
         }
 
-        protected Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> query, IPatchOperation operation, CommandOptionsDescriptor<T> options = null) {
+        public Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> query, IPatchOperation operation, CommandOptionsDescriptor<T> options = null) {
             return PatchAllAsync(query.Configure(), operation, options.Configure());
         }
 
-        protected async Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null) {
+        public async Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
@@ -428,7 +439,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public Task RemoveAsync(Id id, ICommandOptions options = null) {
             if (String.IsNullOrEmpty(id))
                 throw new ArgumentNullException(nameof(id));
-            
+
             return RemoveAsync((Ids)id, options);
         }
 
@@ -471,7 +482,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             await OnDocumentsRemovingAsync(docs, options).AnyContext();
-            
+
             if (docs.Count == 1) {
                 var document = docs.Single();
                 var request = new DeleteRequest(GetDocumentIndexFunc?.Invoke(document), ElasticType.Name, document.Id) {
@@ -525,11 +536,11 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         protected List<Field> FieldsRequiredForRemove { get; } = new List<Field>();
 
-        protected Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
+        public Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
             return RemoveAllAsync(query.Configure(), options.Configure());
         }
 
-        protected async Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions options = null) {
+        public async Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions options = null) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
@@ -567,15 +578,15 @@ namespace Foundatio.Repositories.Elasticsearch {
             return response.Deleted;
         }
 
-        protected Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<FindResults<T>, Task<bool>> processAsync, CommandOptionsDescriptor<T> options = null) {
+        public Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<FindResults<T>, Task<bool>> processAsync, CommandOptionsDescriptor<T> options = null) {
             return BatchProcessAsAsync(query.Configure(), processAsync, options.Configure());
         }
 
-        protected Task<long> BatchProcessAsync(IRepositoryQuery query, Func<FindResults<T>, Task<bool>> processAsync, ICommandOptions options = null) {
+        public Task<long> BatchProcessAsync(IRepositoryQuery query, Func<FindResults<T>, Task<bool>> processAsync, ICommandOptions options = null) {
             return BatchProcessAsAsync(query, processAsync, options);
         }
 
-        protected async Task<long> BatchProcessAsAsync<TResult>(IRepositoryQuery query, Func<FindResults<TResult>, Task<bool>> processAsync, ICommandOptions options = null)
+        public async Task<long> BatchProcessAsAsync<TResult>(IRepositoryQuery query, Func<FindResults<TResult>, Task<bool>> processAsync, ICommandOptions options = null)
             where TResult : class, new() {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));

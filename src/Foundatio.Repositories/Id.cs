@@ -5,11 +5,14 @@ using System.Linq;
 
 namespace Foundatio.Repositories {
     public struct Id : IEquatable<Id> {
+
+        public static readonly Id Null = new Id();
+
         public Id(string id, string routing = null) {
             Value = id;
             Routing = routing;
         }
-        
+
         public string Value { get; }
         public string Routing { get; }
 
@@ -51,6 +54,8 @@ namespace Foundatio.Repositories {
     }
 
     public class Ids : List<Id> {
+        public static readonly Ids Empty = new Ids();
+
         public Ids() { }
 
         public Ids(IEnumerable<string> ids) : base(ids != null ? ids.Select(i => (Id)i) : new Id[] { }) {}
