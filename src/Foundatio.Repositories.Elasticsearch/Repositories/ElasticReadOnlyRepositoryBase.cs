@@ -15,7 +15,20 @@ using Foundatio.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch {
-    public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepository<T> where T : class, new() {
+    public interface IElasticReadOnlyRepository<T> : ISearchableReadOnlyRepository<T> where T : class, new() {
+        Task<FindResults<T>> FindAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
+        Task<FindResults<T>> FindAsync(IRepositoryQuery query, ICommandOptions options = null);
+        Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) where TResult : class, new();
+        Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions options = null) where TResult : class, new();
+        Task<FindHit<T>> FindOneAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
+        Task<FindHit<T>> FindOneAsync(IRepositoryQuery query, ICommandOptions options = null);
+        Task<bool> ExistsAsync(RepositoryQueryDescriptor<T> query);
+        Task<bool> ExistsAsync(IRepositoryQuery query);
+        Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
+        Task<CountResult> CountAsync(IRepositoryQuery query, ICommandOptions options = null);
+    }
+
+    public abstract class ElasticReadOnlyRepositoryBase<T> : IElasticReadOnlyRepository<T> where T : class, new() {
         protected static readonly bool HasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
         protected static readonly bool HasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
         protected static readonly bool HasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
@@ -39,21 +52,21 @@ namespace Foundatio.Repositories.Elasticsearch {
             _logger = indexType.Configuration.LoggerFactory.CreateLogger(GetType());
         }
 
-        protected Task<FindResults<T>> FindAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
+        public Task<FindResults<T>> FindAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
             return FindAsAsync<T>(query.Configure(), options.Configure());
         }
 
-        protected Task<FindResults<T>> FindAsync(IRepositoryQuery query, ICommandOptions options = null) {
+        public Task<FindResults<T>> FindAsync(IRepositoryQuery query, ICommandOptions options = null) {
             return FindAsAsync<T>(query, options);
         }
 
         protected ICollection<Field> DefaultExcludes { get; } = new List<Field>();
 
-        protected Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) where TResult : class, new() {
+        public Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) where TResult : class, new() {
             return FindAsAsync<TResult>(query.Configure(), options.Configure());
         }
 
-        protected async Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions options = null) where TResult : class, new() {
+        public async Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions options = null) where TResult : class, new() {
             if (query == null)
                 query = new RepositoryQuery();
 
@@ -146,11 +159,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             return result;
         }
 
-        protected Task<FindHit<T>> FindOneAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
+        public Task<FindHit<T>> FindOneAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
             return FindOneAsync(query.Configure(), options.Configure());
         }
 
-        protected async Task<FindHit<T>> FindOneAsync(IRepositoryQuery query, ICommandOptions options = null) {
+        public async Task<FindHit<T>> FindOneAsync(IRepositoryQuery query, ICommandOptions options = null) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
@@ -308,11 +321,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
         }
 
-        protected Task<bool> ExistsAsync(RepositoryQueryDescriptor<T> query) {
+        public Task<bool> ExistsAsync(RepositoryQueryDescriptor<T> query) {
             return ExistsAsync(query.Configure());
         }
 
-        protected async Task<bool> ExistsAsync(IRepositoryQuery query) {
+        public async Task<bool> ExistsAsync(IRepositoryQuery query) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
@@ -336,11 +349,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             return response.HitsMetaData.Total > 0;
         }
 
-        protected Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
+        public Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
             return CountAsync(query.Configure(), options.Configure());
         }
 
-        protected async Task<CountResult> CountAsync(IRepositoryQuery query, ICommandOptions options = null) {
+        public async Task<CountResult> CountAsync(IRepositoryQuery query, ICommandOptions options = null) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
