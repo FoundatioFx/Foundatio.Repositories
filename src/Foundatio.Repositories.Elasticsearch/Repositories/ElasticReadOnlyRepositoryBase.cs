@@ -221,7 +221,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     hit = findResult.Document;
             }
 
-            if (hit != null && IsCacheEnabled && options.ShouldUseCache())
+            if (hit != null && IsCacheEnabled)
                 await Cache.SetAsync(id, hit, options.GetExpiresIn()).AnyContext();
 
             return hit;
@@ -276,7 +276,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 } while (await response.NextPageAsync().AnyContext());
             }
 
-            if (IsCacheEnabled && options.ShouldUseCache()) {
+            if (IsCacheEnabled) {
                 foreach (var item in hits.OfType<IIdentity>())
                     await Cache.SetAsync(item.Id, item, options.GetExpiresIn()).AnyContext();
             }
