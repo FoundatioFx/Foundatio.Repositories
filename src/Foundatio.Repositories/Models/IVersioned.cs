@@ -5,7 +5,6 @@ namespace Foundatio.Repositories.Models {
         /// <summary>
         /// Current modification version for the document.
         /// </summary>
-        [JsonIgnore]
         long Version { get; set; }
     }
 }
