@@ -47,7 +47,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _workItemQueue = workItemQueue;
             _logger = loggerFactory.CreateLogger(GetType());
             LoggerFactory = loggerFactory;
-            Cache = cacheClient ?? new InMemoryCacheClient(loggerFactory);
+            Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { LoggerFactory = loggerFactory });
             _lockProvider = new CacheLockProvider(Cache, messageBus, loggerFactory);
             _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15));
             _shouldDisposeCache = cacheClient == null;

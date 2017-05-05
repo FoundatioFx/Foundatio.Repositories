@@ -286,38 +286,22 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task SaveWithOriginalFromOptions() {
-            var identity = await _identityRepository.AddAsync(IdentityGenerator.Default);
-            Assert.Equal(1, _cache.Count);
+            var original = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Notifications(false));
+            Assert.Equal(0, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
+            Assert.Equal(0, _messageBus.MessagesSent);
+            Assert.Equal(0, _employeeRepository.QueryCount);
 
-            string cacheKey = _cache.Keys.Single();
-            var cacheValue = await _cache.GetAsync<Identity>(cacheKey);
-            Assert.True(cacheValue.HasValue);
-            Assert.Equal(identity, cacheValue.Value);
+            var copy = original.DeepClone();
+            copy.Age = 30;
+            await _employeeRepository.SaveAsync(copy, o => o.AddOriginals(original));
 
-            identity = await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache());
-            Assert.NotNull(identity);
-            Assert.Equal(2, _cache.Hits);
-
-            cacheValue = await _cache.GetAsync<Identity>(cacheKey);
-            Assert.True(cacheValue.HasValue);
-            Assert.Equal(identity, cacheValue.Value);
-
-            await _identityRepository.InvalidateCacheAsync(identity);
             Assert.Equal(0, _cache.Count);
-            Assert.Equal(3, _cache.Hits);
+            Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
-
-            var result = await _identityRepository.SaveAsync(identity, o => o.Cache());
-            Assert.NotNull(result);
-            Assert.Equal(1, _cache.Count);
-            Assert.Equal(3, _cache.Hits);
-            Assert.Equal(0, _cache.Misses);
-
-            cacheValue = await _cache.GetAsync<Identity>(cacheKey);
-            Assert.True(cacheValue.HasValue);
-            Assert.Equal(identity, cacheValue.Value);
+            Assert.Equal(1, _messageBus.MessagesSent);
+            Assert.Equal(0, _employeeRepository.QueryCount);
         }
 
         [Fact]

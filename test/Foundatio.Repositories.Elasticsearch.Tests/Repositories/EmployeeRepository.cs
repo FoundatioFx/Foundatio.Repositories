@@ -15,7 +15,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public EmployeeRepository(IIndexType<Employee> employeeType) : base(employeeType) {
+            DocumentsChanged.AddHandler((o, args) => {
+                DocumentsChangedCount += args.Documents.Count;
+                return Task.CompletedTask;
+            });
+
+            BeforeQuery.AddHandler((o, args) => {
+                QueryCount++;
+                return Task.CompletedTask;
+            });
         }
+
+        public long DocumentsChangedCount { get; private set; }
+        public long QueryCount { get; private set; }
 
         /// <summary>
         /// This allows us easily test aggregations

@@ -22,7 +22,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Log.MinimumLevel = LogLevel.Trace;
             Log.SetLogLevel<ScheduledTimer>(LogLevel.Warning);
 
-            _cache = new InMemoryCacheClient(Log);
+            _cache = new InMemoryCacheClient(new InMemoryCacheClientOptions { LoggerFactory = Log });
             _messageBus = new InMemoryMessageBus(new InMemoryMessageBusOptions { LoggerFactory = Log });
             _workItemQueue = new InMemoryQueue<WorkItemData>(new InMemoryQueueOptions<WorkItemData> { LoggerFactory = Log });
             _configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log);
@@ -40,6 +40,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _cache.RemoveAllAsync();
             await _client.RefreshAsync(Indices.All);
+            _messageBus.ResetMessagesSent();
 
             Log.MinimumLevel = minimumLevel;
         }
