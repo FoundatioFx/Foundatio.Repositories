@@ -10,7 +10,7 @@ environment:
   JAVA_HOME: C:\Progra~1\Java\jdk1.8.0
 
 init:
-  - git config --global core.autocrlf input
+  - git config --global core.autocrlf input 
   - ps: $env:GIT_HASH=$env:APPVEYOR_REPO_COMMIT.Substring(0, 10)
   - ps: If ("$env:APPVEYOR_REPO_TAG" -ne "true") { $env:VERSION_SUFFIX="pre" }
   - ps: 'Write-Output "Version: $($env:APPVEYOR_BUILD_VERSION)-$($env:VERSION_SUFFIX)"'
