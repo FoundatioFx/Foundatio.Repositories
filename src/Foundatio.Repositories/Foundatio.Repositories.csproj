@@ -4,8 +4,8 @@
     <TargetFramework>net461</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Exceptionless.DateTimeExtensions" Version="3.2.71-pre" />
+    <PackageReference Include="Exceptionless.DateTimeExtensions" Version="3.2.*" />
     <PackageReference Include="FluentValidation" Version="6.4.1" />
-    <PackageReference Include="Foundatio" Version="5.1.1426-pre" />
+    <PackageReference Include="Foundatio" Version="5.1.*" />
   </ItemGroup>
 </Project>

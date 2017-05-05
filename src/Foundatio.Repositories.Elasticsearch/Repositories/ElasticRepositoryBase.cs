@@ -23,17 +23,6 @@ using Newtonsoft.Json.Linq;
 using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories.Elasticsearch {
-    public interface IElasticRepository<T> : IRepository<T> where T : class, IIdentity, new() {
-        Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> query, IPatchOperation operation, CommandOptionsDescriptor<T> options = null);
-        Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null);
-        Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
-        Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions options = null);
-        Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<FindResults<T>, Task<bool>> processAsync, CommandOptionsDescriptor<T> options = null);
-        Task<long> BatchProcessAsync(IRepositoryQuery query, Func<FindResults<T>, Task<bool>> processAsync, ICommandOptions options = null);
-        Task<long> BatchProcessAsAsync<TResult>(IRepositoryQuery query, Func<FindResults<TResult>, Task<bool>> processAsync, ICommandOptions options = null)
-            where TResult : class, new();
-    }
-
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IElasticRepository<T> where T : class, IIdentity, new() {
         protected readonly IValidator<T> _validator;
         protected readonly IMessagePublisher _messagePublisher;
@@ -97,7 +86,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (ids.Length < docs.Count)
                 throw new ApplicationException("Id must be set when calling Save.");
 
-            var originalDocuments = ids.Length > 0 ? (await GetByIdsAsync(ids, options).AnyContext()) : EmptyList;
+            options = ConfigureOptions(options);
+
+            var originalDocuments = await GetOriginalDocumentsAsync(ids, options).AnyContext();
             await OnDocumentsSavingAsync(docs, originalDocuments, options).AnyContext();
 
             if (_validator != null)
@@ -108,6 +99,19 @@ namespace Foundatio.Repositories.Elasticsearch {
             await AddToCacheAsync(docs, options).AnyContext();
 
             await OnDocumentsSavedAsync(docs, originalDocuments, options).AnyContext();
+        }
+
+        private async Task<IReadOnlyCollection<T>> GetOriginalDocumentsAsync(Ids ids, ICommandOptions options) {
+            if (!options.GetOriginalsEnabled(OriginalsEnabled) || ids.Count == 0)
+                return EmptyList;
+
+            var originals = options.GetOriginals<T>().ToList();
+            foreach (var original in originals)
+                ids.RemoveAll(id => id.Value == original.Id);
+
+            originals.AddRange(await GetByIdsAsync(ids, options.Clone().ReadCache()).AnyContext());
+
+            return originals.AsReadOnly();
         }
 
         public async Task PatchAsync(Id id, IPatchOperation operation, ICommandOptions options = null) {
@@ -453,6 +457,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (IsCacheEnabled)
                 options = options.ReadCache();
 
+            // TODO: If not OriginalsEnabled then just delete by id
             // TODO: Delete by id using GetIndexById and id.Routing if its a child doc
             var documents = await GetByIdsAsync(ids, options).AnyContext();
             if (documents == null)
@@ -632,8 +637,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 documents.OfType<IHaveCreatedDate>().SetCreatedDates();
 
             documents.EnsureIds(ElasticType.CreateDocumentId);
-            foreach (var doc in documents.OfType<IVersioned>())
-                doc.Version = 0;
 
             if (DocumentsAdding != null)
                 await DocumentsAdding.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
@@ -655,26 +658,19 @@ namespace Foundatio.Repositories.Elasticsearch {
         public AsyncEvent<ModifiedDocumentsEventArgs<T>> DocumentsSaving { get; } = new AsyncEvent<ModifiedDocumentsEventArgs<T>>();
 
         private async Task OnDocumentsSavingAsync(IReadOnlyCollection<T> documents, IReadOnlyCollection<T> originalDocuments, ICommandOptions options) {
+            if (documents.Count == 0)
+                return;
+
             if (HasDates)
                 documents.Cast<IHaveDates>().SetDates();
+
+            documents.EnsureIds(ElasticType.CreateDocumentId);
 
             var modifiedDocs = originalDocuments.FullOuterJoin(
                 documents, cf => cf.Id, cf => cf.Id,
                 (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m => new ModifiedDocument<T>( m.Modified, m.Original)).ToList();
 
-            var savingDocs = modifiedDocs.Where(m => m.Original != null).ToList();
-            if (savingDocs.Count > 0)
-                await InvalidateCacheAsync(savingDocs, options).AnyContext();
-
-            // if we couldn't find an original document, then it must be new.
-            var addingDocs = modifiedDocs.Where(m => m.Original == null).Select(m => m.Value).ToList();
-            if (addingDocs.Count > 0) {
-                await InvalidateCacheAsync(addingDocs, options).AnyContext();
-                await OnDocumentsAddingAsync(addingDocs, options).AnyContext();
-            }
-
-            if (savingDocs.Count == 0)
-                return;
+            await InvalidateCacheAsync(modifiedDocs, options).AnyContext();
 
             if (DocumentsSaving != null)
                 await DocumentsSaving.InvokeAsync(this, new ModifiedDocumentsEventArgs<T>(modifiedDocs, this, options)).AnyContext();
@@ -689,21 +685,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                 documents, cf => cf.Id, cf => cf.Id,
                 (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m => new ModifiedDocument<T>(m.Modified, m.Original)).ToList();
 
-            // if we couldn't find an original document, then it must be new.
-            var addedDocs = modifiedDocs.Where(m => m.Original == null).Select(m => m.Value).ToList();
-            if (addedDocs.Count > 0)
-                await OnDocumentsAddedAsync(addedDocs, options).AnyContext();
-
-            var savedDocs = modifiedDocs.Where(m => m.Original != null).ToList();
-            if (savedDocs.Count == 0)
-                return;
-
             if (SupportsSoftDeletes && IsCacheEnabled) {
-                var deletedIds = modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Original).IsDeleted == false && ((ISupportSoftDeletes)d.Value).IsDeleted).Select(m => m.Value.Id).ToArray();
+                var deletedIds = modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Value).IsDeleted).Select(m => m.Value.Id).ToArray();
                 if (deletedIds.Length > 0)
                     await Cache.SetAddAsync("deleted", deletedIds, TimeSpan.FromSeconds(30)).AnyContext();
 
-                var undeletedIds = modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Original).IsDeleted && ((ISupportSoftDeletes)d.Value).IsDeleted == false).Select(m => m.Value.Id).ToArray();
+                var undeletedIds = modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Value).IsDeleted == false).Select(m => m.Value.Id).ToArray();
                 if (undeletedIds.Length > 0)
                     await Cache.SetRemoveAsync("deleted", undeletedIds, TimeSpan.FromSeconds(30)).AnyContext();
             }
@@ -711,8 +698,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (DocumentsSaved != null)
                 await DocumentsSaved.InvokeAsync(this, new ModifiedDocumentsEventArgs<T>(modifiedDocs, this, options)).AnyContext();
 
-            await OnDocumentsChangedAsync(ChangeType.Saved, savedDocs, options).AnyContext();
-            await SendNotificationsAsync(ChangeType.Saved, savedDocs, options).AnyContext();
+            await OnDocumentsChangedAsync(ChangeType.Saved, modifiedDocs, options).AnyContext();
+            await SendNotificationsAsync(ChangeType.Saved, modifiedDocs, options).AnyContext();
         }
 
         public AsyncEvent<DocumentsEventArgs<T>> DocumentsRemoving { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
@@ -883,7 +870,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected bool NotificationsEnabled { get; set; }
-
+        protected bool OriginalsEnabled { get; set; }
         public bool BatchNotifications { get; set; }
 
         private Task SendNotificationsAsync(ChangeType changeType, ICommandOptions options) {

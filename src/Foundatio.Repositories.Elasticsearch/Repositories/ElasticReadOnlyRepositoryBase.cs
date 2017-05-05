@@ -15,19 +15,6 @@ using Foundatio.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch {
-    public interface IElasticReadOnlyRepository<T> : ISearchableReadOnlyRepository<T> where T : class, new() {
-        Task<FindResults<T>> FindAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
-        Task<FindResults<T>> FindAsync(IRepositoryQuery query, ICommandOptions options = null);
-        Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) where TResult : class, new();
-        Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions options = null) where TResult : class, new();
-        Task<FindHit<T>> FindOneAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
-        Task<FindHit<T>> FindOneAsync(IRepositoryQuery query, ICommandOptions options = null);
-        Task<bool> ExistsAsync(RepositoryQueryDescriptor<T> query);
-        Task<bool> ExistsAsync(IRepositoryQuery query);
-        Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
-        Task<CountResult> CountAsync(IRepositoryQuery query, ICommandOptions options = null);
-    }
-
     public abstract class ElasticReadOnlyRepositoryBase<T> : IElasticReadOnlyRepository<T> where T : class, new() {
         protected static readonly bool HasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
         protected static readonly bool HasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
@@ -192,7 +179,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 await SetCachedQueryResultAsync(options, result).AnyContext();
 
             return result;
-        }
+        }       
 
         public Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, ICommandOptions options = null) {
             var search = ConfigureQuery(null)
@@ -234,7 +221,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     hit = findResult.Document;
             }
 
-            if (hit != null && IsCacheEnabled)
+            if (hit != null && IsCacheEnabled && options.ShouldUseCache())
                 await Cache.SetAsync(id, hit, options.GetExpiresIn()).AnyContext();
 
             return hit;
@@ -289,7 +276,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 } while (await response.NextPageAsync().AnyContext());
             }
 
-            if (IsCacheEnabled) {
+            if (IsCacheEnabled && options.ShouldUseCache()) {
                 foreach (var item in hits.OfType<IIdentity>())
                     await Cache.SetAsync(item.Id, item, options.GetExpiresIn()).AnyContext();
             }

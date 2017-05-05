@@ -221,7 +221,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.Equal(log, args.Documents.First().Value);
                     countdownEvent.Signal();
                 }));
-                await _messgeBus.SubscribeAsync<EntityChanged>((msg, ct) => {
+                await _messageBus.SubscribeAsync<EntityChanged>((msg, ct) => {
                     Assert.Equal(nameof(LogEvent), msg.Type);
                     Assert.Equal(log.Id, msg.Id);
                     Assert.Equal(ChangeType.Saved, msg.ChangeType);
@@ -245,46 +245,36 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task AddAndSaveAsync() {
-            var log = await _dailyRepository.AddAsync(LogEventGenerator.Default, o => o.Notifications(false));
-            Assert.NotNull(log?.Id);
+            var logEntry = await _dailyRepository.AddAsync(LogEventGenerator.Default, o => o.Notifications(false));
+            Assert.NotNull(logEntry?.Id);
 
             var disposables = new List<IDisposable>(4);
-            var addCountdownEvent = new AsyncCountdownEvent(2);
             var saveCountdownEvent = new AsyncCountdownEvent(2);
-            var notificationCountdownEvent = new AsyncCountdownEvent(1);
+            var notificationCountdownEvent = new AsyncCountdownEvent(2);
             // Save requires an id to be set.
             var addedLog = LogEventGenerator.Generate(id: ObjectId.GenerateNewId().ToString());
             try {
-                disposables.Add(_dailyRepository.DocumentsAdding.AddSyncHandler((o, args) => {
-                    Assert.Equal(addedLog, args.Documents.First());
-                    addCountdownEvent.Signal();
-                }));
-                disposables.Add(_dailyRepository.DocumentsAdded.AddSyncHandler((o, args) => {
-                    Assert.Equal(addedLog, args.Documents.First());
-                    addCountdownEvent.Signal();
-                }));
                 disposables.Add(_dailyRepository.DocumentsSaving.AddSyncHandler((o, args) => {
-                    Assert.Equal(log, args.Documents.First().Value);
+                    Assert.Equal(logEntry, args.Documents.First().Value);
                     saveCountdownEvent.Signal();
                 }));
                 disposables.Add(_dailyRepository.DocumentsSaved.AddSyncHandler((o, args) => {
-                    Assert.Equal(log, args.Documents.First().Value);
+                    Assert.Equal(logEntry, args.Documents.First().Value);
                     saveCountdownEvent.Signal();
                 }));
-                await _messgeBus.SubscribeAsync<EntityChanged>((msg, ct) => {
+                await _messageBus.SubscribeAsync<EntityChanged>((msg, ct) => {
                     Assert.Equal(nameof(LogEvent), msg.Type);
-                    Assert.Equal(log.Id, msg.Id);
+                    Assert.True(msg.Id == logEntry.Id || msg.Id == addedLog.Id);
                     Assert.Equal(ChangeType.Saved, msg.ChangeType);
                     notificationCountdownEvent.Signal();
                     return Task.CompletedTask;
                 });
 
-                log.CompanyId = ObjectId.GenerateNewId().ToString();
-                await _dailyRepository.SaveAsync(new List<LogEvent> { log, addedLog });
+                logEntry.CompanyId = ObjectId.GenerateNewId().ToString();
+                await _dailyRepository.SaveAsync(new List<LogEvent> { logEntry, addedLog });
 
                 await notificationCountdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(2)).Token);
                 Assert.Equal(0, notificationCountdownEvent.CurrentCount);
-                Assert.Equal(0, addCountdownEvent.CurrentCount);
                 Assert.Equal(0, saveCountdownEvent.CurrentCount);
             } finally {
                 foreach (var disposable in disposables)
@@ -292,6 +282,42 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                 disposables.Clear();
             }
+        }
+
+        [Fact]
+        public async Task SaveWithOriginalFromOptions() {
+            var identity = await _identityRepository.AddAsync(IdentityGenerator.Default);
+            Assert.Equal(1, _cache.Count);
+            Assert.Equal(0, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            string cacheKey = _cache.Keys.Single();
+            var cacheValue = await _cache.GetAsync<Identity>(cacheKey);
+            Assert.True(cacheValue.HasValue);
+            Assert.Equal(identity, cacheValue.Value);
+
+            identity = await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache());
+            Assert.NotNull(identity);
+            Assert.Equal(2, _cache.Hits);
+
+            cacheValue = await _cache.GetAsync<Identity>(cacheKey);
+            Assert.True(cacheValue.HasValue);
+            Assert.Equal(identity, cacheValue.Value);
+
+            await _identityRepository.InvalidateCacheAsync(identity);
+            Assert.Equal(0, _cache.Count);
+            Assert.Equal(3, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            var result = await _identityRepository.SaveAsync(identity, o => o.Cache());
+            Assert.NotNull(result);
+            Assert.Equal(1, _cache.Count);
+            Assert.Equal(3, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            cacheValue = await _cache.GetAsync<Identity>(cacheKey);
+            Assert.True(cacheValue.HasValue);
+            Assert.Equal(identity, cacheValue.Value);
         }
 
         [Fact]
@@ -323,7 +349,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(result);
             Assert.Equal(1, _cache.Count);
             Assert.Equal(3, _cache.Hits);
-            Assert.Equal(1, _cache.Misses);
+            Assert.Equal(0, _cache.Misses);
 
             cacheValue = await _cache.GetAsync<Identity>(cacheKey);
             Assert.True(cacheValue.HasValue);
@@ -419,12 +445,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(identity?.Id);
             Assert.Equal(1, _cache.Count);
             Assert.Equal(0, _cache.Hits);
-            Assert.Equal(1, _cache.Misses); // Save will attempt to lookup the original document using the cache.
+            Assert.Equal(0, _cache.Misses);
 
             Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache()));
             Assert.Equal(1, _cache.Count);
             Assert.Equal(1, _cache.Hits);
-            Assert.Equal(1, _cache.Misses);
+            Assert.Equal(0, _cache.Misses);
         }
 
         [Fact]
@@ -470,13 +496,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _identityRepository.SaveAsync(identities, o => o.Cache());
             Assert.Equal(2, _cache.Count);
             Assert.Equal(0, _cache.Hits);
-            Assert.Equal(2, _cache.Misses); // Save will attempt to lookup the original document using the cache.
+            Assert.Equal(0, _cache.Misses);
 
             var results = await _identityRepository.GetByIdsAsync(new Ids(identities.Select(i => i.Id)), o => o.Cache());
             Assert.Equal(2, results.Count);
             Assert.Equal(2, _cache.Count);
             Assert.Equal(2, _cache.Hits);
-            Assert.Equal(2, _cache.Misses);
+            Assert.Equal(0, _cache.Misses);
         }
 
         [Fact]

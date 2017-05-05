@@ -16,16 +16,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         protected readonly InMemoryCacheClient _cache;
         protected readonly IElasticClient _client;
         protected readonly IQueue<WorkItemData> _workItemQueue;
-        protected readonly InMemoryMessageBus _messgeBus;
+        protected readonly InMemoryMessageBus _messageBus;
 
         public ElasticRepositoryTestBase(ITestOutputHelper output) : base(output) {
             Log.MinimumLevel = LogLevel.Trace;
             Log.SetLogLevel<ScheduledTimer>(LogLevel.Warning);
 
             _cache = new InMemoryCacheClient(Log);
-            _messgeBus = new InMemoryMessageBus(new InMemoryMessageBusOptions { LoggerFactory = Log });
+            _messageBus = new InMemoryMessageBus(new InMemoryMessageBusOptions { LoggerFactory = Log });
             _workItemQueue = new InMemoryQueue<WorkItemData>(new InMemoryQueueOptions<WorkItemData> { LoggerFactory = Log });
-            _configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messgeBus, Log);
+            _configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log);
             _client = _configuration.Client;
         }
 
