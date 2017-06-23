@@ -126,7 +126,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (operation is ScriptPatch scriptOperation) {
                 // TODO: Figure out how to specify a pipeline here.
                 var request = new UpdateRequest<T, T>(GetIndexById(id), ElasticType.Name, id.Value) {
-                    Script = new InlineScript(scriptOperation.Script),
+                    Script = new InlineScript(scriptOperation.Script) { Params = scriptOperation.Params },
                     RetryOnConflict = 10,
                     Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency)
                 };
@@ -358,7 +358,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                         ElasticType.Name) {
                         Query = await ElasticType.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext(),
                         Conflicts = Conflicts.Proceed,
-                        Script = new InlineScript(scriptOperation.Script),
+                        Script = new InlineScript(scriptOperation.Script) { Params = scriptOperation.Params },
                         Pipeline = pipeline,
                         Version = HasVersion,
                         Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency) != Refresh.False
@@ -391,7 +391,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                                         .Routing(h.Routing)
                                         .Index(h.GetIndex())
                                         .Type(h.GetIndexType())
-                                        .Script(s => s.Inline(scriptOperation.Script))
+                                        .Script(s => s.Inline(scriptOperation.Script).Params(scriptOperation.Params))
                                         .RetriesOnConflict(10));
                                 else if (partialOperation != null)
                                     b.Update<T, object>(u => u.Id(h.Id)

@@ -17,7 +17,7 @@ namespace Foundatio.Repositories {
 
         public bool UseStartDate => StartDate.HasValue && StartDate.Value > DateTime.MinValue;
 
-        public bool UseEndDate => EndDate.HasValue && EndDate.Value < SystemClock.UtcNow.AddHours(1);
+        public bool UseEndDate => EndDate.HasValue;
 
         public bool UseDateRange => Field != null && (UseStartDate || UseEndDate);
 
