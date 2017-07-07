@@ -396,6 +396,16 @@ namespace Foundatio.Repositories.Elasticsearch {
             return CountAsync(search, options);
         }
 
+        protected virtual IRepositoryQuery<T> NewQuery() {
+            var query = new RepositoryQuery<T>();
+            return ConfigureQuery(query);
+        }
+
+        protected virtual IRepositoryQuery<T> ConfigureQuery(IRepositoryQuery<T> query) {
+            ConfigureQuery((IRepositoryQuery)query);
+            return query;
+        }
+
         protected virtual IRepositoryQuery ConfigureQuery(IRepositoryQuery query) {
             if (query == null)
                 query = new RepositoryQuery<T>();
