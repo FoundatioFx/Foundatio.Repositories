@@ -550,7 +550,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ArgumentNullException(nameof(query));
 
             options = ConfigureOptions(options);
-            if (IsCacheEnabled) {
+            if (IsCacheEnabled && options.ShouldUseCache()) {
                 foreach (var field in FieldsRequiredForRemove.Union(new Field[] { _idField }))
                     if (!query.GetIncludes().Contains(field))
                         query.Include(field);
