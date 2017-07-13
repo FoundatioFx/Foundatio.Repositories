@@ -65,8 +65,8 @@ namespace Foundatio.Repositories {
 
 namespace Foundatio.Repositories.Options {
     public static class ReadCacheOptionsExtensions {
-        public static bool ShouldUseCache(this ICommandOptions options) {
-            return options.SafeGetOption(SetCacheOptionsExtensions.CacheEnabledKey, false);
+        public static bool ShouldUseCache(this ICommandOptions options, bool defaultValue = false) {
+            return options.SafeGetOption(SetCacheOptionsExtensions.CacheEnabledKey, defaultValue);
         }
 
         public static bool ShouldReadCache(this ICommandOptions options) {
