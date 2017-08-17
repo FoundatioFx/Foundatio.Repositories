@@ -11,7 +11,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Nest;
-using Nito.AsyncEx;
+using Foundatio.AsyncEx;
 using Xunit;
 using Xunit.Abstractions;
 using LogLevel = Foundatio.Logging.LogLevel;

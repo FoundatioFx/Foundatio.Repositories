@@ -1,11 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <Import Project="..\..\build\common.props" />
   <PropertyGroup>
-    <TargetFramework>net461</TargetFramework>
+    <TargetFramework>netstandard2.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Exceptionless.DateTimeExtensions" Version="3.2.*" />
-    <PackageReference Include="FluentValidation" Version="7.0.3" />
-    <PackageReference Include="Foundatio" Version="5.1.*" />
+    <PackageReference Include="Exceptionless.DateTimeExtensions" Version="3.2.86" />
+    <PackageReference Include="FluentValidation" Version="7.1.1" />
+    <PackageReference Include="Foundatio" Version="5.1.1490" />
   </ItemGroup>
 </Project>

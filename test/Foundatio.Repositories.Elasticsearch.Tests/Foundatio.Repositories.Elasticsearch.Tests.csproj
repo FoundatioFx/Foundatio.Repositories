@@ -1,22 +1,18 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <Import Project="..\..\build\test.props" />
   <PropertyGroup>
-    <TargetFramework>net461</TargetFramework>
+    <TargetFramework>netcoreapp2.0</TargetFramework>
+    <IsPackable>False</IsPackable>
   </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="Exceptionless.RandomData" Version="1.1.*" />
-  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Foundatio.Repositories\Foundatio.Repositories.csproj" />
     <ProjectReference Include="..\..\src\Foundatio.Repositories.Elasticsearch\Foundatio.Repositories.Elasticsearch.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <Reference Include="System.Configuration" />
-  </ItemGroup>
-  <ItemGroup>
-    <Service Include="{82a7f48d-3b50-4b1e-b82e-3ada8210c358}" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Update="Foundatio.Logging.Xunit" Version="5.1.*" />
+    <PackageReference Include="Exceptionless.RandomData" Version="1.1.47" />
+    <PackageReference Include="Foundatio.Logging.Xunit" Version="5.1.1490" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="15.3.0" />
+    <PackageReference Include="xunit" Version="2.3.0-beta4-build3742" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.3.0-beta4-build3742" />
   </ItemGroup>
 </Project>

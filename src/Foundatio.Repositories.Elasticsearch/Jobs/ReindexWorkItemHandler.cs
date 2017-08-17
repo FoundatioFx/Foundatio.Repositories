@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Logging;
-using Foundatio.Repositories.Extensions;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs {

@@ -1,4 +1,3 @@
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace Foundatio.Repositories.Migrations {

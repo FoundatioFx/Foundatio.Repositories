@@ -6,7 +6,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
-using Nest;
 using Xunit;
 using Xunit.Abstractions;
 using LogLevel = Foundatio.Logging.LogLevel;

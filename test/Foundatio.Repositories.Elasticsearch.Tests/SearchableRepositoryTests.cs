@@ -1,16 +1,14 @@
 ﻿using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
-using Nito.AsyncEx;
+using Foundatio.AsyncEx;
 using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
-using Nest;
 using Xunit;
 using Xunit.Abstractions;
 using Foundatio.Repositories.Options;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class SearchableRepositoryTests : ElasticRepositoryTestBase {

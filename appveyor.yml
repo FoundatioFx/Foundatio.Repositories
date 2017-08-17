@@ -14,11 +14,10 @@ init:
   - ps: $env:GIT_HASH=$env:APPVEYOR_REPO_COMMIT.Substring(0, 10)
   - ps: If ("$env:APPVEYOR_REPO_TAG" -ne "true") { $env:VERSION_SUFFIX="pre" }
   - ps: 'Write-Output "Version: $($env:APPVEYOR_BUILD_VERSION)-$($env:VERSION_SUFFIX)"'
+  - nuget sources add -name Exceptionless -source https://www.myget.org/F/exceptionless/api/v3/index.json
 
 before_build:
   - ps: .\build\Set-BuildVersion -Version $env:APPVEYOR_BUILD_VERSION -Suffix $env:VERSION_SUFFIX
-  - nuget sources add -name Exceptionless -source https://www.myget.org/F/exceptionless/api/v3/index.json
-  - appveyor-retry dotnet restore -v Minimal
 
 build_script:
   - dotnet build -c Release
@@ -28,6 +27,10 @@ build_script:
 
 before_test:
   - ps: .\build\Start-ElasticSearch.ps1 -NodeCount 3 -StartKibana $false
+
+test_script:
+  - ps: dotnet test .\test\Foundatio.Repositories.Tests\Foundatio.Repositories.Tests.csproj -c Release
+  - ps: dotnet test .\test\Foundatio.Repositories.Elasticsearch.Tests\Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release
 
 after_test:
   - dotnet pack -c Release

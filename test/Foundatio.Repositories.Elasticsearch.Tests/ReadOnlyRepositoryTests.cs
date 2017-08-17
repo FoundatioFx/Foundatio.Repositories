@@ -7,7 +7,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
-using Nest;
 using Newtonsoft.Json;
 using Xunit;
 using Xunit.Abstractions;

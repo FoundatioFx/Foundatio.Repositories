@@ -26,7 +26,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration 
         }
 
         protected override IConnectionPool CreateConnectionPool() {
-            string connectionString = ConfigurationManager.ConnectionStrings["ElasticConnectionString"]?.ConnectionString;
+            string connectionString = null;
             bool fiddlerIsRunning = Process.GetProcessesByName("fiddler").Length > 0;
 
             var servers = new List<Uri>();
@@ -46,7 +46,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration 
         }
 
         private bool IsPortOpen(int port) {
-            using (TcpClient tcpClient = new TcpClient()) {
+            using (var tcpClient = new TcpClient()) {
                 try {
                     tcpClient.Connect("127.0.0.1", port);
                     return true;

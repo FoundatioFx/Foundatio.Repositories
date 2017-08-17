@@ -1,5 +1,4 @@
-﻿using System;
-using Foundatio.Repositories.Options;
+﻿using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories {
     /// <summary>

@@ -9,7 +9,6 @@ using Foundatio.Repositories.JsonPatch;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
-using Nest;
 using Xunit;
 using Xunit.Abstractions;
 

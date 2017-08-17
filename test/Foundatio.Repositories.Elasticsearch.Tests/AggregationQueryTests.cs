@@ -1,10 +1,8 @@
 using Exceptionless.DateTimeExtensions;
-using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
 using Foundatio.Utility;
-using Nest;
 using System;
 using System.Collections.Generic;
 using System.Linq;

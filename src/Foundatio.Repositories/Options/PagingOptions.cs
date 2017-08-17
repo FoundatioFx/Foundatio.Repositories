@@ -1,6 +1,4 @@
-﻿using Foundatio.Repositories.Models;
-
-namespace Foundatio.Repositories {
+﻿namespace Foundatio.Repositories {
     public static class SetPagingOptionsExtensions {
         internal const string PageLimitKey = "@PageLimit";
         internal const string PageNumberKey = "@PageNumber";

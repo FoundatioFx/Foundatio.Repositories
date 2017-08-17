@@ -13,7 +13,7 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Nest;
-using Nito.AsyncEx;
+using Foundatio.AsyncEx;
 using Xunit;
 using Xunit.Abstractions;
 using LogLevel = Foundatio.Logging.LogLevel;
@@ -493,13 +493,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task SetCreatedAndModifiedTimesAsync() {
             using (TestSystemClock.Install()) {
                 SystemClock.Test.SubtractTime(TimeSpan.FromMilliseconds(100));
-                DateTime nowUtc = SystemClock.UtcNow;
+                var nowUtc = SystemClock.UtcNow;
                 var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
                 Assert.True(employee.CreatedUtc >= nowUtc);
                 Assert.True(employee.UpdatedUtc >= nowUtc);
 
-                DateTime createdUtc = employee.CreatedUtc;
-                DateTime updatedUtc = employee.UpdatedUtc;
+                var createdUtc = employee.CreatedUtc;
+                var updatedUtc = employee.UpdatedUtc;
 
                 employee.Name = Guid.NewGuid().ToString();
                 SystemClock.Test.AddTime(TimeSpan.FromMilliseconds(100));
