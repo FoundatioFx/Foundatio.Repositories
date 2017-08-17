@@ -115,7 +115,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _configuration.DailyLogEvents.ConfigureAsync();
 
             var indexes = await _client.GetIndicesPointingToAliasAsync(_configuration.DailyLogEvents.Name);
-            Assert.Equal(0, indexes.Count());
+            Assert.Empty(indexes);
 
             var alias = await _client.GetAliasAsync(descriptor => descriptor.Name(_configuration.DailyLogEvents.Name));
             _logger.Trace(() => alias.GetRequest());
@@ -171,7 +171,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                     await _client.RefreshAsync(Indices.All);
                     var aliasesResponse = await _client.GetAliasAsync(a => a.Index($"{version1Index.VersionedName},{version2Index.VersionedName}"));
-                    Assert.Equal(0, aliasesResponse.Indices.SelectMany(i => i.Value).Count());
+                    Assert.Empty(aliasesResponse.Indices.SelectMany(i => i.Value));
 
                     // Indexes exist but no alias so the oldest index version will be used.
                     Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
@@ -225,7 +225,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                         await _client.RefreshAsync(Indices.All);
                         var aliasesResponse = await _client.GetAliasAsync(a => a.Index($"{version1Index.GetVersionedIndex(SystemClock.UtcNow)},{version2Index.GetVersionedIndex(SystemClock.UtcNow)}"));
-                        Assert.Equal(0, aliasesResponse.Indices.SelectMany(i => i.Value).Count());
+                        Assert.Empty(aliasesResponse.Indices.SelectMany(i => i.Value));
 
                         // Indexes exist but no alias so the oldest index version will be used.
                         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());

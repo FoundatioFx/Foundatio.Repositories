@@ -50,7 +50,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var searchRepository = (ISearchableReadOnlyRepository<Employee>)_employeeRepository;
             var results = await searchRepository.SearchAsync(null, filter: "phone:214");
             var employees = results.Documents.ToArray();
-            Assert.Equal(1, employees.Length);
+            Assert.Single(employees);
             Assert.Equal(19, employees[0].Age);
         }
 
@@ -99,15 +99,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var searchRepository = (ISearchableReadOnlyRepository<Employee>)_employeeRepository;
             var results = await searchRepository.SearchAsync(null, "name:Blake");
             var employees = results.Documents.ToArray();
-            Assert.Equal(1, employees.Length);
+            Assert.Single(employees);
 
             results = await searchRepository.SearchAsync(null, "name:\"Blake Niemyjski\"");
             employees = results.Documents.ToArray();
-            Assert.Equal(1, employees.Length);
+            Assert.Single(employees);
 
             results = await searchRepository.SearchAsync(null, "name:Eric");
             employees = results.Documents.ToArray();
-            Assert.Equal(0, employees.Length);
+            Assert.Empty(employees);
         }
     }
 }

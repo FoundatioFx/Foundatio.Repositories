@@ -13,7 +13,7 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
             var sample = GetSample2();
 
             var patchDocument = new PatchDocument();
-            var pointer = "/books/-";
+            string pointer = "/books/-";
 
             patchDocument.AddOperation(new AddOperation { Path = pointer, Value = new JObject(new[] { new JProperty("author", "James Brown") }) });
 
@@ -32,14 +32,14 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
             var sample = GetSample2();
 
             var patchDocument = new PatchDocument();
-            var pointer = "/books/0/title";
+            string pointer = "/books/0/title";
 
             patchDocument.AddOperation(new AddOperation { Path = pointer, Value = "Little Red Riding Hood" });
 
             var patcher = new JsonPatcher();
             patcher.Patch(ref sample, patchDocument);
 
-            var result = sample.SelectPatchToken(pointer).Value<string>();
+            string result = sample.SelectPatchToken(pointer).Value<string>();
             Assert.Equal("Little Red Riding Hood", result);
         }
 
@@ -48,14 +48,14 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
             var sample = GetSample2();
 
             var patchDocument = new PatchDocument();
-            var pointer = "/books/0/SBN";
+            string pointer = "/books/0/SBN";
 
             patchDocument.AddOperation(new AddOperation { Path = pointer, Value = "213324234343" });
 
             var patcher = new JsonPatcher();
             patcher.Patch(ref sample, patchDocument);
 
-            var result = sample.SelectPatchToken(pointer).Value<string>();
+            string result = sample.SelectPatchToken(pointer).Value<string>();
             Assert.Equal("213324234343", result);
         }
 
@@ -64,8 +64,8 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
             var sample = GetSample2();
 
             var patchDocument = new PatchDocument();
-            var frompointer = "/books/0";
-            var topointer = "/books/-";
+            string frompointer = "/books/0";
+            string topointer = "/books/-";
 
             patchDocument.AddOperation(new CopyOperation { FromPath = frompointer, Path = topointer });
 
@@ -73,7 +73,7 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
             patcher.Patch(ref sample, patchDocument);
 
             var result = sample.SelectPatchToken("/books/2");
-            Assert.IsType(typeof(JObject), result);
+            Assert.IsType<JObject>(result);
         }
 
         [Fact]
@@ -81,8 +81,8 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
             var sample = GetSample2();
 
             var patchDocument = new PatchDocument();
-            var frompointer = "/books/0/ISBN";
-            var topointer = "/books/1/ISBN";
+            string frompointer = "/books/0/ISBN";
+            string topointer = "/books/1/ISBN";
 
             patchDocument.AddOperation(new AddOperation { Path = frompointer, Value = new JValue("21123123") });
             patchDocument.AddOperation(new CopyOperation { FromPath = frompointer, Path = topointer });
@@ -99,15 +99,15 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
             var sample = GetSample2();
 
             var patchDocument = new PatchDocument();
-            var frompointer = "/books/0/author";
-            var topointer = "/books/1/author";
+            string frompointer = "/books/0/author";
+            string topointer = "/books/1/author";
 
             patchDocument.AddOperation(new MoveOperation { FromPath = frompointer, Path = topointer });
 
             var patcher = new JsonPatcher();
             patcher.Patch(ref sample, patchDocument);
 
-            var result = sample.SelectPatchToken(topointer).Value<string>();
+            string result = sample.SelectPatchToken(topointer).Value<string>();
             Assert.Equal("F. Scott Fitzgerald", result);
         }
 
@@ -116,8 +116,8 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
             var sample = GetSample2();
 
             var patchDocument = new PatchDocument();
-            var frompointer = "/books/1";
-            var topointer = "/books/0/child";
+            string frompointer = "/books/1";
+            string topointer = "/books/0/child";
 
             patchDocument.AddOperation(new MoveOperation { FromPath = frompointer, Path = topointer });
 
@@ -125,13 +125,13 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
             patcher.Patch(ref sample, patchDocument);
 
             var result = sample.SelectPatchToken(topointer);
-            Assert.IsType(typeof(JObject), result);
+            Assert.IsType<JObject>(result);
         }
 
         [Fact]
         public void CreateEmptyPatch() {
             var sample = GetSample2();
-            var sampletext = sample.ToString();
+            string sampletext = sample.ToString();
 
             var patchDocument = new PatchDocument();
             new JsonPatcher().Patch(ref sample, patchDocument);
@@ -164,7 +164,7 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
                 new CopyOperation { FromPath = "/a/b/d", Path = "/a/b/e" });
 
             var outputstream = patchDoc.ToStream();
-            var output = new StreamReader(outputstream).ReadToEnd();
+            string output = new StreamReader(outputstream).ReadToEnd();
 
             var jOutput = JToken.Parse(output);
 
@@ -177,7 +177,7 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
             var sample = GetSample2();
 
             var patchDocument = new PatchDocument();
-            var pointer = "/books/0/author";
+            string pointer = "/books/0/author";
 
             patchDocument.AddOperation(new RemoveOperation { Path = pointer });
 
@@ -191,7 +191,7 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
             var sample = GetSample2();
 
             var patchDocument = new PatchDocument();
-            var pointer = "/books/0";
+            string pointer = "/books/0";
 
             patchDocument.AddOperation(new RemoveOperation { Path = pointer });
 
@@ -206,7 +206,7 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
             var sample = GetSample2();
 
             var patchDocument = new PatchDocument();
-            var pointer = "/books/0/author";
+            string pointer = "/books/0/author";
 
             patchDocument.AddOperation(new ReplaceOperation { Path = pointer, Value = "Bob Brown" });
 
@@ -220,7 +220,7 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
             var sample = JToken.Parse(@"{ ""data"": {} }");
 
             var patchDocument = new PatchDocument();
-            var pointer = "/data/author";
+            string pointer = "/data/author";
 
             patchDocument.AddOperation(new ReplaceOperation { Path = pointer, Value = "Bob Brown" });
 
@@ -267,13 +267,13 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
             var sample = GetSample2();
 
             var patchDocument = new PatchDocument();
-            var pointer = "/books/0/author";
+            string pointer = "/books/0/author";
 
             patchDocument.AddOperation(new ReplaceOperation { Path = pointer, Value = new JObject(new[] { new JProperty("hello", "world") }) });
 
             new JsonPatcher().Patch(ref sample, patchDocument);
 
-            var newPointer = "/books/0/author/hello";
+            string newPointer = "/books/0/author/hello";
             Assert.Equal("world", sample.SelectPatchToken(newPointer).Value<string>());
         }
 
@@ -298,13 +298,13 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
 }");
 
             var patchDocument = new PatchDocument();
-            var pointer = "$.books[?(@.author == 'John Steinbeck')].author";
+            string pointer = "$.books[?(@.author == 'John Steinbeck')].author";
 
             patchDocument.AddOperation(new ReplaceOperation { Path = pointer, Value = "Eric" });
 
             new JsonPatcher().Patch(ref sample, patchDocument);
 
-            var newPointer = "/books/1/author";
+            string newPointer = "/books/1/author";
             Assert.Equal("Eric", sample.SelectPatchToken(newPointer).Value<string>());
 
             newPointer = "/books/2/author";
@@ -316,11 +316,11 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
             var sample = GetSample2();
 
             var patchDocument = new PatchDocument();
-            var pointer = "/books/0/author";
+            string pointer = "/books/0/author";
 
             patchDocument.AddOperation(new TestOperation { Path = pointer, Value = new JValue("Billy Burton") });
 
-            Assert.Throws(typeof(InvalidOperationException), () => {
+            Assert.Throws<InvalidOperationException>(() => {
                 var patcher = new JsonPatcher();
                 patcher.Patch(ref sample, patchDocument);
             });

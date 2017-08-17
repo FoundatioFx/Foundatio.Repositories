@@ -361,7 +361,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, result.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19).Total);
         }
 
-        public async Task CreateDataAsync() {
+        internal async Task CreateDataAsync() {
             var utcToday = SystemClock.UtcNow.Date;
             await _employeeRepository.AddAsync(new List<Employee> {
                 EmployeeGenerator.Generate(age: 19, yearsEmployed: 1,  location: "10,10", createdUtc: utcToday.SubtractYears(1), updatedUtc: utcToday.SubtractYears(1)),

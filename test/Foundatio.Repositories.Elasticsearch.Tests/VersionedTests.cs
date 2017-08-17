@@ -132,16 +132,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(employee2, await _employeeRepository.GetByIdAsync(employee2.Id));
         }
 
-        [Fact(Skip = "TODO: verify index many works when when getParent & getindex == null;")]
-        public void SaveCollectionWithNoIndexOrParentAsync() {
-            throw new NotImplementedException();
-        }
-
-        [Fact(Skip = "TODO: need versioning tests for parent / child docs.")]
-        public void SaveWithVersionedParentChildAsync() {
-            throw new NotImplementedException();
-        }
-
         [Fact]
         public async Task UpdateAllWithSinglePageOfDataAsync() {
             var utcNow = SystemClock.UtcNow;
@@ -184,11 +174,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(0, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company"));
         }
 
-        [Fact(Skip = "TODO: FindAs version tests")]
-        public void CanQueryAsync() {
-            throw new NotImplementedException();
-        }
-
         [Fact]
         public async Task CanUsePagingAsync() {
             const int NUMBER_OF_EMPLOYEES = 1000;
@@ -209,7 +194,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             do {
                 Assert.Equal(PAGE_SIZE, results.Documents.Count);
                 Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
-                Assert.False(results.Hits.Any(h => viewedIds.Contains(h.Id)));
+                Assert.DoesNotContain(results.Hits, h => viewedIds.Contains(h.Id));
                 viewedIds.AddRange(results.Hits.Select(h => h.Id));
 
                 pagedRecords += results.Documents.Count;
@@ -279,10 +264,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             do {
                 Assert.True(results.Documents.Count >= PAGE_SIZE);
                 Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
-                Assert.False(results.Hits.Any(h => viewedIds.Contains(h.Id)));
+                Assert.DoesNotContain(results.Hits, h => viewedIds.Contains(h.Id));
                 viewedIds.AddRange(results.Hits.Select(h => h.Id));
 
-                Assert.False(newEmployees.Any(d => viewedIds.Contains(d.Id)));
+                Assert.DoesNotContain(newEmployees, d => viewedIds.Contains(d.Id));
 
                 pagedRecords += results.Documents.Count;
                 newEmployees.Add(await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: "1"), o => o.ImmediateConsistency(true)));
@@ -314,10 +299,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             do {
                 Assert.True(results.Documents.Count >= PAGE_SIZE);
                 Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
-                Assert.False(results.Hits.Any(h => viewedIds.Contains(h.Id)));
+                Assert.DoesNotContain(results.Hits, h => viewedIds.Contains(h.Id));
                 viewedIds.AddRange(results.Hits.Select(h => h.Id));
 
-                Assert.False(newEmployees.Any(d => viewedIds.Contains(d.Id)));
+                Assert.DoesNotContain(newEmployees, d => viewedIds.Contains(d.Id));
 
                 pagedRecords += results.Documents.Count;
                 newEmployees.Add(await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: "1"), o => o.ImmediateConsistency(true)));
@@ -349,7 +334,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             do {
                 Assert.Equal(Math.Min(PAGE_SIZE, NUMBER_OF_EMPLOYEES - pagedRecords), results.Documents.Count);
                 Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
-                Assert.False(results.Hits.Any(h => viewedIds.Contains(h.Id)));
+                Assert.DoesNotContain(results.Hits, h => viewedIds.Contains(h.Id));
                 viewedIds.AddRange(results.Hits.Select(h => h.Id));
 
                 pagedRecords += results.Documents.Count;

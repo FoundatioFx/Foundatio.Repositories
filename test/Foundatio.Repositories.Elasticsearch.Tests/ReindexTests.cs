@@ -202,7 +202,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.True(_client.IndexExists(version1Index.VersionedName).Exists);
 
                 var indexes = _client.GetIndicesPointingToAlias(version1Index.Name);
-                Assert.Equal(1, indexes.Count());
+                Assert.Single(indexes);
 
                 var aliasResponse = await _client.GetAliasAsync(descriptor => descriptor.Name(version1Index.Name));
                 _logger.Trace(() => aliasResponse.GetRequest());
@@ -753,11 +753,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.Equal(version1Mappings, ToJson(mappingResponse.Mappings).Replace("-v2", "-v1"));
                 }
             }
-        }
-
-        [Fact(Skip = "TODO: Implement reindexing monthly into daily indexes")]
-        public Task CanReindexMonthlyIntoDailyIndex() {
-            throw new NotImplementedException();
         }
 
         private string GetExpectedEmployeeDailyAliases(DailyIndex index, DateTime utcNow, DateTime indexDateUtc) {
