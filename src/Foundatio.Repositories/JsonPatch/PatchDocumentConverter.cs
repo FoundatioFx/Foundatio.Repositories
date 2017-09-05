@@ -28,11 +28,10 @@ namespace Foundatio.Repositories.JsonPatch {
                 return;
 
             var jsonPatchDoc = (PatchDocument)value;
-            //writer.
-            //var lst = jsonPatchDoc.GetOperations();
-
-            //// write out the operations, no envelope
-            //serializer.Serialize(writer, lst);
+            writer.WriteStartArray();
+            foreach (var op in jsonPatchDoc.Operations)
+                op.Write(writer);
+            writer.WriteEndArray();
         }
     }
 }

@@ -80,22 +80,21 @@ namespace Foundatio.Repositories.JsonPatch {
 
         public MemoryStream ToStream() {
             var stream = new MemoryStream();
-            CopyToStream(stream, Formatting.Indented);
+            CopyToStream(stream);
             stream.Flush();
             stream.Position = 0;
             return stream;
         }
 
         public void CopyToStream(Stream stream, Formatting formatting = Formatting.Indented) {
-            var sw = new JsonTextWriter(new StreamWriter(stream));
-            sw.Formatting = formatting;
+            var sw = new JsonTextWriter(new StreamWriter(stream)) {
+                Formatting = formatting
+            };
 
             sw.WriteStartArray();
 
-            foreach (var operation in Operations) {
+            foreach (var operation in Operations)
                 operation.Write(sw);
-            }
-
 
             sw.WriteEndArray();
 
