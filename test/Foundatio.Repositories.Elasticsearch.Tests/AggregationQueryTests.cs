@@ -361,7 +361,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(10, result.Aggregations.Terms<int>("terms_age").Buckets.Count);
             Assert.Equal(1, result.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19).Total);
 
-            var roundTripped = JsonConvert.DeserializeObject<CountResult>(JsonConvert.SerializeObject(result));
+            var json = JsonConvert.SerializeObject(result);
+            var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
             Assert.Equal(10, roundTripped.Total);
             Assert.Equal(1, roundTripped.Aggregations.Count);
             Assert.Equal(10, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);

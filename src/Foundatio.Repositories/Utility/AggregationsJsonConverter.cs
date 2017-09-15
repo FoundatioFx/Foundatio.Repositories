@@ -11,7 +11,7 @@ namespace Foundatio.Repositories.Utility {
 
         public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer) {
             var item = JObject.Load(reader);
-            var typeToken = item.SelectToken("Data.@type");
+            var typeToken = item.SelectToken("Data.@type") ?? item.SelectToken("data.@type");
 
             IAggregate value = null;
             if (typeToken != null) {
