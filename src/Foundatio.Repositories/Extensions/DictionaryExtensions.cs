@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Extensions {
     public static class DictionaryExtensions {
@@ -9,23 +10,56 @@ namespace Foundatio.Repositories.Extensions {
         }
 
         public static string GetString(this IReadOnlyDictionary<string, object> data, string name, string @default) {
-            object value;
-
-            if (!data.TryGetValue(name, out value))
+            if (!data.TryGetValue(name, out var value))
                 return @default;
 
-            if (value is string)
-                return (string)value;
+            if (value is string s)
+                return s;
 
             return String.Empty;
         }
 
-        public static IReadOnlyDictionary<string, object> ToData(this IReadOnlyDictionary<string, object> dictionary) {
+        public static IReadOnlyDictionary<string, object> ToData<T>(this IReadOnlyDictionary<string, object> dictionary) where T: IAggregate {
             var dict = dictionary?
-                .Where(kvp => kvp.Key != "@type" && kvp.Key != "@timezone")
+                .Where(kvp => kvp.Key != "@field_type" && kvp.Key != "@timezone")
                 .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
+            var type = GetAggregateType(typeof(T));
+            if (dict == null && type != null)
+                dict = new Dictionary<string, object>();
+
+            if (type != null)
+                dict["@type"] = type;
+
             return dict?.Count > 0 ? dict : null;
+        }
+
+        private static string GetAggregateType(Type type) {
+            if (type == typeof(BucketAggregate))
+                return "bucket";
+
+            if (type == typeof(ExtendedStatsAggregate))
+                return "exstats";
+
+            if (type == typeof(ObjectValueAggregate))
+                return "ovalue";
+
+            if (type == typeof(PercentilesAggregate))
+                return "percentiles";
+
+            if (type == typeof(SingleBucketAggregate))
+                return "sbucket";
+
+            if (type == typeof(StatsAggregate))
+                return "stats";
+
+            if (type == typeof(ValueAggregate))
+                return "value";
+
+            if (type == typeof(ValueAggregate<DateTime>))
+                return "dvalue";
+
+            return null;
         }
     }
 }

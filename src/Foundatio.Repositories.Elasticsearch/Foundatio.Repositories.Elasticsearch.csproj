@@ -2,13 +2,14 @@
   <Import Project="..\..\build\common.props" />
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\Foundatio.Repositories\Extensions\TaskExtensions.cs" Link="Extensions\TaskExtensions.cs" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Foundatio.Jobs.Commands" Version="5.1.1490" />
-    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="5.0.348" />
+    <PackageReference Include="Foundatio.Jobs.Commands" Version="5.1.1501" />
+    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="5.0.353" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Foundatio.Repositories\Foundatio.Repositories.csproj" />

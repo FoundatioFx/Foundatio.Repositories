@@ -11,6 +11,7 @@ namespace Foundatio.Repositories.Models {
                 new Dictionary<string, IAggregate>(aggregations)
                 : EmptyReadOnly<string, IAggregate>.Dictionary;
         }
+
         public AggregationsHelper(IReadOnlyDictionary<string, IAggregate> aggregations) {
             Aggregations = aggregations ?? EmptyReadOnly<string, IAggregate>.Dictionary;
         }
