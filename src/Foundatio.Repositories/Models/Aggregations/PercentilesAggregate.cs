@@ -9,6 +9,8 @@ namespace Foundatio.Repositories.Models {
     }
 
     public class PercentilesAggregate : MetricAggregateBase {
+        public PercentilesAggregate() {}
+
         public PercentilesAggregate(IEnumerable<PercentileItem> items) {
             Items = new List<PercentileItem>(items).AsReadOnly();
         }

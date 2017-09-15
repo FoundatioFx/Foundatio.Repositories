@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -107,7 +108,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             var nestedAggQuery = _client.Search<Employee>(d => d.Index("employees").Aggregations(a => a
                .Nested("nested_reviewRating", h => h.Path("peerReviews")
-                   .Aggregations(a1 => a1.Terms("terms_rating", t => t.Field("peerReviews.rating").Meta(m => m.Add("@type", "integer")))))
+                   .Aggregations(a1 => a1.Terms("terms_rating", t => t.Field("peerReviews.rating").Meta(m => m.Add("@field_type", "integer")))))
                 ));
 
             var result = nestedAggQuery.Aggregations.ToAggregations();
@@ -118,7 +119,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                .Nested("nested_reviewRating", h => h.Path("peerReviews")
                     .Aggregations(a1 => a1
                         .Filter("user_" + employees[0].Id, f => f.Filter(q => q.Term(t => t.Field("peerReviews.reviewerEmployeeId").Value(employees[0].Id)))
-                            .Aggregations(a2 => a2.Terms("terms_rating", t => t.Field("peerReviews.rating").Meta(m => m.Add("@type", "integer")))))
+                            .Aggregations(a2 => a2.Terms("terms_rating", t => t.Field("peerReviews.rating").Meta(m => m.Add("@field_type", "integer")))))
                 ))));
 
             result = nestedAggQueryWithFilter.Aggregations.ToAggregations();
@@ -359,6 +360,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, result.Aggregations.Count);
             Assert.Equal(10, result.Aggregations.Terms<int>("terms_age").Buckets.Count);
             Assert.Equal(1, result.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19).Total);
+
+            var json = JsonConvert.SerializeObject(result);
+            var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
+            Assert.Equal(10, roundTripped.Total);
+            Assert.Equal(1, roundTripped.Aggregations.Count);
+            Assert.Equal(10, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
+            Assert.Equal(1, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19).Total);
         }
 
         internal async Task CreateDataAsync() {

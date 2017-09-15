@@ -50,23 +50,23 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
         public static IAggregate ToAggregate(this Nest.IAggregate aggregate) {
             if (aggregate is Nest.ValueAggregate valueAggregate) {
-                if (valueAggregate.Meta != null && valueAggregate.Meta.TryGetValue("@type", out object value)) {
+                if (valueAggregate.Meta != null && valueAggregate.Meta.TryGetValue("@field_type", out object value)) {
                     string type = value.ToString();
                     if (type == "date" && valueAggregate.Value.HasValue) {
                         return new ValueAggregate<DateTime> {
                             Value = GetDate(valueAggregate),
-                            Data = valueAggregate.Meta.ToData()
+                            Data = valueAggregate.Meta.ToData<ValueAggregate<DateTime>>()
                         };
                     }
                 }
 
-                return new ValueAggregate { Value = valueAggregate.Value, Data = valueAggregate.Meta.ToData() };
+                return new ValueAggregate { Value = valueAggregate.Value, Data = valueAggregate.Meta.ToData<ValueAggregate>() };
             }
 
             if (aggregate is Nest.ScriptedMetricAggregate scriptedAggregate)
                 return new ObjectValueAggregate {
                     Value = scriptedAggregate.Value<object>(),
-                    Data = scriptedAggregate.Meta.ToData()
+                    Data = scriptedAggregate.Meta.ToData<ObjectValueAggregate>()
                 };
 
             if (aggregate is Nest.StatsAggregate statsAggregate)
@@ -76,7 +76,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     Max = statsAggregate.Max,
                     Average = statsAggregate.Average,
                     Sum = statsAggregate.Sum,
-                    Data = statsAggregate.Meta.ToData()
+                    Data = statsAggregate.Meta.ToData<StatsAggregate>()
                 };
 
             if (aggregate is Nest.ExtendedStatsAggregate extendedStatsAggregate)
@@ -93,17 +93,17 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     },
                     SumOfSquares = extendedStatsAggregate.SumOfSquares,
                     Variance = extendedStatsAggregate.Variance,
-                    Data = extendedStatsAggregate.Meta.ToData()
+                    Data = extendedStatsAggregate.Meta.ToData<ExtendedStatsAggregate>()
                 };
 
             if (aggregate is Nest.PercentilesAggregate percentilesAggregate)
                 return new PercentilesAggregate(percentilesAggregate.Items.Select(i => new PercentileItem { Percentile = i.Percentile, Value = i.Value })) {
-                    Data = percentilesAggregate.Meta.ToData()
+                    Data = percentilesAggregate.Meta.ToData<PercentilesAggregate>()
                 };
 
             if (aggregate is Nest.SingleBucketAggregate singleBucketAggregate)
                 return new SingleBucketAggregate(singleBucketAggregate.Aggregations.ToAggregations()) {
-                    Data = singleBucketAggregate.Meta.ToData(),
+                    Data = singleBucketAggregate.Meta.ToData<SingleBucketAggregate>(),
                     Total = singleBucketAggregate.DocCount
                 };            
 
@@ -116,7 +116,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
                 return new BucketAggregate {
                     Items = bucketAggregation.Items.Select(i => i.ToBucket(data)).ToList(),
-                    Data = new ReadOnlyDictionary<string, object>(data).ToData(),
+                    Data = new ReadOnlyDictionary<string, object>(data).ToData<BucketAggregate>(),
                     Total = bucketAggregation.DocCount
                 };
             }
@@ -146,36 +146,44 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 return new DateHistogramBucket(date, dateHistogramBucket.Aggregations.ToAggregations()) {
                     Total = dateHistogramBucket.DocCount,
                     Key = dateHistogramBucket.Key,
-                    KeyAsString = date.ToString("O")
+                    KeyAsString = date.ToString("O"),
+                    Data = new Dictionary<string, object> { { "@type", "datehistogram" } }
                 };
             }
 
             if (bucket is Nest.RangeBucket rangeBucket)
-                return new KeyedBucket<string>(rangeBucket.Aggregations.ToAggregations()) {
+                return new RangeBucket(rangeBucket.Aggregations.ToAggregations()) {
                     Total = rangeBucket.DocCount,
                     Key = rangeBucket.Key,
-                    KeyAsString = rangeBucket.Key
+                    From = rangeBucket.From,
+                    FromAsString = rangeBucket.FromAsString,
+                    To = rangeBucket.To,
+                    ToAsString = rangeBucket.ToAsString,
+                    Data = new Dictionary<string, object> {{ "@type", "range" }}
                 };
 
             if (bucket is Nest.KeyedBucket<string> stringKeyedBucket)
                 return new KeyedBucket<string>(stringKeyedBucket.Aggregations.ToAggregations()) {
                     Total = stringKeyedBucket.DocCount,
                     Key = stringKeyedBucket.Key,
-                    KeyAsString = stringKeyedBucket.KeyAsString
+                    KeyAsString = stringKeyedBucket.KeyAsString,
+                    Data = new Dictionary<string, object> { { "@type", "string" } }
                 };
 
             if (bucket is Nest.KeyedBucket<double> doubleKeyedBucket)
                 return new KeyedBucket<double>(doubleKeyedBucket.Aggregations.ToAggregations()) {
                     Total = doubleKeyedBucket.DocCount,
                     Key = doubleKeyedBucket.Key,
-                    KeyAsString = doubleKeyedBucket.KeyAsString
+                    KeyAsString = doubleKeyedBucket.KeyAsString,
+                    Data = new Dictionary<string, object> { { "@type", "double" } }
                 };
 
             if (bucket is Nest.KeyedBucket<object> objectKeyedBucket)
                 return new KeyedBucket<object>(objectKeyedBucket.Aggregations.ToAggregations()) {
                     Total = objectKeyedBucket.DocCount,
                     Key = objectKeyedBucket.Key,
-                    KeyAsString = objectKeyedBucket.KeyAsString
+                    KeyAsString = objectKeyedBucket.KeyAsString,
+                    Data = new Dictionary<string, object> { { "@type", "object" } }
                 };
 
             return null;
