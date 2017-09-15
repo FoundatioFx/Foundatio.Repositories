@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Foundatio.Logging;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
+using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Elasticsearch.Utility {
     internal static class Run {
@@ -15,7 +16,7 @@ namespace Foundatio.Repositories.Elasticsearch.Utility {
             var startTime = SystemClock.UtcNow;
             do {
                 if (attempts > 1)
-                    logger?.Info($"Retrying {attempts.ToOrdinal()} attempt after {SystemClock.UtcNow.Subtract(startTime).TotalMilliseconds}ms...");
+                    logger?.LogInformation($"Retrying {attempts.ToOrdinal()} attempt after {SystemClock.UtcNow.Subtract(startTime).TotalMilliseconds}ms...");
 
                 try {
                     return await action().AnyContext();
@@ -23,7 +24,7 @@ namespace Foundatio.Repositories.Elasticsearch.Utility {
                     if (attempts >= maxAttempts)
                         throw;
 
-                    logger?.Error(ex, $"Retry error: {ex.Message}");
+                    logger?.LogError(ex, $"Retry error: {ex.Message}");
                     await SystemClock.SleepAsync(retryInterval ?? TimeSpan.FromMilliseconds(attempts * 100), cancellationToken).AnyContext();
                 }
 

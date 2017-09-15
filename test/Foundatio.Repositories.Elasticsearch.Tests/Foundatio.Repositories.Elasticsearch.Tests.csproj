@@ -9,7 +9,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Exceptionless.RandomData" Version="1.1.47" />
-    <PackageReference Include="Foundatio.Logging.Xunit" Version="5.1.1490" />
+    <PackageReference Include="Foundatio.Logging.Xunit" Version="6.0.1508-pre" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="15.3.0" />
     <PackageReference Include="xunit" Version="2.3.0-beta4-build3742" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.3.0-beta4-build3742" />

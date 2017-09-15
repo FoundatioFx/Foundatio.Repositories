@@ -12,6 +12,7 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Utility;
+using Microsoft.Extensions.Logging;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch {
@@ -71,7 +72,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 if (!String.IsNullOrEmpty(previousResults.GetScrollId())) {
                     var scrollResponse = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), previousResults.GetScrollId()).AnyContext();
-                    _logger.Trace(() => scrollResponse.GetRequest());
+                    _logger.LogTrace(scrollResponse.GetRequest());
 
                     var results = scrollResponse.ToFindResults();
                     results.Page = previousResults.Page + 1;
@@ -110,13 +111,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                 response = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), options.GetSnapshotScrollId()).AnyContext();
             }
 
-            _logger.Trace(() => response.GetRequest());
+            _logger.LogTrace(response.GetRequest());
             if (!response.IsValid) {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return new FindResults<TResult>();
 
                 string message = response.GetErrorMessage();
-                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                _logger.LogError(response.OriginalException, message);
                 throw new ApplicationException(message, response.OriginalException);
             }
 
@@ -163,14 +164,14 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-            _logger.Trace(() => response.GetRequest());
+            _logger.LogTrace(response.GetRequest());
 
             if (!response.IsValid) {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return FindHit<T>.Empty;
 
                 string message = response.GetErrorMessage();
-                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                _logger.LogError(response.OriginalException, message);
                 throw new ApplicationException(message, response.OriginalException);
             }
 
@@ -201,7 +202,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 hit = await Cache.GetAsync<T>(id, default(T)).AnyContext();
 
             if (hit != null) {
-                _logger.Trace(() => $"Cache hit: type={ElasticType.Name} key={id}");
+                _logger.LogTrace($"Cache hit: type={ElasticType.Name} key={id}");
                 return hit;
             }
 
@@ -210,7 +211,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (id.Routing != null)
                     request.Routing = id.Routing;
                 var response = await _client.GetAsync<T>(request).AnyContext();
-                _logger.Trace(() => response.GetRequest());
+                _logger.LogTrace(response.GetRequest());
 
                 hit = response.Found ? response.ToFindHit().Document : null;
             } else {
@@ -257,7 +258,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
-            _logger.Trace(() => multiGetResults.GetRequest());
+            _logger.LogTrace(multiGetResults.GetRequest());
 
             foreach (var doc in multiGetResults.Documents) {
                 if (!doc.Found)
@@ -300,7 +301,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     return d;
                 }).AnyContext();
-                _logger.Trace(() => response.GetRequest());
+                _logger.LogTrace(response.GetRequest());
 
                 return response.Exists;
             } else {
@@ -322,14 +323,14 @@ namespace Foundatio.Repositories.Elasticsearch {
             var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
             searchDescriptor.DocvalueFields(_idField);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-            _logger.Trace(() => response.GetRequest());
+            _logger.LogTrace(response.GetRequest());
 
             if (!response.IsValid) {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return false;
 
                 string message = response.GetErrorMessage();
-                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                _logger.LogError(response.OriginalException, message);
                 throw new ApplicationException(message, response.OriginalException);
             }
 
@@ -355,14 +356,14 @@ namespace Foundatio.Repositories.Elasticsearch {
             searchDescriptor.Size(0);
 
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-            _logger.Trace(() => response.GetRequest());
+            _logger.LogTrace(response.GetRequest());
 
             if (!response.IsValid) {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return new CountResult();
 
                 string message = response.GetErrorMessage();
-                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                _logger.LogError(response.OriginalException, message);
                 throw new ApplicationException(message, response.OriginalException);
             }
 
@@ -373,14 +374,14 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         public async Task<long> CountAsync(ICommandOptions options = null) {
             var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null))).Type(ElasticType.Name)).AnyContext();
-            _logger.Trace(() => response.GetRequest());
+            _logger.LogTrace(response.GetRequest());
 
             if (!response.IsValid) {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return 0;
 
                 string message = response.GetErrorMessage();
-                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                _logger.LogError(response.OriginalException, message);
                 throw new ApplicationException(message, response.OriginalException);
             }
 
@@ -512,7 +513,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 cacheKey += ":" + cacheSuffix;
 
             var result = await Cache.GetAsync<TResult>(cacheKey, default(TResult)).AnyContext();
-            _logger.Trace(() => $"Cache {(result != null ? "hit" : "miss")}: type={ElasticType.Name} key={cacheKey}");
+            _logger.LogTrace($"Cache {(result != null ? "hit" : "miss")}: type={ElasticType.Name} key={cacheKey}");
 
             return result;
         }
@@ -526,7 +527,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 cacheKey += ":" + cacheSuffix;
 
             await Cache.SetAsync(cacheKey, result, options.GetExpiresIn()).AnyContext();
-            _logger.Trace(() => $"Set cache: type={ElasticType.Name} key={cacheKey}");
+            _logger.LogTrace($"Set cache: type={ElasticType.Name} key={cacheKey}");
         }
 
         #region Elastic Type Configuration

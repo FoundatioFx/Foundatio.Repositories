@@ -14,6 +14,8 @@ using System.Threading;
 using Elasticsearch.Net;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Parsers.ElasticQueries;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface IElasticConfiguration : IDisposable {
@@ -45,8 +47,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, ILoggerFactory loggerFactory = null) {
             _workItemQueue = workItemQueue;
-            _logger = loggerFactory.CreateLogger(GetType());
-            LoggerFactory = loggerFactory;
+            LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
+            _logger = LoggerFactory.CreateLogger(GetType());
             Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { LoggerFactory = loggerFactory });
             _lockProvider = new CacheLockProvider(Cache, messageBus, loggerFactory);
             _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15));

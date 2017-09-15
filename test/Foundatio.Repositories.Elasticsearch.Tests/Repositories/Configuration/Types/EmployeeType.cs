@@ -10,6 +10,7 @@ using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
+using Microsoft.Extensions.Logging;
 using Nest;
 #pragma warning disable 618
 
@@ -91,12 +92,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                 ).OnFailure(of => of.Set<Employee>(s => s.Field(f => f.Name).Value(String.Empty))));
 
             var logger = Configuration.LoggerFactory.CreateLogger(typeof(EmployeeTypeWithWithPipeline));
-            logger.Trace(() => response.GetRequest());
+            logger.LogTrace(response.GetRequest());
             if (response.IsValid)
                 return;
 
             string message = $"Error creating the pipeline {Pipeline}: {response.GetErrorMessage()}";
-            logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            logger.LogError(response.OriginalException, message);
             throw new ApplicationException(message, response.OriginalException);
         }
     }

@@ -7,18 +7,21 @@ using System.Threading.Tasks;
 using Foundatio.Logging;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using ILogger = Microsoft.Build.Framework.ILogger;
 
 namespace Foundatio.Repositories.Migrations {
     public class MigrationManager {
         private readonly IServiceProvider _container;
         private readonly IMigrationRepository _migrationRepository;
-        protected readonly ILogger _logger;
+        protected readonly ILogger<MigrationManager> _logger;
         private readonly List<IMigration> _migrations = new List<IMigration>();
 
         public MigrationManager(IServiceProvider container, IMigrationRepository migrationRepository, ILogger<MigrationManager> logger = null) {
             _container = container;
             _migrationRepository = migrationRepository;
-            _logger = logger ?? NullLogger.Instance;
+            _logger = logger ?? NullLogger<MigrationManager>.Instance;
         }
 
         public void AddMigrationsFromLoadedAssemblies() {
@@ -70,7 +73,7 @@ namespace Foundatio.Repositories.Migrations {
         }
 
         private Task MarkMigrationStartedAsync(int version) {
-            _logger.Info($"Starting migration for version {version}...");
+            _logger.LogInformation($"Starting migration for version {version}...");
             return _migrationRepository.AddAsync(new Migration { Version = version, StartedUtc = SystemClock.UtcNow });
         }
 
@@ -81,7 +84,7 @@ namespace Foundatio.Repositories.Migrations {
 
             m.CompletedUtc = SystemClock.UtcNow;
             await _migrationRepository.SaveAsync(m).AnyContext();
-            _logger.Info($"Completed migration for version {version}.");
+            _logger.LogInformation($"Completed migration for version {version}.");
         }
 
         public async Task<ICollection<IMigration>> GetPendingMigrationsAsync() {

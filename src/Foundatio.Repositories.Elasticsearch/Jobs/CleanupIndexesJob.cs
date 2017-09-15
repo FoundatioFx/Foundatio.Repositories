@@ -12,6 +12,8 @@ using Foundatio.Logging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs {
@@ -25,7 +27,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         public CleanupIndexesJob(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory) {
             _client = client;
             _lockProvider = lockProvider;
-            _logger = loggerFactory.CreateLogger(GetType());
+            _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
         }
 
         protected void AddIndex(TimeSpan maxAge, Func<string, DateTime?> getAge) {
@@ -43,7 +45,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         }
 
         public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default(CancellationToken)) {
-            _logger.Info("Starting index cleanup...");
+            _logger.LogInformation("Starting index cleanup...");
 
             var sw = Stopwatch.StartNew();
             var result = await _client.CatIndicesAsync(
@@ -52,9 +54,9 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             sw.Stop();
 
             if (result.IsValid)
-                _logger.Info($"Retrieved list of {result.Records?.Count()} indexes in {sw.Elapsed.ToWords(true)}");
+                _logger.LogInformation($"Retrieved list of {result.Records?.Count()} indexes in {sw.Elapsed.ToWords(true)}");
             else
-                _logger.Error($"Failed to retrieve list of indexes: {result.GetErrorMessage()}");
+                _logger.LogError($"Failed to retrieve list of indexes: {result.GetErrorMessage()}");
 
             var indexes = new List<IndexDate>();
             if (result.IsValid && result.Records != null)
@@ -67,28 +69,28 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             var indexesToDelete = indexes.Where(r => r.Date < now.Subtract(r.MaxAge)).ToList();
 
             if (indexesToDelete.Count == 0) {
-                _logger.Info("No indexes selected for deletion.");
+                _logger.LogInformation("No indexes selected for deletion.");
                 return JobResult.Success;
             }
 
             // log that we are seeing indexes that should have been deleted already
             var oldIndexes = indexes.Where(s => s.Date < now.Subtract(s.MaxAge).AddDays(-1)).ToList();
             if (oldIndexes.Count > 0)
-                _logger.Error($"Found old indexes that should've been deleted: {String.Join(", ", oldIndexes)}");
+                _logger.LogError($"Found old indexes that should've been deleted: {String.Join(", ", oldIndexes)}");
 
-            _logger.Info($"Selected {indexesToDelete.Count} indexes for deletion");
+            _logger.LogInformation($"Selected {indexesToDelete.Count} indexes for deletion");
 
             bool shouldContinue = true;
             foreach (var oldIndex in indexesToDelete) {
                 if (!shouldContinue) {
-                    _logger.Info("Stopped deleted snapshots.");
+                    _logger.LogInformation("Stopped deleted snapshots.");
                     break;
                 }
 
-                _logger.Info($"Acquiring lock to delete index {oldIndex.Index}");
+                _logger.LogInformation($"Acquiring lock to delete index {oldIndex.Index}");
                 try {
                     await _lockProvider.TryUsingAsync("es-delete-index", async t => {
-                        _logger.Info($"Got lock to delete index {oldIndex.Index}");
+                        _logger.LogInformation($"Got lock to delete index {oldIndex.Index}");
                         sw.Restart();
                         var response = await _client.DeleteIndexAsync(oldIndex.Index, d => d, t).AnyContext();
                         sw.Stop();
@@ -110,17 +112,17 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         }
 
         public virtual Task OnIndexDeleted(string indexName, TimeSpan duration) {
-            _logger.Info($"Completed delete index {indexName} in {duration.ToWords(true)}");
+            _logger.LogInformation($"Completed delete index {indexName} in {duration.ToWords(true)}");
             return Task.CompletedTask;
         }
 
         public virtual Task<bool> OnIndexDeleteFailure(string indexName, TimeSpan duration, IDeleteIndexResponse response, Exception ex) {
-            _logger.Error($"Failed to delete index {indexName} after {duration.ToWords(true)}: {(response != null ? response.GetErrorMessage() : ex?.Message)}");
+            _logger.LogError($"Failed to delete index {indexName} after {duration.ToWords(true)}: {(response != null ? response.GetErrorMessage() : ex?.Message)}");
             return Task.FromResult(true);
         }
 
         public virtual Task OnCompleted(IReadOnlyCollection<string> deletedIndexes, TimeSpan duration) {
-            _logger.Info($"Finished cleaning up {deletedIndexes.Count} in {duration.ToWords(true)}.");
+            _logger.LogInformation($"Finished cleaning up {deletedIndexes.Count} in {duration.ToWords(true)}.");
             return Task.CompletedTask;
         }
 

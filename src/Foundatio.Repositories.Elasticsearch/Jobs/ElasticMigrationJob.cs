@@ -8,6 +8,7 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Migrations;
 using Microsoft.Extensions.CommandLineUtils;
+using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs {
     [Job(Description = "Runs any pending system migrations and reindexing tasks.", IsContinuous = false)]

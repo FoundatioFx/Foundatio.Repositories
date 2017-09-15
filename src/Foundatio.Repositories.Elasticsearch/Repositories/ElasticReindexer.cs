@@ -11,6 +11,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch {
 
@@ -33,12 +35,12 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (progressCallbackAsync == null) {
                 progressCallbackAsync = (progress, message) => {
-                    _logger.Info("Reindex Progress {0}%: {1}", progress, message);
+                    _logger.LogInformation("Reindex Progress {0}%: {1}", progress, message);
                     return Task.CompletedTask;
                 };
             }
 
-            _logger.Info().Message("Received reindex work item for new index {0}", workItem.NewIndex).Property("request", workItem).Write();
+            _logger.LogInformation("Received reindex work item for new index {0}", workItem.NewIndex);
             var startTime = SystemClock.UtcNow.AddSeconds(-1);
             await progressCallbackAsync(0, "Starting reindex...").AnyContext();
             var firstPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 0, 90, workItem.StartUtc).AnyContext();
@@ -60,7 +62,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                         return x;
                     }).AnyContext();
-                    _logger.Trace(() => bulkResponse.GetRequest());
+                    _logger.LogTrace(bulkResponse.GetRequest());
 
                     await progressCallbackAsync(92, $"Updated aliases: {String.Join(", ", aliases)} Remove: {workItem.OldIndex} Add: {workItem.NewIndex}").AnyContext();
                 }
@@ -104,12 +106,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return d;
             }).AnyContext();
 
-            _logger.Info(() => response.GetRequest());
+            _logger.LogInformation(response.GetRequest());
 
             long failures = 0;
             bool succeeded = true;
             if (!response.IsValid || response.ApiCall.HttpStatusCode != 200) {
-                _logger.Error().Exception(response.OriginalException).Message("Error while reindexing result: {0}", response.GetErrorMessage()).Write();
+                _logger.LogError(response.OriginalException, "Error while reindexing result: {0}", response.GetErrorMessage());
 
                 if (await CreateFailureIndexAsync(workItem).AnyContext()) {
                     foreach (var failure in response.Failures) {
@@ -134,7 +136,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var createResponse = await _client.CreateIndexAsync(errorIndex, d => d.Mappings(m => m.Map("failures", md => md.Dynamic(false)))).AnyContext();
             if (!createResponse.IsValid) {
-                _logger.Error().Exception(createResponse.OriginalException).Message("Unable to create error index: {0}", createResponse.GetErrorMessage()).Write();
+                _logger.LogError(createResponse.OriginalException, "Unable to create error index: {0}", createResponse.GetErrorMessage());
                 return false;
             }
 
@@ -142,10 +144,10 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         private async Task HandleFailureAsync(ReindexWorkItem workItem, BulkIndexByScrollFailure failure) {
-            _logger.Error().Message("Error reindexing document {0}/{1}/{2}: [{3}] {4}", failure.Index, failure.Type, failure.Id, failure.Status, failure.Cause.Reason).Write();
+            _logger.LogError("Error reindexing document {0}/{1}/{2}: [{3}] {4}", failure.Index, failure.Type, failure.Id, failure.Status, failure.Cause.Reason);
             var gr = await _client.GetAsync<object>(request: new GetRequest(failure.Index, failure.Type, failure.Id)).AnyContext();
             if (!gr.IsValid) {
-                _logger.Error().Message("Error getting document {0}/{1}/{2}: {3}", failure.Index, failure.Type, failure.Id, gr.GetErrorMessage()).Write();
+                _logger.LogError("Error getting document {0}/{1}/{2}: {3}", failure.Index, failure.Type, failure.Id, gr.GetErrorMessage());
                 return;
             }
 
@@ -163,12 +165,12 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var indexResponse = await _client.IndexAsync(document, d => d.Index(workItem.NewIndex + "-error").Type("failures")).AnyContext();
             if (!indexResponse.IsValid)
-                _logger.Error().Message("Error indexing document {0}/{1}/{2}: {3}", workItem.NewIndex + "-error", gr.Type, gr.Id, indexResponse.GetErrorMessage()).Write();
+                _logger.LogError("Error indexing document {0}/{1}/{2}: {3}", workItem.NewIndex + "-error", gr.Type, gr.Id, indexResponse.GetErrorMessage());
         }
 
         private async Task<List<string>> GetIndexAliasesAsync(string index) {
             var aliasesResponse = await _client.GetAliasAsync(a => a.Index(index)).AnyContext();
-            _logger.Trace(() => aliasesResponse.GetRequest());
+            _logger.LogTrace(aliasesResponse.GetRequest());
 
             if (aliasesResponse.IsValid && aliasesResponse.Indices.Count > 0) {
                 var aliases = aliasesResponse.Indices.Single(a => a.Key == index);
@@ -212,7 +214,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 .Size(1)
             ).AnyContext();
 
-            _logger.Trace(() => newestDocumentResponse.GetRequest());
+            _logger.LogTrace(newestDocumentResponse.GetRequest());
             if (!newestDocumentResponse.IsValid || !newestDocumentResponse.Documents.Any())
                 return null;
 

@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
-using Foundatio.Logging;
 using Nest;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Caching;
@@ -12,6 +11,7 @@ using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
+using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class DailyIndexType<T> : TimeSeriesIndexType<T> where T : class {
@@ -238,7 +238,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                         try {
                             await CreateAliasAsync(oldestIndex.Index, GetIndex(indexGroup.Key)).AnyContext();
                         } catch (Exception ex) {
-                            _logger.Error(ex, $"Error setting current index version. Will use oldest index version: {oldestIndex.Version}");
+                            _logger.LogError(ex, $"Error setting current index version. Will use oldest index version: {oldestIndex.Version}");
                         }
 
                         foreach (var indexInfo in indexGroup)
@@ -264,14 +264,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
 
             var response = await Configuration.Client.AliasAsync(aliasDescriptor).AnyContext();
-            _logger.Trace(() => response.GetRequest());
+            _logger.LogTrace(response.GetRequest());
 
             if (!response.IsValid) {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return;
 
                 string message = $"Error updating aliases: {response.GetErrorMessage()}";
-                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                _logger.LogError(response.OriginalException, message);
                 throw new ApplicationException(message, response.OriginalException);
             }
         }
@@ -285,7 +285,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 sw.Restart();
                 try {
                     await DeleteIndexAsync(index.Index).AnyContext();
-                    _logger.Info($"Deleted index {index.Index} of age {SystemClock.UtcNow.Subtract(index.DateUtc).ToWords(true)} in {sw.Elapsed.ToWords(true)}");
+                    _logger.LogInformation($"Deleted index {index.Index} of age {SystemClock.UtcNow.Subtract(index.DateUtc).ToWords(true)} in {sw.Elapsed.ToWords(true)}");
                 } catch (Exception) {}
 
                 sw.Stop();

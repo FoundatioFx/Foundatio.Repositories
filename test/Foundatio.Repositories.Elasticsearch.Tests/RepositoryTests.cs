@@ -5,18 +5,18 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
-using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.JsonPatch;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
+using Microsoft.Extensions.Logging;
 using Nest;
 using Foundatio.AsyncEx;
 using Xunit;
 using Xunit.Abstractions;
-using LogLevel = Foundatio.Logging.LogLevel;
+using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class RepositoryTests : ElasticRepositoryTestBase {
@@ -877,7 +877,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 var sw = Stopwatch.StartNew();
                 Assert.Equal(COUNT, await _identityRepository.RemoveAllAsync(o => o.ImmediateConsistency()));
                 sw.Stop();
-                _logger.Info($"Deleted {COUNT} documents in {sw.ElapsedMilliseconds}ms");
+                _logger.LogInformation($"Deleted {COUNT} documents in {sw.ElapsedMilliseconds}ms");
 
                 await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
                 Assert.Equal(0, countdownEvent.CurrentCount);
@@ -911,7 +911,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 var sw = Stopwatch.StartNew();
                 Assert.Equal(COUNT, await _identityRepositoryWithNoCaching.RemoveAllAsync(o => o.ImmediateConsistency(true)));
                 sw.Stop();
-                _logger.Info($"Deleted {COUNT} documents in {sw.ElapsedMilliseconds}ms");
+                _logger.LogInformation($"Deleted {COUNT} documents in {sw.ElapsedMilliseconds}ms");
 
                 await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
                 Assert.Equal(0, countdownEvent.CurrentCount);

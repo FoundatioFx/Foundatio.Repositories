@@ -8,7 +8,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Utility;
 using Nest;
 using Xunit.Abstractions;
-using LogLevel = Foundatio.Logging.LogLevel;
+using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public abstract class ElasticRepositoryTestBase : TestWithLoggingBase {
