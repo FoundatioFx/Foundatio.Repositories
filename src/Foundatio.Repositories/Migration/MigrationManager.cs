@@ -4,12 +4,10 @@ using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
-using Foundatio.Logging;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using ILogger = Microsoft.Build.Framework.ILogger;
 
 namespace Foundatio.Repositories.Migrations {
     public class MigrationManager {
