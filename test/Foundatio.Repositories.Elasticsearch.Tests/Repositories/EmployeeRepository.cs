@@ -10,6 +10,12 @@ using Foundatio.Repositories.Options;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
+    public class EmployeeRepositoryWithExcludes : EmployeeRepository {
+        public EmployeeRepositoryWithExcludes(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration) {
+            DefaultExcludes.Add("companyName");
+        }
+    }
+
     public class EmployeeRepository : ElasticRepositoryBase<Employee> {
         public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.Employees.Employee) {
         }
