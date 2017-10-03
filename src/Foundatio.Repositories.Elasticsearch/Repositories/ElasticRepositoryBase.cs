@@ -142,9 +142,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ApplicationException(message, response.OriginalException);
                 }
             } else if (operation is Models.JsonPatch jsonOperation) {
-                var request = NewGetRequest(id);
-                ConfigureRequest(request);
-
+                var request = new GetRequest(GetIndexById(id), ElasticType.Name, id.Value);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
 

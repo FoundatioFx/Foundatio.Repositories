@@ -16,13 +16,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         private readonly IdentityRepository _identityRepository;
         private readonly DailyLogEventRepository _dailyRepository;
         private readonly EmployeeRepository _employeeRepository;
-        private readonly EmployeeRepositoryWithExcludes _employeeRepositoryWithExcludes;
 
         public ReadOnlyRepositoryTests(ITestOutputHelper output) : base(output) {
             _identityRepository = new IdentityRepository(_configuration);
             _dailyRepository = new DailyLogEventRepository(_configuration);
             _employeeRepository = new EmployeeRepository(_configuration);
-            _employeeRepositoryWithExcludes = new EmployeeRepositoryWithExcludes(_configuration);
 
             RemoveDataAsync().GetAwaiter().GetResult();
         }
@@ -501,34 +499,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             Assert.NotNull(employeeById);
             Assert.True(employeeById.IsDeleted);
-        }
-
-        [Fact]
-        public async Task ShouldNotIncludeDefaultExcludes() {
-            var employee = EmployeeGenerator.Generate(age: 20, companyName: "Excluded Property");
-            employee = await _employeeRepositoryWithExcludes.AddAsync(employee, o => o.ImmediateConsistency());
-            var employeeId = employee.Id;
-
-            var employees = await _employeeRepositoryWithExcludes.GetAllAsync();
-
-            Assert.Equal(1, employees.Total);
-            employee = employees.Documents.FirstOrDefault();
-            Assert.NotNull(employee);
-            Assert.Equal(employeeId, employee.Id);
-            Assert.Null(employee.CompanyName);
-        }
-
-        [Fact]
-        public async Task ShouldNotIncludeDefaultExcludesInGetById() {
-            var employee = EmployeeGenerator.Generate(age: 20, companyName: "Excluded Property");
-            employee = await _employeeRepositoryWithExcludes.AddAsync(employee, o => o.ImmediateConsistency());
-            var employeeId = employee.Id;
-
-            employee = await _employeeRepositoryWithExcludes.GetByIdAsync(employeeId);
-            
-            Assert.NotNull(employee);
-            Assert.Equal(employeeId, employee.Id);
-            Assert.Null(employee.CompanyName);
         }
     }
 }
