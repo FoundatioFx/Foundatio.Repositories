@@ -11,6 +11,7 @@ using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
+using Foundatio.Repositories.Queries;
 using Foundatio.Utility;
 using Nest;
 
@@ -570,7 +571,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; } = new AsyncEvent<BeforeQueryEventArgs<T>>();
 
         private async Task OnBeforeQueryAsync(IRepositoryQuery query, ICommandOptions options, Type resultType) {
-            if (SupportsSoftDeletes && IsCacheEnabled) {
+            if (SupportsSoftDeletes && IsCacheEnabled && query.GetSoftDeleteMode() == SoftDeleteQueryMode.ActiveOnly) {
                 var deletedIds = await Cache.GetSetAsync<string>("deleted").AnyContext();
                 if (deletedIds.HasValue)
                     query.ExcludedId(deletedIds.Value);
