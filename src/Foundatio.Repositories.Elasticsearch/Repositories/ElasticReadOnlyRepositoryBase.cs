@@ -11,6 +11,7 @@ using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
+using Foundatio.Repositories.Queries;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Nest;
@@ -207,7 +208,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             if (!HasParent || id.Routing != null) {
-                var request = new GetRequest(GetIndexById(id), ElasticType.Name, id.Value);
+                var request = NewGetRequest(id);
+                ConfigureRequest(request);
+
                 if (id.Routing != null)
                     request.Routing = id.Routing;
                 var response = await _client.GetAsync<T>(request).AnyContext();
@@ -217,7 +220,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             } else {
                 // we don't have the parent id so we have to do a query
                 // TODO: Ensure this is find one query is not cached.
-                var findResult = await FindOneAsync(NewQuery().Id(id)).AnyContext();
+                var findResult = await FindOneAsync(q => {
+                    q.Id(id);
+
+                    ConfigureQuery(q);
+
+                    return q;
+                }).AnyContext();
                 if (findResult != null)
                     hit = findResult.Document;
             }
@@ -411,6 +420,20 @@ namespace Foundatio.Repositories.Elasticsearch {
             return query;
         }
 
+        protected virtual GetRequest NewGetRequest(Id id) {
+            return new GetRequest(GetIndexById(id), ElasticType.Name, id.Value);
+        }
+
+        protected virtual GetRequest ConfigureRequest(GetRequest request) {
+            if (request == null)
+                return null;
+
+            if (DefaultExcludes.Count > 0 && (request.SourceExclude == null || !request.SourceExclude.Any()))
+                request.SourceExclude = DefaultExcludes.ToArray();
+
+            return request;
+        }
+
         public bool IsCacheEnabled { get; private set; } = true;
         protected ScopedCacheClient Cache => _scopedCacheClient ?? new ScopedCacheClient(new NullCacheClient());
 
@@ -571,7 +594,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; } = new AsyncEvent<BeforeQueryEventArgs<T>>();
 
         private async Task OnBeforeQueryAsync(IRepositoryQuery query, ICommandOptions options, Type resultType) {
-            if (SupportsSoftDeletes && IsCacheEnabled) {
+            if (SupportsSoftDeletes && IsCacheEnabled && query.GetSoftDeleteMode() == SoftDeleteQueryMode.ActiveOnly) {
                 var deletedIds = await Cache.GetSetAsync<string>("deleted").AnyContext();
                 if (deletedIds.HasValue)
                     query.ExcludedId(deletedIds.Value);
