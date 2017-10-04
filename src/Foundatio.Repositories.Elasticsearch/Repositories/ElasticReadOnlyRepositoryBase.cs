@@ -208,9 +208,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             if (!HasParent || id.Routing != null) {
-                var request = NewGetRequest(id);
-                ConfigureRequest(request);
-
+                var request = new GetRequest(GetIndexById(id), ElasticType.Name, id.Value);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
                 var response = await _client.GetAsync<T>(request).AnyContext();
@@ -220,13 +218,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             } else {
                 // we don't have the parent id so we have to do a query
                 // TODO: Ensure this is find one query is not cached.
-                var findResult = await FindOneAsync(q => {
-                    q.Id(id);
-
-                    ConfigureQuery(q);
-
-                    return q;
-                }).AnyContext();
+                var findResult = await FindOneAsync(NewQuery().Id(id)).AnyContext();
                 if (findResult != null)
                     hit = findResult.Document;
             }
@@ -418,20 +410,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 query.Exclude(DefaultExcludes);
 
             return query;
-        }
-
-        protected virtual GetRequest NewGetRequest(Id id) {
-            return new GetRequest(GetIndexById(id), ElasticType.Name, id.Value);
-        }
-
-        protected virtual GetRequest ConfigureRequest(GetRequest request) {
-            if (request == null)
-                return null;
-
-            if (DefaultExcludes.Count > 0 && (request.SourceExclude == null || !request.SourceExclude.Any()))
-                request.SourceExclude = DefaultExcludes.ToArray();
-
-            return request;
         }
 
         public bool IsCacheEnabled { get; private set; } = true;
