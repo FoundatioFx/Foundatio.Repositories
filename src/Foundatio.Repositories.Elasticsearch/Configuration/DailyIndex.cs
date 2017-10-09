@@ -238,7 +238,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                         try {
                             await CreateAliasAsync(oldestIndex.Index, GetIndex(indexGroup.Key)).AnyContext();
                         } catch (Exception ex) {
-                            _logger.LogError(ex, $"Error setting current index version. Will use oldest index version: {oldestIndex.Version}");
+                            _logger.LogError(ex, "Error setting current index version. Will use oldest index version: {OldestIndexVersion}", oldestIndex.Version);
                         }
 
                         foreach (var indexInfo in indexGroup)
@@ -264,14 +264,15 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
 
             var response = await Configuration.Client.AliasAsync(aliasDescriptor).AnyContext();
-            _logger.LogTrace(response.GetRequest());
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace(response.GetRequest());
 
             if (!response.IsValid) {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return;
 
                 string message = $"Error updating aliases: {response.GetErrorMessage()}";
-                _logger.LogError(response.OriginalException, message);
+                _logger.LogError(response.OriginalException, "Error updating aliases: {0}", message);
                 throw new ApplicationException(message, response.OriginalException);
             }
         }
@@ -285,7 +286,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 sw.Restart();
                 try {
                     await DeleteIndexAsync(index.Index).AnyContext();
-                    _logger.LogInformation($"Deleted index {index.Index} of age {SystemClock.UtcNow.Subtract(index.DateUtc).ToWords(true)} in {sw.Elapsed.ToWords(true)}");
+                    _logger.LogInformation("Deleted index {Index} of age {Age:g} in {Duration:g}", index.Index, SystemClock.UtcNow.Subtract(index.DateUtc), sw.Elapsed);
                 } catch (Exception) {}
 
                 sw.Stop();

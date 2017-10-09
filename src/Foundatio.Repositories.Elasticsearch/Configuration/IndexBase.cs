@@ -58,7 +58,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ArgumentNullException(nameof(name));
 
             var response = await Configuration.Client.CreateIndexAsync(name, descriptor).AnyContext();
-            _logger.LogInformation(response.GetRequest());
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogInformation(response.GetRequest());
 
             // check for valid response or that the index already exists
             if (response.IsValid || response.ServerError.Status == 400 && response.ServerError.Error.Type == "index_already_exists_exception")
@@ -77,7 +78,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return;
 
             var response = await Configuration.Client.DeleteIndexAsync(name).AnyContext();
-            _logger.LogTrace(response.GetRequest());
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace(response.GetRequest());
 
             if (response.IsValid)
                 return;

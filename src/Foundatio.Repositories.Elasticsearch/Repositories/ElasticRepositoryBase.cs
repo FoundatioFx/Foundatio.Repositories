@@ -8,7 +8,6 @@ using FluentValidation;
 using Nest;
 using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Extensions;
-using Foundatio.Logging;
 using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
@@ -83,7 +82,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (docs.Count == 0)
                 return;
 
-            string[] ids = docs.Where(d => !String.IsNullOrEmpty(d.Id)).Select(d => d.Id).ToArray();
+            var ids = docs.Where(d => !String.IsNullOrEmpty(d.Id)).Select(d => d.Id).ToArray();
             if (ids.Length < docs.Count)
                 throw new ApplicationException("Id must be set when calling Save.");
 
@@ -135,7 +134,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                     request.Routing = id.Routing;
 
                 var response = await _client.UpdateAsync<T>(request).AnyContext();
-                _logger.LogTrace(response.GetRequest());
+                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                    _logger.LogTrace(response.GetRequest());
 
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
@@ -149,7 +149,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 var response = await _client.GetAsync<JObject>(request).AnyContext();
 
-                _logger.LogTrace(response.GetRequest());
+                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                    _logger.LogTrace(response.GetRequest());
 
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
@@ -168,7 +169,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     return p;
                 }).AnyContext();
-                _logger.LogTrace(updateResponse.GetRequest());
+                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                    _logger.LogTrace(updateResponse.GetRequest());
 
                 if (!updateResponse.Success) {
                     string message = updateResponse.GetErrorMessage();
@@ -186,7 +188,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 request.Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency);
 
                 var response = await _client.UpdateAsync<T, object>(request).AnyContext();
-                _logger.LogTrace(response.GetRequest());
+                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                    _logger.LogTrace(response.GetRequest());
 
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
@@ -267,7 +270,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 return b;
             }).AnyContext();
-            _logger.LogTrace(bulkResponse.GetRequest());
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace(bulkResponse.GetRequest());
 
             // TODO: Is there a better way to handle failures?
             if (!bulkResponse.IsValid) {
@@ -323,7 +327,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                         return b;
                     }).AnyContext();
-                    _logger.LogTrace(bulkResult.GetRequest());
+                    if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                        _logger.LogTrace(bulkResult.GetRequest());
 
                     if (!bulkResult.IsValid) {
                         _logger.LogError(bulkResult.OriginalException, $"Error occurred while bulk updating: {bulkResult.GetErrorMessage()}");
@@ -360,7 +365,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                     };
 
                     var response = await _client.UpdateByQueryAsync(request).AnyContext();
-                    _logger.LogTrace(response.GetRequest());
+                    if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                        _logger.LogTrace(response.GetRequest());
                     if (!response.IsValid) {
                         string message = response.GetErrorMessage();
                         _logger.LogError(response.OriginalException, message);
@@ -398,7 +404,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                             return b;
                         }).AnyContext();
-                        _logger.LogTrace(bulkResult.GetRequest());
+                        if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                            _logger.LogTrace(bulkResult.GetRequest());
 
                         if (!bulkResult.IsValid) {
                             _logger.LogError(bulkResult.OriginalException, $"Error occurred while bulk updating: {bulkResult.GetErrorMessage()}");
@@ -487,7 +494,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                     request.Parent = GetParentIdFunc(document);
 
                 var response = await _client.DeleteAsync(request).AnyContext();
-                _logger.LogTrace(response.GetRequest());
+                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                    _logger.LogTrace(response.GetRequest());
 
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
@@ -509,7 +517,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     return bulk;
                 }).AnyContext();
-                _logger.LogTrace(response.GetRequest());
+                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                    _logger.LogTrace(response.GetRequest());
 
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
@@ -555,7 +564,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency) != Refresh.False,
                 Query = await ElasticType.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext()
             }).AnyContext();
-            _logger.LogTrace(response.GetRequest());
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace(response.GetRequest());
 
             if (!response.IsValid) {
                 string message = response.GetErrorMessage();
@@ -769,7 +779,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                     return i;
                 }).AnyContext();
 
-                _logger.LogTrace(response.GetRequest());
+                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                    _logger.LogTrace(response.GetRequest());
                 if (!response.IsValid) {
                     string message = response.GetErrorMessage();
                     _logger.LogError(response.OriginalException, message);
@@ -786,7 +797,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             } else {
                 var bulkRequest = new BulkRequest();
                 var list = documents.Select(d => {
-                    IBulkOperation o = isCreateOperation
+                    var o = isCreateOperation
                         ? (IBulkOperation)new BulkCreateOperation<T>(d) { Pipeline = pipeline }
                         : new BulkIndexOperation<T>(d) { Pipeline = pipeline };
 
@@ -809,7 +820,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 bulkRequest.Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency);
 
                 var response = await _client.BulkAsync(bulkRequest).AnyContext();
-                _logger.LogTrace(response.GetRequest());
+                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                    _logger.LogTrace(response.GetRequest());
 
                 if (HasVersion) {
                     foreach (var hit in response.Items) {

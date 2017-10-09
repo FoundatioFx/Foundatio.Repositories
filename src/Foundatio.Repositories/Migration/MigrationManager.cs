@@ -71,7 +71,7 @@ namespace Foundatio.Repositories.Migrations {
         }
 
         private Task MarkMigrationStartedAsync(int version) {
-            _logger.LogInformation($"Starting migration for version {version}...");
+            _logger.LogInformation("Starting migration for version {Version}...", version);
             return _migrationRepository.AddAsync(new Migration { Version = version, StartedUtc = SystemClock.UtcNow });
         }
 
@@ -82,7 +82,7 @@ namespace Foundatio.Repositories.Migrations {
 
             m.CompletedUtc = SystemClock.UtcNow;
             await _migrationRepository.SaveAsync(m).AnyContext();
-            _logger.LogInformation($"Completed migration for version {version}.");
+            _logger.LogInformation("Completed migration for version {Version}.", version);
         }
 
         public async Task<ICollection<IMigration>> GetPendingMigrationsAsync() {

@@ -1,5 +1,4 @@
 ﻿using Elasticsearch.Net;
-using Foundatio.Logging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
@@ -57,12 +56,13 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 if (aliases.Count > 0) {
                     var bulkResponse = await _client.AliasAsync(x => {
-                        foreach (var alias in aliases)
+                        foreach (string alias in aliases)
                             x = x.Remove(a => a.Alias(alias).Index(workItem.OldIndex)).Add(a => a.Alias(alias).Index(workItem.NewIndex));
 
                         return x;
                     }).AnyContext();
-                    _logger.LogTrace(bulkResponse.GetRequest());
+                    if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                        _logger.LogTrace(bulkResponse.GetRequest());
 
                     await progressCallbackAsync(92, $"Updated aliases: {String.Join(", ", aliases)} Remove: {workItem.OldIndex} Add: {workItem.NewIndex}").AnyContext();
                 }
@@ -101,12 +101,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                 .Conflicts(Conflicts.Proceed);
 
                 //NEST client emitting script if null, inline this when that's fixed
-                if (!string.IsNullOrWhiteSpace(workItem.Script)) d.Script(workItem.Script);
+                if (!String.IsNullOrWhiteSpace(workItem.Script)) d.Script(workItem.Script);
 
                 return d;
             }).AnyContext();
 
-            _logger.LogInformation(response.GetRequest());
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogInformation(response.GetRequest());
 
             long failures = 0;
             bool succeeded = true;
@@ -170,7 +171,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         private async Task<List<string>> GetIndexAliasesAsync(string index) {
             var aliasesResponse = await _client.GetAliasAsync(a => a.Index(index)).AnyContext();
-            _logger.LogTrace(aliasesResponse.GetRequest());
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace(aliasesResponse.GetRequest());
 
             if (aliasesResponse.IsValid && aliasesResponse.Indices.Count > 0) {
                 var aliases = aliasesResponse.Indices.Single(a => a.Key == index);
@@ -185,7 +187,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (startTime.HasValue)
                 return CreateRangeQuery(descriptor, timestampField, startTime);
 
-            var startingPoint = await GetResumeStartingPointAsync(newIndex, timestampField ?? ID_FIELD).AnyContext();
+            object startingPoint = await GetResumeStartingPointAsync(newIndex, timestampField ?? ID_FIELD).AnyContext();
             if (startingPoint is DateTime)
                 return CreateRangeQuery(descriptor, timestampField, (DateTime)startingPoint);
 
@@ -214,7 +216,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 .Size(1)
             ).AnyContext();
 
-            _logger.LogTrace(newestDocumentResponse.GetRequest());
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace(newestDocumentResponse.GetRequest());
             if (!newestDocumentResponse.IsValid || !newestDocumentResponse.Documents.Any())
                 return null;
 

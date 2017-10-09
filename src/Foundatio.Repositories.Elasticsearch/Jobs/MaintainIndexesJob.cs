@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Jobs;
 using Foundatio.Lock;
-using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Extensions;
 using Microsoft.Extensions.Logging;
@@ -23,7 +22,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
         }
 
-        public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default(CancellationToken)) {
+        public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default) {
             _logger.LogInformation("Starting index maintenance...");
 
             var sw = Stopwatch.StartNew();
@@ -49,12 +48,12 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         }
 
         public virtual Task<bool> OnFailure(TimeSpan duration, Exception ex) {
-            _logger.LogError(ex, $"Failed to maintain indexes after {duration.ToWords(true)}: {ex?.Message}");
+            _logger.LogError(ex, "Failed to maintain indexes after {Duration:g}: {ErrorMessage}", duration, ex?.Message);
             return Task.FromResult(true);
         }
 
         public virtual Task OnCompleted(TimeSpan duration) {
-            _logger.LogInformation($"Finished index maintenance in {duration.ToWords(true)}.");
+            _logger.LogInformation("Finished index maintenance in {Duration:g}.", duration);
             return Task.CompletedTask;
         }
     }
