@@ -46,7 +46,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         Func<string, IProperty> IElasticQueryVisitorContext.GetPropertyMappingFunc { get; set; }
 
         private DateRange GetDateRange() {
-            foreach (DateRange dateRange in Source.GetDateRanges()) {
+            foreach (var dateRange in Source.GetDateRanges()) {
                 if (dateRange.UseDateRange)
                     return dateRange;
             }
