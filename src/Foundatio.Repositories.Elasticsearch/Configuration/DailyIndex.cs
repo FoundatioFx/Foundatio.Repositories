@@ -100,7 +100,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (version < 0)
                 version = Version;
 
-            if (DateTime.TryParseExact(index, $"\'{Name}-v{version}-\'{DateFormat}", EnUs, DateTimeStyles.AdjustToUniversal, out DateTime result))
+            if (DateTime.TryParseExact(index, $"\'{Name}-v{version}-\'{DateFormat}", EnUs, DateTimeStyles.AdjustToUniversal, out var result))
                 return DateTime.SpecifyKind(result.Date, DateTimeKind.Utc);
 
             return DateTime.MaxValue;
@@ -160,15 +160,15 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (!utcEnd.HasValue || utcEnd.Value < utcStart)
                 utcEnd = SystemClock.UtcNow;
 
-            var period = utcEnd.Value - utcStart.Value;
-            if ((MaxIndexAge.HasValue && period > MaxIndexAge.Value) || period.GetTotalYears() > 1)
-                return new string[0];
-
+            var utcStartOfDay = utcStart.Value.StartOfDay();
             var utcEndOfDay = utcEnd.Value.EndOfDay();
+            var period = utcEndOfDay - utcStartOfDay;
+            if ((MaxIndexAge.HasValue && period > MaxIndexAge.Value) || period.GetTotalMonths() >= 3)
+                return new string[0];
 
             // TODO: Look up aliases that fit these ranges.
             var indices = new List<string>();
-            for (var current = utcStart.Value.StartOfDay(); current <= utcEndOfDay; current = current.AddDays(1))
+            for (var current = utcStartOfDay; current <= utcEndOfDay; current = current.AddDays(1))
                 indices.Add(GetIndex(current));
 
             return indices.ToArray();

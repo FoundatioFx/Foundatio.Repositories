@@ -46,7 +46,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 if (HasIdentity) {
                     // This is also called when trying to create the document id.
                     string id = ((IIdentity)document).Id;
-                    if (id != null && ObjectId.TryParse(id, out ObjectId objectId) && objectId.CreationTime != DateTime.MinValue)
+                    if (id != null && ObjectId.TryParse(id, out var objectId) && objectId.CreationTime != DateTime.MinValue)
                         return objectId.CreationTime;
                 }
 
@@ -99,7 +99,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (String.IsNullOrEmpty(id.Value))
                 throw new ArgumentNullException(nameof(id));
 
-            if (!ObjectId.TryParse(id.Value, out ObjectId objectId))
+            if (!ObjectId.TryParse(id.Value, out var objectId))
                 throw new ArgumentException("Unable to parse ObjectId", nameof(id));
 
             return TimeSeriesIndex.GetIndex(objectId.CreationTime);
@@ -107,7 +107,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public virtual string[] GetIndexesByQuery(IRepositoryQuery query) {
             var indexes = GetIndexes(query);
-
             return indexes.Count > 0 ? indexes.ToArray() : _defaultIndexes;
         }
 
@@ -118,8 +117,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (elasticIndexes.Count > 0)
                 indexes.AddRange(elasticIndexes);
 
-            if (query.GetElasticIndexesStartUtc().HasValue || query.GetElasticIndexesEndUtc().HasValue)
-                indexes.AddRange(TimeSeriesIndex.GetIndexes(query.GetElasticIndexesStartUtc(), query.GetElasticIndexesEndUtc()));
+            var utcStart = query.GetElasticIndexesStartUtc();
+            var utcEnd = query.GetElasticIndexesEndUtc();
+            if (utcStart.HasValue || utcEnd.HasValue)
+                indexes.AddRange(TimeSeriesIndex.GetIndexes(utcStart, utcEnd));
 
             return indexes;
         }

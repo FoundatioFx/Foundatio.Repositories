@@ -65,7 +65,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             options = ConfigureOptions(options);
             await OnBeforeQueryAsync(query, options, typeof(TResult)).AnyContext();
 
-            Func<FindResults<TResult>, Task<FindResults<TResult>>> getNextPageFunc = async r => {
+            async Task<FindResults<TResult>> GetNextPageFunc(FindResults<TResult> r) {
                 var previousResults = r;
                 if (previousResults == null)
                     throw new ArgumentException(nameof(r));
@@ -87,7 +87,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 options?.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
 
                 return await FindAsAsync<TResult>(query, options).AnyContext();
-            };
+            }
 
             string cacheSuffix = options?.HasPageLimit() == true ? String.Concat(options.GetPage().ToString(), ":", options.GetLimit().ToString()) : null;
 
@@ -95,7 +95,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (allowCaching) {
                 result = await GetCachedQueryResultAsync<FindResults<TResult>>(options, cacheSuffix: cacheSuffix).AnyContext();
                 if (result != null) {
-                    ((IGetNextPage<TResult>)result).GetNextPageFunc = async r => await getNextPageFunc(r).AnyContext();
+                    ((IGetNextPage<TResult>)result).GetNextPageFunc = async r => await GetNextPageFunc(r).AnyContext();
                     return result;
                 }
             }
@@ -127,11 +127,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                 result = response.ToFindResults();
                 // TODO: Is there a better way to figure out if you are done scrolling?
                 result.HasMore = response.Hits.Count() >= options.GetLimit();
-                ((IGetNextPage<TResult>)result).GetNextPageFunc = getNextPageFunc;
+                ((IGetNextPage<TResult>)result).GetNextPageFunc = GetNextPageFunc;
             } else if (options.HasPageLimit() == true) {
                 result = response.ToFindResults(options.GetLimit());
                 result.HasMore = response.Hits.Count() > options.GetLimit();
-                ((IGetNextPage<TResult>)result).GetNextPageFunc = getNextPageFunc;
+                ((IGetNextPage<TResult>)result).GetNextPageFunc = GetNextPageFunc;
             } else {
                 result = response.ToFindResults();
             }
