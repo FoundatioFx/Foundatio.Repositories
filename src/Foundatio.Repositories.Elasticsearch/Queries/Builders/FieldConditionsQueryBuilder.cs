@@ -27,12 +27,12 @@ namespace Foundatio.Repositories {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = field, Value = value, Operator = op });
         }
 
-        public static TQuery FieldConditionIf<TQuery, TValue>(this TQuery query, Field field, ComparisonOperator op, TValue value = default(TValue), Func<TValue, bool> condition = null) where TQuery : IRepositoryQuery {
+        public static TQuery FieldConditionIf<TQuery, TValue>(this TQuery query, Field field, ComparisonOperator op, TValue value = default, Func<TValue, bool> condition = null) where TQuery : IRepositoryQuery {
             bool result = condition == null || condition(value);
             return result ? query.FieldCondition(field, op, value) : query;
         }
 
-        public static TQuery FieldConditionIf<TQuery, TValue>(this TQuery query, Field field, ComparisonOperator op, TValue value = default(TValue), bool condition = true) where TQuery : IRepositoryQuery {
+        public static TQuery FieldConditionIf<TQuery, TValue>(this TQuery query, Field field, ComparisonOperator op, TValue value = default, bool condition = true) where TQuery : IRepositoryQuery {
             return condition ? query.FieldCondition(field, op, value) : query;
         }
 
@@ -40,12 +40,12 @@ namespace Foundatio.Repositories {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = value, Operator = op });
         }
 
-        public static IRepositoryQuery<TModel> FieldConditionIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, ComparisonOperator op, TValue value = default(TValue), Func<TValue, bool> condition = null) where TModel : class {
+        public static IRepositoryQuery<TModel> FieldConditionIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, ComparisonOperator op, TValue value = default, Func<TValue, bool> condition = null) where TModel : class {
             bool result = condition == null || condition(value);
             return result ? query.FieldCondition(objectPath, op, value) : query;
         }
 
-        public static IRepositoryQuery<TModel> FieldConditionIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, ComparisonOperator op, TValue value = default(TValue), bool condition = true) where TModel : class {
+        public static IRepositoryQuery<TModel> FieldConditionIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, ComparisonOperator op, TValue value = default, bool condition = true) where TModel : class {
             return condition ? query.FieldCondition(objectPath, op, value) : query;
         }
 
@@ -54,12 +54,12 @@ namespace Foundatio.Repositories {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = field, Value = value, Operator = ComparisonOperator.Equals });
         }
 
-        public static TQuery FieldEqualsIf<TQuery, TValue>(this TQuery query, Field field, TValue value = default(TValue), Func<TValue, bool> condition = null) where TQuery : IRepositoryQuery {
+        public static TQuery FieldEqualsIf<TQuery, TValue>(this TQuery query, Field field, TValue value = default, Func<TValue, bool> condition = null) where TQuery : IRepositoryQuery {
             bool result = condition == null || condition(value);
             return result ? query.FieldEquals(field, value) : query;
         }
 
-        public static TQuery FieldEqualsIf<TQuery, TValue>(this TQuery query, Field field, TValue value = default(TValue), bool condition = true) where TQuery : IRepositoryQuery {
+        public static TQuery FieldEqualsIf<TQuery, TValue>(this TQuery query, Field field, TValue value = default, bool condition = true) where TQuery : IRepositoryQuery {
             return condition ? query.FieldEquals(field, value) : query;
         }
 
@@ -67,12 +67,12 @@ namespace Foundatio.Repositories {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.Equals });
         }
 
-        public static IRepositoryQuery<TModel> FieldEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue value = default(TValue), Func<TValue, bool> condition = null) where TModel : class {
+        public static IRepositoryQuery<TModel> FieldEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue value = default, Func<TValue, bool> condition = null) where TModel : class {
             bool result = condition == null || condition(value);
             return result ? query.FieldEquals(objectPath, value) : query;
         }
 
-        public static IRepositoryQuery<TModel> FieldEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue value = default(TValue), bool condition = true) where TModel : class {
+        public static IRepositoryQuery<TModel> FieldEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue value = default, bool condition = true) where TModel : class {
             return condition ? query.FieldEquals(objectPath, value) : query;
         }
 
@@ -81,12 +81,12 @@ namespace Foundatio.Repositories {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = field, Value = value, Operator = ComparisonOperator.NotEquals });
         }
 
-        public static TQuery FieldNotEqualsIf<TQuery, TValue>(this TQuery query, Field field, TValue value = default(TValue), Func<TValue, bool> condition = null) where TQuery : IRepositoryQuery {
+        public static TQuery FieldNotEqualsIf<TQuery, TValue>(this TQuery query, Field field, TValue value = default, Func<TValue, bool> condition = null) where TQuery : IRepositoryQuery {
             bool result = condition == null || condition(value);
             return result ? query.FieldNotEquals(field, value) : query;
         }
 
-        public static TQuery FieldNotEqualsIf<TQuery, TValue>(this TQuery query, Field field, TValue value = default(TValue), bool condition = true) where TQuery : IRepositoryQuery {
+        public static TQuery FieldNotEqualsIf<TQuery, TValue>(this TQuery query, Field field, TValue value = default, bool condition = true) where TQuery : IRepositoryQuery {
             return condition ? query.FieldNotEquals(field, value) : query;
         }
 
@@ -94,12 +94,12 @@ namespace Foundatio.Repositories {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.NotEquals });
         }
 
-        public static IRepositoryQuery<TModel> FieldNotEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue value = default(TValue), Func<TValue, bool> condition = null) where TModel : class {
+        public static IRepositoryQuery<TModel> FieldNotEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue value = default, Func<TValue, bool> condition = null) where TModel : class {
             bool result = condition == null || condition(value);
             return result ? query.FieldNotEquals(objectPath, value) : query;
         }
 
-        public static IRepositoryQuery<TModel> FieldNotEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue value = default(TValue), bool condition = true) where TModel : class {
+        public static IRepositoryQuery<TModel> FieldNotEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue value = default, bool condition = true) where TModel : class {
             return condition ? query.FieldNotEquals(objectPath, value) : query;
         }
 

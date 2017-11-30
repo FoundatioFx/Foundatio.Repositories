@@ -7,11 +7,11 @@ using System.Net.Sockets;
 using Elasticsearch.Net;
 using Foundatio.Caching;
 using Foundatio.Jobs;
-using Foundatio.Logging;
 using Foundatio.Messaging;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
+using Microsoft.Extensions.Logging;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration {

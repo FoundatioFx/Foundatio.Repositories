@@ -3,7 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.Jobs;
 using Foundatio.Lock;
-using Foundatio.Logging;
+using Microsoft.Extensions.Logging;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs {
@@ -17,7 +17,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             AutoRenewLockOnProgress = true;
         }
 
-        public override Task<ILock> GetWorkItemLockAsync(object workItem, CancellationToken cancellationToken = default(CancellationToken)) {
+        public override Task<ILock> GetWorkItemLockAsync(object workItem, CancellationToken cancellationToken = default) {
             var reindexWorkItem = workItem as ReindexWorkItem;
             if (reindexWorkItem == null)
                 return null;

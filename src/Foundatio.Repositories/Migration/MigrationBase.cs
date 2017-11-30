@@ -1,12 +1,13 @@
 using System.Threading.Tasks;
-using Foundatio.Logging;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Foundatio.Repositories.Migrations {
     public abstract class MigrationBase : IMigration {
         protected ILogger _logger;
 
         public MigrationBase(ILoggerFactory loggerFactory = null) {
-            _logger = loggerFactory.CreateLogger(GetType());
+            _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
         }
 
         public virtual int? Version { get; } = null;

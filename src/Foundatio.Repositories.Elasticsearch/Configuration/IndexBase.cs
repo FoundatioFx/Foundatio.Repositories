@@ -3,11 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Lock;
-using Foundatio.Logging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
@@ -21,7 +22,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             Name = name;
             Configuration = configuration;
             _lockProvider = new CacheLockProvider(configuration.Cache, configuration.MessageBus, configuration.LoggerFactory);
-            _logger = configuration.LoggerFactory.CreateLogger(GetType());
+            _logger = configuration.LoggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
             _frozenTypes = new Lazy<IReadOnlyCollection<IIndexType>>(() => _types.AsReadOnly());
         }
 
@@ -57,14 +58,15 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ArgumentNullException(nameof(name));
 
             var response = await Configuration.Client.CreateIndexAsync(name, descriptor).AnyContext();
-            _logger.Info(() => response.GetRequest());
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogInformation(response.GetRequest());
 
             // check for valid response or that the index already exists
             if (response.IsValid || response.ServerError.Status == 400 && response.ServerError.Error.Type == "index_already_exists_exception")
                 return;
 
             string message = $"Error creating the index {name}: {response.GetErrorMessage()}";
-            _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            _logger.LogError(response.OriginalException, message);
             throw new ApplicationException(message, response.OriginalException);
         }
 
@@ -76,13 +78,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return;
 
             var response = await Configuration.Client.DeleteIndexAsync(name).AnyContext();
-            _logger.Trace(() => response.GetRequest());
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace(response.GetRequest());
 
             if (response.IsValid)
                 return;
 
             string message = $"Error deleting index {name}: {response.GetErrorMessage()}";
-            _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            _logger.LogError(response.OriginalException, message);
             throw new ApplicationException(message, response.OriginalException);
         }
 
@@ -95,7 +98,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return response.Exists;
 
             string message = $"Error checking to see if index {name} exists: {response.GetErrorMessage()}";
-            _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            _logger.LogError(response.OriginalException, message);
             throw new ApplicationException(message, response.OriginalException);
         }
 

@@ -8,10 +8,11 @@ using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Jobs;
 using Foundatio.Lock;
-using Foundatio.Logging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs {
@@ -25,22 +26,22 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         public CleanupSnapshotJob(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory) {
             _client = client;
             _lockProvider = lockProvider;
-            _logger = loggerFactory.CreateLogger(GetType());
+            _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
         }
 
         protected void AddRepository(string name, TimeSpan maxAge) {
             _repositories.Add(new RepositoryMaxAge { Name = name, MaxAge = maxAge });
         }
 
-        public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default(CancellationToken)) {
-            _logger.Info("Starting snapshot cleanup...");
+        public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default) {
+            _logger.LogInformation("Starting snapshot cleanup...");
             if (_repositories.Count == 0)
                 _repositories.Add(new RepositoryMaxAge { Name = "data", MaxAge = TimeSpan.FromDays(3) });
 
             foreach (var repo in _repositories)
                 await DeleteOldSnapshotsAsync(repo.Name, repo.MaxAge, cancellationToken).AnyContext();
 
-            _logger.Info("Finished snapshot cleanup.");
+            _logger.LogInformation("Finished snapshot cleanup.");
             return JobResult.Success;
         }
 
@@ -58,14 +59,14 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 snapshots = result.Snapshots?.Select(r => new SnapshotDate { Name = r.Name, Date = GetSnapshotDate(repo, r.Name) }).ToList();
 
             if (result.IsValid)
-                _logger.Info($"Retrieved list of {snapshots.Count} snapshots from {repo} in {sw.Elapsed.ToWords(true)}");
+                _logger.LogInformation("Retrieved list of {SnapshotCount} snapshots from {Repo} in {Duration}", snapshots.Count, repo, sw.Elapsed);
             else
-                _logger.Error($"Failed to retrieve list of snapshots from {repo}: {result.GetErrorMessage()}");
+                _logger.LogError($"Failed to retrieve list of snapshots from {repo}: {result.GetErrorMessage()}");
 
             if (snapshots.Count == 0)
                 return;
 
-            DateTime oldestValidSnapshot = SystemClock.UtcNow.Subtract(maxAge);
+            var oldestValidSnapshot = SystemClock.UtcNow.Subtract(maxAge);
             var snapshotsToDelete = snapshots.Where(r => r.Date.IsBefore(oldestValidSnapshot)).ToList();
             if (snapshotsToDelete.Count == 0)
                 return;
@@ -73,21 +74,21 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             // log that we are seeing snapshots that should have been deleted already
             var oldSnapshots = snapshots.Where(s => s.Date < oldestValidSnapshot.AddDays(-1)).ToList();
             if (oldSnapshots.Count > 0)
-                _logger.Error($"Found old snapshots that should've been deleted: {String.Join(", ", oldSnapshots)}");
+                _logger.LogError($"Found old snapshots that should've been deleted: {String.Join(", ", oldSnapshots)}");
 
-            _logger.Info($"Selected {snapshotsToDelete.Count} snapshots for deletion");
+            _logger.LogInformation("Selected {SnapshotCount} snapshots for deletion", snapshotsToDelete.Count);
 
             bool shouldContinue = true;
             foreach (var snapshot in snapshotsToDelete) {
                 if (!shouldContinue) {
-                    _logger.Info("Stopped deleted snapshots.");
+                    _logger.LogInformation("Stopped deleted snapshots.");
                     break;
                 }
 
-                _logger.Info($"Acquiring snapshot lock to delete {snapshot.Name} from {repo}");
+                _logger.LogInformation("Acquiring snapshot lock to delete {SnapshotName} from {Repo}", snapshot.Name, repo);
                 try {
                     await _lockProvider.TryUsingAsync("es-snapshot", async t => {
-                        _logger.Info($"Got snapshot lock to delete {snapshot.Name} from {repo}");
+                        _logger.LogInformation("Got snapshot lock to delete {SnapshotName} from {Repo}", snapshot.Name, repo);
                         sw.Restart();
                         var response = await _client.DeleteSnapshotAsync(repo, snapshot.Name, r => r.RequestConfiguration(c => c.RequestTimeout(TimeSpan.FromMinutes(15))), cancellationToken: t).AnyContext();
                         sw.Stop();
@@ -107,12 +108,12 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         }
 
         public virtual Task OnSnapshotDeleted(string snapshotName, TimeSpan duration) {
-            _logger.Info($"Completed delete snapshot {snapshotName} in {duration.ToWords(true)}");
+            _logger.LogInformation("Completed delete snapshot {SnapshotName} in {Duration}", snapshotName, duration);
             return Task.CompletedTask;
         }
 
         public virtual Task<bool> OnSnapshotDeleteFailure(string snapshotName, TimeSpan duration, IDeleteSnapshotResponse response, Exception ex) {
-            _logger.Error().Exception(ex).Message($"Failed to delete snapshot {snapshotName} after {duration.ToWords(true)}: {(response != null ? response.GetErrorMessage() : ex?.Message)}").Write();
+            _logger.LogError(ex, $"Failed to delete snapshot {snapshotName} after {duration.ToWords(true)}: {(response != null ? response.GetErrorMessage() : ex?.Message)}");
             return Task.FromResult(true);
         }
 

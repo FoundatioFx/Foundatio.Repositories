@@ -4,11 +4,11 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
-using Foundatio.Logging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
 using Nest;
+using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
@@ -69,7 +69,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return;
 
             string message = $"Error creating alias {name}: {response.GetErrorMessage()}";
-            _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            _logger.LogError(response.OriginalException, message);
             throw new ApplicationException(message, response.OriginalException);
         }
 
@@ -79,7 +79,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return response.Exists;
 
             string message = $"Error checking to see if alias {alias} exists: {response.GetErrorMessage()}";
-            _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+            _logger.LogError(response.OriginalException, message);
             throw new ApplicationException(message, response.OriginalException);
         }
 
@@ -172,7 +172,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual async Task<int> GetVersionFromAliasAsync(string alias) {
             var response = await Configuration.Client.GetAliasAsync(a => a.Name(alias)).AnyContext();
-            _logger.Trace(() => response.GetRequest());
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace(response.GetRequest());
 
             if (response.IsValid && response.Indices.Count > 0)
                 return response.Indices.Keys.Select(GetIndexVersion).OrderBy(v => v).First();
@@ -203,11 +204,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var sw = Stopwatch.StartNew();
             var response = await Configuration.Client.CatIndicesAsync(i => i.Pri().H("index").Index(Indices.Index(filter))).AnyContext();
             sw.Stop();
-            _logger.Trace(() => response.GetRequest());
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace(response.GetRequest());
 
             if (!response.IsValid) {
                 string message = $"Error getting indices: {response.GetErrorMessage()}";
-                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                _logger.LogError(response.OriginalException, message);
                 throw new ApplicationException(message, response.OriginalException);
             }
 
@@ -217,7 +219,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 .OrderBy(i => i.DateUtc)
                 .ToList();
 
-            _logger.Info($"Retrieved list of {indices.Count} indexes in {sw.Elapsed.ToWords(true)}");
+            _logger.LogInformation("Retrieved list of {IndexCount} indexes in {Duration:g}", indices.Count, sw.Elapsed);
             return indices;
         }
 

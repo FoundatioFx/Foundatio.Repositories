@@ -1,6 +1,6 @@
-﻿using Foundatio.Logging;
-using Foundatio.Parsers.ElasticQueries.Extensions;
+﻿using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Microsoft.Extensions.Logging;
 using Nest;
 
 namespace Foundatio.Parsers.ElasticQueries {
@@ -13,9 +13,9 @@ namespace Foundatio.Parsers.ElasticQueries {
                 .UseAliases(indexType.AliasMap)
                 .UseMappings<T>(d => descriptor, () => {
                     var response = indexType.Configuration.Client.GetMapping(new GetMappingRequest(indexType.Index.Name, indexType.Name));
-                    logger.Trace(() => response.GetRequest());
+                    logger.LogTrace(response.GetRequest());
                     if (!response.IsValid) 
-                        logger.Error(response.OriginalException, response.GetErrorMessage());
+                        logger.LogError(response.OriginalException, response.GetErrorMessage());
 
                     return (ITypeMapping) response.Mapping ?? descriptor;
                 });

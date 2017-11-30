@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
-using Foundatio.Logging;
 using Nest;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Caching;
@@ -12,6 +11,7 @@ using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
+using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class DailyIndexType<T> : TimeSeriesIndexType<T> where T : class {
@@ -100,7 +100,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (version < 0)
                 version = Version;
 
-            if (DateTime.TryParseExact(index, $"\'{Name}-v{version}-\'{DateFormat}", EnUs, DateTimeStyles.AdjustToUniversal, out DateTime result))
+            if (DateTime.TryParseExact(index, $"\'{Name}-v{version}-\'{DateFormat}", EnUs, DateTimeStyles.AdjustToUniversal, out var result))
                 return DateTime.SpecifyKind(result.Date, DateTimeKind.Utc);
 
             return DateTime.MaxValue;
@@ -160,15 +160,15 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (!utcEnd.HasValue || utcEnd.Value < utcStart)
                 utcEnd = SystemClock.UtcNow;
 
-            var period = utcEnd.Value - utcStart.Value;
-            if ((MaxIndexAge.HasValue && period > MaxIndexAge.Value) || period.GetTotalYears() > 1)
-                return new string[0];
-
+            var utcStartOfDay = utcStart.Value.StartOfDay();
             var utcEndOfDay = utcEnd.Value.EndOfDay();
+            var period = utcEndOfDay - utcStartOfDay;
+            if ((MaxIndexAge.HasValue && period > MaxIndexAge.Value) || period.GetTotalMonths() >= 3)
+                return new string[0];
 
             // TODO: Look up aliases that fit these ranges.
             var indices = new List<string>();
-            for (var current = utcStart.Value.StartOfDay(); current <= utcEndOfDay; current = current.AddDays(1))
+            for (var current = utcStartOfDay; current <= utcEndOfDay; current = current.AddDays(1))
                 indices.Add(GetIndex(current));
 
             return indices.ToArray();
@@ -238,7 +238,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                         try {
                             await CreateAliasAsync(oldestIndex.Index, GetIndex(indexGroup.Key)).AnyContext();
                         } catch (Exception ex) {
-                            _logger.Error(ex, $"Error setting current index version. Will use oldest index version: {oldestIndex.Version}");
+                            _logger.LogError(ex, "Error setting current index version. Will use oldest index version: {OldestIndexVersion}", oldestIndex.Version);
                         }
 
                         foreach (var indexInfo in indexGroup)
@@ -264,14 +264,15 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
 
             var response = await Configuration.Client.AliasAsync(aliasDescriptor).AnyContext();
-            _logger.Trace(() => response.GetRequest());
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace(response.GetRequest());
 
             if (!response.IsValid) {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return;
 
                 string message = $"Error updating aliases: {response.GetErrorMessage()}";
-                _logger.Error().Exception(response.OriginalException).Message(message).Property("request", response.GetRequest()).Write();
+                _logger.LogError(response.OriginalException, "Error updating aliases: {0}", message);
                 throw new ApplicationException(message, response.OriginalException);
             }
         }
@@ -285,7 +286,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 sw.Restart();
                 try {
                     await DeleteIndexAsync(index.Index).AnyContext();
-                    _logger.Info($"Deleted index {index.Index} of age {SystemClock.UtcNow.Subtract(index.DateUtc).ToWords(true)} in {sw.Elapsed.ToWords(true)}");
+                    _logger.LogInformation("Deleted index {Index} of age {Age:g} in {Duration:g}", index.Index, SystemClock.UtcNow.Subtract(index.DateUtc), sw.Elapsed);
                 } catch (Exception) {}
 
                 sw.Stop();

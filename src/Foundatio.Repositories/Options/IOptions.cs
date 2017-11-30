@@ -13,7 +13,7 @@ namespace Foundatio.Repositories.Options {
         void Set(string name, object value);
         bool Contains(string name);
         bool Remove(string name);
-        T Get<T>(string name, T defaultValue = default(T));
+        T Get<T>(string name, T defaultValue = default);
     }
 
     public class OptionsDictionary : IOptionsDictionary {
@@ -69,7 +69,7 @@ namespace Foundatio.Repositories.Options {
             return options;
         }
 
-        public static T SafeGetOption<T>(this IOptions options, string name, T defaultValue = default(T)) {
+        public static T SafeGetOption<T>(this IOptions options, string name, T defaultValue = default) {
             if (options == null)
                 return defaultValue;
 

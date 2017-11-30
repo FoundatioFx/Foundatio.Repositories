@@ -22,14 +22,16 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (!utcEnd.HasValue || utcEnd.Value < utcStart)
                 utcEnd = SystemClock.UtcNow;
 
-            var period = utcEnd.Value - utcStart.Value;
+            var utcStartOfDay = utcStart.Value.StartOfDay();
+            var utcEndOfDay = utcEnd.Value.EndOfDay();
+            var period = utcEndOfDay - utcStartOfDay;
             if ((MaxIndexAge.HasValue && period > MaxIndexAge.Value) || period.GetTotalYears() > 1)
                 return new string[0];
 
             var utcEndOfMonth = utcEnd.Value.EndOfMonth();
 
             var indices = new List<string>();
-            for (DateTime current = utcStart.Value.StartOfMonth(); current <= utcEndOfMonth; current = current.AddMonths(1))
+            for (var current = utcStartOfDay; current <= utcEndOfMonth; current = current.AddMonths(1))
                 indices.Add(GetIndex(current));
 
             return indices.ToArray();

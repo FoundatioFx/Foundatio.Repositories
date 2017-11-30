@@ -3,11 +3,11 @@ using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Jobs;
 using Foundatio.Jobs.Commands;
-using Foundatio.Logging;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Migrations;
 using Microsoft.Extensions.CommandLineUtils;
+using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs {
     [Job(Description = "Runs any pending system migrations and reindexing tasks.", IsContinuous = false)]
@@ -57,7 +57,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 if (migrationTypeNames.Any(m => !String.IsNullOrEmpty(m)))
                     job.MigrationManager.Migrations.Clear();
 
-                foreach (var migrationTypeName in migrationTypeNames.Where(m => !String.IsNullOrEmpty(m))) {
+                foreach (string migrationTypeName in migrationTypeNames.Where(m => !String.IsNullOrEmpty(m))) {
                     try {
                         var migrationType = Type.GetType(migrationTypeName);
                         if (migrationType == null) {

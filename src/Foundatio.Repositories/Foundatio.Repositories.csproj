@@ -5,8 +5,8 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Exceptionless.DateTimeExtensions" Version="3.2.86" />
-    <PackageReference Include="FluentValidation" Version="7.1.1" />
-    <PackageReference Include="Foundatio" Version="5.1.1501" />
+    <PackageReference Include="Exceptionless.DateTimeExtensions" Version="3.3.96" />
+    <PackageReference Include="FluentValidation" Version="7.2.1" />
+    <PackageReference Include="Foundatio" Version="6.0.1577-pre" />
   </ItemGroup>
 </Project>
