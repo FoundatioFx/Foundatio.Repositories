@@ -15,20 +15,20 @@
   <PropertyGroup>
     <Product>Foundatio Elasticsearch Repositories</Product>
     <Description>Generic Repository implementations for Elasticsearch.</Description>
-    <Copyright>Copyright (c) 2017 Exceptionless.  All rights reserved.</Copyright>
-    <Authors>bniemyjski;ejsmith</Authors>
+    <Copyright>Copyright (c) 2017 Foundatio.  All rights reserved.</Copyright>
+    <Authors>FoundatioFx</Authors>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <WarningsAsErrors>true</WarningsAsErrors>
     <DebugType>portable</DebugType>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <PackageOutputPath>$(SolutionDir)artifacts\</PackageOutputPath>
 
-    <PackageReleaseNotes>https://github.com/exceptionless/Foundatio.Repositories/releases</PackageReleaseNotes>
-    <PackageIconUrl>https://be.exceptionless.io/img/exceptionless-32.png</PackageIconUrl>
-    <PackageProjectUrl>https://github.com/exceptionless/Foundatio.Repositories</PackageProjectUrl>
+    <PackageReleaseNotes>https://github.com/FoundatioFx/Foundatio.Repositories/releases</PackageReleaseNotes>
+    <PackageIconUrl>https://raw.githubusercontent.com/FoundatioFx/Foundatio.Repositories/master/media/foundatio-icon.png</PackageIconUrl>
+    <PackageProjectUrl>https://github.com/FoundatioFx/Foundatio.Repositories</PackageProjectUrl>
     <PackageLicenseUrl>http://www.apache.org/licenses/LICENSE-2.0</PackageLicenseUrl>
     <RepositoryType>git</RepositoryType>
-    <RepositoryUrl>https://github.com/exceptionless/Foundatio.Repositories</RepositoryUrl>
+    <RepositoryUrl>https://github.com/FoundatioFx/Foundatio.Repositories</RepositoryUrl>
     <VersionSuffix Condition="'$(VersionSuffix)'!='' AND '$(BuildNumber)' != ''">$(VersionSuffix)-$(BuildNumber)</VersionSuffix>
   </PropertyGroup>
 </Project>
