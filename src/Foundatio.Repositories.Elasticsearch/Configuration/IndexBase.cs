@@ -144,12 +144,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return idx.Aliases(a => aliases).Mappings(m => mappings);
         }
 
-        public virtual void ConfigureSettings(ConnectionSettings settings) {
-            foreach (var type in IndexTypes) {
-                settings.MapDefaultTypeIndices(m => m[type.Type] = Name);
-                settings.MapDefaultTypeNames(m => m[type.Type] = type.Name);
-            }
-        }
+        public virtual void ConfigureSettings(ConnectionSettings settings) { }
 
         public virtual void Dispose() {
             foreach (var indexType in IndexTypes)

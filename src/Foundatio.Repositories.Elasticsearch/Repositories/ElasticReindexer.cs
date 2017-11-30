@@ -157,7 +157,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 failure.Type,
                 failure.Id,
                 gr.Version,
-                gr.Parent,
+                gr.Routing,
                 gr.Source,
                 failure.Cause,
                 failure.Status,

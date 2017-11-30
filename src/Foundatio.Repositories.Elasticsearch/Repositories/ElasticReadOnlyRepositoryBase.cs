@@ -265,7 +265,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
                 _logger.LogTrace(multiGetResults.GetRequest());
 
-            foreach (var doc in multiGetResults.Documents) {
+            foreach (var doc in multiGetResults.Hits) {
                 if (!doc.Found)
                     continue;
 
@@ -341,7 +341,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ApplicationException(message, response.OriginalException);
             }
 
-            return response.HitsMetaData.Total > 0;
+            return response.HitsMetadata.Total > 0;
         }
 
         public virtual Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {

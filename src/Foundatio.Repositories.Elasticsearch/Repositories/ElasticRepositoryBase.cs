@@ -161,7 +161,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var target = response.Source as JToken;
                 new JsonPatcher().Patch(ref target, jsonOperation.Patch);
 
-                var updateResponse = await _client.LowLevel.IndexPutAsync<object>(response.Index, response.Type, id.Value, new PostData<object>(target.ToString()), p => {
+                var updateResponse = await _client.LowLevel.IndexPutAsync<object>(response.Index, response.Type, id.Value, PostData.String(target.ToString()), p => {
                     p.Pipeline(pipeline);
                     p.Refresh(options.GetRefreshMode(ElasticType.DefaultConsistency));
                     if (id.Routing != null)
@@ -245,7 +245,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                             u.Id(id.Value)
                               .Index(GetIndexById(id))
                               .Type(ElasticType.Name)
-                              .Script(s => s.Inline(scriptOperation.Script).Params(scriptOperation.Params))
+                              .Script(s => s.Source(scriptOperation.Script).Params(scriptOperation.Params))
                               .RetriesOnConflict(10);
 
                             if (id.Routing != null)
@@ -392,7 +392,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                                         .Routing(h.Routing)
                                         .Index(h.GetIndex())
                                         .Type(h.GetIndexType())
-                                        .Script(s => s.Inline(scriptOperation.Script).Params(scriptOperation.Params))
+                                        .Script(s => s.Source(scriptOperation.Script).Params(scriptOperation.Params))
                                         .RetriesOnConflict(10));
                                 else if (partialOperation != null)
                                     b.Update<T, object>(u => u.Id(h.Id)
@@ -510,7 +510,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                             d.Id(doc.Id).Index(GetDocumentIndexFunc?.Invoke(doc)).Type(ElasticType.Name);
 
                             if (GetParentIdFunc != null)
-                                d.Parent(GetParentIdFunc(doc));
+                                d.Routing(GetParentIdFunc(doc));
 
                             return d;
                         });
