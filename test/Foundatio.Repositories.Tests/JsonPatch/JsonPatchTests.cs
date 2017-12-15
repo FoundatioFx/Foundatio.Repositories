@@ -207,6 +207,32 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
         }
 
         [Fact]
+        public void Remove_an_array_element_with_numbered_custom_fields() {
+            var sample = JToken.Parse(@"{
+    'data': {
+        '2017PropertyOne' : '2017 property one value',
+        '2017PropertyTwo' : '2017 property two value',
+        '2017Properties' : ['First value from 2017','Second value from 2017'],
+        '2018PropertyOne' : '2018 property value',
+        '2018PropertyTwo' : '2018 property two value',
+        '2018Properties' : ['First value from 2018','Second value from 2018']
+    }
+}");
+
+            Assert.NotNull(sample.SelectPatchToken("/data/2017Properties/1"));
+
+            var patchDocument = new PatchDocument();
+            string pointer = "/data/2017Properties/0";
+
+            patchDocument.AddOperation(new RemoveOperation { Path = pointer });
+
+            var patcher = new JsonPatcher();
+            patcher.Patch(ref sample, patchDocument);
+
+            Assert.Null(sample.SelectPatchToken("/data/2017Properties/1"));
+        }
+
+        [Fact]
         public void Replace_a_property_value_with_a_new_value() {
             var sample = GetSample2();
 

@@ -10,13 +10,13 @@ namespace Foundatio.Repositories.Extensions {
             var sb = new StringBuilder();
             var parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
             for (int i = 0; i < parts.Length; i++) {
-                if (Char.IsNumber(parts[i][0]))
+                if (parts[i].IsNumeric())
                     sb.Append("[").Append(parts[i]).Append("]");
                 else {
                     sb.Append(parts[i]);
                 }
 
-                if (i < parts.Length - 1 && !Char.IsNumber(parts[i + 1][0]))
+                if (i < parts.Length - 1 && !parts[i + 1].IsNumeric())
                     sb.Append(".");
             }
 
