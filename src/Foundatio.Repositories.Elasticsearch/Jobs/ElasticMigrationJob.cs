@@ -50,7 +50,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
 
             app.OnExecute(() => {
                 var provider = context.ServiceProvider.Value;
-                
+
                 var migrationTypeNames = migrationOption.Values;
                 var job = provider.GetService(context.JobType) as ElasticMigrationJobBase;
 
@@ -62,17 +62,17 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                         var migrationType = Type.GetType(migrationTypeName);
                         if (migrationType == null) {
                             Console.WriteLine($"Migration type is null.");
-                            return -1;
+                            return Task.FromResult(-1);
                         }
 
                         job.MigrationManager.AddMigration(migrationType);
                     } catch (Exception ex) {
                         Console.WriteLine($"Error getting migration type: {ex.Message}");
-                        return -1;
+                        return Task.FromResult(-1);
                     }
                 }
 
-                return new JobRunner(job, context.LoggerFactory, runContinuous: false).RunInConsole();
+                return new JobRunner(job, context.LoggerFactory, runContinuous: false).RunInConsoleAsync();
             });
         }
     }
