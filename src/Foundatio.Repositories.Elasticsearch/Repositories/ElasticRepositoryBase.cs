@@ -187,7 +187,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     request.Routing = id.Routing;
                 request.Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency);
 
-                var response = await _client.UpdateAsync<T, object>(request).AnyContext();
+                var response = await _client.UpdateAsync(request).AnyContext();
                 if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
                     _logger.LogTrace(response.GetRequest());
 
@@ -229,7 +229,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return;
             }
 
-            string pipeline = ElasticType is IHavePipelinedIndexType ? ((IHavePipelinedIndexType)ElasticType).Pipeline : null;
+            string pipeline = ElasticType is IHavePipelinedIndexType type ? type.Pipeline : null;
             var scriptOperation = operation as ScriptPatch;
             var partialOperation = operation as PartialPatch;
             if (scriptOperation == null && partialOperation == null)
@@ -285,9 +285,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (IsCacheEnabled)
                 await Cache.RemoveAllAsync(ids.Select(id => id.Value)).AnyContext();
 
-            if (options.ShouldNotify())
+            if (options.ShouldNotify()) {
+                var tasks = new List<Task>(ids.Count);
                 foreach (var id in ids)
-                    await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
+                    tasks.Add(PublishChangeTypeMessageAsync(ChangeType.Saved, id));
+
+                await Task.WhenAll(tasks).AnyContext();
+            }
         }
 
         public virtual Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> query, IPatchOperation operation, CommandOptionsDescriptor<T> options = null) {
@@ -882,71 +886,76 @@ namespace Foundatio.Repositories.Elasticsearch {
             return SendNotificationsAsync(changeType, documents.Select(d => new ModifiedDocument<T>(d, null)).ToList(), options);
         }
 
-        protected virtual async Task SendQueryNotificationsAsync(ChangeType changeType, IRepositoryQuery query, ICommandOptions options) {
+        protected virtual Task SendQueryNotificationsAsync(ChangeType changeType, IRepositoryQuery query, ICommandOptions options) {
             if (!NotificationsEnabled || !options.ShouldNotify())
-                return;
+                return Task.CompletedTask;
 
             var delay = TimeSpan.FromSeconds(1.5);
             var ids = query.GetIds();
             if (ids.Count > 0) {
+                var tasks = new List<Task>(ids.Count);
                 foreach (string id in ids) {
-                    await PublishMessageAsync(new EntityChanged {
+                    tasks.Add(PublishMessageAsync(new EntityChanged {
                         ChangeType = changeType,
                         Id = id,
                         Type = EntityTypeName
-                    }, delay).AnyContext();
+                    }, delay));
                 }
 
-                return;
+                return Task.WhenAll(tasks);
             }
 
-            await PublishMessageAsync(new EntityChanged {
+            return PublishMessageAsync(new EntityChanged {
                 ChangeType = changeType,
                 Type = EntityTypeName
-            }, delay).AnyContext();
+            }, delay);
         }
 
-        protected virtual async Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
+        protected virtual Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
             if (!NotificationsEnabled || !options.ShouldNotify())
-                return;
+                return Task.CompletedTask;
 
             var delay = TimeSpan.FromSeconds(1.5);
+            if (documents.Count == 0)
+                return PublishChangeTypeMessageAsync(changeType, null, delay);
 
-            if (documents.Count == 0) {
-                await PublishChangeTypeMessageAsync(changeType, null, delay).AnyContext();
-            } else if (BatchNotifications && documents.Count > 1) {
+            var tasks = new List<Task>(documents.Count);
+            if (BatchNotifications && documents.Count > 1) {
                 // TODO: This needs to support batch notifications
                 if (!SupportsSoftDeletes || changeType != ChangeType.Saved) {
-                    foreach (var doc in documents.Select(d => d.Value)) {
-                        await PublishChangeTypeMessageAsync(changeType, doc, delay).AnyContext();
-                    }
+                    foreach (var doc in documents.Select(d => d.Value))
+                        tasks.Add(PublishChangeTypeMessageAsync(changeType, doc, delay));
 
-                    return;
+                    return Task.WhenAll(tasks);
                 }
+
                 bool allDeleted = documents.All(d => d.Original != null && ((ISupportSoftDeletes)d.Original).IsDeleted == false && ((ISupportSoftDeletes)d.Value).IsDeleted);
-                foreach (var doc in documents.Select(d => d.Value)) {
-                    await PublishChangeTypeMessageAsync(allDeleted ? ChangeType.Removed : changeType, doc, delay).AnyContext();
-                }
-            } else {
-                if (!SupportsSoftDeletes) {
-                    foreach (var d in documents)
-                        await PublishChangeTypeMessageAsync(changeType, d.Value, delay).AnyContext();
+                foreach (var doc in documents.Select(d => d.Value))
+                    tasks.Add(PublishChangeTypeMessageAsync(allDeleted ? ChangeType.Removed : changeType, doc, delay));
 
-                    return;
-                }
-
-                foreach (var d in documents) {
-                    var docChangeType = changeType;
-                    if (d.Original != null) {
-                        var document = (ISupportSoftDeletes)d.Value;
-                        var original = (ISupportSoftDeletes)d.Original;
-                        if (original.IsDeleted == false && document.IsDeleted)
-                            docChangeType = ChangeType.Removed;
-                    }
-
-                    await PublishChangeTypeMessageAsync(docChangeType, d.Value, delay).AnyContext();
-                }
+                return Task.WhenAll(tasks);
             }
+
+            if (!SupportsSoftDeletes) {
+                foreach (var d in documents)
+                    tasks.Add(PublishChangeTypeMessageAsync(changeType, d.Value, delay));
+
+                return Task.WhenAll(tasks);
+            }
+
+            foreach (var d in documents) {
+                var docChangeType = changeType;
+                if (d.Original != null) {
+                    var document = (ISupportSoftDeletes)d.Value;
+                    var original = (ISupportSoftDeletes)d.Original;
+                    if (original.IsDeleted == false && document.IsDeleted)
+                        docChangeType = ChangeType.Removed;
+                }
+
+                tasks.Add(PublishChangeTypeMessageAsync(docChangeType, d.Value, delay));
+            }
+
+            return Task.WhenAll(tasks);
         }
 
         protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, T document, TimeSpan delay) {
