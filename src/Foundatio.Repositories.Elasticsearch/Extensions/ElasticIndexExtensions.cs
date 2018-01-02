@@ -143,7 +143,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (bucket is Nest.DateHistogramBucket dateHistogramBucket) {
                 var kind = parentData != null && parentData.ContainsKey("@timezone") ? DateTimeKind.Unspecified : DateTimeKind.Utc;
                 var date = new DateTime(_epochTicks + ((long)dateHistogramBucket.Key * TimeSpan.TicksPerMillisecond), kind);
-                return new DateHistogramBucket(date, dateHistogramBucket.Aggregations.ToAggregations()) {
+                return new DateHistogramBucket(date, dateHistogramBucket.ToAggregations()) {
                     Total = dateHistogramBucket.DocCount,
                     Key = dateHistogramBucket.Key,
                     KeyAsString = date.ToString("O"),
@@ -152,7 +152,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             }
 
             if (bucket is Nest.RangeBucket rangeBucket)
-                return new RangeBucket(rangeBucket.Aggregations.ToAggregations()) {
+                return new RangeBucket(rangeBucket.ToAggregations()) {
                     Total = rangeBucket.DocCount,
                     Key = rangeBucket.Key,
                     From = rangeBucket.From,
@@ -163,7 +163,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 };
 
             if (bucket is Nest.KeyedBucket<string> stringKeyedBucket)
-                return new KeyedBucket<string>(stringKeyedBucket.Aggregations.ToAggregations()) {
+                return new KeyedBucket<string>(stringKeyedBucket.ToAggregations()) {
                     Total = stringKeyedBucket.DocCount,
                     Key = stringKeyedBucket.Key,
                     KeyAsString = stringKeyedBucket.KeyAsString,
@@ -171,7 +171,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 };
 
             if (bucket is Nest.KeyedBucket<double> doubleKeyedBucket)
-                return new KeyedBucket<double>(doubleKeyedBucket.Aggregations.ToAggregations()) {
+                return new KeyedBucket<double>(doubleKeyedBucket.ToAggregations()) {
                     Total = doubleKeyedBucket.DocCount,
                     Key = doubleKeyedBucket.Key,
                     KeyAsString = doubleKeyedBucket.KeyAsString,
@@ -179,7 +179,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 };
 
             if (bucket is Nest.KeyedBucket<object> objectKeyedBucket)
-                return new KeyedBucket<object>(objectKeyedBucket.Aggregations.ToAggregations()) {
+                return new KeyedBucket<object>(objectKeyedBucket.ToAggregations()) {
                     Total = objectKeyedBucket.DocCount,
                     Key = objectKeyedBucket.Key,
                     KeyAsString = objectKeyedBucket.KeyAsString,

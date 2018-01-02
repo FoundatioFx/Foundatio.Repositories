@@ -161,14 +161,14 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var target = response.Source as JToken;
                 new JsonPatcher().Patch(ref target, jsonOperation.Patch);
 
-                var updateResponse = await _client.LowLevel.IndexPutAsync<object>(response.Index, response.Type, id.Value, PostData.String(target.ToString()), p => {
-                    p.Pipeline(pipeline);
-                    p.Refresh(options.GetRefreshMode(ElasticType.DefaultConsistency));
-                    if (id.Routing != null)
-                        p.Routing(id.Routing);
+                var parameters = new IndexRequestParameters()
+                    .Pipeline(pipeline)
+                    .Refresh(options.GetRefreshMode(ElasticType.DefaultConsistency));
 
-                    return p;
-                }).AnyContext();
+                if (id.Routing != null)
+                    parameters = parameters.Routing(id.Routing);
+
+                var updateResponse = await _client.LowLevel.IndexPutAsync<VoidResponse>(response.Index, response.Type, id.Value, PostData.String(target.ToString()), parameters).AnyContext();
                 if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
                     _logger.LogTrace(updateResponse.GetRequest());
 

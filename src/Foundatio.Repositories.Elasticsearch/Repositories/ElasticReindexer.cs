@@ -175,8 +175,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 _logger.LogTrace(aliasesResponse.GetRequest());
 
             if (aliasesResponse.IsValid && aliasesResponse.Indices.Count > 0) {
-                var aliases = aliasesResponse.Indices.Single(a => a.Key == index);
-                return aliases.Value.Select(a => a.Name).ToList();
+                var aliases = aliasesResponse.Indices.Single(a => a.Key.Name == index);
+                return aliases.Value.Aliases.Select(a => a.Key).ToList();
             }
 
             return new List<string>();

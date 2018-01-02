@@ -77,7 +77,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return;
 
             ctx.Filter &= new HasParentQuery {
-                Type = parentType.Name,
+                ParentType = parentType.Name,
                 Query = new BoolQuery {
                     Must = new QueryContainer[] { parentContext.Query },
                     Filter = new QueryContainer[] { parentContext.Filter },

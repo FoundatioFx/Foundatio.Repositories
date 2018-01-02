@@ -45,7 +45,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 var mappingResponse = await _client.GetMappingAsync<Employee>(m => m.Index(index.Name));
                 _logger.LogTrace(mappingResponse.GetRequest());
                 Assert.True(mappingResponse.IsValid);
-                Assert.NotNull(mappingResponse.Mappings);
+                Assert.NotNull(mappingResponse.Indices);
 
                 var newIndex = new EmployeeIndexWithYearsEmployed(_configuration);
                 await newIndex.ReindexAsync();
@@ -55,12 +55,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.True(countResponse.IsValid);
                 Assert.Equal(1, countResponse.Count);
 
-                string version1Mappings = ToJson(mappingResponse.Mappings);
+                string version1Mappings = ToJson(mappingResponse.Indices);
                 mappingResponse = await _client.GetMappingAsync<Employee>(m => m.Index(index.Name));
                 _logger.LogTrace(mappingResponse.GetRequest());
                 Assert.True(mappingResponse.IsValid);
-                Assert.NotNull(mappingResponse.Mappings);
-                Assert.NotEqual(version1Mappings, ToJson(mappingResponse.Mappings));
+                Assert.NotNull(mappingResponse.Indices);
+                Assert.NotEqual(version1Mappings, ToJson(mappingResponse.Indices));
             }
         }
 
@@ -305,19 +305,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     var mappingResponse = await _client.GetMappingAsync<Employee>(m => m.Index(version1Index.VersionedName));
                     _logger.LogTrace(mappingResponse.GetRequest());
                     Assert.True(mappingResponse.IsValid);
-                    Assert.NotNull(mappingResponse.Mappings);
+                    Assert.NotNull(mappingResponse.Indices);
 
                     existsResponse = await _client.IndexExistsAsync(version2Index.VersionedName);
                     _logger.LogTrace(existsResponse.GetRequest());
                     Assert.True(existsResponse.IsValid);
                     Assert.True(existsResponse.Exists);
 
-                    string version1Mappings = ToJson(mappingResponse.Mappings);
+                    string version1Mappings = ToJson(mappingResponse.Indices);
                     mappingResponse = await _client.GetMappingAsync<Employee>(m => m.Index(version1Index.VersionedName));
                     _logger.LogTrace(mappingResponse.GetRequest());
                     Assert.True(mappingResponse.IsValid);
-                    Assert.NotNull(mappingResponse.Mappings);
-                    Assert.Equal(version1Mappings, ToJson(mappingResponse.Mappings).Replace("-v2", "-v1"));
+                    Assert.NotNull(mappingResponse.Indices);
+                    Assert.Equal(version1Mappings, ToJson(mappingResponse.Indices).Replace("-v2", "-v1"));
                 }
             }
         }
@@ -679,7 +679,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.True(aliasesResponse.IsValid);
                     Assert.Equal(version1Index.GetVersionedIndex(employee.CreatedUtc, 1), aliasesResponse.Indices.Single().Key);
 
-                    var aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
+                    var aliases = aliasesResponse.Indices.Values.Single().Aliases.Select(s => s.Key).ToList();
                     aliases.Sort();
                     Assert.Equal(GetExpectedEmployeeDailyAliases(version1Index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
@@ -693,7 +693,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.True(aliasesResponse.IsValid);
                     Assert.Equal(version1Index.GetVersionedIndex(employee.CreatedUtc, 2), aliasesResponse.Indices.Single().Key);
 
-                    aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
+                    aliases = aliasesResponse.Indices.Values.Single().Aliases.Select(s => s.Key).ToList();
                     aliases.Sort();
                     Assert.Equal(GetExpectedEmployeeDailyAliases(version1Index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
@@ -739,19 +739,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     var mappingResponse = await _client.GetMappingAsync<Employee>(m => m.Index(version1Index.GetVersionedIndex(utcNow, 1)));
                     _logger.LogTrace(mappingResponse.GetRequest());
                     Assert.True(mappingResponse.IsValid);
-                    Assert.NotNull(mappingResponse.Mappings);
+                    Assert.NotNull(mappingResponse.Indices);
 
                     existsResponse = await _client.IndexExistsAsync(version2Index.GetVersionedIndex(utcNow, 2));
                     _logger.LogTrace(existsResponse.GetRequest());
                     Assert.True(existsResponse.IsValid);
                     Assert.True(existsResponse.Exists);
 
-                    string version1Mappings = ToJson(mappingResponse.Mappings);
+                    string version1Mappings = ToJson(mappingResponse.Indices);
                     mappingResponse = await _client.GetMappingAsync<Employee>(m => m.Index(version1Index.GetVersionedIndex(utcNow, 2)));
                     _logger.LogTrace(mappingResponse.GetRequest());
                     Assert.True(mappingResponse.IsValid);
-                    Assert.NotNull(mappingResponse.Mappings);
-                    Assert.Equal(version1Mappings, ToJson(mappingResponse.Mappings).Replace("-v2", "-v1"));
+                    Assert.NotNull(mappingResponse.Indices);
+                    Assert.Equal(version1Mappings, ToJson(mappingResponse.Indices).Replace("-v2", "-v1"));
                 }
             }
         }
@@ -771,7 +771,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         private string ToJson(object data) {
-            return _client.Serializer.SerializeToString(data);
+            return _client.SourceSerializer.SerializeToString(data);
         }
     }
 }

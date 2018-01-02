@@ -17,7 +17,7 @@ namespace Foundatio.Parsers.ElasticQueries {
                     if (!response.IsValid) 
                         logger.LogError(response.OriginalException, response.GetErrorMessage());
 
-                    return (ITypeMapping) response.Mapping ?? descriptor;
+                    return (ITypeMapping) response.Indices[indexType.Index.Name]?[indexType.Name] ?? descriptor;
                 });
         }
     }

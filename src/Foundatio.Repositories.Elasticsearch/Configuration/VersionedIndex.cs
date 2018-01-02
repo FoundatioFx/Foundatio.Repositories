@@ -176,7 +176,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 _logger.LogTrace(response.GetRequest());
 
             if (response.IsValid && response.Indices.Count > 0)
-                return response.Indices.Keys.Select(GetIndexVersion).OrderBy(v => v).First();
+                return response.Indices.Keys.Select(i => GetIndexVersion(i.Name)).OrderBy(v => v).First();
 
             return -1;
         }
