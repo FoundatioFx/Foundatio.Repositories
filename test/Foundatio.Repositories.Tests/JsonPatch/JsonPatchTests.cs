@@ -163,9 +163,9 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
                 new MoveOperation { FromPath = "/a/b/c", Path = "/a/b/d" },
                 new CopyOperation { FromPath = "/a/b/d", Path = "/a/b/e" });
 
-            var json = JsonConvert.SerializeObject(patchDoc);
+            string json = JsonConvert.SerializeObject(patchDoc);
             var roundTripped = JsonConvert.DeserializeObject<PatchDocument>(json);
-            var roundTrippedJson = JsonConvert.SerializeObject(roundTripped);
+            string roundTrippedJson = JsonConvert.SerializeObject(roundTripped);
             Assert.Equal(json, roundTrippedJson);
 
             var outputstream = patchDoc.ToStream();

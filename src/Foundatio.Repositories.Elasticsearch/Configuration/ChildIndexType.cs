@@ -18,10 +18,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private readonly Lazy<IIndexType<TParent>> _parentIndexType;
 
         public ChildIndexType(Func<TChild, string> getParentId, IIndex index, string name = null): base(index, name) {
-            if (getParentId == null)
-                throw new ArgumentNullException(nameof(getParentId));
-
-            _getParentId = getParentId;
+            _getParentId = getParentId ?? throw new ArgumentNullException(nameof(getParentId));
             _parentIndexType = new Lazy<IIndexType<TParent>>(() => Configuration.GetIndexType<TParent>());
         }
 

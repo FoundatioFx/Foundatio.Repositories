@@ -100,7 +100,7 @@ namespace Foundatio.Repositories.Models {
     }
 
     public class FindHit<T> : IHaveData {
-        public static readonly FindHit<T> Empty = new FindHit<T>(null, default(T), 0);
+        public static readonly FindHit<T> Empty = new FindHit<T>(null, default, 0);
 
         public FindHit(string id, T document, double score, long? version = null, string routing = null, IDictionary<string, object> data = null) {
             Id = id;

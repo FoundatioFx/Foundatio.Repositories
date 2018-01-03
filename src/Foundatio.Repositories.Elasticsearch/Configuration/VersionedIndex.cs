@@ -31,11 +31,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected virtual void AddReindexScript(int versionNumber, string script, string type = null) {
-            this.ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script, Type = type });
+            ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script, Type = type });
         }
 
         protected void RenameFieldScript(int versionNumber, string originalName, string currentName, string type = null, bool removeOriginal = true) {
-            var script = $"if (ctx._source.containsKey(\'{originalName}\')) {{ ctx._source[\'{currentName}\'] = ctx._source.{originalName}; }}";
+            string script = $"if (ctx._source.containsKey(\'{originalName}\')) {{ ctx._source[\'{currentName}\'] = ctx._source.{originalName}; }}";
             ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script, Type = type });
 
             if (removeOriginal)
@@ -43,7 +43,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected void RemoveFieldScript(int versionNumber, string fieldName, string type = null) {
-            var script = $"if (ctx._source.containsKey(\'{fieldName}\')) {{ ctx._source.remove(\'{fieldName}\'); }}";
+            string script = $"if (ctx._source.containsKey(\'{fieldName}\')) {{ ctx._source.remove(\'{fieldName}\'); }}";
             ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script, Type = type });
         }
 
@@ -116,8 +116,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (scriptsToRun.Count() == 1)
                 return WrapScriptInTypeCheck(scriptsToRun.First().Script, scriptsToRun.First().Type);
             else {
-                string fullScriptWithFunctions = string.Empty;
-                string functionCalls = string.Empty;
+                string fullScriptWithFunctions = String.Empty;
+                string functionCalls = String.Empty;
                 for (int i = 0; i < scriptsToRun.Count(); i++) {
                     fullScriptWithFunctions += $"void f{i:000}(def ctx) {{ {WrapScriptInTypeCheck(scriptsToRun[i].Script, scriptsToRun[i].Type)} }}\r\n";
                     functionCalls += $"f{i:000}(ctx); ";
@@ -128,7 +128,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         private string WrapScriptInTypeCheck(string script, string type) {
-            if (string.IsNullOrWhiteSpace(type)) return script;
+            if (String.IsNullOrWhiteSpace(type)) return script;
 
             return $"if (ctx._type == '{type}') {{ {script} }}";
         }
@@ -190,7 +190,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (index > 0)
                 input = input.Substring(0, index);
 
-            if (Int32.TryParse(input, out int version))
+            if (Int32.TryParse(input, out var version))
                 return version;
 
             return -1;

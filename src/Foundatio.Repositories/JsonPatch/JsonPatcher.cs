@@ -10,8 +10,8 @@ namespace Foundatio.Repositories.JsonPatch {
             var tokens = target.SelectPatchTokens(operation.Path).ToList();
             if (tokens.Count == 0) {
                 var parts = operation.Path.Split('/');
-                var parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
-                var propertyName = parts.LastOrDefault();
+                string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
+                string propertyName = parts.LastOrDefault();
 
                 var parent = target.SelectOrCreatePatchToken(parentPath) as JObject;
                 if (parent == null)
@@ -34,16 +34,15 @@ namespace Foundatio.Repositories.JsonPatch {
 
         protected override void Add(AddOperation operation, JToken target) {
             var parts = operation.Path.Split('/');
-            var parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
-            var propertyName = parts.LastOrDefault();
+            string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
+            string propertyName = parts.LastOrDefault();
 
             if (propertyName == "-") {
                 var array = target.SelectPatchToken(parentPath) as JArray;
                 array?.Add(operation.Value);
             } else if (propertyName.IsNumeric()) {
                 var array = target.SelectPatchToken(parentPath) as JArray;
-                int index;
-                if (Int32.TryParse(propertyName, out index))
+                if (Int32.TryParse(propertyName, out var index))
                     array?.Insert(index, operation.Value);
             } else {
                 var parent = target.SelectPatchToken(parentPath) as JObject;
@@ -100,12 +99,11 @@ namespace Foundatio.Repositories.JsonPatch {
             if (parts.Any(p => p.IsNumeric()))
                 return null;
 
-            JToken current = token;
-            foreach (var part in parts.Where(p => p.Length > 0)) {
+            var current = token;
+            foreach (string part in parts.Where(p => p.Length > 0)) {
                 var partToken = current.SelectPatchToken(part);
                 if (partToken == null) {
-                    var partObject = current as JObject;
-                    if (partObject != null)
+                    if (current is JObject partObject)
                         current = partObject[part] = new JObject();
                 } else {
                     current = partToken;
