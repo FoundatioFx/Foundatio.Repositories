@@ -50,7 +50,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
 
             app.OnExecute(() => {
                 var provider = context.ServiceProvider.Value;
-                
+
                 var migrationTypeNames = migrationOption.Values;
                 var job = provider.GetService(context.JobType) as ElasticMigrationJobBase;
 

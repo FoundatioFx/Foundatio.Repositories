@@ -50,7 +50,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
         public static IAggregate ToAggregate(this Nest.IAggregate aggregate) {
             if (aggregate is Nest.ValueAggregate valueAggregate) {
-                if (valueAggregate.Meta != null && valueAggregate.Meta.TryGetValue("@field_type", out object value)) {
+                if (valueAggregate.Meta != null && valueAggregate.Meta.TryGetValue("@field_type", out var value)) {
                     string type = value.ToString();
                     if (type == "date" && valueAggregate.Value.HasValue) {
                         return new ValueAggregate<DateTime> {
@@ -131,7 +131,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             var kind = DateTimeKind.Utc;
             long ticks = _epochTicks + ((long)valueAggregate.Value * TimeSpan.TicksPerMillisecond);
 
-            if (valueAggregate.Meta.TryGetValue("@timezone", out object value) && value != null) {
+            if (valueAggregate.Meta.TryGetValue("@timezone", out var value) && value != null) {
                 kind = DateTimeKind.Unspecified;
                 ticks -= TimeUnit.Parse(value.ToString()).Ticks;
             }
