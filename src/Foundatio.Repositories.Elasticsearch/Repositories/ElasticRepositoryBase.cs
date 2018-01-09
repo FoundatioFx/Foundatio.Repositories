@@ -61,9 +61,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                     await _validator.ValidateAndThrowAsync(doc).AnyContext();
 
             await IndexDocumentsAsync(docs, true, options).AnyContext();
-            await AddToCacheAsync(docs, options).AnyContext();
 
             await OnDocumentsAddedAsync(docs, options).AnyContext();
+            await AddToCacheAsync(docs, options).AnyContext();
         }
 
         public virtual async Task<T> SaveAsync(T document, ICommandOptions options = null) {
@@ -96,9 +96,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                     await _validator.ValidateAndThrowAsync(doc).AnyContext();
 
             await IndexDocumentsAsync(docs, false, options).AnyContext();
-            await AddToCacheAsync(docs, options).AnyContext();
 
             await OnDocumentsSavedAsync(docs, originalDocuments, options).AnyContext();
+            await AddToCacheAsync(docs, options).AnyContext();
         }
 
         private async Task<IReadOnlyCollection<T>> GetOriginalDocumentsAsync(Ids ids, ICommandOptions options) {
@@ -673,8 +673,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 documents, cf => cf.Id, cf => cf.Id,
                 (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m => new ModifiedDocument<T>( m.Modified, m.Original)).ToList();
 
-            await InvalidateCacheAsync(modifiedDocs, options).AnyContext();
-
             if (DocumentsSaving != null)
                 await DocumentsSaving.InvokeAsync(this, new ModifiedDocumentsEventArgs<T>(modifiedDocs, this, options)).AnyContext();
 
@@ -708,8 +706,6 @@ namespace Foundatio.Repositories.Elasticsearch {
         public AsyncEvent<DocumentsEventArgs<T>> DocumentsRemoving { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
 
         private async Task OnDocumentsRemovingAsync(IReadOnlyCollection<T> documents, ICommandOptions options) {
-            await InvalidateCacheAsync(documents, options).AnyContext();
-
             if (DocumentsRemoving != null)
                 await DocumentsRemoving.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
@@ -748,6 +744,9 @@ namespace Foundatio.Repositories.Elasticsearch {
         private async Task OnDocumentsChangedAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
             if (DocumentsChanged == null)
                 return;
+
+            if (changeType != ChangeType.Added)
+                await InvalidateCacheAsync(documents, options).AnyContext();
 
             await DocumentsChanged.InvokeAsync(this, new DocumentsChangeEventArgs<T>(changeType, documents, this, options)).AnyContext();
         }
