@@ -1,4 +1,5 @@
-﻿using System.Threading.Tasks;
+﻿using System;
+using System.Threading.Tasks;
 using Foundatio.Repositories.Extensions;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
@@ -13,7 +14,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
     public sealed class Index<T> : Index where T: class {
         public Index(IElasticConfiguration configuration, string name = null): base(configuration, name ?? typeof(T).Name.ToLower()) {
-            Type = AddDynamicType<T>(Name);
+            Type = AddDynamicType<T>();
         }
 
         public IIndexType<T> Type { get; }

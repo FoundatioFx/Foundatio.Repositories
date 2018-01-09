@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Configuration;
 using System.Diagnostics;
 using System.Linq;
 using System.Net.Sockets;
@@ -13,6 +12,7 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Microsoft.Extensions.Logging;
 using Nest;
+using Nest.JsonNetSerializer;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration {
     public class MyAppElasticConfiguration : ElasticConfiguration {
@@ -61,6 +61,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration 
             settings.DisableDirectStreaming().PrettyJson();
             base.ConfigureSettings(settings);
         }
+
+        protected override IElasticsearchSerializer CreateSerializer(IElasticsearchSerializer builtIn, IConnectionSettingsValues settings) {
+            return JsonNetSerializer.Default(builtIn, settings);
+        } 
 
         public IdentityIndex Identities { get; }
         public EmployeeIndex Employees { get; }

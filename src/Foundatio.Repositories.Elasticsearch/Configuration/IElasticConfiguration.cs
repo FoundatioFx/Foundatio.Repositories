@@ -58,7 +58,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected virtual IElasticClient CreateElasticClient() {
-            var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")));
+            var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")), (builtin, s) => CreateSerializer(builtin, s));
             ConfigureSettings(settings);
             foreach (var index in Indexes)
                 index.ConfigureSettings(settings);
@@ -76,6 +76,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual IConnectionPool CreateConnectionPool() {
             return null;
+        }
+
+        protected virtual IElasticsearchSerializer CreateSerializer(IElasticsearchSerializer builtIn, IConnectionSettingsValues settings) {
+            return builtIn;
         }
 
         public IElasticClient Client => _client.Value;
@@ -127,8 +131,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 if (_workItemQueue == null || _beginReindexLockProvider == null)
                     throw new InvalidOperationException("Must specify work item queue and lock provider in order to reindex.");
 
-                var versionedIndex = idx as VersionedIndex;
-                if (versionedIndex == null)
+                if (!(idx is VersionedIndex versionedIndex))
                     continue;
 
                 int currentVersion = await versionedIndex.GetCurrentVersionAsync().AnyContext();
@@ -142,9 +145,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                     continue;
 
                 // enqueue reindex to new version, only allowed every 15 minutes
-                await _beginReindexLockProvider.TryUsingAsync(String.Join(":", "enqueue-reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex), () => {
-                    return _workItemQueue.EnqueueAsync(reindexWorkItem);
-                }, TimeSpan.Zero, new CancellationToken(true)).AnyContext();
+                await _beginReindexLockProvider.TryUsingAsync(String.Join(":", "enqueue-reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex), 
+                    () => _workItemQueue.EnqueueAsync(reindexWorkItem), TimeSpan.Zero, new CancellationToken(true)).AnyContext();
             }
         }
 

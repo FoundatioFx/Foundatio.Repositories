@@ -15,7 +15,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class DailyIndexType<T> : TimeSeriesIndexType<T> where T : class {
-        public DailyIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null) : base(index, name, getDocumentDateUtc) {}
+        public DailyIndexType(IIndex index, Func<T, DateTime> getDocumentDateUtc = null) : base(index, getDocumentDateUtc) {}
     }
 
     public class DailyIndex : VersionedIndex, ITimeSeriesIndex {

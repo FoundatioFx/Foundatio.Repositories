@@ -18,10 +18,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
     public class EmployeeType : IndexTypeBase<Employee> {
         public EmployeeType(IIndex index) : base(index) { }
 
-        public override TypeMappingDescriptor<Employee> BuildMapping(TypeMappingDescriptor<Employee> map) {
-            return base.BuildMapping(map
+        public override TypeMappingDescriptor<object> ConfigureProperties(TypeMappingDescriptor<object> map) {
+            return base.ConfigureProperties(map
                 .Dynamic(false)
-                .Properties(p => p
+                .Properties<Employee>(p => p
                     .SetupDefaults()
                     .Keyword(f => f.Name(e => e.Id))
                     .Keyword(f => f.Name(e => e.CompanyId))
@@ -62,10 +62,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
     public class EmployeeTypeWithYearsEmployed : EmployeeType {
         public EmployeeTypeWithYearsEmployed(IIndex index) : base(index: index) { }
 
-        public override TypeMappingDescriptor<Employee> BuildMapping(TypeMappingDescriptor<Employee> map) {
-            return base.BuildMapping(map
+        public override TypeMappingDescriptor<object> ConfigureProperties(TypeMappingDescriptor<object> map) {
+            return base.ConfigureProperties(map
                 .Dynamic(false)
-                .Properties(p => p
+                .Properties<Employee>(p => p
                     .SetupDefaults()
                     .Keyword(f => f.Name(e => e.Id))
                     .Keyword(f => f.Name(e => e.CompanyId))
@@ -105,10 +105,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
     public class DailyEmployeeType : DailyIndexType<Employee> {
         public DailyEmployeeType(IIndex index) : base(index: index) { }
 
-        public override TypeMappingDescriptor<Employee> BuildMapping(TypeMappingDescriptor<Employee> map) {
-            return base.BuildMapping(map
+        public override TypeMappingDescriptor<object> ConfigureProperties(TypeMappingDescriptor<object> map) {
+            return base.ConfigureProperties(map
                 .Dynamic(false)
-                .Properties(p => p
+                .Properties<Employee>(p => p
                     .SetupDefaults()
                     .Keyword(f => f.Name(e => e.Id))
                     .Keyword(f => f.Name(e => e.CompanyId))
@@ -129,10 +129,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
     public class MonthlyEmployeeType : MonthlyIndexType<Employee> {
         public MonthlyEmployeeType(IIndex index) : base(index: index) { }
 
-        public override TypeMappingDescriptor<Employee> BuildMapping(TypeMappingDescriptor<Employee> map) {
-            return base.BuildMapping(map
+        public override TypeMappingDescriptor<object> ConfigureProperties(TypeMappingDescriptor<object> map) {
+            return base.ConfigureProperties(map
                 .Dynamic(false)
-                .Properties(p => p
+                .Properties<Employee>(p => p
                     .SetupDefaults()
                     .Keyword(f => f.Name(e => e.Id))
                     .Keyword(f => f.Name(e => e.CompanyId))

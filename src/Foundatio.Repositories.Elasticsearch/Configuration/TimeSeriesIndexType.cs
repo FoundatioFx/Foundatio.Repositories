@@ -23,7 +23,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         protected readonly Func<T, DateTime> _getDocumentDateUtc;
         protected readonly string[] _defaultIndexes;
 
-        public TimeSeriesIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null) : base(index, name) {
+        public TimeSeriesIndexType(IIndex index, Func<T, DateTime> getDocumentDateUtc = null) : base(index) {
             _getDocumentDateUtc = getDocumentDateUtc;
             _defaultIndexes = new[] { index.Name };
 

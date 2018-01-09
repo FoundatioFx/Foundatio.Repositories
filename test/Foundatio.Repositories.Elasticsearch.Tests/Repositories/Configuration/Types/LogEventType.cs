@@ -8,10 +8,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
     public class LogEventType : TimeSeriesIndexType<LogEvent> {
         public LogEventType(IIndex index) : base(index) { }
 
-        public override TypeMappingDescriptor<LogEvent> BuildMapping(TypeMappingDescriptor<LogEvent> map) {
+        public override TypeMappingDescriptor<object> ConfigureProperties(TypeMappingDescriptor<object> map) {
             return map
                 .Dynamic(false)
-                .Properties(p => p
+                .Properties<LogEvent>(p => p
                     .Keyword(f => f.Name(e => e.Id))
                     .Keyword(f => f.Name(e => e.CompanyId))
                     .Date(f => f.Name(e => e.CreatedUtc))

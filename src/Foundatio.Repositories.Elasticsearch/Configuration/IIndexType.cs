@@ -15,7 +15,6 @@ using Foundatio.Parsers.ElasticQueries;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface IIndexType : IDisposable {
-        string Name { get; }
         Type Type { get; }
         ElasticQueryParser QueryParser { get; }
         IIndex Index { get; }
@@ -24,7 +23,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         int BulkBatchSize { get; set; }
         Task ConfigureAsync();
         AliasesDescriptor ConfigureIndexAliases(AliasesDescriptor aliases);
-        MappingsDescriptor ConfigureIndexMappings(MappingsDescriptor mappings);
+        TypeMappingDescriptor<object> ConfigureProperties(TypeMappingDescriptor<object> mappings);
         IElasticQueryBuilder QueryBuilder { get; }
         string GetFieldName(Field field);
         string GetPropertyName(PropertyName property);
@@ -54,8 +53,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private readonly Lazy<ElasticQueryParser> _queryParser;
         private readonly Lazy<AliasMap> _aliasMap;
 
-        public IndexTypeBase(IIndex index, string name = null, Consistency defaultConsistency = Consistency.Eventual) {
-            Name = name ?? _typeName;
+        public IndexTypeBase(IIndex index, Consistency defaultConsistency = Consistency.Eventual) {
             Index = index ?? throw new ArgumentNullException(nameof(index));
             Type = typeof(T);
             DefaultConsistency = defaultConsistency;
@@ -88,7 +86,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual void ConfigureQueryParser(ElasticQueryParserConfiguration config) { }
 
-        public string Name { get; }
         public Type Type { get; }
         public IIndex Index { get; }
         public IElasticConfiguration Configuration => Index.Configuration;
@@ -124,12 +121,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return aliases;
         }
 
-        public virtual MappingsDescriptor ConfigureIndexMappings(MappingsDescriptor mappings) {
-            return mappings.Map<T>(Name, BuildMapping);
-        }
-
-        public virtual TypeMappingDescriptor<T> BuildMapping(TypeMappingDescriptor<T> map) {
-            return map.Properties(p => p.SetupDefaults());
+        public virtual TypeMappingDescriptor<object> ConfigureProperties(TypeMappingDescriptor<object> map) {
+            return map.Properties<T>(p => p.SetupDefaults());
         }
 
         public IElasticQueryBuilder QueryBuilder => _queryBuilder.Value;
@@ -144,7 +137,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private AliasMap GetAliasMap() {
             var visitor = new AliasMappingVisitor(Configuration.Client.Infer);
             var walker = new MappingWalker(visitor);
-            var descriptor = BuildMapping(new TypeMappingDescriptor<T>());
+            var descriptor = ConfigureProperties(new TypeMappingDescriptor<object>());
             walker.Accept(descriptor);
 
             return visitor.RootAliasMap;

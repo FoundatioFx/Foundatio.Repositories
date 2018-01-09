@@ -5,8 +5,8 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class MonthlyIndexType<T> : TimeSeriesIndexType<T> where T : class {
-        public MonthlyIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null)
-            : base(index, name, getDocumentDateUtc) { }
+        public MonthlyIndexType(IIndex index, Func<T, DateTime> getDocumentDateUtc = null)
+            : base(index, getDocumentDateUtc) { }
     }
 
     public class MonthlyIndex: DailyIndex {

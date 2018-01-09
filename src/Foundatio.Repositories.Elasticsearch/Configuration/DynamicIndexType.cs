@@ -2,10 +2,10 @@
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class DynamicIndexType<T> : IndexTypeBase<T> where T : class {
-        public DynamicIndexType(IIndex index, string name = null): base(index, name) {}
+        public DynamicIndexType(IIndex index): base(index) {}
 
-        public override TypeMappingDescriptor<T> BuildMapping(TypeMappingDescriptor<T> map) {
-            return base.BuildMapping(map.Dynamic(true));
+        public override TypeMappingDescriptor<object> ConfigureProperties(TypeMappingDescriptor<object> map) {
+            return base.ConfigureProperties(map.Dynamic(true));
         }
     }
 }

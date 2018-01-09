@@ -206,12 +206,12 @@ namespace Foundatio.Repositories.Elasticsearch {
             bool isTraceLogLevelEnabled = _logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace);
             if (hit != null) {
                 if (isTraceLogLevelEnabled)
-                    _logger.LogTrace("Cache hit: type={ElasticType} key={Id}", ElasticType.Name, id);
+                    _logger.LogTrace("Cache hit: type={ElasticType} key={Id}", "doc", id);
                 return hit;
             }
 
             if (!HasParent || id.Routing != null) {
-                var request = new GetRequest(GetIndexById(id), ElasticType.Name, id.Value);
+                var request = new GetRequest(GetIndexById(id), "doc", id.Value);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
                 var response = await _client.GetAsync<T>(request).AnyContext();
@@ -254,7 +254,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var multiGet = new MultiGetDescriptor();
             foreach (var id in itemsToFind.Where(i => i.Routing != null || !HasParent)) {
                 multiGet.Get<T>(f => {
-                    f.Id(id.Value).Index(GetIndexById(id)).Type(ElasticType.Name);
+                    f.Id(id.Value).Index(GetIndexById(id)).Type("doc");
                     if (id.Routing != null)
                         f.Routing(id.Routing);
 
@@ -386,7 +386,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public virtual async Task<long> CountAsync(ICommandOptions options = null) {
-            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null))).Type(ElasticType.Name)).AnyContext();
+            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null))).Type("doc")).AnyContext();
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
                 _logger.LogTrace(response.GetRequest());
 
@@ -480,7 +480,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 search = new SearchDescriptor<T>();
 
             query = ConfigureQuery(query);
-            search.Type(ElasticType.Name);
+            search.Type("doc");
             var indices = GetIndexesByQuery(query);
             if (indices?.Length > 0)
                 search.Index(String.Join(",", indices));
@@ -524,7 +524,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var result = await Cache.GetAsync<TResult>(cacheKey, default).AnyContext();
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace("Cache {HitOrMiss}: type={ElasticType} key={CacheKey}", (result != null ? "hit" : "miss"), ElasticType.Name, cacheKey);
+                _logger.LogTrace("Cache {HitOrMiss}: type={ElasticType} key={CacheKey}", (result != null ? "hit" : "miss"), "doc", cacheKey);
 
             return result;
         }
@@ -539,7 +539,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             await Cache.SetAsync(cacheKey, result, options.GetExpiresIn()).AnyContext();
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace("Set cache: type={ElasticType} key={CacheKey}", ElasticType.Name, cacheKey);
+                _logger.LogTrace("Set cache: type={ElasticType} key={CacheKey}", "doc", cacheKey);
         }
 
         #region Elastic Type Configuration

@@ -5,6 +5,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
     public class Parent : IIdentity, ISupportSoftDeletes {
         public string Id { get; set; }
         public bool IsDeleted { get; set; }
+        public Nest.JoinField JoinField => Nest.JoinField.Root<Parent>();
     }
 
     public static class ParentGenerator {

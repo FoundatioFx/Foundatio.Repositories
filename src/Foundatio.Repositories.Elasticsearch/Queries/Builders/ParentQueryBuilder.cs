@@ -77,10 +77,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return;
 
             ctx.Filter &= new HasParentQuery {
-                ParentType = parentType.Name,
+                ParentType = parentType.Type,
                 Query = new BoolQuery {
                     Must = new QueryContainer[] { parentContext.Query },
-                    Filter = new QueryContainer[] { parentContext.Filter },
+                    Filter = new QueryContainer[] { parentContext.Filter }
                 }
             };
         }

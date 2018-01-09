@@ -6,10 +6,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
     public class IdentityType : IndexTypeBase<Identity> {
         public IdentityType(IIndex index) : base(index) { }
 
-        public override TypeMappingDescriptor<Identity> BuildMapping(TypeMappingDescriptor<Identity> map) {
+        public override TypeMappingDescriptor<object> ConfigureProperties(TypeMappingDescriptor<object> map) {
             return map
                 .Dynamic(false)
-                .Properties(p => p
+                .Properties<Identity>(p => p
                     .Keyword(f => f.Name(e => e.Id))
                 );
         }

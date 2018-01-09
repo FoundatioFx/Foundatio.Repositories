@@ -37,8 +37,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _types.Add(type);
         }
 
-        public IIndexType<T> AddDynamicType<T>(string name) where T : class {
-            var indexType = new DynamicIndexType<T>(this, name);
+        public IIndexType<T> AddDynamicType<T>() where T : class {
+            var indexType = new DynamicIndexType<T>(this);
             AddType(indexType);
 
             return indexType;
@@ -136,10 +136,15 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var aliases = new AliasesDescriptor();
             var mappings = new MappingsDescriptor();
 
-            foreach (var t in IndexTypes) {
+            mappings.Map("doc", m => {
+                foreach (var t in IndexTypes)
+                    m = t.ConfigureProperties(m);
+
+                return m;
+            });
+
+            foreach (var t in IndexTypes)
                 aliases = t.ConfigureIndexAliases(aliases);
-                mappings = t.ConfigureIndexMappings(mappings);
-            }
 
             return idx.Aliases(a => aliases).Mappings(m => mappings);
         }
