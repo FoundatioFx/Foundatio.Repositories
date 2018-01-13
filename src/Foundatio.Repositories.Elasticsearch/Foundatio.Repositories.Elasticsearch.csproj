@@ -8,7 +8,7 @@
     <Compile Include="..\Foundatio.Repositories\Extensions\TaskExtensions.cs" Link="Extensions\TaskExtensions.cs" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Foundatio.Jobs.Commands" Version="7.0.1638-pre" />
+    <PackageReference Include="Foundatio.Jobs.Commands" Version="7.0.1644-pre" />
     <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="5.6.371-pre" />
   </ItemGroup>
   <ItemGroup>
