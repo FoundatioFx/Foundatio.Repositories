@@ -974,11 +974,20 @@ namespace Foundatio.Repositories.Elasticsearch {
             }, delay);
         }
 
-        protected virtual Task PublishMessageAsync<TMessageType>(TMessageType message, TimeSpan? delay = null) where TMessageType : class {
+        protected virtual async Task PublishMessageAsync(EntityChanged message, TimeSpan? delay = null) {
             if (_messagePublisher == null)
-                return Task.CompletedTask;
+                return;
 
-            return _messagePublisher.PublishAsync(message, delay);
+            if (BeforePublishEntityChanged != null) {
+                var eventArgs = new BeforePublishEntityChangedEventArgs<T>(this, message);
+                await BeforePublishEntityChanged.InvokeAsync(this, eventArgs).AnyContext();
+                if (eventArgs.Cancel)
+                    return;
+            }
+
+            await _messagePublisher.PublishAsync(message, delay).AnyContext();
         }
+
+        public AsyncEvent<BeforePublishEntityChangedEventArgs<T>> BeforePublishEntityChanged { get; } = new AsyncEvent<BeforePublishEntityChangedEventArgs<T>>();
     }
 }
