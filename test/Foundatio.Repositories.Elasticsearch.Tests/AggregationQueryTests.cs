@@ -381,7 +381,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var bucket = result.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
             Assert.Equal(1, bucket.Total);
             
-            var tophits = bucket.Aggregations.TopHits("tophits");
+            var tophits = bucket.Aggregations.TopHits();
             Assert.NotNull(tophits);
             var employees = tophits.Documents<Employee>();
             Assert.Equal(1, employees.Count);
@@ -398,7 +398,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             
             // TODO: Do we need to be able to roundtrip this? I think we need to for caching purposes.
 
-            // tophits = bucket.Aggregations.TopHits("tophits");
+            // tophits = bucket.Aggregations.TopHits();
             // Assert.NotNull(tophits);
             // employees = tophits.Documents<Employee>();
             // Assert.Equal(1, employees.Count);
@@ -419,7 +419,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var bucket = result.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 45);
             Assert.Equal(2, bucket.Total);
             
-            var tophits = bucket.Aggregations.TopHits("tophits");
+            var tophits = bucket.Aggregations.TopHits();
             Assert.NotNull(tophits);
             var employees = tophits.Documents<Employee>();
             Assert.Equal(2, employees.Count);

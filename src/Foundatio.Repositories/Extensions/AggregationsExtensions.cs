@@ -10,7 +10,7 @@ namespace Foundatio.Repositories.Models {
 
         public static ValueAggregate Max(this IReadOnlyDictionary<string, IAggregate> aggs, string key) => aggs.TryGet<ValueAggregate>(key);
         public static ValueAggregate<T> Max<T>(this IReadOnlyDictionary<string, IAggregate> aggs, string key) => aggs.TryGet<ValueAggregate<T>>(key);
-        public static TopHitsAggregate TopHits(this IReadOnlyDictionary<string, IAggregate> aggs, string key) => aggs.TryGet<TopHitsAggregate>(key);
+        public static TopHitsAggregate TopHits(this IReadOnlyDictionary<string, IAggregate> aggs) => aggs.TryGet<TopHitsAggregate>("tophits");
 
         public static ValueAggregate Sum(this IReadOnlyDictionary<string, IAggregate> aggs, string key) => aggs.TryGet<ValueAggregate>(key);
 
