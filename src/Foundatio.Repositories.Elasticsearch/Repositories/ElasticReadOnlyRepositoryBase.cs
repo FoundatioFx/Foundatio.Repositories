@@ -225,7 +225,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 .MergeFrom(systemFilter?.GetQuery())
                 .FilterExpression(filter)
                 .SearchExpression(criteria)
-                .AggregationsExression(aggregations)
+                .AggregationsExpression(aggregations)
                 .SortExpression(sort);
 
             return FindAsync(search, options);
@@ -442,7 +442,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var search = NewQuery()
                 .MergeFrom(systemFilter?.GetQuery())
                 .FilterExpression(filter)
-                .AggregationsExression(aggregations);
+                .AggregationsExpression(aggregations);
 
             return CountAsync(search, options);
         }
