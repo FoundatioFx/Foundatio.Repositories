@@ -9,9 +9,16 @@ using Foundatio.Repositories.Options;
 namespace Foundatio.Repositories {
     public static class SetElasticOptionsExtensions {
         internal const string SnapshotPagingKey = "@SnapshotPaging";
+        internal const string SearchAfterPagingKey = "@SearchAfterPaging";
         internal const string SnapshotPagingScrollIdKey = "@SnapshotPagingScrollId";
+        internal const string SearchAfterKey = "@SearchAfter";
+
         public static T SnapshotPaging<T>(this T options) where T : ICommandOptions {
             return options.BuildOption(SnapshotPagingKey, true);
+        }
+
+        public static T SearchAfterPaging<T>(this T options) where T : ICommandOptions {
+            return options.BuildOption(SearchAfterPagingKey, true);
         }
 
         internal const string SnapshotPagingLifetimeKey = "@SnapshotPagingLifetime";
@@ -37,6 +44,13 @@ namespace Foundatio.Repositories {
         public static T SnapshotPagingScrollId<T>(this T options, IHaveData target) where T : ICommandOptions {
             options.Values.Set(SnapshotPagingKey, true);
             options.Values.Set(SnapshotPagingScrollIdKey, target.GetScrollId());
+
+            return options;
+        }
+
+        public static T SearchAfter<T>(this T options, params object[] values) where T : ICommandOptions {
+            if (values.Length > 0)
+                options.Values.Set(SearchAfterKey, values);
 
             return options;
         }
@@ -69,6 +83,10 @@ namespace Foundatio.Repositories.Options {
             return options.SafeGetOption<bool>(SetElasticOptionsExtensions.SnapshotPagingKey, false);
         }
 
+        public static bool ShouldUseSearchAfterPaging(this ICommandOptions options) {
+            return options.SafeGetOption<bool>(SetElasticOptionsExtensions.SearchAfterPagingKey, false);
+        }
+
         public static bool HasSnapshotScrollId(this ICommandOptions options) {
             return options.SafeHasOption(SetElasticOptionsExtensions.SnapshotPagingScrollIdKey);
         }
@@ -83,6 +101,14 @@ namespace Foundatio.Repositories.Options {
 
         public static TimeSpan GetSnapshotLifetime(this ICommandOptions options) {
             return options.SafeGetOption<TimeSpan>(SetElasticOptionsExtensions.SnapshotPagingLifetimeKey, TimeSpan.FromMinutes(1));
+        }
+
+        public static object[] GetSearchAfter(this ICommandOptions options) {
+            return options.SafeGetOption<object[]>(SetElasticOptionsExtensions.SearchAfterKey);
+        }
+
+        public static bool HasSearchAfter(this ICommandOptions options) {
+            return options.SafeHasOption(SetElasticOptionsExtensions.SearchAfterKey);
         }
 
         public static Refresh GetRefreshMode(this ICommandOptions options, Consistency defaultMode = Consistency.Eventual) {

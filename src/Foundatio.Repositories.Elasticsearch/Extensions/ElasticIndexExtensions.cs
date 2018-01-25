@@ -7,6 +7,7 @@ using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Utility;
+using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticIndexExtensions {
@@ -77,6 +78,13 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     Average = statsAggregate.Average,
                     Sum = statsAggregate.Sum,
                     Data = statsAggregate.Meta.ToData<StatsAggregate>()
+                };
+
+            if (aggregate is Nest.TopHitsAggregate topHitsAggregate)
+                return new TopHitsAggregate(topHitsAggregate.Documents<JToken>().Select(topHit => new LazyDocument(topHit.Value<JToken>())).ToList()) {
+                    Total = topHitsAggregate.Total,
+                    MaxScore = topHitsAggregate.MaxScore,
+                    Data = topHitsAggregate.Meta.ToData<TopHitsAggregate>()
                 };
 
             if (aggregate is Nest.ExtendedStatsAggregate extendedStatsAggregate)

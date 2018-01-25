@@ -35,6 +35,10 @@ namespace Foundatio.Repositories.Utility {
                     case "stats":
                         value = new StatsAggregate();
                         break;
+                    case "tophits":
+                        // TODO: Have to get all the docs as JToken and 
+                        //value = new TopHitsAggregate();
+                        break;
                     case "value":
                         value = new ValueAggregate();
                         break;

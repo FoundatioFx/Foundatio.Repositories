@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Nest;
 
@@ -47,10 +48,21 @@ namespace Foundatio.Repositories.Options {
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class SortQueryBuilder : IElasticQueryBuilder {
+        private const string Id = nameof(IIdentity.Id);
+
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var sortFields = ctx.Source.GetSorts();
-            if (sortFields.Count <= 0)
+            
+            if (sortFields.Count <= 0) {
+                // always use the default sort if using search after paging
+                if (ctx.Options.ShouldUseSearchAfterPaging()) {
+                    var options = ctx.Options.GetElasticTypeSettings();
+                    string fieldName = options.IndexType?.GetFieldName(Id) ?? Id;
+                    ctx.Search.Sort(s => s.Field(fieldName, SortOrder.Ascending));
+                }
+                
                 return Task.CompletedTask;
+            }
 
             //var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
             //foreach (var sort in sortableQuery.SortFields.Where(s => CanSortByField(opt?.AllowedSortFields, s.Field)))

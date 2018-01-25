@@ -53,6 +53,9 @@ namespace Foundatio.Repositories.Extensions {
             if (type == typeof(StatsAggregate))
                 return "stats";
 
+            if (type == typeof(TopHitsAggregate))
+                return "tophits";
+
             if (type == typeof(ValueAggregate))
                 return "value";
 

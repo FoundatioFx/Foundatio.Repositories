@@ -410,12 +410,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
             Assert.True(results.HasMore);
+            Assert.Equal(identity1.Id, results.Documents.First().Id);
             Assert.Equal(2, results.Total);
 
             Assert.True(await results.NextPageAsync());
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(2, results.Page);
             Assert.Equal(2, results.Total);
+            Assert.Equal(identity2.Id, results.Documents.First().Id);
+            // TODO: Figure out why this is true when there are no more results
             Assert.True(results.HasMore);
             var secondDoc = results.Documents.First();
 
@@ -427,6 +430,103 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             var secondPageResults = await _identityRepository.GetAllAsync(o => o.PageNumber(2).PageLimit(1));
             Assert.Equal(secondDoc, secondPageResults.Documents.First());
+        }
+
+        [Fact]
+        public async Task GetAllWithSearchAfterPagingAsync() {
+            var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
+            Assert.NotNull(identity1?.Id);
+
+            var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
+            Assert.NotNull(identity2?.Id);
+
+            var results = await _identityRepository.GetAllAsync(o => o.PageLimit(1).SearchAfterPaging());
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.True(results.HasMore);
+            Assert.Equal(identity1.Id, results.Documents.First().Id);
+            Assert.Equal(2, results.Total);
+
+            Assert.True(await results.NextPageAsync());
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(2, results.Page);
+            Assert.Equal(2, results.Total);
+            Assert.Equal(identity2.Id, results.Documents.First().Id);
+            Assert.False(results.HasMore);
+            var secondDoc = results.Documents.First();
+
+            Assert.False(await results.NextPageAsync());
+            Assert.Equal(0, results.Documents.Count);
+            Assert.Equal(2, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(2, results.Total);
+
+            // var secondPageResults = await _identityRepository.GetAllAsync(o => o.PageNumber(2).PageLimit(1));
+            // Assert.Equal(secondDoc, secondPageResults.Documents.First());
+        }
+
+        [Fact]
+        public async Task GetAllWithSearchAfterPagingWithCustomSortAsync() {
+            var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
+            Assert.NotNull(identity1?.Id);
+
+            var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
+            Assert.NotNull(identity2?.Id);
+
+            var results = await _identityRepository.FindAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1).SearchAfterPaging());
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.True(results.HasMore);
+            Assert.Equal(identity2.Id, results.Documents.First().Id);
+            Assert.Equal(2, results.Total);
+
+            Assert.True(await results.NextPageAsync());
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(2, results.Page);
+            Assert.Equal(2, results.Total);
+            Assert.Equal(identity1.Id, results.Documents.First().Id);
+            Assert.False(results.HasMore);
+            var secondDoc = results.Documents.First();
+
+            Assert.False(await results.NextPageAsync());
+            Assert.Equal(0, results.Documents.Count);
+            Assert.Equal(2, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(2, results.Total);
+
+            // var secondPageResults = await _identityRepository.GetAllAsync(o => o.PageNumber(2).PageLimit(1));
+            // Assert.Equal(secondDoc, secondPageResults.Documents.First());
+        }
+
+        [Fact]
+        public async Task GetAllWithSearchAfterAsync() {
+            var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
+            Assert.NotNull(identity1?.Id);
+
+            var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
+            Assert.NotNull(identity2?.Id);
+
+            var results = await _identityRepository.FindAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1));
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.True(results.HasMore);
+            Assert.Equal(identity2.Id, results.Documents.First().Id);
+            Assert.Equal(2, results.Total);
+
+            results = await _identityRepository.FindAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1).SearchAfter(results.Documents.First().Id));
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(2, results.Total);
+            Assert.Equal(identity1.Id, results.Documents.First().Id);
+            Assert.False(results.HasMore);
+
+            results = await _identityRepository.FindAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1).SearchAfter(results.Documents.First().Id));
+            Assert.Equal(0, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(2, results.Total);
         }
 
         [Fact]

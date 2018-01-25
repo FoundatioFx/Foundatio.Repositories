@@ -369,6 +369,64 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19).Total);
         }
 
+        [Fact]
+        public async Task GetTermAggregationsWithTopHitsAsync() {
+            await CreateDataAsync();
+
+            const string aggregations = "terms:(age tophits:_)";
+            var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression(aggregations));
+            Assert.Equal(10, result.Total);
+            Assert.Equal(1, result.Aggregations.Count);
+            Assert.Equal(10, result.Aggregations.Terms<int>("terms_age").Buckets.Count);
+            var bucket = result.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
+            Assert.Equal(1, bucket.Total);
+            
+            var tophits = bucket.Aggregations.TopHits("tophits");
+            Assert.NotNull(tophits);
+            var employees = tophits.Documents<Employee>();
+            Assert.Equal(1, employees.Count);
+            Assert.Equal(19, employees.First().Age);
+            Assert.Equal(1, employees.First().YearsEmployed);
+
+            var json = JsonConvert.SerializeObject(result);
+            var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
+            Assert.Equal(10, roundTripped.Total);
+            Assert.Equal(1, roundTripped.Aggregations.Count);
+            Assert.Equal(10, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
+            bucket = roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
+            Assert.Equal(1, bucket.Total);
+            
+            // TODO: Do we need to be able to roundtrip this? I think we need to for caching purposes.
+
+            // tophits = bucket.Aggregations.TopHits("tophits");
+            // Assert.NotNull(tophits);
+            // employees = tophits.Documents<Employee>();
+            // Assert.Equal(1, employees.Count);
+            // Assert.Equal(19, employees.First().Age);
+            // Assert.Equal(1, employees.First().YearsEmployed);
+        }
+
+        [Fact]
+        public async Task CanGetDupesAsync() {
+            await CreateDataAsync();
+            await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 45, yearsEmployed: 12, location: "15,20", createdUtc: DateTime.UtcNow.Date.SubtractYears(12), updatedUtc: DateTime.UtcNow.Date.SubtractYears(12)), o => o.ImmediateConsistency());
+
+            const string aggregations = "terms:(age^2 tophits:(_~100))";
+            var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExression(aggregations));
+            Assert.Equal(11, result.Total);
+            Assert.Equal(1, result.Aggregations.Count);
+            Assert.Equal(1, result.Aggregations.Terms<int>("terms_age").Buckets.Count);
+            var bucket = result.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 45);
+            Assert.Equal(2, bucket.Total);
+            
+            var tophits = bucket.Aggregations.TopHits("tophits");
+            Assert.NotNull(tophits);
+            var employees = tophits.Documents<Employee>();
+            Assert.Equal(2, employees.Count);
+            Assert.Equal(45, employees.First().Age);
+            Assert.Equal(8, employees.First().YearsEmployed);
+        }
+
         internal async Task CreateDataAsync() {
             var utcToday = SystemClock.UtcNow.Date;
             await _employeeRepository.AddAsync(new List<Employee> {

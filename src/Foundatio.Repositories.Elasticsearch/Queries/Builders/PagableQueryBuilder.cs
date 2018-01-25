@@ -7,8 +7,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             // add 1 to limit if not snapshot paging so we can know if we have more results
             if (ctx.Options.HasPageLimit())
                 ctx.Search.Size(ctx.Options.GetLimit() + (ctx.Options.ShouldUseSnapshotPaging() == false ? 1 : 0));
-
-            if (ctx.Options.ShouldUseSkip())
+            
+            // can only use search_after or skip
+            if (ctx.Options.HasSearchAfter())
+                ctx.Search.SearchAfter(ctx.Options.GetSearchAfter());
+            else if (ctx.Options.ShouldUseSkip())
                 ctx.Search.Skip(ctx.Options.GetSkip());
 
             return Task.CompletedTask;
