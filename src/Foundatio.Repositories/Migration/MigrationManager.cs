@@ -44,11 +44,11 @@ namespace Foundatio.Repositories.Migrations {
             if (migrationType == null)
                 throw new ArgumentNullException(nameof(migrationType));
 
-            var service = _container.GetService(migrationType);
-            if (service == null)
+            var migrationInstance = _container.GetService(migrationType);
+            if (migrationInstance == null)
                 throw new ArgumentException($"Unable to get instance of type '{migrationType.Name}'. Please ensure it's registered in Dependency Injection.", nameof(migrationType));
 
-            if (!(service is IMigration migration))
+            if (!(migrationInstance is IMigration migration))
                 throw new ArgumentException($"Type '{migrationType.Name}' must implement interface '{nameof(IMigration)}'.", nameof(migrationType));
 
             _migrations.Add(migration);
