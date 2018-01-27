@@ -32,16 +32,25 @@ namespace Foundatio.Repositories.Migrations {
             AddMigration(migrationTypes);
         }
 
-        public void AddMigrationsFromAssembly<T>() {
+        public void AddMigrationsFromAssembly<T>() where T : IMigration {
             AddMigrationsFromAssembly(typeof(T).Assembly);
         }
 
-        public void AddMigration<T>() {
+        public void AddMigration<T>() where T : IMigration {
             AddMigration(typeof(T));
         }
 
         public void AddMigration(Type migrationType) {
-            var migration = (IMigration)_container.GetService(migrationType);
+            if (migrationType == null)
+                throw new ArgumentNullException(nameof(migrationType));
+
+            var service = _container.GetService(migrationType);
+            if (service == null)
+                throw new ArgumentException($"Unable to get instance of type '{migrationType.Name}'. Please ensure it's registered in Dependency Injection.", nameof(migrationType));
+
+            if (!(service is IMigration migration))
+                throw new ArgumentException($"Type '{migrationType.Name}' must implement interface '{nameof(IMigration)}'.", nameof(migrationType));
+
             _migrations.Add(migration);
         }
 
