@@ -966,6 +966,9 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, string id, IDictionary<string, object> data = null, TimeSpan? delay = null) {
+            if (!NotificationsEnabled)
+                return Task.CompletedTask;
+
             return PublishMessageAsync(new EntityChanged {
                 ChangeType = changeType,
                 Id = id,
@@ -975,7 +978,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected virtual async Task PublishMessageAsync(EntityChanged message, TimeSpan? delay = null) {
-            if (_messagePublisher == null)
+            if (!NotificationsEnabled || _messagePublisher == null)
                 return;
 
             if (BeforePublishEntityChanged != null) {
