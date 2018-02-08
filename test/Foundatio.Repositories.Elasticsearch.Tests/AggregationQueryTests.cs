@@ -300,7 +300,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             }
         }
 
-        [Fact]
+        [Fact(Skip = "Need to fix it, its flakey")]
         public async Task GetDateOffsetAggregationsWithOffsetsAsync() {
             var today = SystemClock.OffsetNow.Floor(TimeSpan.FromMilliseconds(1));
             await _employeeRepository.AddAsync(new List<Employee> {
