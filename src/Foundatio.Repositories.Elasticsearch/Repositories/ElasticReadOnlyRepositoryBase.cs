@@ -307,7 +307,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     continue;
 
                 hits.Add(((IMultiGetHit<T>)doc).ToFindHit().Document);
-                itemsToFind.Remove(doc.Id);
+                itemsToFind.Remove(new Id(doc.Id, doc.Routing));
             }
 
             // fallback to doing a find

@@ -1,6 +1,9 @@
-﻿using System.Threading.Tasks;
+﻿using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Utility;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -31,6 +34,38 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             child = await _childRepository.GetByIdAsync(child.Id);
             Assert.NotNull(child?.Id);
+        }
+
+        [Fact]
+        public async Task GetByIds() {
+            var parent1 = ParentGenerator.Generate();
+            parent1 = await _parentRepository.AddAsync(parent1, o => o.ImmediateConsistency());
+            Assert.NotNull(parent1?.Id);
+
+            var child1 = ChildGenerator.Generate(parentId: parent1.Id);
+            child1 = await _childRepository.AddAsync(child1, o => o.ImmediateConsistency());
+            Assert.NotNull(child1?.Id);
+
+            var parent2 = ParentGenerator.Generate();
+            parent2 = await _parentRepository.AddAsync(parent2, o => o.ImmediateConsistency());
+            Assert.NotNull(parent2?.Id);
+
+            var child2 = ChildGenerator.Generate(parentId: parent2.Id);
+            child2 = await _childRepository.AddAsync(child2, o => o.ImmediateConsistency());
+            Assert.NotNull(child2?.Id);
+
+            var ids = new Ids(child1.Id, child2.Id);
+
+            var results = await _childRepository.GetByIdsAsync(ids);
+            Assert.NotNull(results);
+            Assert.Equal(2, results.Count);
+
+            var idsWithRouting = new Ids(new Id(child1.Id, parent1.Id), new Id(child2.Id, parent2.Id));
+
+            var resultsWithRouting = await _childRepository.GetByIdsAsync(idsWithRouting);
+            Assert.NotNull(resultsWithRouting);
+            Assert.Equal(2, resultsWithRouting.Count);
+
         }
 
         [Fact]
