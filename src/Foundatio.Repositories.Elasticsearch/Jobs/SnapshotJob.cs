@@ -75,7 +75,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
 
                     // max time to wait for a snapshot to complete
                     if (sw.Elapsed > TimeSpan.FromHours(1)) {
-                        _logger.LogError("Timed out wating for snapshot {SnapshotName} in {Repository}.", snapshotName, Repository);
+                        _logger.LogError("Timed out waiting for snapshot {SnapshotName} in {Repository}.", snapshotName, Repository);
                         break;
                     }
                 } while (!cancellationToken.IsCancellationRequested);

@@ -11,7 +11,7 @@ namespace Foundatio.Repositories.JsonPatch {
         }
 
         private static Operation Build(string op, string path, string key, JToken value) {
-            if (string.IsNullOrEmpty(key))
+            if (String.IsNullOrEmpty(key))
                 return
                     Operation.Parse("{ 'op' : '" + op + "' , path: '" + path + "', value: " +
                                     (value == null ? "null" : value.ToString(Formatting.None)) + "}");

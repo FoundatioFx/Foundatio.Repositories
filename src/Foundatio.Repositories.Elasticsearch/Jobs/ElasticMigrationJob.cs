@@ -55,7 +55,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 if (context.JobType == null)
                     throw new ArgumentNullException(nameof(context), $"{nameof(context)}.{nameof(context.JobType)} cannot be null");
 
-                var jobInstance = provider.GetService(context.JobType);
+                object jobInstance = provider.GetService(context.JobType);
                 if (jobInstance == null)
                     throw new ArgumentException($"Unable to get instance of type '{context.JobType.Name}'. Please ensure it's registered in Dependency Injection.", nameof(context));
 
@@ -69,7 +69,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                     try {
                         var migrationType = Type.GetType(migrationTypeName);
                         if (migrationType == null) {
-                            Console.WriteLine($"Migration type is null.");
+                            Console.WriteLine("Migration type is null.");
                             return Task.FromResult(-1);
                         }
 

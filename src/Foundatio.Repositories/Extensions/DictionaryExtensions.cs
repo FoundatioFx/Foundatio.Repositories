@@ -24,7 +24,7 @@ namespace Foundatio.Repositories.Extensions {
                 .Where(kvp => kvp.Key != "@field_type" && kvp.Key != "@timezone")
                 .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
-            var type = GetAggregateType(typeof(T));
+            string type = GetAggregateType(typeof(T));
             if (dict == null && type != null)
                 dict = new Dictionary<string, object>();
 

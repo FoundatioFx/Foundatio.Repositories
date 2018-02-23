@@ -44,7 +44,7 @@ namespace Foundatio.Repositories.Migrations {
             if (migrationType == null)
                 throw new ArgumentNullException(nameof(migrationType));
 
-            var migrationInstance = _container.GetService(migrationType);
+            object migrationInstance = _container.GetService(migrationType);
             if (migrationInstance == null)
                 throw new ArgumentException($"Unable to get instance of type '{migrationType.Name}'. Please ensure it's registered in Dependency Injection.", nameof(migrationType));
 
