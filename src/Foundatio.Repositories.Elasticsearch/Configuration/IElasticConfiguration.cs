@@ -127,8 +127,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 if (_workItemQueue == null || _beginReindexLockProvider == null)
                     throw new InvalidOperationException("Must specify work item queue and lock provider in order to reindex.");
 
-                var versionedIndex = idx as VersionedIndex;
-                if (versionedIndex == null)
+                if (!(idx is VersionedIndex versionedIndex))
                     continue;
 
                 int currentVersion = await versionedIndex.GetCurrentVersionAsync().AnyContext();

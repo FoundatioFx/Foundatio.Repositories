@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
@@ -12,13 +13,11 @@ namespace Foundatio.Repositories.JsonPatch {
 
         private static Operation Build(string op, string path, string key, JToken value) {
             if (String.IsNullOrEmpty(key))
-                return
-                    Operation.Parse("{ 'op' : '" + op + "' , path: '" + path + "', value: " +
+                return Operation.Parse("{ 'op' : '" + op + "' , path: '" + path + "', value: " +
                                     (value == null ? "null" : value.ToString(Formatting.None)) + "}");
-            else
-                return
-                    Operation.Parse("{ op : '" + op + "' , path : '" + Extend(path, key) + "' , value : " +
-                                    (value == null ? "null" : value.ToString(Formatting.None)) + "}");
+
+            return Operation.Parse("{ op : '" + op + "' , path : '" + Extend(path, key) + "' , value : " +
+                                (value == null ? "null" : value.ToString(Formatting.None)) + "}");
         }
 
         internal static Operation Add(string path, string key, JToken value) {
@@ -43,9 +42,8 @@ namespace Foundatio.Repositories.JsonPatch {
             if (left.Type == JTokenType.Array) {
                 Operation prev = null;
                 foreach (var operation in ProcessArray(left, right, path, useIdToDetermineEquality)) {
-                    var prevRemove = prev as RemoveOperation;
                     var add = operation as AddOperation;
-                    if (prevRemove != null && add != null && add.Path == prevRemove.Path) {
+                    if (prev is RemoveOperation prevRemove && add != null && add.Path == prevRemove.Path) {
                         yield return Replace(add.Path, "", add.Value);
                         prev = null;
                     } else {
@@ -54,9 +52,9 @@ namespace Foundatio.Repositories.JsonPatch {
                         prev = operation;
                     }
                 }
-                if (prev != null) {
+
+                if (prev != null)
                     yield return prev;
-                }
             } else if (left.Type == JTokenType.Object) {
                 var lprops = ((IDictionary<string, JToken>)left).OrderBy(p => p.Key);
                 var rprops = ((IDictionary<string, JToken>)right).OrderBy(p => p.Key);
@@ -95,9 +93,9 @@ namespace Foundatio.Repositories.JsonPatch {
             int commonHead = 0;
             int commonTail = 0;
             var array1 = left.ToArray();
-            var len1 = array1.Length;
+            int len1 = array1.Length;
             var array2 = right.ToArray();
-            var len2 = array2.Length;
+            int len2 = array2.Length;
             //    if (len1 == 0 && len2 ==0 ) yield break;
             while (commonHead < len1 && commonHead < len2) {
                 if (comparer.Equals(array1[commonHead], array2[commonHead]) == false)
@@ -116,8 +114,8 @@ namespace Foundatio.Repositories.JsonPatch {
                 if (comparer.Equals(array1[len1 - 1 - commonTail], array2[len2 - 1 - commonTail]) == false)
                     break;
 
-                var index1 = len1 - 1 - commonTail;
-                var index2 = len2 - 1 - commonTail;
+                int index1 = len1 - 1 - commonTail;
+                int index2 = len2 - 1 - commonTail;
                 foreach (var operation in CalculatePatch(array1[index1], array2[index2], useIdPropertyToDetermineEquality, path + "/" + index1)) {
                     yield return operation;
                 }
@@ -181,8 +179,8 @@ namespace Foundatio.Repositories.JsonPatch {
             var xIdToken = x["id"];
             var yIdToken = y["id"];
 
-            var xId = xIdToken?.Value<string>();
-            var yId = yIdToken?.Value<string>();
+            string xId = xIdToken?.Value<string>();
+            string yId = yIdToken?.Value<string>();
             if (xId != null && xId == yId) {
                 return true;
             }
@@ -195,7 +193,7 @@ namespace Foundatio.Repositories.JsonPatch {
                 return _inner.GetHashCode(obj);
 
             var xIdToken = obj["id"];
-            var xId = xIdToken != null && xIdToken.HasValues ? xIdToken.Value<string>() : null;
+            string xId = xIdToken != null && xIdToken.HasValues ? xIdToken.Value<string>() : null;
             if (xId != null)
                 return xId.GetHashCode() + _inner.GetHashCode(obj);
 
@@ -209,8 +207,8 @@ namespace Foundatio.Repositories.JsonPatch {
             var xIdToken = x["id"];
             var yIdToken = y["id"];
 
-            var xId = xIdToken?.Value<string>();
-            var yId = yIdToken?.Value<string>();
+            string xId = xIdToken?.Value<string>();
+            string yId = yIdToken?.Value<string>();
 
             return xId != null && xId == yId;
         }
