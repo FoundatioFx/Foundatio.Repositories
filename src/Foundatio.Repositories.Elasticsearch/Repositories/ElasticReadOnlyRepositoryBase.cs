@@ -142,6 +142,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (useSnapshotPaging)
                     searchDescriptor.Scroll(options.GetSnapshotLifetime());
 
+                if (query.ShouldOnlyHaveIds())
+                    searchDescriptor.Source(false);
+
                 response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
             } else {
                 response = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), options.GetSnapshotScrollId()).AnyContext();

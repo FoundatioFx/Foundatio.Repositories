@@ -15,7 +15,7 @@ namespace Foundatio.Repositories.Models {
             ((IGetNextPage<T>)this).GetNextPageFunc = getNextPage;
             if (hits != null) {
                 Hits = new List<FindHit<T>>(hits).AsReadOnly();
-                Documents = Hits.Select(r => r.Document).ToList().AsReadOnly();
+                Documents = Hits.Where(r => r.Document != null).Select(r => r.Document).ToList().AsReadOnly();
             }
         }
 

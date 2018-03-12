@@ -600,5 +600,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(employeeById);
             Assert.True(employeeById.IsDeleted);
         }
+
+        [Fact]
+        public async Task OnlyIdsShouldNotReturnDocuments() {
+            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+
+            var results = await _employeeRepository.FindAsAsync<Identity>(o => o.OnlyIds());
+            Assert.Empty(results.Documents);
+            Assert.Null(results.Hits.First().Document);
+            Assert.NotNull(results.Hits.First().Id);
+        }
     }
 }
