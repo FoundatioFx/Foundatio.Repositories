@@ -12,6 +12,10 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Threading;
+using System.Text;
+using Newtonsoft.Json;
+using System.Diagnostics;
 
 namespace Foundatio.Repositories.Elasticsearch {
 
@@ -89,44 +93,97 @@ namespace Foundatio.Repositories.Elasticsearch {
             await progressCallbackAsync(100, null).AnyContext();
         }
 
-        private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync, int startProgress = 0, int endProgress = 100, DateTime? startTime = null) {
+        private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync, int startProgress = 0, int endProgress = 100, DateTime? startTime = null, CancellationToken cancellationToken = default) {
             var query = await GetResumeQueryAsync(workItem.NewIndex, workItem.TimestampField, startTime).AnyContext();
 
-            var response = await _client.ReindexOnServerAsync(d => {
-                d.Source(src => src
-                    .Index(workItem.OldIndex)
-                    .Query<object>(q => query)
-                    .Sort<object>(s => s.Ascending(new Field(workItem.TimestampField ?? ID_FIELD))))
-                .Destination(dest => dest.Index(workItem.NewIndex))
-                .Conflicts(Conflicts.Proceed);
+            var sw = Stopwatch.StartNew();
+            var result = await Run.WithRetriesAsync(async () => {
+                    var response = await _client.ReindexOnServerAsync(d => {
+                        d.Source(src => src
+                            .Index(workItem.OldIndex)
+                            .Query<object>(q => query)
+                            .Sort<object>(s => s.Ascending(new Field(workItem.TimestampField ?? ID_FIELD))))
+                        .Destination(dest => dest.Index(workItem.NewIndex))
+                        .Conflicts(Conflicts.Proceed)
+                        .WaitForCompletion(false);
 
-                //NEST client emitting script if null, inline this when that's fixed
-                if (!String.IsNullOrWhiteSpace(workItem.Script)) d.Script(workItem.Script);
+                        //NEST client emitting script if null, inline this when that's fixed
+                        if (!String.IsNullOrWhiteSpace(workItem.Script)) d.Script(workItem.Script);
 
-                return d;
-            }).AnyContext();
+                        return d;
+                    }).AnyContext();
+
+                    return response;
+                }, 
+                maxAttempts: 5,
+                retryInterval: TimeSpan.FromSeconds(10),
+                cancellationToken: cancellationToken,
+                logger: _logger).AnyContext();
 
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogInformation(response.GetRequest());
+                _logger.LogInformation(result.GetRequest());
+
+            var taskSuccess = false;
+            TaskReindexResult lastReindexResponse = null;
+            do {
+                await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken).AnyContext();
+
+                var status = await _client.GetTaskAsync(result.Task, null, cancellationToken).AnyContext();
+                if (!status.IsValid) {
+                    _logger.LogError($"Error getting task status while reindexing: {workItem.OldIndex} -> {workItem.NewIndex}. Reason: {status.GetErrorMessage()}");
+                    break;
+                }
+
+                var rawResponse = Encoding.UTF8.GetString(status.ApiCall.ResponseBodyInBytes);
+                var response = JsonConvert.DeserializeObject<TaskWithReindexResponse>(rawResponse);
+                lastReindexResponse = response.Response;
+
+                if (response.Error != null) {
+                    _logger.LogError($"Error reindex: {response.Error.Type}");
+                    break;
+                }
+
+                if (lastReindexResponse == null) continue;
+
+                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace)) {
+                    _logger.LogInformation(rawResponse);
+                }
+
+                var lastCompleted = lastReindexResponse.Created + lastReindexResponse.Updated + lastReindexResponse.Noops;
+                var lastMessage = $"Total: {lastReindexResponse.Total:N0} Completed: {lastCompleted:N0} VersionConflicts: {lastReindexResponse.VersionConflicts:N0}";
+                await progressCallbackAsync(CalculateProgress(lastReindexResponse.Total, lastCompleted, startProgress, endProgress), lastMessage).AnyContext();
+
+                if (status.Completed) {
+                    taskSuccess = true;
+                    break;
+                }
+
+                if (sw.Elapsed > TimeSpan.FromHours(3)) {
+                    _logger.LogError($"Timed out waiting for reindex {workItem.OldIndex} -> {workItem.NewIndex}.");
+                    break;
+                }
+            } while (!cancellationToken.IsCancellationRequested);
+            sw.Stop();
 
             long failures = 0;
-            bool succeeded = true;
-            if (!response.IsValid || response.ApiCall.HttpStatusCode != 200) {
-                _logger.LogError(response.OriginalException, "Error while reindexing result: {Message}", response.GetErrorMessage());
+            if (lastReindexResponse != null && lastReindexResponse.Failures.Count > 0) {
+                _logger.LogError("Error while reindexing result");
 
                 if (await CreateFailureIndexAsync(workItem).AnyContext()) {
-                    foreach (var failure in response.Failures) {
+                    foreach (var failure in lastReindexResponse.Failures) {
                         await HandleFailureAsync(workItem, failure).AnyContext();
                         failures++;
                     }
                 }
-                succeeded = false;
+                taskSuccess = false;
             }
 
-            long completed = response.Created + response.Updated + response.Noops;
-            string message = $"Total: {response.Total:N0} Completed: {completed:N0} VersionConflicts: {response.VersionConflicts:N0}";
-            await progressCallbackAsync(CalculateProgress(response.Total, completed, startProgress, endProgress), message).AnyContext();
-            return new ReindexResult { Total = response.Total, Completed = completed, Failures = failures, Succeeded = succeeded };
+            var total = lastReindexResponse?.Total ?? 0;
+            var versionConflicts = lastReindexResponse?.VersionConflicts ?? 0;
+            var completed = (lastReindexResponse?.Created ?? 0) + (lastReindexResponse?.Updated ?? 0) + (lastReindexResponse?.Noops ?? 0);
+            var message = $"Total: {total:N0} Completed: {completed:N0} VersionConflicts: {versionConflicts:N0}";
+            await progressCallbackAsync(CalculateProgress(total, completed, startProgress, endProgress), message).AnyContext();
+            return new ReindexResult { Total = total, Completed = completed, Failures = failures, Succeeded = taskSuccess };
         }
 
         private async Task<bool> CreateFailureIndexAsync(ReindexWorkItem workItem) {
@@ -152,7 +209,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return;
             }
 
-            var document = new JObject(new {
+            var document = JObject.FromObject(new {
                 failure.Index,
                 failure.Type,
                 failure.Id,
@@ -240,6 +297,26 @@ namespace Foundatio.Repositories.Elasticsearch {
             public long Completed { get; set; }
             public long Failures { get; set; }
             public bool Succeeded { get; set; }
+        }
+
+        private class TaskWithReindexResponse {
+            public TaskReindexResult Response { get; set; }
+            public TaskReindexError Error { get; set; }
+        }
+
+        private class TaskReindexError {
+            public string Type { get; set; }
+        }
+
+        private class TaskReindexResult
+        {
+            public long Total { get; set; }
+            public long Created { get; set; }
+            public long Updated { get; set; }
+            public long Noops { get; set; }
+            public long VersionConflicts { get; set; }
+
+            public IReadOnlyCollection<BulkIndexByScrollFailure> Failures { get; set; }
         }
     }
 }
