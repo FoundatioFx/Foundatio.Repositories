@@ -3,6 +3,7 @@
 [![Build status](https://ci.appveyor.com/api/projects/status/fhuovj9tddvjgxja?svg=true)](https://ci.appveyor.com/project/Exceptionless/foundatio-repositories)
 [![NuGet Version](http://img.shields.io/nuget/v/Foundatio.Repositories.svg?style=flat)](https://www.nuget.org/packages/Foundatio.Repositories/)
 [![Slack Status](https://slack.exceptionless.com/badge.svg)](https://slack.exceptionless.com)
+[![Help Contribute to Open Source](https://www.codetriage.com/foundatiofx/foundatio.repositories/badges/users.svg)](https://www.codetriage.com/foundatiofx/foundatio.repositories)
 
 Generic repository contract and implementations. Currently only implemented for Elasticsearch, but there are plans for other implementations.
 
