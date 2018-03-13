@@ -124,7 +124,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             }
         }
 
-        [Fact(Skip = "TODO: There is a bug with the nest client https://github.com/elastic/elasticsearch-net/issues/2309")]
+        [Fact]
         public async Task CanHandleReindexFailureAsync() {
             var version1Index = new VersionedEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
@@ -158,6 +158,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
 
                     await version2Index.ReindexAsync();
+                    await version2Index.Configuration.Client.RefreshAsync(Indices.All);
 
                     var aliasResponse = await _client.GetAliasAsync(d => d.Name(version2Index.Name));
                     Assert.True(aliasResponse.IsValid);
@@ -182,7 +183,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.True(countResponse.IsValid);
                     Assert.Equal(0, countResponse.Count);
 
-                    countResponse = await _client.CountAsync<object>(d => d.Index($"{version2Index.VersionedName}-error"));
+                    countResponse = await _client.CountAsync<object>(d => d.Index($"{version2Index.VersionedName}-error").Type("failures"));
                     _logger.LogTrace(countResponse.GetRequest());
                     Assert.True(countResponse.IsValid);
                     Assert.Equal(1, countResponse.Count);
