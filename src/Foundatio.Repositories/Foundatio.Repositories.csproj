@@ -6,8 +6,8 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Exceptionless.DateTimeExtensions" Version="3.3.96" />
-    <PackageReference Include="FluentValidation" Version="7.5.0" />
-    <PackageReference Include="Foundatio" Version="7.0.1688-pre" />
-    <PackageReference Include="Newtonsoft.Json" Version="10.0.3" />
+    <PackageReference Include="FluentValidation" Version="7.5.1" />
+    <PackageReference Include="Foundatio" Version="7.0.1693-pre" />
+    <PackageReference Include="Newtonsoft.Json" Version="11.0.1" />
   </ItemGroup>
 </Project>

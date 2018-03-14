@@ -82,7 +82,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (docs.Count == 0)
                 return;
 
-            var ids = docs.Where(d => !String.IsNullOrEmpty(d.Id)).Select(d => d.Id).ToArray();
+            string[] ids = docs.Where(d => !String.IsNullOrEmpty(d.Id)).Select(d => d.Id).ToArray();
             if (ids.Length < docs.Count)
                 throw new ApplicationException("Id must be set when calling Save.");
 
@@ -687,11 +687,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                 (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m => new ModifiedDocument<T>(m.Modified, m.Original)).ToList();
 
             if (SupportsSoftDeletes && IsCacheEnabled) {
-                var deletedIds = modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Value).IsDeleted).Select(m => m.Value.Id).ToArray();
+                string[] deletedIds = modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Value).IsDeleted).Select(m => m.Value.Id).ToArray();
                 if (deletedIds.Length > 0)
                     await Cache.SetAddAsync("deleted", deletedIds, TimeSpan.FromSeconds(30)).AnyContext();
 
-                var undeletedIds = modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Value).IsDeleted == false).Select(m => m.Value.Id).ToArray();
+                string[] undeletedIds = modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Value).IsDeleted == false).Select(m => m.Value.Id).ToArray();
                 if (undeletedIds.Length > 0)
                     await Cache.SetRemoveAsync("deleted", undeletedIds, TimeSpan.FromSeconds(30)).AnyContext();
             }

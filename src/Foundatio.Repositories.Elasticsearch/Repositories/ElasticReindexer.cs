@@ -18,7 +18,6 @@ using Newtonsoft.Json;
 using System.Diagnostics;
 
 namespace Foundatio.Repositories.Elasticsearch {
-
     public class ElasticReindexer {
         private readonly IElasticClient _client;
         private readonly ILogger _logger;
@@ -114,16 +113,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                     }).AnyContext();
 
                     return response;
-                }, 
-                maxAttempts: 5,
-                retryInterval: TimeSpan.FromSeconds(10),
-                cancellationToken: cancellationToken,
-                logger: _logger).AnyContext();
+                }, 5, TimeSpan.FromSeconds(10), cancellationToken, _logger).AnyContext();
 
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogInformation(result.GetRequest());
+                _logger.LogTrace(result.GetRequest());
 
-            var taskSuccess = false;
+            bool taskSuccess = false;
             TaskReindexResult lastReindexResponse = null;
             do {
                 await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken).AnyContext();
@@ -134,7 +129,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     break;
                 }
 
-                var rawResponse = Encoding.UTF8.GetString(status.ApiCall.ResponseBodyInBytes);
+                string rawResponse = Encoding.UTF8.GetString(status.ApiCall.ResponseBodyInBytes);
                 var response = JsonConvert.DeserializeObject<TaskWithReindexResponse>(rawResponse);
                 lastReindexResponse = response.Response;
 
@@ -145,12 +140,11 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 if (lastReindexResponse == null) continue;
 
-                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace)) {
-                    _logger.LogInformation(rawResponse);
-                }
+                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                    _logger.LogTrace(rawResponse);
 
-                var lastCompleted = lastReindexResponse.Created + lastReindexResponse.Updated + lastReindexResponse.Noops;
-                var lastMessage = $"Total: {lastReindexResponse.Total:N0} Completed: {lastCompleted:N0} VersionConflicts: {lastReindexResponse.VersionConflicts:N0}";
+                long lastCompleted = lastReindexResponse.Created + lastReindexResponse.Updated + lastReindexResponse.Noops;
+                string lastMessage = $"Total: {lastReindexResponse.Total:N0} Completed: {lastCompleted:N0} VersionConflicts: {lastReindexResponse.VersionConflicts:N0}";
                 await progressCallbackAsync(CalculateProgress(lastReindexResponse.Total, lastCompleted, startProgress, endProgress), lastMessage).AnyContext();
 
                 if (status.Completed) {
@@ -178,10 +172,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                 taskSuccess = false;
             }
 
-            var total = lastReindexResponse?.Total ?? 0;
-            var versionConflicts = lastReindexResponse?.VersionConflicts ?? 0;
-            var completed = (lastReindexResponse?.Created ?? 0) + (lastReindexResponse?.Updated ?? 0) + (lastReindexResponse?.Noops ?? 0);
-            var message = $"Total: {total:N0} Completed: {completed:N0} VersionConflicts: {versionConflicts:N0}";
+            long total = lastReindexResponse?.Total ?? 0;
+            long versionConflicts = lastReindexResponse?.VersionConflicts ?? 0;
+            long completed = (lastReindexResponse?.Created ?? 0) + (lastReindexResponse?.Updated ?? 0) + (lastReindexResponse?.Noops ?? 0);
+            string message = $"Total: {total:N0} Completed: {completed:N0} VersionConflicts: {versionConflicts:N0}";
             await progressCallbackAsync(CalculateProgress(total, completed, startProgress, endProgress), message).AnyContext();
             return new ReindexResult { Total = total, Completed = completed, Failures = failures, Succeeded = taskSuccess };
         }
@@ -275,6 +269,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
                 _logger.LogTrace(newestDocumentResponse.GetRequest());
+
             if (!newestDocumentResponse.IsValid || !newestDocumentResponse.Documents.Any())
                 return null;
 
