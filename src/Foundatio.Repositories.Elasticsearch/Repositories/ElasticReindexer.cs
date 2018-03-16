@@ -82,8 +82,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             bool hasFailures = (firstPassResult.Failures + secondPassResult.Failures) > 0;
             if (!hasFailures && workItem.DeleteOld && workItem.OldIndex != workItem.NewIndex) {
                 await _client.RefreshAsync(Indices.All).AnyContext();
-                long newDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.NewIndex)).AnyContext()).Count;
-                long oldDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.OldIndex)).AnyContext()).Count;
+                long newDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.NewIndex).AllTypes()).AnyContext()).Count;
+                long oldDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.OldIndex).AllTypes()).AnyContext()).Count;
                 await progressCallbackAsync(98, $"Old Docs: {oldDocCount} New Docs: {newDocCount}").AnyContext();
                 if (newDocCount >= oldDocCount) {
                     await _client.DeleteIndexAsync(Indices.Index(workItem.OldIndex)).AnyContext();
@@ -138,6 +138,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     continue;
                 }
+
+                statusGetFails = 0;
 
                 var response = status.DeserializeRaw<TaskWithReindexResponse>();
                 if (response != null) {
