@@ -97,7 +97,6 @@ namespace Foundatio.Repositories.Elasticsearch {
         private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync, int startProgress = 0, int endProgress = 100, DateTime? startTime = null, CancellationToken cancellationToken = default) {
             var query = await GetResumeQueryAsync(workItem.NewIndex, workItem.TimestampField, startTime).AnyContext();
 
-            var sw = Stopwatch.StartNew();
             var result = await Run.WithRetriesAsync(async () => {
                     var response = await _client.ReindexOnServerAsync(d => {
                         d.Source(src => src
@@ -117,12 +116,15 @@ namespace Foundatio.Repositories.Elasticsearch {
                     return response;
                 }, 5, TimeSpan.FromSeconds(10), cancellationToken, _logger).AnyContext();
 
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(result.GetRequest());
+            _logger.LogInformation("Reindex Task Id: {TaskId}", result.Task.FullyQualifiedId);
+
+            _logger.LogTrace(result.GetRequest());
 
             bool taskSuccess = false;
             TaskReindexResult lastReindexResponse = null;
-            var statusGetFails = 0;
+            int statusGetFails = 0;
+            long lastProgress = 0;
+            var sw = Stopwatch.StartNew();
             do {
                 await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken).AnyContext();
 
@@ -142,25 +144,28 @@ namespace Foundatio.Repositories.Elasticsearch {
                 statusGetFails = 0;
 
                 var response = status.DeserializeRaw<TaskWithReindexResponse>();
-                if (response != null) {
-                    if (response.Error != null) {
-                        _logger.LogError($"Error reindex: {response.Error.Type}");
-                        break;
-                    }
-
-                    lastReindexResponse = response.Response;
+                if (response?.Error != null) {
+                    _logger.LogError($"Error reindex: {response.Error.Type}, {response.Error.Reason}, Cause: {response.Error.Caused_By.Reason} Stack: {String.Join("\r\n", response.Error.Script_Stack)}");
+                    break;
                 }
 
+                lastReindexResponse = response?.Response;
+
                 long lastCompleted = status.Task.Status.Created + status.Task.Status.Updated + status.Task.Status.Noops;
+
+                // restart the stop watch if there was progress made
+                if (lastCompleted > lastProgress) sw.Restart();
+                lastProgress = lastCompleted;
+
                 string lastMessage = $"Total: {status.Task.Status.Total:N0} Completed: {lastCompleted:N0} VersionConflicts: {status.Task.Status.VersionConflicts:N0}";
                 await progressCallbackAsync(CalculateProgress(status.Task.Status.Total, lastCompleted, startProgress, endProgress), lastMessage).AnyContext();
 
-                if (status.Completed) {
+                if (status.Completed && response?.Error == null) {
                     taskSuccess = true;
                     break;
                 }
 
-                if (sw.Elapsed > TimeSpan.FromHours(3)) {
+                if (sw.Elapsed > TimeSpan.FromMinutes(10)) {
                     _logger.LogError($"Timed out waiting for reindex {workItem.OldIndex} -> {workItem.NewIndex}.");
                     break;
                 }
@@ -230,8 +235,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         private async Task<List<string>> GetIndexAliasesAsync(string index) {
             var aliasesResponse = await _client.GetAliasAsync(a => a.Index(index)).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(aliasesResponse.GetRequest());
+            _logger.LogTrace(aliasesResponse.GetRequest());
 
             if (aliasesResponse.IsValid && aliasesResponse.Indices.Count > 0) {
                 var aliases = aliasesResponse.Indices.Single(a => a.Key == index);
@@ -275,8 +279,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 .Size(1)
             ).AnyContext();
 
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(newestDocumentResponse.GetRequest());
+            _logger.LogTrace(newestDocumentResponse.GetRequest());
 
             if (!newestDocumentResponse.IsValid || !newestDocumentResponse.Documents.Any())
                 return null;
@@ -292,6 +295,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         private int CalculateProgress(long total, long completed, int startProgress = 0, int endProgress = 100) {
+            if (total == 0) return startProgress;
             return startProgress + (int)((100 * (double)completed / total) * (((double)endProgress - startProgress) / 100));
         }
 
@@ -309,6 +313,15 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         private class TaskReindexError {
             public string Type { get; set; }
+            public string Reason { get; set; }
+            public List<string> Script_Stack { get; set; }
+
+            public TaskCause Caused_By { get; set ;}
+        }
+
+        private class TaskCause {
+            public string Type { get; set; }
+            public string Reason { get; set; }
         }
 
         private class TaskReindexResult
