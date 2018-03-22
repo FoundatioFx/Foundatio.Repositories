@@ -1,5 +1,6 @@
 ﻿using Elasticsearch.Net;
 using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
@@ -8,15 +9,12 @@ using Nest;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using System.Threading;
-using System.Text;
-using Newtonsoft.Json;
-using System.Diagnostics;
-using Foundatio.Repositories.Elasticsearch.Extensions;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public class ElasticReindexer {
@@ -118,7 +116,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             _logger.LogInformation("Reindex Task Id: {TaskId}", result.Task.FullyQualifiedId);
 
-            _logger.LogTrace(result.GetRequest());
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace(result.GetRequest());
 
             bool taskSuccess = false;
             TaskReindexResult lastReindexResponse = null;
@@ -235,7 +234,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         private async Task<List<string>> GetIndexAliasesAsync(string index) {
             var aliasesResponse = await _client.GetAliasAsync(a => a.Index(index)).AnyContext();
-            _logger.LogTrace(aliasesResponse.GetRequest());
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace(aliasesResponse.GetRequest());
 
             if (aliasesResponse.IsValid && aliasesResponse.Indices.Count > 0) {
                 var aliases = aliasesResponse.Indices.Single(a => a.Key == index);
@@ -279,7 +279,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 .Size(1)
             ).AnyContext();
 
-            _logger.LogTrace(newestDocumentResponse.GetRequest());
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace(newestDocumentResponse.GetRequest());
 
             if (!newestDocumentResponse.IsValid || !newestDocumentResponse.Documents.Any())
                 return null;
@@ -324,8 +325,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             public string Reason { get; set; }
         }
 
-        private class TaskReindexResult
-        {
+        private class TaskReindexResult {
             public long Total { get; set; }
             public long Created { get; set; }
             public long Updated { get; set; }
