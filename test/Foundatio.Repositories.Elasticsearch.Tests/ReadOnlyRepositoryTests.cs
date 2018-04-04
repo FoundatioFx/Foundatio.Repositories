@@ -158,6 +158,27 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, _cache.Count);
             Assert.Equal(1, _cache.Hits);
             Assert.Equal(1, _cache.Misses);
+
+            Assert.Null(await _identityRepository.GetByIdAsync("not-yet", o => o.Cache()));
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(1, _cache.Hits);
+            Assert.Equal(2, _cache.Misses);
+
+            Assert.Null(await _identityRepository.GetByIdAsync("not-yet", o => o.Cache()));
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(2, _cache.Hits);
+            Assert.Equal(2, _cache.Misses);
+
+            var newIdentity = await _identityRepository.AddAsync(IdentityGenerator.Generate("not-yet"), o => o.Cache());
+            Assert.NotNull(newIdentity?.Id);
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(2, _cache.Hits);
+            Assert.Equal(2, _cache.Misses);
+
+            Assert.Equal(newIdentity, await _identityRepository.GetByIdAsync("not-yet", o => o.Cache()));
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(3, _cache.Hits);
+            Assert.Equal(2, _cache.Misses);
         }
 
         [Fact]
@@ -302,6 +323,20 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(2, _cache.Count);
             Assert.Equal(4, _cache.Hits);
             Assert.Equal(2, _cache.Misses);
+
+            results = await _identityRepository.GetByIdsAsync(new Ids(identity1.Id, identity2.Id, "not-yet"), o => o.Cache());
+            Assert.NotNull(results);
+            Assert.Equal(3, _cache.Count);
+            Assert.Equal(6, _cache.Hits);
+            Assert.Equal(3, _cache.Misses);
+            Assert.Equal(2, results.Count);
+
+            results = await _identityRepository.GetByIdsAsync(new Ids(identity1.Id, identity2.Id, "not-yet"), o => o.Cache());
+            Assert.NotNull(results);
+            Assert.Equal(3, _cache.Count);
+            Assert.Equal(9, _cache.Hits);
+            Assert.Equal(3, _cache.Misses);
+            Assert.Equal(2, results.Count);
         }
 
         [Fact]

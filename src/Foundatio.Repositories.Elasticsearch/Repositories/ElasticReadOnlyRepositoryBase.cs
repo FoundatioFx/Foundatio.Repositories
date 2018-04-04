@@ -238,17 +238,18 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (String.IsNullOrEmpty(id.Value))
                 return null;
 
-            T hit = null;
+            CacheValue<T> hit = null;
             if (IsCacheEnabled && options.ShouldReadCache())
-                hit = await Cache.GetAsync<T>(id, default).AnyContext();
+                hit = await Cache.GetAsync<T>(id).AnyContext();
 
             bool isTraceLogLevelEnabled = _logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace);
-            if (hit != null) {
+            if (hit != null && hit.HasValue) {
                 if (isTraceLogLevelEnabled)
                     _logger.LogTrace("Cache hit: type={ElasticType} key={Id}", ElasticType.Name, id);
-                return hit;
+                return hit.Value;
             }
 
+            T document = null;
             if (!HasParent || id.Routing != null) {
                 var request = new GetRequest(GetIndexById(id), ElasticType.Name, id.Value);
                 if (id.Routing != null)
@@ -257,19 +258,19 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (isTraceLogLevelEnabled)
                     _logger.LogTrace(response.GetRequest());
 
-                hit = response.Found ? response.ToFindHit().Document : null;
+                document = response.Found ? response.ToFindHit().Document : null;
             } else {
                 // we don't have the parent id so we have to do a query
                 // TODO: Ensure this is find one query is not cached.
                 var findResult = await FindOneAsync(NewQuery().Id(id)).AnyContext();
                 if (findResult != null)
-                    hit = findResult.Document;
+                    document = findResult.Document;
             }
 
-            if (hit != null && IsCacheEnabled && options.ShouldUseCache())
-                await Cache.SetAsync(id, hit, options.GetExpiresIn()).AnyContext();
+            if (IsCacheEnabled && options.ShouldUseCache())
+                await Cache.SetAsync(id, document, options.GetExpiresIn()).AnyContext();
 
-            return hit;
+            return document;
         }
 
         public virtual async Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, ICommandOptions options = null) {
@@ -288,7 +289,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var itemsToFind = idList.Except(hits.OfType<IIdentity>().Select(i => (Id)i.Id)).ToList();
             if (itemsToFind.Count == 0)
-                return hits.AsReadOnly();
+                return hits.Where(h => h != null).ToList().AsReadOnly();
 
             var multiGet = new MultiGetDescriptor();
             foreach (var id in itemsToFind.Where(i => i.Routing != null || !HasParent)) {
@@ -306,9 +307,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 _logger.LogTrace(multiGetResults.GetRequest());
 
             foreach (var doc in multiGetResults.Documents) {
-                if (!doc.Found)
-                    continue;
-
                 hits.Add(((IMultiGetHit<T>)doc).ToFindHit().Document);
                 itemsToFind.Remove(new Id(doc.Id, doc.Routing));
             }
@@ -324,14 +322,10 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (IsCacheEnabled && options.ShouldUseCache()) {
                 var expiresIn = options.GetExpiresIn();
-                var tasks = new List<Task>(hits.Count);
-                foreach (var item in hits.OfType<IIdentity>())
-                    tasks.Add(Cache.SetAsync(item.Id, item, expiresIn));
-
-                await Task.WhenAll(tasks).AnyContext();
+                await Cache.SetAllAsync(ids.ToDictionary(id => id.Value, id => hits.OfType<IIdentity>().FirstOrDefault(h => h.Id == id.Value))).AnyContext();
             }
 
-            return hits.AsReadOnly();
+            return hits.Where(h => h != null).ToList().AsReadOnly();
         }
 
         public virtual Task<FindResults<T>> GetAllAsync(ICommandOptions options = null) {
