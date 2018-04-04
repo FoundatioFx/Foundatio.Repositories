@@ -322,7 +322,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (IsCacheEnabled && options.ShouldUseCache()) {
                 var expiresIn = options.GetExpiresIn();
-                await Cache.SetAllAsync(ids.ToDictionary(id => id.Value, id => hits.OfType<IIdentity>().FirstOrDefault(h => h.Id == id.Value))).AnyContext();
+                await Cache.SetAllAsync(idList.ToDictionary(id => id.Value, id => hits.OfType<IIdentity>().FirstOrDefault(h => h.Id == id.Value))).AnyContext();
             }
 
             return hits.Where(h => h != null).ToList().AsReadOnly();
