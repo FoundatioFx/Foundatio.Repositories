@@ -22,10 +22,11 @@ namespace Foundatio.Repositories.Extensions {
                 return;
 
             foreach (var value in values) {
-                if (value.CreatedUtc == DateTime.MinValue || value.CreatedUtc > SystemClock.UtcNow)
-                    value.CreatedUtc = SystemClock.UtcNow;
+                var utcNow = SystemClock.UtcNow;
+                if (value.CreatedUtc == DateTime.MinValue || value.CreatedUtc > utcNow)
+                    value.CreatedUtc = utcNow;
 
-                value.UpdatedUtc = SystemClock.UtcNow;
+                value.UpdatedUtc = utcNow;
             }
         }
 
