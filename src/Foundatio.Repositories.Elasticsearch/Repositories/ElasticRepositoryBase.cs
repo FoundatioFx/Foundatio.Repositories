@@ -54,6 +54,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (docs.Count == 0)
                 return;
 
+            options = ConfigureOptions(options);
             await OnDocumentsAddingAsync(docs, options).AnyContext();
 
             if (_validator != null)
@@ -120,6 +121,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (operation == null)
                 throw new ArgumentNullException(nameof(operation));
+
+            options = ConfigureOptions(options);
 
             var pipelinedIndexType = ElasticType as IHavePipelinedIndexType;
             string pipeline = pipelinedIndexType?.Pipeline;
@@ -219,6 +222,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (ids.Count == 0)
                 return;
 
+            options = ConfigureOptions(options);
             if (ids.Count == 1) {
                 await PatchAsync(ids[0], operation, options).AnyContext();
                 return;
@@ -451,9 +455,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (ids == null)
                 throw new ArgumentNullException(nameof(ids));
 
-            if (options == null)
-                options = new CommandOptions();
-
+            options = ConfigureOptions(options);
             if (IsCacheEnabled)
                 options = options.ReadCache();
 
@@ -486,6 +488,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     await TimeSeriesType.EnsureIndexAsync(documentGroup.First()).AnyContext();
             }
 
+            options = ConfigureOptions(options);
             await OnDocumentsRemovingAsync(docs, options).AnyContext();
 
             if (docs.Count == 1) {
