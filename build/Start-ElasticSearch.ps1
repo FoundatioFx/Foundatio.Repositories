@@ -38,7 +38,8 @@ For ($i = 1; $i -le $NodeCount; $i++) {
     Copy-Item .\elasticsearch-$Version .\elasticsearch-$Version-node$i -Recurse
     Copy-Item .\elasticsearch.yml .\elasticsearch-$Version-node$i\config -Force
     Add-Content .\elasticsearch-$Version-node$i\config\elasticsearch.yml "`nhttp.port: $nodePort"
-        
+    (Get-Content .\elasticsearch-$Version-node$i\config\jvm.options).replace('-Xms2g', '-Xms256m').replace('-Xmx2g', '-Xmx256m') | Set-Content .\elasticsearch-$Version-node$i\config\jvm.options
+
     Invoke-Expression ".\elasticsearch-$Version-node$i\bin\elasticsearch-plugin.bat install mapper-size"
     if ($LastExitCode -ne 0) {
       $host.SetShouldExit($LastExitCode)
@@ -59,10 +60,10 @@ For ($i = 1; $i -le $NodeCount; $i++) {
     If ($attempts -gt 0) {
       Start-Sleep -s 2
     }
-        
+
     Write-Host "Waiting for Elasticsearch $Version node $i to respond ($attempts)..."
     $res = $null
-        
+
     Try {
       $res = Invoke-WebRequest http://localhost:$nodePort -UseBasicParsing
       If ($res -ne $null -And $res.StatusCode -eq 200) {
@@ -106,10 +107,10 @@ If ($StartKibana -eq $true) {
     If ($attempts -gt 0) {
       Start-Sleep -s 2
     }
-        
+
     Write-Host "Waiting for Kibana $Version to respond ($attempts)..."
     $res = $null
-        
+
     Try {
       $res = Invoke-WebRequest http://localhost:5601 -UseBasicParsing
       If ($res -ne $null -And $res.StatusCode -eq 200) {
