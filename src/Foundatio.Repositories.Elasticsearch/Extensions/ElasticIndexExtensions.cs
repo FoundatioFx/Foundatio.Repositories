@@ -229,5 +229,9 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         public static Nest.TextPropertyDescriptor<T> AddKeywordField<T>(this Nest.TextPropertyDescriptor<T> descriptor) where T : class {
             return descriptor.Fields(f => f.Keyword(s => s.Name("keyword").IgnoreAbove(256)));
         }
+
+        public static Nest.TextPropertyDescriptor<T> AddSortField<T>(this Nest.TextPropertyDescriptor<T> descriptor, string normalizer) where T : class {
+            return descriptor.Fields(f => f.Keyword(s => s.Name("sort").Normalizer(normalizer).IgnoreAbove(256)));
+        }
     }
 }
