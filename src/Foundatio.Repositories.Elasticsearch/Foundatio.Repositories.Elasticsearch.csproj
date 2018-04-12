@@ -8,7 +8,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Foundatio.Jobs.Commands" Version="7.0.1698-pre" />
-    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="5.6.377-pre" />
+    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="5.6.383-pre" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Foundatio.Repositories\Foundatio.Repositories.csproj" />
