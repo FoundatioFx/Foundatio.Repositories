@@ -10,7 +10,9 @@ using Foundatio.Utility;
 using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
+
     public static class ElasticIndexExtensions {
+
         public static FindResults<T> ToFindResults<T>(this Nest.ISearchResponse<T> response, int? limit = null) where T : class, new() {
             var docs = response.Hits.Take(limit ?? Int32.MaxValue).ToFindHits().ToList();
             var data = response.ScrollId != null ? new DataDictionary { { ElasticDataKeys.ScrollId, response.ScrollId } } : null;
@@ -49,6 +51,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         }
 
         private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
+
         public static IAggregate ToAggregate(this Nest.IAggregate aggregate) {
             if (aggregate is Nest.ValueAggregate valueAggregate) {
                 if (valueAggregate.Meta != null && valueAggregate.Meta.TryGetValue("@field_type", out var value)) {
@@ -113,7 +116,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 return new SingleBucketAggregate(singleBucketAggregate.Aggregations.ToAggregations()) {
                     Data = singleBucketAggregate.Meta.ToData<SingleBucketAggregate>(),
                     Total = singleBucketAggregate.DocCount
-                };            
+                };
 
             if (aggregate is Nest.BucketAggregate bucketAggregation) {
                 var data = new Dictionary<string, object>((IDictionary<string, object>)bucketAggregation.Meta ?? new Dictionary<string, object>());
@@ -167,7 +170,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     FromAsString = rangeBucket.FromAsString,
                     To = rangeBucket.To,
                     ToAsString = rangeBucket.ToAsString,
-                    Data = new Dictionary<string, object> {{ "@type", "range" }}
+                    Data = new Dictionary<string, object> { { "@type", "range" } }
                 };
 
             if (bucket is Nest.KeyedBucket<string> stringKeyedBucket)
@@ -226,12 +229,22 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return pd;
         }
 
+        /// <summary>
+        /// Not chainable with AddSortField. Use AddKeywordAndSortFields to add both.
+        /// </summary>
         public static Nest.TextPropertyDescriptor<T> AddKeywordField<T>(this Nest.TextPropertyDescriptor<T> descriptor) where T : class {
             return descriptor.Fields(f => f.Keyword(s => s.Name("keyword").IgnoreAbove(256)));
         }
 
+        /// <summary>
+        /// Not chainable with AddKeywordField. Use AddKeywordAndSortFields to add both.
+        /// </summary>
         public static Nest.TextPropertyDescriptor<T> AddSortField<T>(this Nest.TextPropertyDescriptor<T> descriptor, string normalizer) where T : class {
             return descriptor.Fields(f => f.Keyword(s => s.Name("sort").Normalizer(normalizer).IgnoreAbove(256)));
+        }
+
+        public static Nest.TextPropertyDescriptor<T> AddKeywordAndSortFields<T>(this Nest.TextPropertyDescriptor<T> descriptor, string sortNormalizer) where T : class {
+            return descriptor.Fields(f => f.Keyword(s => s.Name("keyword").IgnoreAbove(256)).Keyword(s => s.Name("sort").Normalizer(sortNormalizer).IgnoreAbove(256)));
         }
     }
 }
