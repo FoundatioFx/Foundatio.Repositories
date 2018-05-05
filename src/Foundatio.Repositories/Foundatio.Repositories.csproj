@@ -4,9 +4,8 @@
     <TargetFramework>netstandard2.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Exceptionless.DateTimeExtensions" Version="3.3.96" />
     <PackageReference Include="FluentValidation" Version="7.5.2" />
-    <PackageReference Include="Foundatio" Version="7.0.1698-pre" />
+    <PackageReference Include="Foundatio" Version="7.0.1703-pre" />
     <PackageReference Include="Newtonsoft.Json" Version="11.0.2" />
   </ItemGroup>
 </Project>
