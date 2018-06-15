@@ -103,7 +103,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public virtual MappingsDescriptor ConfigureIndexMappings(MappingsDescriptor mappings) {
-            return mappings.Map<T>(Name, BuildMapping);
+            return mappings.Map<T>("_doc", BuildMapping);
         }
 
         public virtual TypeMappingDescriptor<T> BuildMapping(TypeMappingDescriptor<T> map) {
