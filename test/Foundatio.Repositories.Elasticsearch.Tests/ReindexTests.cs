@@ -183,7 +183,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.True(countResponse.IsValid);
                     Assert.Equal(0, countResponse.Count);
 
-                    countResponse = await _client.CountAsync<object>(d => d.Index($"{version2Index.VersionedName}-error").Type("failures"));
+                    countResponse = await _client.CountAsync<object>(d => d.Index($"{version2Index.VersionedName}-error").Type("_doc"));
                     _logger.LogTrace(countResponse.GetRequest());
                     Assert.True(countResponse.IsValid);
                     Assert.Equal(1, countResponse.Count);

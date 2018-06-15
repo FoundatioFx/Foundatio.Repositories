@@ -767,7 +767,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var document = documents.Single();
                 var response = await _client.IndexAsync(document, i => {
                     i.OpType(isCreateOperation ? OpType.Create : OpType.Index);
-                    i.Type(ElasticIndex.Name);
+                    i.Type("_doc");
                     i.Pipeline(pipeline);
                     i.Refresh(options.GetRefreshMode(ElasticIndex.DefaultConsistency));
 
