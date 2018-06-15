@@ -128,7 +128,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             string pipeline = pipelinedIndexType?.Pipeline;
             if (operation is ScriptPatch scriptOperation) {
                 // TODO: Figure out how to specify a pipeline here.
-                var request = new UpdateRequest<T, T>(GetIndexById(id), ElasticIndex.Name, id.Value) {
+                var request = new UpdateRequest<T, T>(GetIndexById(id), "_doc", id.Value) {
                     Script = new InlineScript(scriptOperation.Script) { Params = scriptOperation.Params },
                     RetryOnConflict = 10,
                     Refresh = options.GetRefreshMode(ElasticIndex.DefaultConsistency)
@@ -146,7 +146,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ApplicationException(message, response.OriginalException);
                 }
             } else if (operation is Models.JsonPatch jsonOperation) {
-                var request = new GetRequest(GetIndexById(id), ElasticIndex.Name, id.Value);
+                var request = new GetRequest(GetIndexById(id), "_doc", id.Value);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
 
@@ -182,7 +182,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
             } else if (operation is PartialPatch partialOperation) {
                 // TODO: Figure out how to specify a pipeline here.
-                var request = new UpdateRequest<T, object>(GetIndexById(id), ElasticIndex.Name, id.Value) {
+                var request = new UpdateRequest<T, object>(GetIndexById(id), "_doc", id.Value) {
                     Doc = partialOperation.Document,
                     RetryOnConflict = 10
                 };
@@ -362,8 +362,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ArgumentException("Unknown operation type", nameof(operation));
 
                 if (!IsCacheEnabled && scriptOperation != null) {
-                    var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", GetIndexesByQuery(query))),
-                        ElasticIndex.Name) {
+                    var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", GetIndexesByQuery(query))), "_doc") {
                         Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext(),
                         Conflicts = Conflicts.Proceed,
                         Script = new InlineScript(scriptOperation.Script) { Params = scriptOperation.Params },
@@ -807,7 +806,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                         ? (IBulkOperation)new BulkCreateOperation<T>(d) { Pipeline = pipeline }
                         : new BulkIndexOperation<T>(d) { Pipeline = pipeline };
 
-                    o.Type = ElasticIndex.Name;
+                    o.Type = "_doc";
                     if (GetParentIdFunc != null)
                         o.Parent = GetParentIdFunc(d);
 

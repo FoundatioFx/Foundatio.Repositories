@@ -253,7 +253,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             T document = null;
             if (!HasParent || id.Routing != null) {
-                var request = new GetRequest(GetIndexById(id), ElasticIndex.Name, id.Value);
+                var request = new GetRequest(GetIndexById(id), "_doc", id.Value);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
                 var response = await _client.GetAsync<T>(request).AnyContext();
