@@ -9,10 +9,10 @@ using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent> {
-        public DailyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.DailyLogEvents.LogEvent) {
+        public DailyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.DailyLogEvents) {
         }
 
-        public DailyLogEventRepository(IIndexType<LogEvent> indexType) : base(indexType) {
+        public DailyLogEventRepository(IIndex<LogEvent> indexType) : base(indexType) {
         }
 
         public Task<FindResults<LogEvent>> GetByCompanyAsync(string company) {
@@ -72,7 +72,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
     }
 
     public class MonthlyLogEventRepository : DailyLogEventRepository {
-        public MonthlyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.MonthlyLogEvents.LogEvent) {
+        public MonthlyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.MonthlyLogEvents) {
         }
     }
 }

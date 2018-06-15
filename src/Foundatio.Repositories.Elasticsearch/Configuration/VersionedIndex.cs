@@ -10,8 +10,15 @@ using Nest;
 using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
+    public interface IVersionedIndex {
+        int Version { get; }
+        string VersionedName { get; }
+        Task<int> GetCurrentVersionAsync();
+        ReindexWorkItem CreateReindexWorkItem(int currentVersion);
+        Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null);
+    }
 
-    public class VersionedIndex : IndexBase, IMaintainableIndex {
+    public class VersionedIndex<T> : Index<T>, IVersionedIndex, IMaintainableIndex where T: class {
         public VersionedIndex(IElasticConfiguration configuration, string name, int version = 1)
             : base(configuration, name) {
             Version = version;
@@ -26,24 +33,23 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private class ReindexScript {
             public int Version { get; set; }
             public string Script { get; set; }
-            public string Type { get; set; }
         }
 
-        protected virtual void AddReindexScript(int versionNumber, string script, string type = null) {
-            ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script, Type = type });
+        protected virtual void AddReindexScript(int versionNumber, string script) {
+            ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script });
         }
 
-        protected void RenameFieldScript(int versionNumber, string originalName, string currentName, string type = null, bool removeOriginal = true) {
+        protected void RenameFieldScript(int versionNumber, string originalName, string currentName, bool removeOriginal = true) {
             string script = $"if (ctx._source.containsKey(\'{originalName}\')) {{ ctx._source[\'{currentName}\'] = ctx._source.{originalName}; }}";
-            ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script, Type = type });
+            ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script });
 
             if (removeOriginal)
-                RemoveFieldScript(versionNumber, originalName, type);
+                RemoveFieldScript(versionNumber, originalName);
         }
 
-        protected void RemoveFieldScript(int versionNumber, string fieldName, string type = null) {
+        protected void RemoveFieldScript(int versionNumber, string fieldName) {
             string script = $"if (ctx._source.containsKey(\'{fieldName}\')) {{ ctx._source.remove(\'{fieldName}\'); }}";
-            ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script, Type = type });
+            ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script });
         }
 
         public override async Task ConfigureAsync() {
@@ -113,24 +119,17 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return null;
 
             if (scripts.Count == 1)
-                return WrapScriptInTypeCheck(scripts[0].Script, scripts[0].Type);
+                return scripts[0].Script;
 
             string fullScriptWithFunctions = String.Empty;
             string functionCalls = String.Empty;
             for (int i = 0; i < scripts.Count; i++) {
                 var script = scripts[i];
-                fullScriptWithFunctions += $"void f{i:000}(def ctx) {{ {WrapScriptInTypeCheck(script.Script, script.Type)} }}\r\n";
+                fullScriptWithFunctions += $"void f{i:000}(def ctx) {{ {script.Script} }}\r\n";
                 functionCalls += $"f{i:000}(ctx); ";
             }
 
             return fullScriptWithFunctions + functionCalls;
-        }
-
-        private string WrapScriptInTypeCheck(string script, string type) {
-            if (String.IsNullOrWhiteSpace(type))
-                return script;
-
-            return $"if (ctx._type == '{type}') {{ {script} }}";
         }
 
         public override async Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
@@ -198,7 +197,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual async Task<IList<IndexInfo>> GetIndexesAsync(int version = -1) {
             string filter = version < 0 ? $"{Name}-v*" : $"{Name}-v{version}";
-            if (this is ITimeSeriesIndex)
+            if (this is ITimeSeriesIndex<T>)
                 filter += "-*";
 
             var sw = Stopwatch.StartNew();

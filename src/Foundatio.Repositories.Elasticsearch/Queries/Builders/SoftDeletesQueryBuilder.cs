@@ -30,7 +30,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (ids.Count > 0)
                 return Task.CompletedTask;
 
-            string fieldName = options.IndexType?.GetFieldName(IsDeleted) ?? IsDeleted;
+            string fieldName = options.Index?.GetFieldName(IsDeleted) ?? IsDeleted;
             if (mode == SoftDeleteQueryMode.ActiveOnly)
                 ctx.Filter &= new TermQuery { Field = fieldName, Value = false };
             else if (mode == SoftDeleteQueryMode.DeletedOnly)

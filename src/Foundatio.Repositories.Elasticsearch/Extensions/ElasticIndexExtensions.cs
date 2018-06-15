@@ -141,7 +141,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
             var kind = DateTimeKind.Utc;
             long ticks = _epochTicks + ((long)valueAggregate.Value * TimeSpan.TicksPerMillisecond);
-
+            
             if (valueAggregate.Meta.TryGetValue("@timezone", out var value) && value != null) {
                 kind = DateTimeKind.Unspecified;
                 ticks -= Foundatio.Utility.TimeUnit.Parse(value.ToString()).Ticks;

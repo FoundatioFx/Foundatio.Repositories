@@ -11,10 +11,10 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class EmployeeRepository : ElasticRepositoryBase<Employee> {
-        public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.Employees.Employee) {
+        public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.Employees) {
         }
 
-        public EmployeeRepository(IIndexType<Employee> employeeType) : base(employeeType) {
+        public EmployeeRepository(IIndex<Employee> employeeType) : base(employeeType) {
             DocumentsChanged.AddHandler((o, args) => {
                 DocumentsChangedCount += args.Documents.Count;
                 return Task.CompletedTask;

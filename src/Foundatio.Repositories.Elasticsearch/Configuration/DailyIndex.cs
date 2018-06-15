@@ -12,24 +12,53 @@ using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
+using Foundatio.Repositories.Utility;
+using Foundatio.Repositories.Options;
+using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
-    public class DailyIndexType<T> : TimeSeriesIndexType<T> where T : class {
-        public DailyIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null) : base(index, name, getDocumentDateUtc) {}
-    }
-
-    public class DailyIndex : VersionedIndex, ITimeSeriesIndex {
+    public class DailyIndex<T> : VersionedIndex<T>, ITimeSeriesIndex<T> where T: class {
         protected static readonly CultureInfo EnUs = new CultureInfo("en-US");
         private readonly List<IndexAliasAge> _aliases = new List<IndexAliasAge>();
         private readonly Lazy<IReadOnlyCollection<IndexAliasAge>> _frozenAliases;
         private readonly ICacheClient _aliasCache;
         private TimeSpan? _maxIndexAge;
+        protected readonly Func<T, DateTime> _getDocumentDateUtc;
+        protected readonly string[] _defaultIndexes;
 
-        public DailyIndex(IElasticConfiguration configuration, string name, int version = 1)
+        public DailyIndex(IElasticConfiguration configuration, string name, int version = 1, Func<T, DateTime> getDocumentDateUtc = null)
             : base(configuration, name, version) {
             AddAlias(Name);
             _frozenAliases = new Lazy<IReadOnlyCollection<IndexAliasAge>>(() => _aliases.AsReadOnly());
             _aliasCache = new ScopedCacheClient(configuration.Cache, "alias");
+            _getDocumentDateUtc = getDocumentDateUtc;
+            _defaultIndexes = new[] { Name };
+
+            if (_getDocumentDateUtc != null)
+                return;
+
+            if (!HasIdentity && !HasCreatedDate)
+                throw new ArgumentNullException(nameof(getDocumentDateUtc));
+
+            _getDocumentDateUtc = document => {
+                if (document == null)
+                    throw new ArgumentNullException(nameof(document));
+
+                if (HasCreatedDate) {
+                    var date = ((IHaveCreatedDate)document).CreatedUtc;
+                    if (date != DateTime.MinValue)
+                        return date;
+                }
+
+                if (HasIdentity) {
+                    // This is also called when trying to create the document id.
+                    string id = ((IIdentity)document).Id;
+                    if (id != null && ObjectId.TryParse(id, out var objectId) && objectId.CreationTime != DateTime.MinValue)
+                        return objectId.CreationTime;
+                }
+
+                throw new ArgumentException("Unable to get document date.", nameof(document));
+            };
         }
 
         /// <summary>
@@ -53,13 +82,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public IReadOnlyCollection<IndexAliasAge> Aliases => _frozenAliases.Value;
 
-        public override void AddType(IIndexType type) {
-            if (!(type is ITimeSeriesIndexType))
-                throw new ArgumentException($"Type must implement {nameof(ITimeSeriesIndexType)}", nameof(type));
-
-            base.AddType(type);
-        }
-
         public void AddAlias(string name, TimeSpan? maxAge = null) {
             _aliases.Add(new IndexAliasAge {
                 Name = name,
@@ -67,10 +89,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             });
         }
 
-        public override async Task ConfigureAsync() {
-            foreach (var t in IndexTypes)
-                await t.ConfigureAsync().AnyContext();
-        }
+        public override Task ConfigureAsync() => Task.CompletedTask;
 
         protected override async Task CreateAliasAsync(string index, string name) {
             await base.CreateAliasAsync(index, name).AnyContext();
@@ -316,6 +335,58 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 await _aliasCache.RemoveAllAsync().AnyContext();
             else
                 await _aliasCache.RemoveAsync(GetIndex(GetIndexDate(name))).AnyContext();
+        }
+
+        public string GetIndexById(Id id) {
+            if (String.IsNullOrEmpty(id.Value))
+                throw new ArgumentNullException(nameof(id));
+
+            if (!ObjectId.TryParse(id.Value, out var objectId))
+                throw new ArgumentException("Unable to parse ObjectId", nameof(id));
+
+            return GetIndex(objectId.CreationTime);
+        }
+
+        public virtual string[] GetIndexesByQuery(IRepositoryQuery query) {
+            var indexes = GetIndexes(query);
+            return indexes.Count > 0 ? indexes.ToArray() : _defaultIndexes;
+        }
+
+        private HashSet<string> GetIndexes(IRepositoryQuery query) {
+            var indexes = new HashSet<string>();
+
+            var elasticIndexes = query.GetElasticIndexes();
+            if (elasticIndexes.Count > 0)
+                indexes.AddRange(elasticIndexes);
+
+            var utcStart = query.GetElasticIndexesStartUtc();
+            var utcEnd = query.GetElasticIndexesEndUtc();
+            if (utcStart.HasValue || utcEnd.HasValue)
+                indexes.AddRange(GetIndexes(utcStart, utcEnd));
+
+            return indexes;
+        }
+
+        public virtual string GetDocumentIndex(T document) {
+            if (document == null)
+                throw new ArgumentNullException(nameof(document));
+
+            if (_getDocumentDateUtc == null)
+                throw new ArgumentException("Unable to get document index", nameof(document));
+
+            var date = _getDocumentDateUtc(document);
+            return GetIndex(date);
+        }
+
+        public virtual Task EnsureIndexAsync(T document) {
+            if (document == null)
+                throw new ArgumentNullException(nameof(document));
+
+            if (_getDocumentDateUtc == null)
+                throw new ArgumentException("Unable to get document index", nameof(document));
+
+            var date = _getDocumentDateUtc(document);
+            return EnsureIndexAsync(date);
         }
 
         [DebuggerDisplay("Name: {Name} Max Age: {MaxAge}")]

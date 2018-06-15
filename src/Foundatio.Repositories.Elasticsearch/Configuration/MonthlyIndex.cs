@@ -4,14 +4,9 @@ using Exceptionless.DateTimeExtensions;
 using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
-    public class MonthlyIndexType<T> : TimeSeriesIndexType<T> where T : class {
-        public MonthlyIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null)
-            : base(index, name, getDocumentDateUtc) { }
-    }
-
-    public class MonthlyIndex: DailyIndex {
-        public MonthlyIndex(IElasticConfiguration configuration, string name, int version = 1)
-            : base(configuration, name, version) {
+    public class MonthlyIndex<T>: DailyIndex<T> where T: class {
+        public MonthlyIndex(IElasticConfiguration configuration, string name, int version = 1, Func<T, DateTime> getDocumentDateUtc = null)
+            : base(configuration, name, version, getDocumentDateUtc) {
             DateFormat = "yyyy.MM";
         }
 

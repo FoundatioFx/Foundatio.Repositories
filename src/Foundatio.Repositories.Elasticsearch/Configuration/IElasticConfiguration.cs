@@ -23,8 +23,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         IMessageBus MessageBus { get; }
         ILoggerFactory LoggerFactory { get; }
         IReadOnlyCollection<IIndex> Indexes { get; }
-        IIndexType<T> GetIndexType<T>() where T : class;
-        IIndexType GetIndexType(Type type);
         IIndex GetIndex(string name);
         void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder);
         void ConfigureGlobalQueryParsers(ElasticQueryParserConfiguration config);
@@ -84,19 +82,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public ILoggerFactory LoggerFactory { get; }
         public IReadOnlyCollection<IIndex> Indexes => _frozenIndexes.Value;
 
-        public IIndexType<T> GetIndexType<T>() where T : class {
-            return GetIndexType(typeof(T)) as IIndexType<T>;
-        }
-
-        public IIndexType GetIndexType(Type type) {
-            foreach (var index in Indexes)
-                foreach (var indexType in index.IndexTypes)
-                    if (indexType.Type == type)
-                        return indexType;
-
-            return null;
-        }
-
         public IIndex GetIndex(string name) {
             foreach (var index in Indexes)
                 if (index.Name == name)
@@ -127,7 +112,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 if (_workItemQueue == null || _beginReindexLockProvider == null)
                     throw new InvalidOperationException("Must specify work item queue and lock provider in order to reindex.");
 
-                if (!(idx is VersionedIndex versionedIndex))
+                if (!(idx is IVersionedIndex versionedIndex))
                     continue;
 
                 int currentVersion = await versionedIndex.GetCurrentVersionAsync().AnyContext();

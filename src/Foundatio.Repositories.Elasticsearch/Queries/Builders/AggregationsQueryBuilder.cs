@@ -26,14 +26,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class AggregationsQueryBuilder : IElasticQueryBuilder {
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var elasticOptions = ctx.Options.GetElasticTypeSettings();
-            if (elasticOptions?.IndexType?.QueryParser == null)
+            if (elasticOptions?.Index?.QueryParser == null)
                 return;
 
             string aggregations = ctx.Source.GetAggregationsExpression();
             if (String.IsNullOrEmpty(aggregations))
                 return;
 
-            var result = await elasticOptions.IndexType.QueryParser.BuildAggregationsAsync(aggregations, ctx).AnyContext();
+            var result = await elasticOptions.Index.QueryParser.BuildAggregationsAsync(aggregations, ctx).AnyContext();
             ctx.Search.Aggregations(result);
         }
     }

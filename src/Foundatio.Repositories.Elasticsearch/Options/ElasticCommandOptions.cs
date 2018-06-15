@@ -59,14 +59,14 @@ namespace Foundatio.Repositories {
 
 namespace Foundatio.Repositories.Options {
     public static class ReadElasticOptionsExtensions {
-        internal const string ElasticTypeSettingsKey = "@ElasticTypeSettings";
-        public static T ElasticType<T>(this T options, IIndexType indexType) where T: ICommandOptions {
-            options.Values.Set(ElasticTypeSettingsKey, new ElasticTypeSettings(indexType));
+        internal const string ElasticIndexSettingsKey = "@ElasticIndexSettings";
+        public static T ElasticIndex<T>(this T options, IIndex index) where T: ICommandOptions {
+            options.Values.Set(ElasticIndexSettingsKey, new ElasticIndexSettings(index));
             return options;
         }
 
-        public static ElasticTypeSettings GetElasticTypeSettings(this ICommandOptions options) {
-            return options.SafeGetOption<ElasticTypeSettings>(ElasticTypeSettingsKey);
+        public static ElasticIndexSettings GetElasticTypeSettings(this ICommandOptions options) {
+            return options.SafeGetOption<ElasticIndexSettings>(ElasticIndexSettingsKey);
         }
 
         internal const string RootAliasResolverKey = "@RootAliasResolver";
@@ -125,28 +125,25 @@ namespace Foundatio.Repositories.Options {
         }
     }
 
-    public class ElasticTypeSettings {
-        public ElasticTypeSettings(IIndexType indexType) {
-            IndexType = indexType;
-            Index = indexType.Index;
-            ChildType = indexType as IChildIndexType;
-            TimeSeriesType = indexType as ITimeSeriesIndexType;
-            HasParent = ChildType != null;
-            HasMultipleIndexes = TimeSeriesType != null;
-            SupportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(indexType.Type);
-            HasIdentity = typeof(IIdentity).IsAssignableFrom(indexType.Type);
-            ParentSupportsSoftDeletes = ChildType != null && typeof(ISupportSoftDeletes).IsAssignableFrom(ChildType.GetParentIndexType().Type);
+    public class ElasticIndexSettings {
+        public ElasticIndexSettings(IIndex index) {
+            Index = index;
+            //ChildType = index as IChildIndexType;
+            TimeSeries = index as ITimeSeriesIndex;
+            //HasParent = ChildType != null;
+            HasMultipleIndexes = TimeSeries != null;
+            SupportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(index.Type);
+            HasIdentity = typeof(IIdentity).IsAssignableFrom(index.Type);
+            //ParentSupportsSoftDeletes = ChildType != null && typeof(ISupportSoftDeletes).IsAssignableFrom(ChildType.GetParentIndexType().Type);
         }
 
-        public IIndexType IndexType { get; }
         public bool SupportsSoftDeletes { get; }
         public bool HasIdentity { get; }
         public IIndex Index { get; }
-        public bool HasParent { get; }
-        public bool ParentSupportsSoftDeletes { get; }
-        public IChildIndexType ChildType { get; }
+        //public bool HasParent { get; }
+        //public bool ParentSupportsSoftDeletes { get; }
         public bool HasMultipleIndexes { get; }
-        public ITimeSeriesIndexType TimeSeriesType { get; }
+        public ITimeSeriesIndex TimeSeries { get; }
     }
 }
 

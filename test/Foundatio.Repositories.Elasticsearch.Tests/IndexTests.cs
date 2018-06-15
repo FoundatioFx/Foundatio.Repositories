@@ -33,11 +33,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             using (TestSystemClock.Install()) {
                 SystemClock.Test.SetFixedTime(utcNow);
                 var index = new DailyEmployeeIndex(_configuration, 1);
-            await index.DeleteAsync();
+                await index.DeleteAsync();
 
                 using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
                     await index.ConfigureAsync();
-                    var repository = new EmployeeRepository(index.Employee);
+                    var repository = new EmployeeRepository(index);
 
                     for (int i = 0; i < 35; i += 5) {
                         var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(i)));
@@ -74,7 +74,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                 using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
                     await index.ConfigureAsync();
-                    var repository = new EmployeeRepository(index.Employee);
+                    var repository = new EmployeeRepository(index);
 
                     for (int i = 0; i < 4; i++) {
                         var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractMonths(i)));
@@ -261,7 +261,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                 using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
                     await index.ConfigureAsync();
-                    var repository = new EmployeeRepository(index.Employee);
+                    var repository = new EmployeeRepository(index);
 
                     SystemClock.Test.SetFixedTime(DateTime.UtcNow.Subtract(TimeSpan.FromDays(15)));
                     var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: SystemClock.UtcNow), o => o.ImmediateConsistency());
@@ -324,7 +324,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var utcNow = SystemClock.UtcNow;
                 using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
                     await index.ConfigureAsync();
-                    var repository = new EmployeeRepository(index.Employee);
+                    var repository = new EmployeeRepository(index);
 
                     for (int i = 0; i < 4; i++) {
                         var created = utcNow.SubtractMonths(i);
@@ -466,7 +466,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                 using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
                     await index.ConfigureAsync();
-                    var version1Repository = new EmployeeRepository(index.Employee);
+                    var version1Repository = new EmployeeRepository(index);
 
                     var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
                     Assert.NotNull(employee?.Id);
@@ -532,7 +532,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                 using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
                     await index.ConfigureAsync();
-                    var repository = new EmployeeRepository(index.Employee);
+                    var repository = new EmployeeRepository(index);
 
                     var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
                     Assert.NotNull(employee?.Id);
@@ -658,7 +658,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             }
         }
 
-        private string GetExpectedEmployeeDailyAliases(DailyIndex index, DateTime utcNow, DateTime indexDateUtc) {
+        private string GetExpectedEmployeeDailyAliases(ITimeSeriesIndex index, DateTime utcNow, DateTime indexDateUtc) {
             double totalDays = utcNow.Date.Subtract(indexDateUtc.Date).TotalDays;
             var aliases = new List<string> { index.Name, index.GetIndex(indexDateUtc) };
             if (totalDays <= 30)
@@ -672,7 +672,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return String.Join(", ", aliases);
         }
 
-        private string GetExpectedEmployeeMonthlyAliases(DailyIndex index, DateTime utcNow, DateTime indexDateUtc) {
+        private string GetExpectedEmployeeMonthlyAliases(ITimeSeriesIndex index, DateTime utcNow, DateTime indexDateUtc) {
             var aliases = new List<string> { index.Name, index.GetIndex(indexDateUtc) };
             if (new DateTimeRange(utcNow.SubtractDays(1).StartOfMonth(), utcNow.EndOfMonth()).Contains(indexDateUtc))
                 aliases.Add($"{index.Name}-today");

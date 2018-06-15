@@ -32,13 +32,13 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         private ScopedCacheClient _scopedCacheClient;
 
-        protected ElasticReadOnlyRepositoryBase(IIndexType<T> indexType) {
-            ElasticType = indexType;
+        protected ElasticReadOnlyRepositoryBase(IIndex<T> index) {
+            ElasticIndex = index;
             if (HasIdentity)
-                _idField = indexType.GetFieldName(doc => ((IIdentity)doc).Id) ?? "id";
-            _client = indexType.Configuration.Client;
-            SetCache(indexType.Configuration.Cache);
-            _logger = indexType.Configuration.LoggerFactory.CreateLogger(GetType());
+                _idField = index.GetFieldName(doc => ((IIdentity)doc).Id) ?? "id";
+            _client = index.Configuration.Client;
+            SetCache(index.Configuration.Cache);
+            _logger = index.Configuration.LoggerFactory.CreateLogger(GetType());
         }
 
         public virtual Task<FindResults<T>> FindAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
@@ -247,13 +247,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             bool isTraceLogLevelEnabled = _logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace);
             if (hit != null && hit.HasValue) {
                 if (isTraceLogLevelEnabled)
-                    _logger.LogTrace("Cache hit: type={ElasticType} key={Id}", ElasticType.Name, id);
+                    _logger.LogTrace("Cache hit: type={ElasticType} key={Id}", ElasticIndex.Name, id);
                 return hit.Value;
             }
 
             T document = null;
             if (!HasParent || id.Routing != null) {
-                var request = new GetRequest(GetIndexById(id), ElasticType.Name, id.Value);
+                var request = new GetRequest(GetIndexById(id), ElasticIndex.Name, id.Value);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
                 var response = await _client.GetAsync<T>(request).AnyContext();
@@ -297,13 +297,13 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var multiGet = new MultiGetDescriptor();
             foreach (var id in itemsToFind.Where(i => i.Routing != null || !HasParent)) {
-                multiGet.Get<T>(f => {
-                    f.Id(id.Value).Index(GetIndexById(id)).Type(ElasticType.Name);
+                multiGet.Get<T>((Func<MultiGetOperationDescriptor<T>, IMultiGetOperation>)((MultiGetOperationDescriptor<T> f) => {
+                    f.Id(id.Value).Index(GetIndexById(id)).Type(this.ElasticIndex.Name);
                     if (id.Routing != null)
                         f.Routing(id.Routing);
 
                     return f;
-                });
+                }));
             }
 
             var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
@@ -425,7 +425,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public virtual async Task<long> CountAsync(ICommandOptions options = null) {
             options = ConfigureOptions(options);
 
-            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null))).Type(ElasticType.Name)).AnyContext();
+            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null))).Type(ElasticIndex.Name)).AnyContext();
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
                 _logger.LogTrace(response.GetRequest());
 
@@ -519,7 +519,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 search = new SearchDescriptor<T>();
 
             query = ConfigureQuery(query);
-            search.Type(ElasticType.Name);
+            search.Type(ElasticIndex.Name);
             var indices = GetIndexesByQuery(query);
             if (indices?.Length > 0)
                 search.Index(String.Join(",", indices));
@@ -528,7 +528,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             search.IgnoreUnavailable();
 
-            await ElasticType.QueryBuilder.ConfigureSearchAsync(query, options, search).AnyContext();
+            await ElasticIndex.QueryBuilder.ConfigureSearchAsync(query, options, search).AnyContext();
 
             return search;
         }
@@ -537,21 +537,21 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (options == null)
                 options = new CommandOptions<T>();
 
-            options.ElasticType(ElasticType);
+            options.ElasticIndex(ElasticIndex);
 
             return options;
         }
 
         protected virtual string[] GetIndexesByQuery(IRepositoryQuery query, ICommandOptions options = null) {
-            return HasMultipleIndexes ? TimeSeriesType.GetIndexesByQuery(query) : new[] { ElasticIndex.Name };
+            return HasMultipleIndexes ? TimeSeriesIndex.GetIndexesByQuery(query) : new[] { ElasticIndex.Name };
         }
 
         protected virtual string GetIndexById(Id id) {
-            return HasMultipleIndexes ? TimeSeriesType.GetIndexById(id) : ElasticIndex.Name;
+            return HasMultipleIndexes ? TimeSeriesIndex.GetIndexById(id) : ElasticIndex.Name;
         }
 
-        protected Func<T, string> GetParentIdFunc => HasParent ? d => ChildType.GetParentId(d) : (Func<T, string>)null;
-        protected Func<T, string> GetDocumentIndexFunc => HasMultipleIndexes ? d => TimeSeriesType.GetDocumentIndex(d) : (Func<T, string>)(d => ElasticIndex.Name);
+        protected Func<T, string> GetParentIdFunc => null; //HasParent ? d => ChildType.GetParentId(d) : (Func<T, string>)null;
+        protected Func<T, string> GetDocumentIndexFunc => HasMultipleIndexes ? d => TimeSeriesIndex.GetDocumentIndex(d) : (Func<T, string>)(d => ElasticIndex.Name);
 
         protected async Task<TResult> GetCachedQueryResultAsync<TResult>(ICommandOptions options, string cachePrefix = null, string cacheSuffix = null) {
             if (!IsCacheEnabled || options == null || !options.ShouldReadCache() || !options.HasCacheKey())
@@ -563,7 +563,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var result = await Cache.GetAsync<TResult>(cacheKey, default).AnyContext();
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace("Cache {HitOrMiss}: type={ElasticType} key={CacheKey}", (result != null ? "hit" : "miss"), ElasticType.Name, cacheKey);
+                _logger.LogTrace("Cache {HitOrMiss}: type={ElasticType} key={CacheKey}", (result != null ? "hit" : "miss"), ElasticIndex.Name, cacheKey);
 
             return result;
         }
@@ -578,42 +578,39 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             await Cache.SetAsync(cacheKey, result, options.GetExpiresIn()).AnyContext();
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace("Set cache: type={ElasticType} key={CacheKey}", ElasticType.Name, cacheKey);
+                _logger.LogTrace("Set cache: type={ElasticType} key={CacheKey}", ElasticIndex.Name, cacheKey);
         }
 
         #region Elastic Type Configuration
 
-        protected IIndex ElasticIndex => ElasticType.Index;
+        private IIndex<T> _elasticIndex;
 
-        private IIndexType<T> _elasticType;
-
-        protected IIndexType<T> ElasticType {
-            get { return _elasticType; }
+        protected IIndex<T> ElasticIndex {
+            get { return _elasticIndex; }
             private set {
-                _elasticType = value;
+                _elasticIndex = value;
 
-                if (_elasticType is IChildIndexType<T>) {
-                    HasParent = true;
-                    ChildType = _elasticType as IChildIndexType<T>;
-                } else {
-                    HasParent = false;
-                    ChildType = null;
-                }
+                // if (_elasticIndex is IChildIndexType<T>) {
+                //     HasParent = true;
+                //     ChildType = _elasticType as IChildIndexType<T>;
+                // } else {
+                //     HasParent = false;
+                //     ChildType = null;
+                // }
 
-                if (_elasticType is ITimeSeriesIndexType) {
+                if (_elasticIndex is ITimeSeriesIndex) {
                     HasMultipleIndexes = true;
-                    TimeSeriesType = _elasticType as ITimeSeriesIndexType<T>;
+                    TimeSeriesIndex = _elasticIndex as ITimeSeriesIndex<T>;
                 } else {
                     HasMultipleIndexes = false;
-                    TimeSeriesType = null;
+                    TimeSeriesIndex = null;
                 }
             }
         }
 
         protected bool HasParent { get; private set; }
-        protected IChildIndexType<T> ChildType { get; private set; }
         protected bool HasMultipleIndexes { get; private set; }
-        protected ITimeSeriesIndexType<T> TimeSeriesType { get; private set; }
+        protected ITimeSeriesIndex<T> TimeSeriesIndex { get; private set; }
 
         #endregion
 

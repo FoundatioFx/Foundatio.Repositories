@@ -3,7 +3,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class IdentityRepository : ElasticRepositoryBase<Identity> {
-        public IdentityRepository(MyAppElasticConfiguration configuration) : base(configuration.Identities.Identity) {}
+        public IdentityRepository(MyAppElasticConfiguration configuration) : base(configuration.Identities) {}
     }
 
     public class IdentityWithNoCachingRepository : IdentityRepository {
