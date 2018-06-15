@@ -227,7 +227,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 gr.Found,
             });
 
-            var indexResponse = await _client.IndexAsync(document, d => d.Index(workItem.NewIndex + "-error").Type("failures")).AnyContext();
+            var indexResponse = await _client.IndexAsync(document, d => d.Index(workItem.NewIndex + "-error").Type("_doc")).AnyContext();
             if (!indexResponse.IsValid)
                 _logger.LogError("Error indexing document {Index}/{Type}/{Id}: {Message}", workItem.NewIndex + "-error", gr.Type, gr.Id, indexResponse.GetErrorMessage());
         }
