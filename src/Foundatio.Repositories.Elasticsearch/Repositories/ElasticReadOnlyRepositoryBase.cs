@@ -253,7 +253,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             T document = null;
             if (!HasParent || id.Routing != null) {
-                var request = new GetRequest(GetIndexById(id), "_doc", id.Value);
+                var request = new GetRequest(GetIndexById(id), ElasticConfiguration.DocType, id.Value);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
                 var response = await _client.GetAsync<T>(request).AnyContext();
@@ -298,7 +298,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var multiGet = new MultiGetDescriptor();
             foreach (var id in itemsToFind.Where(i => i.Routing != null || !HasParent)) {
                 multiGet.Get<T>((Func<MultiGetOperationDescriptor<T>, IMultiGetOperation>)((MultiGetOperationDescriptor<T> f) => {
-                    f.Id(id.Value).Index(GetIndexById(id)).Type("_doc");
+                    f.Id(id.Value).Index(GetIndexById(id)).Type(ElasticConfiguration.DocType);
                     if (id.Routing != null)
                         f.Routing(id.Routing);
 
@@ -425,7 +425,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public virtual async Task<long> CountAsync(ICommandOptions options = null) {
             options = ConfigureOptions(options);
 
-            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null))).Type("_doc")).AnyContext();
+            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null))).Type(ElasticConfiguration.DocType)).AnyContext();
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
                 _logger.LogTrace(response.GetRequest());
 
@@ -519,7 +519,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 search = new SearchDescriptor<T>();
 
             query = ConfigureQuery(query);
-            search.Type("_doc");
+            search.Type(ElasticConfiguration.DocType);
             var indices = GetIndexesByQuery(query);
             if (indices?.Length > 0)
                 search.Index(String.Join(",", indices));

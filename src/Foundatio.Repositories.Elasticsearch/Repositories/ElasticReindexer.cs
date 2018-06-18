@@ -15,6 +15,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public class ElasticReindexer {
@@ -227,7 +228,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 gr.Found,
             });
 
-            var indexResponse = await _client.IndexAsync(document, d => d.Index(workItem.NewIndex + "-error").Type("_doc")).AnyContext();
+            var indexResponse = await _client.IndexAsync(document, d => d.Index(workItem.NewIndex + "-error").Type(ElasticConfiguration.DocType)).AnyContext();
             if (!indexResponse.IsValid)
                 _logger.LogError("Error indexing document {Index}/{Type}/{Id}: {Message}", workItem.NewIndex + "-error", gr.Type, gr.Id, indexResponse.GetErrorMessage());
         }

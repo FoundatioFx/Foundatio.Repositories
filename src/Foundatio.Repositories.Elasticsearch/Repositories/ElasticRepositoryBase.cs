@@ -128,7 +128,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             string pipeline = pipelinedIndexType?.Pipeline;
             if (operation is ScriptPatch scriptOperation) {
                 // TODO: Figure out how to specify a pipeline here.
-                var request = new UpdateRequest<T, T>(GetIndexById(id), "_doc", id.Value) {
+                var request = new UpdateRequest<T, T>(GetIndexById(id), ElasticConfiguration.DocType, id.Value) {
                     Script = new InlineScript(scriptOperation.Script) { Params = scriptOperation.Params },
                     RetryOnConflict = 10,
                     Refresh = options.GetRefreshMode(ElasticIndex.DefaultConsistency)
@@ -146,7 +146,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ApplicationException(message, response.OriginalException);
                 }
             } else if (operation is Models.JsonPatch jsonOperation) {
-                var request = new GetRequest(GetIndexById(id), "_doc", id.Value);
+                var request = new GetRequest(GetIndexById(id), ElasticConfiguration.DocType, id.Value);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
 
@@ -182,7 +182,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
             } else if (operation is PartialPatch partialOperation) {
                 // TODO: Figure out how to specify a pipeline here.
-                var request = new UpdateRequest<T, object>(GetIndexById(id), "_doc", id.Value) {
+                var request = new UpdateRequest<T, object>(GetIndexById(id), ElasticConfiguration.DocType, id.Value) {
                     Doc = partialOperation.Document,
                     RetryOnConflict = 10
                 };
@@ -248,7 +248,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                         b.Update<T>(u => {
                             u.Id(id.Value)
                               .Index(GetIndexById(id))
-                              .Type("_doc")
+                              .Type(ElasticConfiguration.DocType)
                               .Script(s => s.Inline(scriptOperation.Script).Params(scriptOperation.Params))
                               .RetriesOnConflict(10);
 
@@ -261,7 +261,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                         b.Update<T, object>(u => {
                             u.Id(id.Value)
                                 .Index(GetIndexById(id))
-                                .Type("_doc")
+                                .Type(ElasticConfiguration.DocType)
                                 .Doc(partialOperation.Document)
                                 .RetriesOnConflict(10);
 
@@ -362,7 +362,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ArgumentException("Unknown operation type", nameof(operation));
 
                 if (!IsCacheEnabled && scriptOperation != null) {
-                    var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", GetIndexesByQuery(query))), "_doc") {
+                    var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", GetIndexesByQuery(query))), ElasticConfiguration.DocType) {
                         Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext(),
                         Conflicts = Conflicts.Proceed,
                         Script = new InlineScript(scriptOperation.Script) { Params = scriptOperation.Params },
@@ -492,7 +492,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (docs.Count == 1) {
                 var document = docs.Single();
-                var request = new DeleteRequest(GetDocumentIndexFunc?.Invoke(document), "_doc", document.Id) {
+                var request = new DeleteRequest(GetDocumentIndexFunc?.Invoke(document), ElasticConfiguration.DocType, document.Id) {
                     Refresh = options.GetRefreshMode(ElasticIndex.DefaultConsistency)
                 };
 
@@ -513,7 +513,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     bulk.Refresh(options.GetRefreshMode(ElasticIndex.DefaultConsistency));
                     foreach (var doc in docs)
                         bulk.Delete<T>(d => {
-                            d.Id(doc.Id).Index(GetDocumentIndexFunc?.Invoke(doc)).Type("_doc");
+                            d.Id(doc.Id).Index(GetDocumentIndexFunc?.Invoke(doc)).Type(ElasticConfiguration.DocType);
 
                             if (GetParentIdFunc != null)
                                 d.Parent(GetParentIdFunc(doc));
@@ -566,7 +566,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }, options.Clone()).AnyContext();
             }
 
-            var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(ElasticIndex.Name, "_doc") {
+            var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(ElasticIndex.Name, ElasticConfiguration.DocType) {
                 Refresh = options.GetRefreshMode(ElasticIndex.DefaultConsistency) != Refresh.False,
                 Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext()
             }).AnyContext();
@@ -766,7 +766,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var document = documents.Single();
                 var response = await _client.IndexAsync(document, i => {
                     i.OpType(isCreateOperation ? OpType.Create : OpType.Index);
-                    i.Type("_doc");
+                    i.Type(ElasticConfiguration.DocType);
                     i.Pipeline(pipeline);
                     i.Refresh(options.GetRefreshMode(ElasticIndex.DefaultConsistency));
 
@@ -806,7 +806,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                         ? (IBulkOperation)new BulkCreateOperation<T>(d) { Pipeline = pipeline }
                         : new BulkIndexOperation<T>(d) { Pipeline = pipeline };
 
-                    o.Type = "_doc";
+                    o.Type = ElasticConfiguration.DocType;
                     if (GetParentIdFunc != null)
                         o.Parent = GetParentIdFunc(d);
 

@@ -12,7 +12,7 @@ namespace Foundatio.Parsers.ElasticQueries {
             return config
                 .UseAliases(index.AliasMap)
                 .UseMappings<T>(d => descriptor, () => {
-                    var response = index.Configuration.Client.GetMapping(new GetMappingRequest(index.Name, "_doc"));
+                    var response = index.Configuration.Client.GetMapping(new GetMappingRequest(index.Name, ElasticConfiguration.DocType));
                     logger.LogTrace(response.GetRequest());
                     if (!response.IsValid) 
                         logger.LogError(response.OriginalException, response.GetErrorMessage());

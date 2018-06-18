@@ -103,7 +103,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public virtual MappingsDescriptor ConfigureIndexMappings(MappingsDescriptor mappings) {
-            return mappings.Map<T>("_doc", BuildMapping);
+            return mappings.Map<T>(ElasticConfiguration.DocType, BuildMapping);
         }
 
         public virtual TypeMappingDescriptor<T> BuildMapping(TypeMappingDescriptor<T> map) {
@@ -236,7 +236,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public virtual void ConfigureSettings(ConnectionSettings settings) {
             settings.MapDefaultTypeIndices(m => m[Type] = Name);
-            settings.MapDefaultTypeNames(m => m[Type] = "_doc");
+            settings.MapDefaultTypeNames(m => m[Type] = ElasticConfiguration.DocType);
         }
 
         public virtual void Dispose() {}
