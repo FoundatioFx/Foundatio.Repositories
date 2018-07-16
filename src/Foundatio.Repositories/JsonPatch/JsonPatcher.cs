@@ -42,8 +42,7 @@ namespace Foundatio.Repositories.JsonPatch {
                 array?.Add(operation.Value);
             } else if (propertyName.IsNumeric()) {
                 var array = target.SelectPatchToken(parentPath) as JArray;
-                int index;
-                if (Int32.TryParse(propertyName, out index))
+                if (Int32.TryParse(propertyName, out int index))
                     array?.Insert(index, operation.Value);
             } else {
                 var parent = target.SelectPatchToken(parentPath) as JObject;
@@ -57,6 +56,9 @@ namespace Foundatio.Repositories.JsonPatch {
 
         protected override void Remove(RemoveOperation operation, JToken target) {
             var token = target.SelectPatchToken(operation.Path);
+            if (token == null)
+                return;
+            
             if (token.Parent is JProperty) {
                 token.Parent.Remove();
             } else {
@@ -104,8 +106,7 @@ namespace Foundatio.Repositories.JsonPatch {
             foreach (var part in parts.Where(p => p.Length > 0)) {
                 var partToken = current.SelectPatchToken(part);
                 if (partToken == null) {
-                    var partObject = current as JObject;
-                    if (partObject != null)
+                    if (current is JObject partObject)
                         current = partObject[part] = new JObject();
                 } else {
                     current = partToken;

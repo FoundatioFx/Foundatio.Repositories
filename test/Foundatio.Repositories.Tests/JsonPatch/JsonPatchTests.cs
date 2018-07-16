@@ -343,6 +343,18 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
         }
 
         [Fact]
+        public void SyncValuesWithRemovesAndReplaces() {
+            const string operations = "[{\"op\":\"remove\",\"path\":\"/data/Address/full_address\"},{\"op\":\"remove\",\"path\":\"/data/Address/longitude\"},{\"op\":\"remove\",\"path\":\"/data/Address/latitude\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo_locality\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo_level2\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo_level1\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo_country\"},{\"op\":\"remove\",\"path\":\"/data/Address/normalized_geo_hash\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo_hash\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo\"},{\"op\":\"replace\",\"path\":\"/data/Address/country\",\"value\":\"US\"},{\"op\":\"replace\",\"path\":\"/data/Address/postal_code\",\"value\":\"54173\"},{\"op\":\"replace\",\"path\":\"/data/Address/state\",\"value\":\"Wi\"},{\"op\":\"replace\",\"path\":\"/data/Address/city\",\"value\":\"Suamico\"},{\"op\":\"remove\",\"path\":\"/data/Address/address2\"},{\"op\":\"replace\",\"path\":\"/data/Address/address1\",\"value\":\"100 Main Street\"}]";
+            
+            var patchDocument = JsonConvert.DeserializeObject<PatchDocument>(operations);
+            var token = JToken.Parse("{ \"data\": { \"Address\": { \"address1\": null, \"address2\": null, \"city\": \"e\", \"state\": null, \"postal_code\": null, \"country\": null, \"geo\": null, \"geo_hash\": null, \"normalized_geo_hash\": null, \"geo_country\": null, \"geo_level1\": null, \"geo_level2\": null, \"geo_locality\": null, \"latitude\": null, \"longitude\": null, \"full_address\": null } } }");
+            
+            new JsonPatcher().Patch(ref token, patchDocument);
+            
+            Assert.Equal("{\"data\":{\"Address\":{\"address1\":\"100 Main Street\",\"city\":\"Suamico\",\"state\":\"Wi\",\"postal_code\":\"54173\",\"country\":\"US\"}}}", token.ToString(Formatting.None));
+        }
+
+        [Fact]
         public void Test_a_value() {
             var sample = GetSample2();
 
