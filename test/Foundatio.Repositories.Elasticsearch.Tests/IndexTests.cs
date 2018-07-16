@@ -22,11 +22,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             RemoveDataAsync(configureIndexes: false).GetAwaiter().GetResult();
         }
 
-        [Fact]
-        public void CannotAddInvalidTypeToDailyIndex() {
-            Assert.Throws<ArgumentException>(() => new DailyEmployeeIndexWithWrongEmployeeType(_configuration, 1));
-        }
-
         [Theory]
         [MemberData(nameof(AliasesDatesToCheck))]
         public async Task CanCreateDailyAliasesAsync(DateTime utcNow) {

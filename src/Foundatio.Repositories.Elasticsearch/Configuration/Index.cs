@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
@@ -166,23 +167,26 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             throw new ApplicationException(message, response.OriginalException);
         }
 
-        protected virtual async Task DeleteIndexAsync(string name) {
+        protected virtual Task DeleteIndexAsync(string name) {
             if (name == null)
                 throw new ArgumentNullException(nameof(name));
 
-            if (!await IndexExistsAsync(name).AnyContext())
-                return;
+            return DeleteIndexesAsync(new[] { name });
+        }
 
-            var response = await Configuration.Client.DeleteIndexAsync(name).AnyContext();
+        protected virtual async Task DeleteIndexesAsync(string[] names) {
+            if (names == null || names.Length == 0)
+                throw new ArgumentNullException(nameof(names));
+
+            var response = await Configuration.Client.DeleteIndexAsync(Indices.Index(names)).AnyContext();
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
                 _logger.LogTrace(response.GetRequest());
 
             if (response.IsValid)
                 return;
 
-            string message = $"Error deleting index {name}: {response.GetErrorMessage()}";
-            _logger.LogError(response.OriginalException, message);
-            throw new ApplicationException(message, response.OriginalException);
+            string message = $"Error deleting index {names}: {response.GetErrorMessage()}";
+            _logger.LogWarning(response.OriginalException, message);
         }
 
         protected async Task<bool> IndexExistsAsync(string name) {

@@ -53,7 +53,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public override async Task ConfigureAsync() {
-            await base.ConfigureAsync().AnyContext();
             if (!await IndexExistsAsync(VersionedName).AnyContext()) {
                 if (!await AliasExistsAsync(Name).AnyContext())
                     await CreateIndexAsync(VersionedName, d => ConfigureIndex(d).Aliases(ad => ad.Alias(Name))).AnyContext();
@@ -90,13 +89,15 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public override async Task DeleteAsync() {
             int currentVersion = await GetCurrentVersionAsync();
+            var indexesToDelete = new List<string>();
             if (currentVersion != Version) {
-
-                await DeleteIndexAsync(String.Concat(Name, "-v", currentVersion)).AnyContext();
-                await DeleteIndexAsync(String.Concat(Name, "-v", currentVersion, "-error")).AnyContext();
+                indexesToDelete.Add(String.Concat(Name, "-v", currentVersion));
+                indexesToDelete.Add(String.Concat(Name, "-v", currentVersion, "-error"));
             }
-            await DeleteIndexAsync(VersionedName).AnyContext();
-            await DeleteIndexAsync(String.Concat(VersionedName, "-error")).AnyContext();
+            
+            indexesToDelete.Add(VersionedName);
+            indexesToDelete.Add(String.Concat(VersionedName, "-error"));
+            await DeleteIndexesAsync(indexesToDelete.ToArray()).AnyContext();
         }
 
         public ReindexWorkItem CreateReindexWorkItem(int currentVersion) {
