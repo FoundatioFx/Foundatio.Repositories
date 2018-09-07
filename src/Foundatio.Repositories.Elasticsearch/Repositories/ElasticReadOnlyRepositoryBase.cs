@@ -94,9 +94,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                                     searchAfterValues.Add(sort.SortKey.Property.GetValue(lastDocument));
                                 } else if (typeof(TResult) == typeof(T) && sort.SortKey.Expression is Expression<Func<T, object>> valueGetterExpression) {
                                     var valueGetter = valueGetterExpression.Compile();
-                                    var typedLastDocument = lastDocument as T;
-                                    if (typedLastDocument != null) {
-                                        var value = valueGetter.Invoke(typedLastDocument);
+                                    if (lastDocument is T typedLastDocument) {
+                                        object value = valueGetter.Invoke(typedLastDocument);
                                         searchAfterValues.Add(value);
                                     }
                                 } else if (sort.SortKey.Name != null) {
@@ -520,7 +519,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             query = ConfigureQuery(query);
             search.Type(ElasticType.Name);
-            var indices = GetIndexesByQuery(query);
+            string[] indices = GetIndexesByQuery(query);
             if (indices?.Length > 0)
                 search.Index(String.Join(",", indices));
             if (HasVersion)

@@ -73,8 +73,8 @@ namespace Foundatio.Repositories.Extensions {
             Func<TA, TK> selectKeyA,
             Func<TB, TK> selectKeyB,
             Func<TA, TB, TK, TR> projection,
-            TA defaultA = default(TA),
-            TB defaultB = default(TB),
+            TA defaultA = default,
+            TB defaultB = default,
             IEqualityComparer<TK> cmp = null) {
             cmp = cmp ?? EqualityComparer<TK>.Default;
             var alookup = a.ToLookup(selectKeyA, cmp);
