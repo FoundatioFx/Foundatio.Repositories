@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Text;
 using System.Threading.Tasks;
 using Foundatio.Caching;
 using Foundatio.Parsers.ElasticQueries.Extensions;
@@ -73,9 +74,15 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 string scrollId = previousResults.GetScrollId();
                 if (!String.IsNullOrEmpty(scrollId)) {
-                    var scrollResponse = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), scrollId).AnyContext();
-                    if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                        _logger.LogTrace(scrollResponse.GetRequest());
+
+
+                    ISearchResponse<TResult> scrollResponse = null;
+                    try {
+                        scrollResponse = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), scrollId).AnyContext();
+                    }
+                    finally {
+                        TraceRequest(scrollResponse);
+                    }
 
                     var results = scrollResponse.ToFindResults();
                     results.Page = previousResults.Page + 1;
@@ -135,22 +142,27 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
             }
 
-            ISearchResponse<TResult> response;
-            if (useSnapshotPaging == false || !options.HasSnapshotScrollId()) {
-                var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
-                if (useSnapshotPaging)
-                    searchDescriptor.Scroll(options.GetSnapshotLifetime());
+            ISearchResponse<TResult> response = null;
+            try {
+                if (useSnapshotPaging == false || !options.HasSnapshotScrollId()) {
+                    var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
+                    if (useSnapshotPaging)
+                        searchDescriptor.Scroll(options.GetSnapshotLifetime());
+                    
+                    if (query.ShouldOnlyHaveIds())
+                        searchDescriptor.Source(false);
 
-                if (query.ShouldOnlyHaveIds())
-                    searchDescriptor.Source(false);
-
-                response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
-            } else {
-                response = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), options.GetSnapshotScrollId()).AnyContext();
+                    response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
+                }
+                else {
+                    response = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), options.GetSnapshotScrollId()).AnyContext();
+                }
+            }
+            finally {
+                TraceRequest(response);
             }
 
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(response.GetRequest());
+            
             if (!response.IsValid) {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return new FindResults<TResult>();
@@ -202,9 +214,14 @@ namespace Foundatio.Repositories.Elasticsearch {
             await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
             var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
-            var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(response.GetRequest());
+
+            ISearchResponse<T> response = null;
+            try {
+                response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
+            }
+            finally {
+                TraceRequest(response);
+            }
 
             if (!response.IsValid) {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
@@ -255,9 +272,14 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var request = new GetRequest(GetIndexById(id), ElasticType.Name, id.Value);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
-                var response = await _client.GetAsync<T>(request).AnyContext();
-                if (isTraceLogLevelEnabled)
-                    _logger.LogTrace(response.GetRequest());
+
+                IGetResponse<T> response = null;
+                try {
+                    response = await _client.GetAsync<T>(request).AnyContext();
+                }
+                finally {
+                    TraceRequest(response);
+                }
 
                 document = response.Found ? response.ToFindHit().Document : null;
             } else {
@@ -305,9 +327,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                 });
             }
 
-            var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(multiGetResults.GetRequest());
+            IMultiGetResponse multiGetResults = null;
+            try {
+                multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
+            }
+            finally {
+                TraceRequest(multiGetResults);
+            }
 
             foreach (var doc in multiGetResults.Documents) {
                 hits.Add(((IMultiGetHit<T>)doc).ToFindHit().Document);
@@ -340,15 +366,19 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return false;
 
             if (!HasParent || id.Routing != null) {
-                var response = await _client.DocumentExistsAsync(new DocumentPath<T>(id.Value), d => {
-                    d.Index(GetIndexById(id));
-                    if (id.Routing != null)
-                        d.Routing(id.Routing);
+                IExistsResponse response = null;
+                try {
+                    response = await _client.DocumentExistsAsync(new DocumentPath<T>(id.Value), d => {
+                        d.Index(GetIndexById(id));
+                        if (id.Routing != null)
+                            d.Routing(id.Routing);
 
-                    return d;
-                }).AnyContext();
-                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                    _logger.LogTrace(response.GetRequest());
+                        return d;
+                    }).AnyContext();
+                }
+                finally {
+                    TraceRequest(response);
+                }
 
                 return response.Exists;
             }
@@ -369,9 +399,14 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
             searchDescriptor.DocvalueFields(_idField);
-            var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(response.GetRequest());
+
+            ISearchResponse<T> response = null;
+            try {
+                response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
+            }
+            finally {
+                TraceRequest(response);
+            }
 
             if (!response.IsValid) {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
@@ -403,9 +438,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
             searchDescriptor.Size(0);
 
-            var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(response.GetRequest());
+            ISearchResponse<T> response = null;
+            try {
+                response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
+            }
+            finally {
+                TraceRequest(response);
+            }
 
             if (!response.IsValid) {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
@@ -424,9 +463,13 @@ namespace Foundatio.Repositories.Elasticsearch {
         public virtual async Task<long> CountAsync(ICommandOptions options = null) {
             options = ConfigureOptions(options);
 
-            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null))).Type(ElasticType.Name)).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(response.GetRequest());
+            ICountResponse response = null;
+            try {
+                response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null))).Type(ElasticType.Name)).AnyContext();
+            }
+            finally {
+                TraceRequest(response);
+            }
 
             if (!response.IsValid) {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
@@ -634,5 +677,16 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         #endregion
+
+        protected virtual void TraceRequest(IResponse response) {
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace) && response != null && response.ApiCall != null) {
+                if (response.ApiCall.RequestBodyInBytes != null) {
+                    _logger.LogTrace("{method} {path}\r\n{body}\r\n", response.ApiCall.HttpMethod, response.ApiCall.Uri.PathAndQuery, Encoding.UTF8.GetString(response.ApiCall.RequestBodyInBytes));
+                }
+                else {
+                    _logger.LogTrace("{method} {path}\r\n", response.ApiCall.HttpMethod, response.ApiCall.Uri.PathAndQuery);
+                }
+            }
+        }
     }
 }
