@@ -137,13 +137,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                     request.Routing = id.Routing;
 
                 var response = await _client.UpdateAsync<T>(request).AnyContext();
-                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                    _logger.LogTrace(response.GetRequest());
+                _logger.LogTraceRequest(response);
 
                 if (!response.IsValid) {
-                    string message = response.GetErrorMessage();
-                    _logger.LogError(response.OriginalException, message);
-                    throw new ApplicationException(message, response.OriginalException);
+                    _logger.LogErrorRequest(response, "Error patching document {Index}/{Type}/{Id}", GetIndexById(id), ElasticType.Name, id.Value);
+                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                 }
             } else if (operation is Models.JsonPatch jsonOperation) {
                 var request = new GetRequest(GetIndexById(id), ElasticType.Name, id.Value);
@@ -151,14 +149,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                     request.Routing = id.Routing;
 
                 var response = await _client.GetAsync<JObject>(request).AnyContext();
-
-                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                    _logger.LogTrace(response.GetRequest());
+                _logger.LogTraceRequest(response);
 
                 if (!response.IsValid) {
-                    string message = response.GetErrorMessage();
-                    _logger.LogError(response.OriginalException, message);
-                    throw new ApplicationException(message, response.OriginalException);
+                    _logger.LogErrorRequest(response, "Error patching document {Index}/{Type}/{Id}", GetIndexById(id), ElasticType.Name, id.Value);
+                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                 }
 
                 var target = response.Source as JToken;
@@ -172,13 +167,11 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     return p;
                 }).AnyContext();
-                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                    _logger.LogTrace(updateResponse.GetRequest());
+                _logger.LogTraceRequest(updateResponse);
 
                 if (!updateResponse.Success) {
-                    string message = updateResponse.GetErrorMessage();
-                    _logger.LogError(response.OriginalException, message);
-                    throw new ApplicationException(message, updateResponse.OriginalException);
+                    _logger.LogErrorRequest(updateResponse, "Error patching document {Index}/{Type}/{Id} with {Pipeline}", GetIndexById(id), ElasticType.Name, id.Value, pipeline);
+                    throw new ApplicationException(updateResponse.GetErrorMessage(), updateResponse.OriginalException);
                 }
             } else if (operation is PartialPatch partialOperation) {
                 // TODO: Figure out how to specify a pipeline here.
@@ -191,13 +184,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                 request.Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency);
 
                 var response = await _client.UpdateAsync(request).AnyContext();
-                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                    _logger.LogTrace(response.GetRequest());
+                _logger.LogTraceRequest(response);
 
                 if (!response.IsValid) {
-                    string message = response.GetErrorMessage();
-                    _logger.LogError(response.OriginalException, message);
-                    throw new ApplicationException(message, response.OriginalException);
+                    _logger.LogErrorRequest(response, "Error patching document {Index}/{Type}/{Id}", GetIndexById(id), ElasticType.Name, id.Value);
+                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                 }
             } else {
                 throw new ArgumentException("Unknown operation type", nameof(operation));
@@ -274,14 +265,12 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 return b;
             }).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(bulkResponse.GetRequest());
+            _logger.LogTraceRequest(bulkResponse);
 
             // TODO: Is there a better way to handle failures?
             if (!bulkResponse.IsValid) {
-                string message = bulkResponse.GetErrorMessage();
-                _logger.LogError(bulkResponse.OriginalException, message);
-                throw new ApplicationException(message, bulkResponse.OriginalException);
+                _logger.LogErrorRequest(bulkResponse, "Error bulk patching documents of {Type}", ElasticType.Name);
+                throw new ApplicationException(bulkResponse.GetErrorMessage(), bulkResponse.OriginalException);
             }
 
             // TODO: Find a good way to invalidate cache and send changed notification
@@ -335,11 +324,10 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                         return b;
                     }).AnyContext();
-                    if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                        _logger.LogTrace(bulkResult.GetRequest());
+                    _logger.LogTraceRequest(bulkResult);
 
                     if (!bulkResult.IsValid) {
-                        _logger.LogError(bulkResult.OriginalException, $"Error occurred while bulk updating: {bulkResult.GetErrorMessage()}");
+                        _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
                         return false;
                     }
 
@@ -373,12 +361,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                     };
 
                     var response = await _client.UpdateByQueryAsync(request).AnyContext();
-                    if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                        _logger.LogTrace(response.GetRequest());
+                    _logger.LogTraceRequest(response);
+
                     if (!response.IsValid) {
-                        string message = response.GetErrorMessage();
-                        _logger.LogError(response.OriginalException, message);
-                        throw new ApplicationException(message, response.OriginalException);
+                        _logger.LogErrorRequest(response, "Error occurred while patching by query");
+                        throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                     }
 
                     // TODO: What do we want to do about failures and timeouts?
@@ -412,11 +399,10 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                             return b;
                         }).AnyContext();
-                        if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                            _logger.LogTrace(bulkResult.GetRequest());
+                        _logger.LogTraceRequest(bulkResult);
 
                         if (!bulkResult.IsValid) {
-                            _logger.LogError(bulkResult.OriginalException, $"Error occurred while bulk updating: {bulkResult.GetErrorMessage()}");
+                            _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
                             return false;
                         }
 
@@ -501,13 +487,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                     request.Parent = GetParentIdFunc(document);
 
                 var response = await _client.DeleteAsync(request).AnyContext();
-                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                    _logger.LogTrace(response.GetRequest());
+                _logger.LogTraceRequest(response);
 
                 if (!response.IsValid) {
-                    string message = response.GetErrorMessage();
-                    _logger.LogError(response.OriginalException, message);
-                    throw new ApplicationException(message, response.OriginalException);
+                    _logger.LogErrorRequest(response, "Error removing document {Index}/{Type}/{Id}", GetDocumentIndexFunc?.Invoke(document), ElasticType.Name, document.Id);
+                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                 }
             } else {
                 var response = await _client.BulkAsync(bulk => {
@@ -524,13 +508,11 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     return bulk;
                 }).AnyContext();
-                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                    _logger.LogTrace(response.GetRequest());
+                _logger.LogTraceRequest(response);
 
                 if (!response.IsValid) {
-                    string message = response.GetErrorMessage();
-                    _logger.LogError(response.OriginalException, message);
-                    throw new ApplicationException(message, response.OriginalException);
+                    _logger.LogErrorRequest(response, "Error bulk removing documents");
+                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                 }
             }
 
@@ -571,13 +553,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                 Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency) != Refresh.False,
                 Query = await ElasticType.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext()
             }).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(response.GetRequest());
+            _logger.LogTraceRequest(response);
 
             if (!response.IsValid) {
-                string message = response.GetErrorMessage();
-                _logger.LogError(response.OriginalException, message);
-                throw new ApplicationException(message, response.OriginalException);
+                _logger.LogErrorRequest(response, "Error removing documents");
+                throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
             }
 
             if (response.Deleted > 0) {
@@ -784,16 +764,14 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     return i;
                 }).AnyContext();
+                _logger.LogTraceRequest(response);
 
-                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                    _logger.LogTrace(response.GetRequest());
                 if (!response.IsValid) {
-                    string message = response.GetErrorMessage();
-                    _logger.LogError(response.OriginalException, message);
+                    _logger.LogErrorRequest(response, "Error indexing documents");
                     if (isCreateOperation && response.ServerError?.Status == 409)
-                        throw new DuplicateDocumentException(message, response.OriginalException);
+                        throw new DuplicateDocumentException(response.GetErrorMessage(), response.OriginalException);
 
-                    throw new ApplicationException(message, response.OriginalException);
+                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                 }
 
                 if (HasVersion) {
@@ -826,8 +804,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 bulkRequest.Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency);
 
                 var response = await _client.BulkAsync(bulkRequest).AnyContext();
-                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                    _logger.LogTrace(response.GetRequest());
+                _logger.LogTraceRequest(response);
 
                 if (HasVersion) {
                     foreach (var hit in response.Items) {
@@ -857,12 +834,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
 
                 if (!response.IsValid) {
-                    string message = response.GetErrorMessage();
-                    _logger.LogError(response.OriginalException, message);
+                    _logger.LogErrorRequest(response, "Error indexing documents");
                     if (isCreateOperation && allErrors.Any(e => e.Status == 409))
-                        throw new DuplicateDocumentException(message, response.OriginalException);
+                        throw new DuplicateDocumentException(response.GetErrorMessage(), response.OriginalException);
 
-                    throw new ApplicationException(message, response.OriginalException);
+                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                 }
             }
             // 429 // 503

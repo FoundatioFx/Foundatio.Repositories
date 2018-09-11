@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Foundatio.Logging;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
@@ -92,12 +91,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                 ).OnFailure(of => of.Set<Employee>(s => s.Field(f => f.Name).Value(String.Empty))));
 
             var logger = Configuration.LoggerFactory.CreateLogger(typeof(EmployeeTypeWithWithPipeline));
-            logger.LogTrace(response.GetRequest());
+            logger.LogTraceRequest(response);
             if (response.IsValid)
                 return;
 
+            logger.LogErrorRequest(response, "Error creating the pipeline {Pipeline}", Pipeline);
             string message = $"Error creating the pipeline {Pipeline}: {response.GetErrorMessage()}";
-            logger.LogError(response.OriginalException, message);
             throw new ApplicationException(message, response.OriginalException);
         }
     }

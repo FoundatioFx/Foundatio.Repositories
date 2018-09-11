@@ -1,5 +1,4 @@
 ﻿using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
-using Foundatio.Repositories.Models;
 using System;
 using System.Linq;
 using System.Threading.Tasks;

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
@@ -58,15 +59,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ArgumentNullException(nameof(name));
 
             var response = await Configuration.Client.CreateIndexAsync(name, descriptor).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogInformation(response.GetRequest());
+            _logger.LogTraceRequest(response);
 
             // check for valid response or that the index already exists
             if (response.IsValid || response.ServerError.Status == 400 && response.ServerError.Error.Type == "index_already_exists_exception")
                 return;
 
-            string message = $"Error creating the index {name}: {response.GetErrorMessage()}";
-            _logger.LogError(response.OriginalException, message);
+            _logger.LogErrorRequest(response, "Error creating index {Name}", name);
+            string message = $"Error creating index {name}: {response.GetErrorMessage()}";
             throw new ApplicationException(message, response.OriginalException);
         }
 
@@ -78,14 +78,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return;
 
             var response = await Configuration.Client.DeleteIndexAsync(name).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(response.GetRequest());
-
+            _logger.LogTraceRequest(response);
             if (response.IsValid)
                 return;
 
+            _logger.LogErrorRequest(response, "Error deleting index {Name}", name);
             string message = $"Error deleting index {name}: {response.GetErrorMessage()}";
-            _logger.LogError(response.OriginalException, message);
             throw new ApplicationException(message, response.OriginalException);
         }
 
@@ -97,8 +95,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (response.IsValid)
                 return response.Exists;
 
+            _logger.LogErrorRequest(response, "Error checking to see if index {Name} exists", name);
             string message = $"Error checking to see if index {name} exists: {response.GetErrorMessage()}";
-            _logger.LogError(response.OriginalException, message);
             throw new ApplicationException(message, response.OriginalException);
         }
 
