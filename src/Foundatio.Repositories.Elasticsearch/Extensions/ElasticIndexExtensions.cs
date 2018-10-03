@@ -151,13 +151,19 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
         public static IBucket ToBucket(this Nest.IBucket bucket, IDictionary<string, object> parentData = null) {
             if (bucket is Nest.DateHistogramBucket dateHistogramBucket) {
-                var kind = parentData != null && parentData.ContainsKey("@timezone") ? DateTimeKind.Unspecified : DateTimeKind.Utc;
+                bool hasTimezone = parentData != null && parentData.ContainsKey("@timezone");
+                var kind = hasTimezone ? DateTimeKind.Unspecified : DateTimeKind.Utc;
                 var date = new DateTime(_epochTicks + ((long)dateHistogramBucket.Key * TimeSpan.TicksPerMillisecond), kind);
+                var data = new Dictionary<string, object> { { "@type", "datehistogram" } };
+                
+                if (hasTimezone)
+                    data.Add("@timezone", parentData["@timezone"]);
+                        
                 return new DateHistogramBucket(date, dateHistogramBucket.Aggregations.ToAggregations()) {
                     Total = dateHistogramBucket.DocCount,
                     Key = dateHistogramBucket.Key,
                     KeyAsString = date.ToString("O"),
-                    Data = new Dictionary<string, object> { { "@type", "datehistogram" } }
+                    Data = data
                 };
             }
 

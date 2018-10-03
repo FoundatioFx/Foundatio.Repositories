@@ -5,6 +5,8 @@ using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Utility {
     public class BucketsJsonConverter : JsonConverter {
+        private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
+        
         public override bool CanConvert(Type objectType) {
             return typeof(IBucket).IsAssignableFrom(objectType);
         }
@@ -18,7 +20,12 @@ namespace Foundatio.Repositories.Utility {
                 string type = typeToken.Value<string>();
                 switch (type) {
                     case "datehistogram":
-                        value = new DateHistogramBucket();
+                        var timeZoneToken = item.SelectToken("Data.@timezone") ?? item.SelectToken("data.@timezone");
+                        var kind = timeZoneToken != null ? DateTimeKind.Unspecified : DateTimeKind.Utc;
+                        var key = item.SelectToken("Key") ?? item.SelectToken("key");
+                        var date = new DateTime(_epochTicks + ((long)key * TimeSpan.TicksPerMillisecond), kind);
+                        
+                        value = new DateHistogramBucket(date, null);
                         break;
                     case "range":
                         value = new RangeBucket();
