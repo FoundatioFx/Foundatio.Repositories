@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Collections.Generic;
 using Foundatio.Repositories.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -18,6 +19,10 @@ namespace Foundatio.Repositories.Utility {
             IBucket value = null;
             if (typeToken != null) {
                 string type = typeToken.Value<string>();
+                IDictionary<string, IAggregate> aggregations = null;
+                var aggregationsToken = item.SelectToken("Aggregations");
+                aggregations = aggregationsToken?.ToObject<IDictionary<string, IAggregate>>();
+                
                 switch (type) {
                     case "datehistogram":
                         var timeZoneToken = item.SelectToken("Data.@timezone") ?? item.SelectToken("data.@timezone");
@@ -25,19 +30,19 @@ namespace Foundatio.Repositories.Utility {
                         var key = item.SelectToken("Key") ?? item.SelectToken("key");
                         var date = new DateTime(_epochTicks + ((long)key * TimeSpan.TicksPerMillisecond), kind);
                         
-                        value = new DateHistogramBucket(date, null);
+                        value = new DateHistogramBucket(date, aggregations);
                         break;
                     case "range":
-                        value = new RangeBucket();
+                        value = new RangeBucket(aggregations);
                         break;
                     case "string":
-                        value = new KeyedBucket<string>();
+                        value = new KeyedBucket<string>(aggregations);
                         break;
                     case "double":
-                        value = new KeyedBucket<double>();
+                        value = new KeyedBucket<double>(aggregations);
                         break;
                     case "object":
-                        value = new KeyedBucket<object>();
+                        value = new KeyedBucket<object>(aggregations);
                         break;
                 }
             }

@@ -9,9 +9,7 @@ using Foundatio.Utility;
 using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
-
     public static class ElasticIndexExtensions {
-
         public static FindResults<T> ToFindResults<T>(this Nest.ISearchResponse<T> response, int? limit = null) where T : class, new() {
             var docs = response.Hits.Take(limit ?? Int32.MaxValue).ToFindHits().ToList();
             var data = response.ScrollId != null ? new DataDictionary { { ElasticDataKeys.ScrollId, response.ScrollId } } : null;
@@ -143,7 +141,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
             if (valueAggregate.Meta.TryGetValue("@timezone", out var value) && value != null) {
                 kind = DateTimeKind.Unspecified;
-                ticks -= Foundatio.Utility.TimeUnit.Parse(value.ToString()).Ticks;
+                ticks -= TimeUnit.Parse(value.ToString()).Ticks;
             }
 
             return new DateTime(ticks, kind);
