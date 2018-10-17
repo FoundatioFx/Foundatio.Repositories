@@ -27,6 +27,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Keyword(f => f.Name(e => e.CompanyName))
                     .Text(f => f.Name(e => e.Name).AddKeywordField())
                     .Scalar(f => f.Age, f => f.Name(e => e.Age).Alias("aliasedage"))
+                    .Scalar(f => f.YearsEmployed, f => f.Name(e => e.YearsEmployed).Alias("years"))
                     .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview).Alias("next"))
                     .GeoPoint(f => f.Name(e => e.Location))
                     .Object<PhoneInfo>(f => f

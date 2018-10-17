@@ -367,24 +367,26 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(10, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
             Assert.Equal(1, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19).Total);
             
-            result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExpression("terms:(age~2 date:created^1h)"));
+            result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExpression("terms:(age~2 @missing:0 terms:(years~2 @missing:0))"));
             Assert.Equal(10, result.Total);
             Assert.Equal(1, result.Aggregations.Count);
             Assert.Equal(2, result.Aggregations.Terms<int>("terms_age").Buckets.Count);
             var bucket = result.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
             Assert.Equal(1, bucket.Total);
             Assert.Equal(1, bucket.Aggregations.Count);
-            Assert.Equal(1, bucket.Aggregations.DateHistogram("date_created").Buckets.Count);
+            Assert.Equal(1, bucket.Aggregations.Terms<int>("terms_years").Buckets.Count);
 
-            json = JsonConvert.SerializeObject(result);
+            json = JsonConvert.SerializeObject(result, Formatting.Indented);
             roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
+            var roundTrippedJson = JsonConvert.SerializeObject(roundTripped, Formatting.Indented);
+            Assert.Equal(json, roundTrippedJson);
             Assert.Equal(10, roundTripped.Total);
             Assert.Equal(1, roundTripped.Aggregations.Count);
             Assert.Equal(2, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
             bucket = roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
             Assert.Equal(1, bucket.Total);
             Assert.Equal(1, bucket.Aggregations.Count);
-            Assert.Equal(1, bucket.Aggregations.DateHistogram("date_created").Buckets.Count);
+            Assert.Equal(1, bucket.Aggregations.Terms<int>("terms_years").Buckets.Count);
         }
         
         [Fact]

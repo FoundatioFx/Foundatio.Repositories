@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Foundatio.Repositories.Models;
 using Newtonsoft.Json;
@@ -20,7 +20,7 @@ namespace Foundatio.Repositories.Utility {
             if (typeToken != null) {
                 string type = typeToken.Value<string>();
                 IDictionary<string, IAggregate> aggregations = null;
-                var aggregationsToken = item.SelectToken("Aggregations");
+                var aggregationsToken = item.SelectToken("Aggregations") ?? item.SelectToken("aggregations");
                 aggregations = aggregationsToken?.ToObject<IDictionary<string, IAggregate>>();
                 
                 switch (type) {
@@ -51,6 +51,7 @@ namespace Foundatio.Repositories.Utility {
                 value = new KeyedBucket<object>();
 
             serializer.Populate(item.CreateReader(), value);
+            
             return value;
         }
 
