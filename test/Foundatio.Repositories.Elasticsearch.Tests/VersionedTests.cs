@@ -2,10 +2,12 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Elasticsearch.Net;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
+using Nest;
 using Xunit;
 using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -86,6 +88,20 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(version, employeeCopy.Version);
 
             Assert.Equal(employee, await _employeeRepository.GetByIdAsync(employee.Id));
+
+            var request = new UpdateRequest<Employee, Employee>(_configuration.Employees.Employee.Index.Name, _configuration.Employees.Employee.Type, employee.Id) {
+                Script = new InlineScript("ctx._source.version = 112"),
+                Refresh = Refresh.True
+            };
+
+            var response = await _client.UpdateAsync<Employee>(request);
+
+            employee = await _employeeRepository.GetByIdAsync(employee.Id);
+            Assert.Equal(3, employee.Version);
+
+            employee.CompanyName = "updated again";
+            employee = await _employeeRepository.SaveAsync(employee);
+            Assert.Equal(4, employee.Version);
         }
 
         [Fact]

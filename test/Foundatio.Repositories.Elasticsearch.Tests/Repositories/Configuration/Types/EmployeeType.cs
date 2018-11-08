@@ -92,9 +92,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                 ).OnFailure(of => of.Set<Employee>(s => s.Field(f => f.Name).Value(String.Empty))));
 
             var logger = Configuration.LoggerFactory.CreateLogger(typeof(EmployeeTypeWithWithPipeline));
-            logger.LogTraceRequest(response);
-            if (response.IsValid)
+            if (response.IsValid) {
+                logger.LogTraceRequest(response);
                 return;
+            }
 
             logger.LogErrorRequest(response, "Error creating the pipeline {Pipeline}", Pipeline);
             string message = $"Error creating the pipeline {Pipeline}: {response.GetErrorMessage()}";

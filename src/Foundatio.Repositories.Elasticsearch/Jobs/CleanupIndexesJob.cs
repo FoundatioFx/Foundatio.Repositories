@@ -50,13 +50,14 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             var result = await _client.CatIndicesAsync(
                 d => d.RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
             sw.Stop();
-            _logger.LogTraceRequest(result);
 
-            if (result.IsValid)
+            if (result.IsValid) {
+                _logger.LogTraceRequest(result);
                 _logger.LogInformation("Retrieved list of {IndexCount} indexes in {Duration:g}", result.Records?.Count, sw.Elapsed.ToWords(true));
-            else
+            } else {
                 _logger.LogErrorRequest(result, "Failed to retrieve list of indexes");
-
+            }
+            
             var indexes = new List<IndexDate>();
             if (result.IsValid && result.Records != null)
                 indexes = result.Records?.Select(r => GetIndexDate(r.Index)).Where(r => r != null).ToList();

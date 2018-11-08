@@ -14,8 +14,9 @@ namespace Foundatio.Parsers.ElasticQueries {
                 .UseAliases(indexType.AliasMap)
                 .UseMappings<T>(d => descriptor, () => {
                     var response = indexType.Configuration.Client.GetMapping(new GetMappingRequest(indexType.Index.Name, indexType.Name));
-                    logger.LogTraceRequest(response);
-                    if (!response.IsValid)
+                    if (response.IsValid)
+                        logger.LogTraceRequest(response);
+                    else
                         logger.LogErrorRequest(response, "Error getting mapping for index {Name}", indexType.Index.Name);
 
                     return (ITypeMapping) response.Mapping ?? descriptor;

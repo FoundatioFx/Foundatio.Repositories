@@ -265,9 +265,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
 
             var response = await Configuration.Client.AliasAsync(aliasDescriptor).AnyContext();
-            _logger.LogTraceRequest(response);
 
-            if (!response.IsValid) {
+            if (response.IsValid) {
+                _logger.LogTraceRequest(response);
+            } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return;
 

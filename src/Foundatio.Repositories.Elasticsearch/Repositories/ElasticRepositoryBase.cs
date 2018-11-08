@@ -137,9 +137,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                     request.Routing = id.Routing;
 
                 var response = await _client.UpdateAsync<T>(request).AnyContext();
-                _logger.LogTraceRequest(response);
 
-                if (!response.IsValid) {
+                if (response.IsValid) {
+                    _logger.LogTraceRequest(response);
+                } else {
                     _logger.LogErrorRequest(response, "Error patching document {Index}/{Type}/{Id}", GetIndexById(id), ElasticType.Name, id.Value);
                     throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                 }
@@ -149,9 +150,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                     request.Routing = id.Routing;
 
                 var response = await _client.GetAsync<JObject>(request).AnyContext();
-                _logger.LogTraceRequest(response);
 
-                if (!response.IsValid) {
+                if (response.IsValid) {
+                    _logger.LogTraceRequest(response);
+                } else {
                     _logger.LogErrorRequest(response, "Error patching document {Index}/{Type}/{Id}", GetIndexById(id), ElasticType.Name, id.Value);
                     throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                 }
@@ -167,9 +169,10 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     return p;
                 }).AnyContext();
-                _logger.LogTraceRequest(updateResponse);
 
-                if (!updateResponse.Success) {
+                if (updateResponse.Success) {
+                    _logger.LogTraceRequest(updateResponse);
+                } else {
                     _logger.LogErrorRequest(updateResponse, "Error patching document {Index}/{Type}/{Id} with {Pipeline}", GetIndexById(id), ElasticType.Name, id.Value, pipeline);
                     throw new ApplicationException(updateResponse.GetErrorMessage(), updateResponse.OriginalException);
                 }
@@ -184,9 +187,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                 request.Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency);
 
                 var response = await _client.UpdateAsync(request).AnyContext();
-                _logger.LogTraceRequest(response);
 
-                if (!response.IsValid) {
+                if (response.IsValid) {
+                    _logger.LogTraceRequest(response);
+                } else {
                     _logger.LogErrorRequest(response, "Error patching document {Index}/{Type}/{Id}", GetIndexById(id), ElasticType.Name, id.Value);
                     throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                 }
@@ -265,10 +269,11 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 return b;
             }).AnyContext();
-            _logger.LogTraceRequest(bulkResponse);
 
             // TODO: Is there a better way to handle failures?
-            if (!bulkResponse.IsValid) {
+            if (bulkResponse.IsValid) {
+                _logger.LogTraceRequest(bulkResponse);
+            } else {
                 _logger.LogErrorRequest(bulkResponse, "Error bulk patching documents of {Type}", ElasticType.Name);
                 throw new ApplicationException(bulkResponse.GetErrorMessage(), bulkResponse.OriginalException);
             }
@@ -324,9 +329,10 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                         return b;
                     }).AnyContext();
-                    _logger.LogTraceRequest(bulkResult);
 
-                    if (!bulkResult.IsValid) {
+                    if (bulkResult.IsValid) {
+                        _logger.LogTraceRequest(bulkResult);
+                    } else {
                         _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
                         return false;
                     }
@@ -361,9 +367,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                     };
 
                     var response = await _client.UpdateByQueryAsync(request).AnyContext();
-                    _logger.LogTraceRequest(response);
 
-                    if (!response.IsValid) {
+                    if (response.IsValid) {
+                        _logger.LogTraceRequest(response);
+                    } else {
                         _logger.LogErrorRequest(response, "Error occurred while patching by query");
                         throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                     }
@@ -399,9 +406,10 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                             return b;
                         }).AnyContext();
-                        _logger.LogTraceRequest(bulkResult);
 
-                        if (!bulkResult.IsValid) {
+                        if (bulkResult.IsValid) {
+                            _logger.LogTraceRequest(bulkResult);
+                        } else {
                             _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
                             return false;
                         }
@@ -487,9 +495,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                     request.Parent = GetParentIdFunc(document);
 
                 var response = await _client.DeleteAsync(request).AnyContext();
-                _logger.LogTraceRequest(response);
 
-                if (!response.IsValid) {
+                if (response.IsValid) {
+                    _logger.LogTraceRequest(response);
+                } else {
                     _logger.LogErrorRequest(response, "Error removing document {Index}/{Type}/{Id}", GetDocumentIndexFunc?.Invoke(document), ElasticType.Name, document.Id);
                     throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                 }
@@ -508,9 +517,10 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     return bulk;
                 }).AnyContext();
-                _logger.LogTraceRequest(response);
 
-                if (!response.IsValid) {
+                if (response.IsValid) {
+                    _logger.LogTraceRequest(response);
+                } else {
                     _logger.LogErrorRequest(response, "Error bulk removing documents");
                     throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                 }
@@ -553,9 +563,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                 Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency) != Refresh.False,
                 Query = await ElasticType.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext()
             }).AnyContext();
-            _logger.LogTraceRequest(response);
 
-            if (!response.IsValid) {
+            if (response.IsValid) {
+                _logger.LogTraceRequest(response);
+            } else {
                 _logger.LogErrorRequest(response, "Error removing documents");
                 throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
             }
@@ -764,10 +775,11 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     return i;
                 }).AnyContext();
-                _logger.LogTraceRequest(response);
 
-                if (!response.IsValid) {
-                    _logger.LogErrorRequest(response, "Error indexing documents");
+                if (response.IsValid) {
+                    _logger.LogTraceRequest(response);
+                } else {
+                    _logger.LogErrorRequest(response, $"Error {(isCreateOperation ? "adding" : "saving")} document");
                     if (isCreateOperation && response.ServerError?.Status == 409)
                         throw new DuplicateDocumentException(response.GetErrorMessage(), response.OriginalException);
 
@@ -804,7 +816,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 bulkRequest.Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency);
 
                 var response = await _client.BulkAsync(bulkRequest).AnyContext();
-                _logger.LogTraceRequest(response);
 
                 if (HasVersion) {
                     foreach (var hit in response.Items) {
@@ -833,8 +844,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                     }
                 }
 
-                if (!response.IsValid) {
-                    _logger.LogErrorRequest(response, "Error indexing documents");
+                if (response.IsValid) {
+                    _logger.LogTraceRequest(response);
+                } else {
+                    _logger.LogErrorRequest(response, $"Error {(isCreateOperation ? "adding" : "saving")} documents");
                     if (isCreateOperation && allErrors.Any(e => e.Status == 409))
                         throw new DuplicateDocumentException(response.GetErrorMessage(), response.OriginalException);
 

@@ -25,9 +25,9 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 if (normalize)
                     body = JsonUtility.NormalizeJsonString(body);
 
-                logger.LogTrace("[{HttpMethod}] {HttpStatusCode} {HttpPathAndQuery}\r\n{HttpBody}", response.HttpMethod, response.HttpStatusCode, response.Uri.PathAndQuery, body);
+                logger.LogTrace("[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}\r\n{HttpBody}", response.HttpStatusCode, response.HttpMethod, response.Uri.PathAndQuery, body);
             } else {
-                logger.LogTrace("[{HttpMethod}] {HttpStatusCode} {HttpPathAndQuery}", response.HttpMethod, response.HttpStatusCode, response.Uri.PathAndQuery);
+                logger.LogTrace("[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}", response.HttpStatusCode, response.HttpMethod, response.Uri.PathAndQuery);
             }
         }
 
@@ -47,19 +47,11 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (response == null || !logger.IsEnabled(LogLevel.Error))
                 return;
 
-            var sb =  new StringBuilder(message ?? String.Empty);
+            var sb =  new StringBuilder();
             var messageArguments = new List<object>(args);
 
-            sb.AppendLine(" [{HttpMethod}] {HttpStatusCode} {HttpPathAndQuery}");
-            messageArguments.Add(response.HttpMethod);
-            messageArguments.Add(response.HttpStatusCode);
-            messageArguments.Add(response.Uri.PathAndQuery);
-
-            if (response.RequestBodyInBytes != null) {
-                string body = Encoding.UTF8.GetString(response.RequestBodyInBytes);
-                sb.Append("Body:\r\n{HttpBody}");
-                messageArguments.Add(body);
-            }
+            if (!String.IsNullOrEmpty(message))
+                sb.AppendLine(message);
 
             if (response.OriginalException != null) {
                 sb.AppendLine("Original: [OriginalExceptionType] {OriginalExceptionMessage}");
@@ -67,15 +59,27 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 messageArguments.Add(response.OriginalException.Message);
             }
 
-            if (response.ServerError != null) {
-                sb.AppendLine("Server: [ServerStatusCode] {ServerErrors}");
-                messageArguments.Add(response.ServerError.Status);
-                messageArguments.Add(response.ServerError.Error);
+            if (response.ServerError?.Error != null) {
+                sb.AppendLine("Server Error (Index={ErrorIndex} Type={ErrorType}): {ErrorReason}");
+                messageArguments.Add(response.ServerError.Error.Index);
+                messageArguments.Add(response.ServerError.Error.Type);
+                messageArguments.Add(response.ServerError.Error.Reason);
             }
 
             if (response is IBulkResponse bulkResponse) {
                 sb.AppendLine("Bulk: {BulkErrors}");
                 messageArguments.Add(String.Join("\r\n", bulkResponse.ItemsWithErrors.Select(i => i.Error)));
+            }
+
+            sb.AppendLine("[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}");
+            messageArguments.Add(response.HttpStatusCode);
+            messageArguments.Add(response.HttpMethod);
+            messageArguments.Add(response.Uri.PathAndQuery);
+
+            if (response.RequestBodyInBytes != null) {
+                string body = Encoding.UTF8.GetString(response.RequestBodyInBytes);
+                sb.AppendLine("{HttpBody}");
+                messageArguments.Add(body);
             }
 
             AggregateException aggEx = null;

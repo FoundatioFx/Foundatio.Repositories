@@ -173,11 +173,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual async Task<int> GetVersionFromAliasAsync(string alias) {
             var response = await Configuration.Client.GetAliasAsync(a => a.Name(alias)).AnyContext();
-            _logger.LogTraceRequest(response);
 
-            if (response.IsValid && response.Indices.Count > 0)
+            if (response.IsValid && response.Indices.Count > 0) {
+                _logger.LogTraceRequest(response);
                 return response.Indices.Keys.Select(GetIndexVersion).OrderBy(v => v).First();
+            }
 
+            _logger.LogErrorRequest(response, "Error getting index version from alias");
             return -1;
         }
 
@@ -204,7 +206,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var sw = Stopwatch.StartNew();
             var response = await Configuration.Client.CatIndicesAsync(i => i.Pri().H("index").Index(Indices.Index(filter))).AnyContext();
             sw.Stop();
-            _logger.LogTraceRequest(response);
 
             if (!response.IsValid) {
                 _logger.LogErrorRequest(response, "Error getting indices {Indexes}", filter);
@@ -212,6 +213,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ApplicationException(message, response.OriginalException);
             }
 
+            _logger.LogTraceRequest(response);
             var indices = response.Records
                 .Where(i => version < 0 || GetIndexVersion(i.Index) == version)
                 .Select(i => new IndexInfo { DateUtc = GetIndexDate(i.Index), Index = i.Index, Version = GetIndexVersion(i.Index) })

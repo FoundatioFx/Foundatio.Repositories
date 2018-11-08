@@ -59,11 +59,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ArgumentNullException(nameof(name));
 
             var response = await Configuration.Client.CreateIndexAsync(name, descriptor).AnyContext();
-            _logger.LogTraceRequest(response);
 
             // check for valid response or that the index already exists
-            if (response.IsValid || response.ServerError.Status == 400 && response.ServerError.Error.Type == "index_already_exists_exception")
+            if (response.IsValid || response.ServerError.Status == 400 && response.ServerError.Error.Type == "index_already_exists_exception") {
+                _logger.LogTraceRequest(response);
                 return;
+            }
 
             _logger.LogErrorRequest(response, "Error creating index {Name}", name);
             string message = $"Error creating index {name}: {response.GetErrorMessage()}";
@@ -78,9 +79,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return;
 
             var response = await Configuration.Client.DeleteIndexAsync(name).AnyContext();
-            _logger.LogTraceRequest(response);
-            if (response.IsValid)
+            if (response.IsValid) {
+                _logger.LogTraceRequest(response);
                 return;
+            }
 
             _logger.LogErrorRequest(response, "Error deleting index {Name}", name);
             string message = $"Error deleting index {name}: {response.GetErrorMessage()}";

@@ -148,8 +148,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 response = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), options.GetSnapshotScrollId()).AnyContext();
             }
 
-            _logger.LogTraceRequest(response);
-            if (!response.IsValid) {
+            if (response.IsValid) {
+                _logger.LogTraceRequest(response);
+            } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return new FindResults<TResult>();
 
@@ -200,9 +201,10 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-            _logger.LogTraceRequest(response);
 
-            if (!response.IsValid) {
+            if (response.IsValid) {
+                _logger.LogTraceRequest(response);
+            } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return FindHit<T>.Empty;
 
@@ -363,9 +365,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
             searchDescriptor.DocvalueFields(_idField);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-            _logger.LogTraceRequest(response);
 
-            if (!response.IsValid) {
+            if (response.IsValid) {
+                _logger.LogTraceRequest(response);
+            } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return false;
 
@@ -395,9 +398,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             searchDescriptor.Size(0);
 
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-            _logger.LogTraceRequest(response);
 
-            if (!response.IsValid) {
+            if (response.IsValid) {
+                _logger.LogTraceRequest(response);
+            } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return new CountResult();
 
@@ -414,9 +418,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             options = ConfigureOptions(options);
 
             var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null))).Type(ElasticType.Name)).AnyContext();
-            _logger.LogTraceRequest(response);
 
-            if (!response.IsValid) {
+            if (response.IsValid) {
+                _logger.LogTraceRequest(response);
+            } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return 0;
 
