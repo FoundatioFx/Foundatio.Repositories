@@ -1,58 +1,53 @@
-﻿version: 5.6.{build}
-os: Visual Studio 2017
+﻿version: '{build}'
+image: ubuntu
 clone_depth: 2
-configuration: Release
 
 pull_requests:
   do_not_increment_build_number: true
 
-environment:
-  JAVA_HOME: C:\Progra~1\Java\jdk1.8.0
-  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
-  DOTNET_CLI_TELEMETRY_OPTOUT: 1
-
 init:
   - git config --global core.autocrlf input
-  - ps: $env:GIT_HASH=$env:APPVEYOR_REPO_COMMIT.Substring(0, 10)
-  - ps: If ("$env:APPVEYOR_REPO_TAG" -ne "true") { $env:VERSION_SUFFIX="pre" }
-  - ps: 'Write-Output "Version: $($env:APPVEYOR_BUILD_VERSION)-$($env:VERSION_SUFFIX)"'
-
-before_build:
-  - ps: .\build\Set-BuildVersion -Version $env:APPVEYOR_BUILD_VERSION -Suffix $env:VERSION_SUFFIX
+  - |
+    if [ $APPVEYOR_REPO_TAG != "true" ]; then
+      BUILD_NUMBER="$APPVEYOR_BUILD_NUMBER-pre"
+      echo "Build: $BUILD_NUMBER Tag: $APPVEYOR_REPO_TAG_NAME"
+    else
+      BUILD_NUMBER=$APPVEYOR_BUILD_NUMBER
+      echo "Build: $BUILD_NUMBER"
+    fi
 
 build_script:
-  - dotnet build -c Release
+  - docker build --target shared-testrunner -t foundatio:shared-test --build-arg build=${BUILD_NUMBER} .
+  - docker build --target elasticsearch-testrunner -t foundatio:elasticsearch-test --build-arg build=${BUILD_NUMBER} .
+  - docker run -d -m 2g -p 9200:9200 -p 9300:9300 -e discovery.type=single-node -e xpack.security.enabled=false -e ES_JAVA_OPTS='-Xms512m -Xmx512m' docker.elastic.co/elasticsearch/elasticsearch:5.6.13
+  - docker run -e APPVEYOR_API_URL --net=host -v $(pwd)/artifacts:/app/artifacts foundatio:shared-test
+  - docker run -e APPVEYOR_API_URL --net=host -v $(pwd)/artifacts:/app/artifacts foundatio:elasticsearch-test
 
-#on_failure:
-#  - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))
-
-before_test:
-  - ps: .\build\Start-ElasticSearch.ps1 -NodeCount 3 -StartKibana $false
-
-test_script:
-  - ps: dotnet test .\test\Foundatio.Repositories.Tests\Foundatio.Repositories.Tests.csproj -c Release
-  - ps: dotnet test .\test\Foundatio.Repositories.Elasticsearch.Tests\Foundatio.Repositories.Elasticsearch.Tests.csproj -c Release
-
-after_test:
-  - dotnet pack -c Release
+after_build:
+  - docker build --target pack -t foundatio:pack --build-arg build=${BUILD_NUMBER} .
+  - docker run --rm -v $(pwd)/artifacts:/app/artifacts foundatio:pack
 
 artifacts:
-  - path: artifacts\*.nupkg
+  - path: artifacts/*.nupkg
     name: NuGet
+  - path: artifacts/*.trx
+    name: Test Results
 
 deploy:
   - provider: Environment
     name: MyGet
+    on:
+      APPVEYOR_REPO_TAG: false
   - provider: Environment
     name: NuGet
     on:
-      appveyor_repo_tag: true
+      APPVEYOR_REPO_TAG: true
   - provider: GitHub
     auth_token:
       secure: 0s81q7bweVLTFSOKxnIhan7el6bIFiN8HJ1kYJzOkeFXX7wgGSq9bs/rV53X9qpf
     draft: true
     on:
-      appveyor_repo_tag: true
+      APPVEYOR_REPO_TAG: true
 
 notifications:
   - provider: Slack

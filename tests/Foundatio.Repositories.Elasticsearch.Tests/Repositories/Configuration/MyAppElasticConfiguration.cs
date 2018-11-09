@@ -34,7 +34,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration 
                     connectionString.Split(',')
                         .Select(url => new Uri(fiddlerIsRunning ? url.Replace("localhost", "ipv4.fiddler") : url)));
             } else {
-                servers.Add(new Uri($"http://{(fiddlerIsRunning ? "ipv4.fiddler" : "localhost")}:9200"));
+                servers.Add(new Uri($"http://{(fiddlerIsRunning ? "ipv4.fiddler" : "elastic.localtest.me")}:9200"));
                 if (IsPortOpen(9201))
                     servers.Add(new Uri($"http://{(fiddlerIsRunning ? "ipv4.fiddler" : "localhost")}:9201"));
                 if (IsPortOpen(9202))
