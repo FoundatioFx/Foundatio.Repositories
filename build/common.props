@@ -4,7 +4,8 @@
     <VersionPrefix>5.6</VersionPrefix>
     <VersionSuffix>0-dev</VersionSuffix>
     <Version>$(VersionPrefix).$(VersionSuffix)</Version>
-    <AssemblyVersion>$(VersionPrefix).0</AssemblyVersion>
+    <!-- TODO: Set this back to 0 the next time we rev the major.minor -->
+    <AssemblyVersion>$(VersionPrefix).900</AssemblyVersion>
   </PropertyGroup>
 
   <PropertyGroup>
