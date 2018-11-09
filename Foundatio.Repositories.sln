@@ -7,22 +7,17 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Foundatio.Repositories", "s
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Foundatio.Repositories.Tests", "tests\Foundatio.Repositories.Tests\Foundatio.Repositories.Tests.csproj", "{23002BA4-8663-460B-8D67-3AA941B0322A}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{70515E66-DAF8-4D18-8F8F-8A2934171AA9}"
-EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{4E12E4C1-2EC6-4EC7-8956-AF2721DA4ECE}"
 	ProjectSection(SolutionItems) = preProject
 		.editorconfig = .editorconfig
 		appveyor.yml = appveyor.yml
 		build\common.props = build\common.props
-		build\elasticsearch.yml = build\elasticsearch.yml
 		README.md = README.md
-		build\sourcelink.props = build\sourcelink.props
-		build\Start-ElasticSearch.ps1 = build\Start-ElasticSearch.ps1
 	EndProjectSection
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Foundatio.Repositories.Elasticsearch", "src\Foundatio.Repositories.Elasticsearch\Foundatio.Repositories.Elasticsearch.csproj", "{3BFBD4C1-3F2C-46A4-9400-2CB9803644BE}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Foundatio.Repositories.Elasticsearch.Tests", "Tests\Foundatio.Repositories.Elasticsearch.Tests\Foundatio.Repositories.Elasticsearch.Tests.csproj", "{93E138E9-D06C-4B78-B62D-317786025013}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Foundatio.Repositories.Elasticsearch.Tests", "tests\Foundatio.Repositories.Elasticsearch.Tests\Foundatio.Repositories.Elasticsearch.Tests.csproj", "{93E138E9-D06C-4B78-B62D-317786025013}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -49,10 +44,6 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
-	EndGlobalSection
-	GlobalSection(NestedProjects) = preSolution
-		{23002BA4-8663-460B-8D67-3AA941B0322A} = {70515E66-DAF8-4D18-8F8F-8A2934171AA9}
-		{93E138E9-D06C-4B78-B62D-317786025013} = {70515E66-DAF8-4D18-8F8F-8A2934171AA9}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {5FF3CED9-4B93-4C46-8F1B-B5C7BC0F6DED}

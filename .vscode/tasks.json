@@ -11,7 +11,7 @@
       },
       "args": [
         "build",
-        "${workspaceFolder}",
+        "${workspaceFolder}/Foundatio.Repositories.sln",
         "/p:GenerateFullPaths=true"
       ],
       "problemMatcher": "$msCompile"
