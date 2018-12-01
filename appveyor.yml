@@ -7,24 +7,30 @@ pull_requests:
 
 init:
   - git config --global core.autocrlf input
+
+before_build:
   - |
+    VERSION_PREFIX=$(sed -n 's/.*<VersionPrefix>\([^<]*\)<\/VersionPrefix>.*/\1/p' <<< cat ./build/common.props)
     if [ $APPVEYOR_REPO_TAG != "true" ]; then
-      BUILD_NUMBER="$APPVEYOR_BUILD_NUMBER-pre"
-      echo "Build: $BUILD_NUMBER Tag: $APPVEYOR_REPO_TAG_NAME"
+      VERSION_SUFFIX="$APPVEYOR_BUILD_NUMBER-pre"
+      VERSION="$VERSION_PREFIX.$VERSION_SUFFIX"
+      echo "Version: $VERSION"
     else
-      BUILD_NUMBER=$APPVEYOR_BUILD_NUMBER
-      echo "Build: $BUILD_NUMBER"
+      VERSION_SUFFIX=$APPVEYOR_BUILD_NUMBER
+      VERSION="$VERSION_PREFIX.$VERSION_SUFFIX"
+      echo "Version: $VERSION Tag: $APPVEYOR_REPO_TAG_NAME"
     fi
+    appveyor UpdateBuild -Version $VERSION
 
 build_script:
-  - docker build --target shared-testrunner -t foundatio:shared-test --build-arg build=${BUILD_NUMBER} .
-  - docker build --target elasticsearch-testrunner -t foundatio:elasticsearch-test --build-arg build=${BUILD_NUMBER} .
+  - docker build --target shared-testrunner -t foundatio:shared-test --build-arg build=${VERSION_SUFFIX} .
+  - docker build --target elasticsearch-testrunner -t foundatio:elasticsearch-test --build-arg build=${VERSION_SUFFIX} .
   - docker run -d -m 2g -p 9200:9200 -p 9300:9300 -e discovery.type=single-node -e xpack.security.enabled=false -e ES_JAVA_OPTS='-Xms512m -Xmx512m' docker.elastic.co/elasticsearch/elasticsearch:5.6.13
   - docker run -e APPVEYOR_API_URL --net=host -v $(pwd)/artifacts:/app/artifacts foundatio:shared-test
   - docker run -e APPVEYOR_API_URL --net=host -v $(pwd)/artifacts:/app/artifacts foundatio:elasticsearch-test
 
 after_build:
-  - docker build --target pack -t foundatio:pack --build-arg build=${BUILD_NUMBER} .
+  - docker build --target pack -t foundatio:pack --build-arg build=${VERSION_SUFFIX} .
   - docker run --rm -v $(pwd)/artifacts:/app/artifacts foundatio:pack
 
 artifacts:
