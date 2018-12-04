@@ -143,7 +143,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 var response = status.DeserializeRaw<TaskWithReindexResponse>();
                 if (response?.Error != null) {
-                    _logger.LogError("Error reindex: {Type}, {Reason}, Cause: {CausedBy} Stack: {Stack}", response.Error.Type, response.Error.Reason, response.Error.Caused_By?.Reason, String.Join("\r\n", response.Error.Script_Stack));
+                    _logger.LogError("Error reindex: {Type}, {Reason}, Cause: {CausedBy} Stack: {Stack}", response.Error.Type, response.Error.Reason, response.Error.Caused_By?.Reason, String.Join("\r\n", response.Error.Script_Stack ?? new List<string>()));
                     break;
                 }
 
