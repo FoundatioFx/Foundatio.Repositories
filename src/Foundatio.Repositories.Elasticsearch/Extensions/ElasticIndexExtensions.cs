@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using Exceptionless.DateTimeExtensions;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
@@ -10,9 +9,7 @@ using Foundatio.Utility;
 using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
-
     public static class ElasticIndexExtensions {
-
         public static FindResults<T> ToFindResults<T>(this Nest.ISearchResponse<T> response, int? limit = null) where T : class, new() {
             var docs = response.Hits.Take(limit ?? Int32.MaxValue).ToFindHits().ToList();
             var data = response.ScrollId != null ? new DataDictionary { { ElasticDataKeys.ScrollId, response.ScrollId } } : null;
@@ -144,7 +141,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             
             if (valueAggregate.Meta.TryGetValue("@timezone", out var value) && value != null) {
                 kind = DateTimeKind.Unspecified;
-                ticks -= Foundatio.Utility.TimeUnit.Parse(value.ToString()).Ticks;
+                ticks -= TimeUnit.Parse(value.ToString()).Ticks;
             }
 
             return new DateTime(ticks, kind);
@@ -152,13 +149,19 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
         public static IBucket ToBucket(this Nest.IBucket bucket, IDictionary<string, object> parentData = null) {
             if (bucket is Nest.DateHistogramBucket dateHistogramBucket) {
-                var kind = parentData != null && parentData.ContainsKey("@timezone") ? DateTimeKind.Unspecified : DateTimeKind.Utc;
+                bool hasTimezone = parentData != null && parentData.ContainsKey("@timezone");
+                var kind = hasTimezone ? DateTimeKind.Unspecified : DateTimeKind.Utc;
                 var date = new DateTime(_epochTicks + ((long)dateHistogramBucket.Key * TimeSpan.TicksPerMillisecond), kind);
+                var data = new Dictionary<string, object> { { "@type", "datehistogram" } };
+                
+                if (hasTimezone)
+                    data.Add("@timezone", parentData["@timezone"]);
+                        
                 return new DateHistogramBucket(date, dateHistogramBucket.Aggregations.ToAggregations()) {
                     Total = dateHistogramBucket.DocCount,
                     Key = dateHistogramBucket.Key,
                     KeyAsString = date.ToString("O"),
-                    Data = new Dictionary<string, object> { { "@type", "datehistogram" } }
+                    Data = data
                 };
             }
 

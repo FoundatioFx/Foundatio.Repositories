@@ -1,11 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <Import Project="..\..\build\common.props" />
-  <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
-  </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="FluentValidation" Version="7.5.2" />
-    <PackageReference Include="Foundatio" Version="7.0.1706" />
+    <PackageReference Include="FluentValidation" Version="8.0.100" />
+    <PackageReference Include="Foundatio" Version="7.1.1845" />
     <PackageReference Include="Newtonsoft.Json" Version="11.0.2" />
   </ItemGroup>
 </Project>

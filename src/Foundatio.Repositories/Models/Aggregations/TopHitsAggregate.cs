@@ -1,8 +1,5 @@
 using System.Collections.Generic;
 using System.Linq;
-using Foundatio.Serializer;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Models {
 	public class TopHitsAggregate : MetricAggregateBase {

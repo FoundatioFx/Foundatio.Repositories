@@ -74,8 +74,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 string scrollId = previousResults.GetScrollId();
                 if (!String.IsNullOrEmpty(scrollId)) {
                     var scrollResponse = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), scrollId).AnyContext();
-                    if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                        _logger.LogTrace(scrollResponse.GetRequest());
+                    _logger.LogTraceRequest(scrollResponse);
 
                     var results = scrollResponse.ToFindResults();
                     results.Page = previousResults.Page + 1;
@@ -94,9 +93,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                                     searchAfterValues.Add(sort.SortKey.Property.GetValue(lastDocument));
                                 } else if (typeof(TResult) == typeof(T) && sort.SortKey.Expression is Expression<Func<T, object>> valueGetterExpression) {
                                     var valueGetter = valueGetterExpression.Compile();
-                                    var typedLastDocument = lastDocument as T;
-                                    if (typedLastDocument != null) {
-                                        var value = valueGetter.Invoke(typedLastDocument);
+                                    if (lastDocument is T typedLastDocument) {
+                                        object value = valueGetter.Invoke(typedLastDocument);
                                         searchAfterValues.Add(value);
                                     }
                                 } else if (sort.SortKey.Name != null) {
@@ -150,15 +148,14 @@ namespace Foundatio.Repositories.Elasticsearch {
                 response = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), options.GetSnapshotScrollId()).AnyContext();
             }
 
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(response.GetRequest());
-            if (!response.IsValid) {
+            if (response.IsValid) {
+                _logger.LogTraceRequest(response);
+            } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return new FindResults<TResult>();
 
-                string message = response.GetErrorMessage();
-                _logger.LogError(response.OriginalException, message);
-                throw new ApplicationException(message, response.OriginalException);
+                _logger.LogErrorRequest(response, "Error while searching");
+                throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
             }
 
             if (useSnapshotPaging) {
@@ -204,16 +201,15 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(response.GetRequest());
 
-            if (!response.IsValid) {
+            if (response.IsValid) {
+                _logger.LogTraceRequest(response);
+            } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return FindHit<T>.Empty;
 
-                string message = response.GetErrorMessage();
-                _logger.LogError(response.OriginalException, message);
-                throw new ApplicationException(message, response.OriginalException);
+                _logger.LogErrorRequest(response, "Error while finding document");
+                throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
             }
 
             result = response.Hits.FirstOrDefault()?.ToFindHit();
@@ -258,7 +254,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     request.Routing = id.Routing;
                 var response = await _client.GetAsync<T>(request).AnyContext();
                 if (isTraceLogLevelEnabled)
-                    _logger.LogTrace(response.GetRequest());
+                    _logger.LogTraceRequest(response);
 
                 document = response.Found ? response.ToFindHit().Document : null;
             } else {
@@ -307,8 +303,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(multiGetResults.GetRequest());
+            _logger.LogTraceRequest(multiGetResults);
 
             foreach (var doc in multiGetResults.Documents) {
                 hits.Add(((IMultiGetHit<T>)doc).ToFindHit().Document);
@@ -348,8 +343,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     return d;
                 }).AnyContext();
-                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                    _logger.LogTrace(response.GetRequest());
+                _logger.LogTraceRequest(response);
 
                 return response.Exists;
             }
@@ -371,16 +365,15 @@ namespace Foundatio.Repositories.Elasticsearch {
             var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
             searchDescriptor.DocvalueFields(_idField);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(response.GetRequest());
 
-            if (!response.IsValid) {
+            if (response.IsValid) {
+                _logger.LogTraceRequest(response);
+            } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return false;
 
-                string message = response.GetErrorMessage();
-                _logger.LogError(response.OriginalException, message);
-                throw new ApplicationException(message, response.OriginalException);
+                _logger.LogErrorRequest(response, "Error checking if document exists");
+                throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
             }
 
             return response.HitsMetaData.Total > 0;
@@ -405,16 +398,15 @@ namespace Foundatio.Repositories.Elasticsearch {
             searchDescriptor.Size(0);
 
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(response.GetRequest());
 
-            if (!response.IsValid) {
+            if (response.IsValid) {
+                _logger.LogTraceRequest(response);
+            } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return new CountResult();
 
-                string message = response.GetErrorMessage();
-                _logger.LogError(response.OriginalException, message);
-                throw new ApplicationException(message, response.OriginalException);
+                _logger.LogErrorRequest(response, "Error getting document count");
+                throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
             }
 
             result = new CountResult(response.Total, response.ToAggregations());
@@ -426,16 +418,15 @@ namespace Foundatio.Repositories.Elasticsearch {
             options = ConfigureOptions(options);
 
             var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null))).Type(ElasticConfiguration.DocType)).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(response.GetRequest());
 
-            if (!response.IsValid) {
+            if (response.IsValid) {
+                _logger.LogTraceRequest(response);
+            } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return 0;
 
-                string message = response.GetErrorMessage();
-                _logger.LogError(response.OriginalException, message);
-                throw new ApplicationException(message, response.OriginalException);
+                _logger.LogErrorRequest(response, "Error getting document count");
+                throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
             }
 
             return response.Count;

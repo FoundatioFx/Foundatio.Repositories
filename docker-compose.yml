@@ -1,49 +1,12 @@
 version: '2'
 
 services:
-
   elasticsearch:
-    image: slideroom/elasticsearch:latest
+    image: docker.elastic.co/elasticsearch/elasticsearch:5.6.13
     environment:
-      bootstrap.memory_lock: 'true'
       discovery.type: single-node
-      ES_JAVA_OPTS: '-Xms512m -Xmx512m'
       xpack.security.enabled: 'false'
-      xpack.monitoring.collection.enabled: 'true'
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
     ports:
       - 9200:9200
       - 9300:9300
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-    mem_limit: 1073741824
-    volumes:
-      - esdata:/usr/share/elasticsearch/data
-    networks:
-      - foundatio
-
-  kibana:
-    depends_on:
-      - elasticsearch
-    image: slideroom/kibana:latest
-    ports:
-      - 5601:5601
-    networks:
-      - foundatio
-
-  redis:
-    image: redis:alpine
-    ports:
-      - "6379:6379"
-    mem_limit: 52428800
-    networks:
-      - foundatio
- 
-volumes:
-  esdata:
-    driver: local
-
-networks:
-  foundatio:
-    driver: bridge

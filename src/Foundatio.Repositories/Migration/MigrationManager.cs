@@ -51,6 +51,9 @@ namespace Foundatio.Repositories.Migrations {
             if (!(migrationInstance is IMigration migration))
                 throw new ArgumentException($"Type '{migrationType.Name}' must implement interface '{nameof(IMigration)}'.", nameof(migrationType));
 
+            if (migration.Version.HasValue && _migrations.Any(m => m.Version.HasValue && m.Version.Value == migration.Version))
+                throw new ArgumentException($"Duplicate migration version detected for '{migrationType.Name}'", nameof(migrationType));
+            
             _migrations.Add(migration);
         }
 

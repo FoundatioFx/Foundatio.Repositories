@@ -1,7 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>netcoreapp2.0</TargetFramework>
-    <IsPackable>False</IsPackable>
+    <TargetFrameworks>netcoreapp2.1</TargetFrameworks>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Foundatio.Repositories\Foundatio.Repositories.csproj" />
@@ -9,9 +8,9 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Exceptionless.RandomData" Version="1.1.47" />
-    <PackageReference Include="Foundatio.Logging.Xunit" Version="7.0.1706" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="15.7.0" />
-    <PackageReference Include="xunit" Version="2.3.1" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.3.1" />
+    <PackageReference Include="Foundatio.Logging.Xunit" Version="7.1.1845" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="15.9.0" />
+    <PackageReference Include="xunit" Version="2.4.1" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.4.1" />
   </ItemGroup>
 </Project>

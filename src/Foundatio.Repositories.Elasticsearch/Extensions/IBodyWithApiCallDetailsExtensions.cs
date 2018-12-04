@@ -1,3 +1,4 @@
+using System;
 using System.Text;
 using Elasticsearch.Net;
 using Newtonsoft.Json;
@@ -8,7 +9,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (call?.ApiCall?.ResponseBodyInBytes == null)
                 return default;
 
-            var rawResponse = Encoding.UTF8.GetString(call.ApiCall.ResponseBodyInBytes);
+            string rawResponse = Encoding.UTF8.GetString(call.ApiCall.ResponseBodyInBytes);
             return JsonConvert.DeserializeObject<T>(rawResponse);
         }
     }

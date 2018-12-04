@@ -8,6 +8,7 @@ using Nest;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Caching;
 using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
@@ -283,15 +284,15 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             }
 
             var response = await Configuration.Client.AliasAsync(aliasDescriptor).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(response.GetRequest());
 
-            if (!response.IsValid) {
+            if (response.IsValid) {
+                _logger.LogTraceRequest(response);
+            } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return;
 
+                _logger.LogErrorRequest(response, "Error updating aliases");
                 string message = $"Error updating aliases: {response.GetErrorMessage()}";
-                _logger.LogError(response.OriginalException, "Error updating aliases: {0}", message);
                 throw new ApplicationException(message, response.OriginalException);
             }
         }

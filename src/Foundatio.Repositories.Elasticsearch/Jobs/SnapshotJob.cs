@@ -4,10 +4,10 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Exceptionless.DateTimeExtensions;
 using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
@@ -43,10 +43,13 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                                 .IncludeGlobalState(false)
                                 .WaitForCompletion(false)
                             , cancellationToken).AnyContext();
+                        _logger.LogTraceRequest(response);
 
                         // 400 means the snapshot already exists
-                        if (!response.IsValid && response.ApiCall.HttpStatusCode != 400)
+                        if (!response.IsValid && response.ApiCall.HttpStatusCode != 400) {
+                            _logger.LogErrorRequest(response, "Snapshot failed");
                             throw new ApplicationException($"Snapshot failed: {response.GetErrorMessage()}", response.OriginalException);
+                        }
 
                         return response;
                     },
@@ -62,6 +65,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                     await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken).AnyContext();
 
                     var status = await _client.SnapshotStatusAsync(s => s.Snapshot(snapshotName).RepositoryName(Repository), cancellationToken).AnyContext();
+                    _logger.LogTraceRequest(status);
                     if (status.IsValid && status.Snapshots.Count > 0) {
                         string state = status.Snapshots.First().State;
                         if (state.Equals("SUCCESS", StringComparison.OrdinalIgnoreCase)) {
@@ -84,7 +88,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 if (success)
                     await OnSuccess(snapshotName, sw.Elapsed).AnyContext();
                 else
-                    await OnFailure(snapshotName, result).AnyContext();
+                    await OnFailure(snapshotName, result, sw.Elapsed).AnyContext();
             }, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(30)).AnyContext();
 
             return JobResult.Success;
@@ -95,8 +99,8 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             return Task.CompletedTask;
         }
 
-        public virtual Task OnFailure(string snapshotName, ISnapshotResponse response) {
-            _logger.LogError("Failed snapshot {SnapshotName} in {Repository}: {ErrorMessage}", snapshotName, Repository, response.GetErrorMessage());
+        public virtual Task OnFailure(string snapshotName, ISnapshotResponse response, TimeSpan duration) {
+            _logger.LogErrorRequest(response, "Failed snapshot {SnapshotName} in {Repository} after {Duration:g}", snapshotName, Repository, duration);
             return Task.CompletedTask;
         }
 

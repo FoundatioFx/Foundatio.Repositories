@@ -354,8 +354,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task GetTermAggregationsAsync() {
             await CreateDataAsync();
 
-            const string aggregations = "terms:age";
-            var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExpression(aggregations));
+            var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExpression("terms:age"));
             Assert.Equal(10, result.Total);
             Assert.Equal(1, result.Aggregations.Count);
             Assert.Equal(10, result.Aggregations.Terms<int>("terms_age").Buckets.Count);
@@ -367,6 +366,87 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, roundTripped.Aggregations.Count);
             Assert.Equal(10, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
             Assert.Equal(1, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19).Total);
+            
+            result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExpression("terms:(age~2 @missing:0 terms:(years~2 @missing:0))"));
+            Assert.Equal(10, result.Total);
+            Assert.Equal(1, result.Aggregations.Count);
+            Assert.Equal(2, result.Aggregations.Terms<int>("terms_age").Buckets.Count);
+            var bucket = result.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
+            Assert.Equal(1, bucket.Total);
+            Assert.Equal(1, bucket.Aggregations.Count);
+            Assert.Equal(1, bucket.Aggregations.Terms<int>("terms_years").Buckets.Count);
+
+            json = JsonConvert.SerializeObject(result, Formatting.Indented);
+            roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
+            var roundTrippedJson = JsonConvert.SerializeObject(roundTripped, Formatting.Indented);
+            Assert.Equal(json, roundTrippedJson);
+            Assert.Equal(10, roundTripped.Total);
+            Assert.Equal(1, roundTripped.Aggregations.Count);
+            Assert.Equal(2, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
+            bucket = roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
+            Assert.Equal(1, bucket.Total);
+            Assert.Equal(1, bucket.Aggregations.Count);
+            Assert.Equal(1, bucket.Aggregations.Terms<int>("terms_years").Buckets.Count);
+        }
+        
+        [Fact]
+        public async Task GetDateAggregationsAsync() {
+            var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
+            await _employeeRepository.AddAsync(new List<Employee> {
+                EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(2)),
+                EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(1)),
+                EmployeeGenerator.Generate(nextReview: utcToday)
+            }, o => o.ImmediateConsistency());
+
+            const string aggregations = "date:nextReview^1h";
+            var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExpression(aggregations));
+            Assert.Equal(3, result.Total);
+            Assert.Equal(1, result.Aggregations.Count);
+
+            var dateHistogramAgg = result.Aggregations.DateHistogram("date_nextReview");
+            Assert.Equal(3, dateHistogramAgg.Buckets.Count);
+            var oldestDate = DateTime.SpecifyKind(utcToday.UtcDateTime.Date.SubtractDays(2).SubtractHours(1), DateTimeKind.Unspecified);
+            foreach (var bucket in dateHistogramAgg.Buckets) {
+                AssertEqual(oldestDate, bucket.Date);
+                Assert.Equal(1, bucket.Total);
+                oldestDate = oldestDate.AddDays(1);
+            }
+            
+            var json = JsonConvert.SerializeObject(result);
+            var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
+            
+            dateHistogramAgg = roundTripped.Aggregations.DateHistogram("date_nextReview");
+            Assert.Equal(3, dateHistogramAgg.Buckets.Count);
+            oldestDate = DateTime.SpecifyKind(utcToday.UtcDateTime.Date.SubtractDays(2).SubtractHours(1), DateTimeKind.Unspecified);
+            foreach (var bucket in dateHistogramAgg.Buckets) {
+                AssertEqual(oldestDate, bucket.Date);
+                Assert.Equal(1, bucket.Total);
+                oldestDate = oldestDate.AddDays(1);
+            }
+        }
+        
+        [Fact]
+        public async Task GetDateValueAggregatesAsync() {
+            var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
+            await _employeeRepository.AddAsync(new List<Employee> {
+                EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(2)),
+                EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(1)),
+                EmployeeGenerator.Generate(nextReview: utcToday)
+            }, o => o.ImmediateConsistency());
+
+            const string aggregations = "min:nextReview";
+            var result = await _employeeRepository.GetCountByQueryAsync(q => q.AggregationsExpression(aggregations));
+            Assert.Equal(3, result.Total);
+            Assert.Equal(1, result.Aggregations.Count);
+
+            var dateTermsAgg = result.Aggregations.Min<DateTime>("min_nextReview");
+            Assert.Equal(utcToday.SubtractDays(2), dateTermsAgg.Value);
+            
+            var json = JsonConvert.SerializeObject(result);
+            var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
+            
+            dateTermsAgg = roundTripped.Aggregations.Min<DateTime>("min_nextReview");
+            Assert.Equal(utcToday.SubtractDays(2), dateTermsAgg.Value);
         }
 
         [Fact]
