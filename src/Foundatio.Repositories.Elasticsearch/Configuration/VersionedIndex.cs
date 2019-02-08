@@ -35,7 +35,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected void RenameFieldScript(int versionNumber, string originalName, string currentName, string type = null, bool removeOriginal = true) {
-            string script = $"if (ctx._source.containsKey(\'{originalName}\')) {{ ctx._source[\'{currentName}\'] = ctx._source.{originalName}; ctx._source.remove(\'{originalName}\'); }}";
+            string script = $"if (ctx._source.containsKey(\'{originalName}\')) {{ ctx._source[\'{currentName}\'] = ctx._source.{originalName}; }}";
             ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script, Type = type });
 
             if (removeOriginal)
