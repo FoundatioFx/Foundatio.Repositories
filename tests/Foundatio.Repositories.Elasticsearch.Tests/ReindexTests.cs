@@ -31,7 +31,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
                 await index.ConfigureAsync();
-                Assert.True(_client.IndexExists(index.Name).Exists);
+                Assert.True((await _client.IndexExistsAsync(index.Name)).Exists);
 
                 var repository = new EmployeeRepository(index.Employee);
                 var employee = await repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
@@ -76,7 +76,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
-                Assert.True(_client.IndexExists(version1Index.VersionedName).Exists);
+                Assert.True((await _client.IndexExistsAsync(version1Index.VersionedName)).Exists);
 
                 var version1Repository = new EmployeeRepository(version1Index.Employee);
                 await version1Repository.AddAsync(EmployeeGenerator.GenerateEmployees(numberOfEmployeesToCreate), o => o.ImmediateConsistency());
@@ -89,7 +89,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                 using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult())) {
                     await version2Index.ConfigureAsync();
-                    Assert.True(_client.IndexExists(version2Index.VersionedName).Exists);
+                    Assert.True((await _client.IndexExistsAsync(version2Index.VersionedName)).Exists);
 
                     // Throw error before second repass.
                     await Assert.ThrowsAsync<ApplicationException>(async () => await version2Index.ReindexAsync((progress, message) => {
@@ -134,7 +134,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
-                Assert.True(_client.IndexExists(version1Index.VersionedName).Exists);
+                Assert.True((await _client.IndexExistsAsync(version1Index.VersionedName)).Exists);
 
                 var version1Repository = new EmployeeRepository(version1Index.Employee);
                 await version1Repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
@@ -154,7 +154,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                         ))));
                     _logger.LogTraceRequest(response);
 
-                    Assert.True(_client.IndexExists(version2Index.VersionedName).Exists);
+                    Assert.True((await _client.IndexExistsAsync(version2Index.VersionedName)).Exists);
                     Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
 
                     await version2Index.ReindexAsync();
@@ -201,7 +201,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
-                Assert.True(_client.IndexExists(version1Index.VersionedName).Exists);
+                Assert.True((await _client.IndexExistsAsync(version1Index.VersionedName)).Exists);
 
                 var indexes = _client.GetIndicesPointingToAlias(version1Index.Name);
                 Assert.Single(indexes);
@@ -225,7 +225,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                 using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult())) {
                     await version2Index.ConfigureAsync();
-                    Assert.True(_client.IndexExists(version2Index.VersionedName).Exists);
+                    Assert.True((await _client.IndexExistsAsync(version2Index.VersionedName)).Exists);
 
                     // Make sure we can write to the index still. Should go to the old index until after the reindex is complete.
                     var version2Repository = new EmployeeRepository(version2Index.Employee);
@@ -419,7 +419,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
-                Assert.True(_client.IndexExists(version1Index.VersionedName).Exists);
+                Assert.True((await _client.IndexExistsAsync(version1Index.VersionedName)).Exists);
 
                 var version1Repository = new EmployeeRepository(version1Index.Employee);
                 var employee = await version1Repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
@@ -427,7 +427,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                 using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult())) {
                     await version2Index.ConfigureAsync();
-                    Assert.True(_client.IndexExists(version2Index.VersionedName).Exists);
+                    Assert.True((await _client.IndexExistsAsync(version2Index.VersionedName)).Exists);
 
                     // swap the alias so we write to v1 and v2 and try to reindex.
                     await _client.AliasAsync(x => x
@@ -491,7 +491,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
-                Assert.True(_client.IndexExists(version1Index.VersionedName).Exists);
+                Assert.True((await _client.IndexExistsAsync(version1Index.VersionedName)).Exists);
 
                 var repository = new EmployeeRepository(version1Index.Employee);
                 var employee = await repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
@@ -499,7 +499,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                 using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult())) {
                     await version2Index.ConfigureAsync();
-                    Assert.True(_client.IndexExists(version2Index.VersionedName).Exists);
+                    Assert.True((await _client.IndexExistsAsync(version2Index.VersionedName)).Exists);
                     Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
 
                     // alias should still point to the old version until reindex
@@ -510,14 +510,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.Equal(version1Index.VersionedName, aliasResponse.Indices.First().Key);
 
                     var countdown = new AsyncCountdownEvent(1);
-                    var reindexTask = version2Index.ReindexAsync((progress, message) => {
+                    var reindexTask = version2Index.ReindexAsync(async (progress, message) => {
                         _logger.LogInformation($"Reindex Progress {progress}%: {message}");
                         if (progress == 91) {
                             countdown.Signal();
-                            SystemClock.Sleep(1000);
+                            await SystemClock.SleepAsync(1000);
                         }
-
-                        return Task.CompletedTask;
                     });
 
                     // Wait until the first reindex pass is done.
@@ -560,7 +558,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
-                Assert.True(_client.IndexExists(version1Index.VersionedName).Exists);
+                Assert.True((await _client.IndexExistsAsync(version1Index.VersionedName)).Exists);
 
                 var repository = new EmployeeRepository(version1Index.Employee);
                 var employee = await repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
@@ -568,7 +566,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                 using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult())) {
                     await version2Index.ConfigureAsync();
-                    Assert.True(_client.IndexExists(version2Index.VersionedName).Exists);
+                    Assert.True((await _client.IndexExistsAsync(version2Index.VersionedName)).Exists);
                     Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
 
                     // alias should still point to the old version until reindex
@@ -579,14 +577,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.Equal(version1Index.VersionedName, aliasResponse.Indices.First().Key);
 
                     var countdown = new AsyncCountdownEvent(1);
-                    var reindexTask = version2Index.ReindexAsync((progress, message) => {
+                    var reindexTask = version2Index.ReindexAsync(async (progress, message) => {
                         _logger.LogInformation($"Reindex Progress {progress}%: {message}");
                         if (progress == 91) {
                             countdown.Signal();
-                            SystemClock.Sleep(1000);
+                            await SystemClock.SleepAsync(1000);
                         }
-
-                        return Task.CompletedTask;
                     });
 
                     // Wait until the first reindex pass is done.
