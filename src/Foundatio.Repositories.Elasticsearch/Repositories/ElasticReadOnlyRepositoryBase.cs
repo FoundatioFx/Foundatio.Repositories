@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -25,18 +25,22 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected static readonly bool HasVersion = typeof(IVersioned).IsAssignableFrom(typeof(T));
         protected static readonly string EntityTypeName = typeof(T).Name;
         protected static readonly IReadOnlyCollection<T> EmptyList = new List<T>(0).AsReadOnly();
-        protected readonly string _idField;
+        private readonly List<Lazy<Field>> _defaultExcludes = new List<Lazy<Field>>();
+        protected readonly Lazy<string> _idField;
 
         protected readonly ILogger _logger;
-        protected readonly IElasticClient _client;
+        protected readonly Lazy<IElasticClient> _lazyClient;
+        protected IElasticClient _client => _lazyClient.Value;
 
         private ScopedCacheClient _scopedCacheClient;
 
+        
         protected ElasticReadOnlyRepositoryBase(IIndexType<T> indexType) {
             ElasticType = indexType;
             if (HasIdentity)
-                _idField = indexType.GetFieldName(doc => ((IIdentity)doc).Id) ?? "id";
-            _client = indexType.Configuration.Client;
+                _idField = new Lazy<string>(() => indexType.GetFieldName(doc => ((IIdentity)doc).Id) ?? "id");
+            _lazyClient = new Lazy<IElasticClient>(() => indexType.Configuration.Client);
+            
             SetCache(indexType.Configuration.Cache);
             _logger = indexType.Configuration.LoggerFactory.CreateLogger(GetType());
         }
@@ -48,8 +52,6 @@ namespace Foundatio.Repositories.Elasticsearch {
         public virtual Task<FindResults<T>> FindAsync(IRepositoryQuery query, ICommandOptions options = null) {
             return FindAsAsync<T>(query, options);
         }
-
-        protected ICollection<Field> DefaultExcludes { get; } = new List<Field>();
 
         public virtual Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) where TResult : class, new() {
             return FindAsAsync<TResult>(query.Configure(), options.Configure());
@@ -135,28 +137,28 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             ISearchResponse<TResult> response;
-            if (useSnapshotPaging == false || !options.HasSnapshotScrollId()) {
-                var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
-                if (useSnapshotPaging)
-                    searchDescriptor.Scroll(options.GetSnapshotLifetime());
+                if (useSnapshotPaging == false || !options.HasSnapshotScrollId()) {
+                    var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
+                    if (useSnapshotPaging)
+                        searchDescriptor.Scroll(options.GetSnapshotLifetime());
 
-                if (query.ShouldOnlyHaveIds())
-                    searchDescriptor.Source(false);
+                    if (query.ShouldOnlyHaveIds())
+                        searchDescriptor.Source(false);
 
-                response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
-            } else {
+                    response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
+                } else {
                 response = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), options.GetSnapshotScrollId()).AnyContext();
-            }
+                }
 
-            if (response.IsValid) {
-                _logger.LogTraceRequest(response);
-            } else {
-                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
-                    return new FindResults<TResult>();
+                if (response.IsValid) {
+                    _logger.LogTraceRequest(response);
+                } else {
+                    if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+                        return new FindResults<TResult>();
 
-                _logger.LogErrorRequest(response, "Error while searching");
-                throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
-            }
+                    _logger.LogErrorRequest(response, "Error while searching");
+                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+                }
 
             if (useSnapshotPaging) {
                 result = response.ToFindResults();
@@ -363,7 +365,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
             var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
-            searchDescriptor.DocvalueFields(_idField);
+            searchDescriptor.DocvalueFields(_idField.Value);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
 
             if (response.IsValid) {
@@ -449,10 +451,26 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (query == null)
                 query = new RepositoryQuery<T>();
 
-            if (DefaultExcludes.Count > 0 && query.GetExcludes().Count == 0)
-                query.Exclude(DefaultExcludes);
+            if (_defaultExcludes.Count > 0 && query.GetExcludes().Count == 0)
+                query.Exclude(_defaultExcludes.Select(e => e.Value));
 
             return query;
+        }
+        
+        protected void AddDefaultExclude(string field) {
+            _defaultExcludes.Add(new Lazy<Field>(() => field));
+        }
+        
+        protected void AddDefaultExclude(Lazy<string> field) {
+            _defaultExcludes.Add(new Lazy<Field>(() => field.Value));
+        }
+        
+        protected void AddDefaultExclude(Expression<Func<T, object>> objectPath) {
+            _defaultExcludes.Add(new Lazy<Field>(() => ElasticType.GetPropertyName(objectPath)));
+        }
+        
+        protected void AddDefaultExclude(params Expression<Func<T, object>>[] objectPaths) {
+            _defaultExcludes.AddRange(objectPaths.Select(o => new Lazy<Field>(() => ElasticType.GetPropertyName(o))));
         }
 
         public bool IsCacheEnabled { get; private set; } = true;
