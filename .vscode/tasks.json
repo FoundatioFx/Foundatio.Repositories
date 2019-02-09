@@ -54,14 +54,17 @@
     },
     {
       "label": "docker: build",
-      "command": "docker build --target build -t foundatio:build . && docker run -v $(pwd)/artifacts:/app/artifacts foundatio:build",
+      "command": "docker build --target build -t foundatio:build .",
       "type": "shell",
       "group": "build",
       "problemMatcher": "$msCompile"
     },
     {
       "label": "docker: test shared",
-      "command": "docker build --target shared-testrunner -t foundatio:shared-test . && docker run -it --net host -v $(pwd)/artifacts:/app/artifacts foundatio:shared-est",
+      "command": "docker build --target shared-testrunner -t foundatio:shared-test . && docker run -it --net host -v $(pwd)/artifacts:/app/artifacts foundatio:shared-test",
+      "windows": {
+        "command": "docker build --target shared-testrunner -t foundatio:shared-test . ; docker run -it --net host foundatio:shared-test"
+      },
       "type": "shell",
       "group": "build",
       "problemMatcher": "$msCompile"
@@ -69,6 +72,9 @@
     {
       "label": "docker: test elasticsearch",
       "command": "docker build --target elasticsearch-testrunner -t foundatio:elasticsearch-test . && docker run -it --net host -v $(pwd)/artifacts:/app/artifacts foundatio:elasticsearch-test",
+      "windows": {
+        "command": "docker build --target elasticsearch-testrunner -t foundatio:elasticsearch-test . ; docker run -it --net host foundatio:elasticsearch-test"
+      },
       "type": "shell",
       "group": "build",
       "problemMatcher": "$msCompile"
