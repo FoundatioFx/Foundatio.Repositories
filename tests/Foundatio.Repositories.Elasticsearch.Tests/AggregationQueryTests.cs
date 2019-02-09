@@ -258,7 +258,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             new object[] { new DateTime(2016, 2, 29, 0, 0, 0, DateTimeKind.Utc) },
             new object[] { new DateTime(2016, 8, 31, 0, 0, 0, DateTimeKind.Utc) },
             new object[] { new DateTime(2016, 9, 1, 0, 0, 0, DateTimeKind.Utc) },
-            new object[] { new DateTime(2016, 9, 1, 0, 0, 0, DateTimeKind.Utc) },
             new object[] { new DateTime(2017, 3, 1, 0, 0, 0, DateTimeKind.Utc) },
             new object[] { new DateTime(2017, 4, 10, 18, 43, 39, 0, DateTimeKind.Utc) },
             new object[] { new DateTime(2017, 4, 10, 23, 0, 0, 0, DateTimeKind.Utc) },
