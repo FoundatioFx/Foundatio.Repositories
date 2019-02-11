@@ -576,6 +576,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(ElasticType.Index.Name, ElasticType.Name) {
                 Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency) != Refresh.False,
+                Conflicts = Conflicts.Proceed,
                 Query = await ElasticType.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext()
             }).AnyContext();
 
