@@ -12,9 +12,8 @@
     <TargetFramework>netstandard2.0</TargetFramework>
     <Product>Foundatio Elasticsearch Repositories</Product>
     <Description>Generic Repository implementations for Elasticsearch.</Description>
-    <PackageProjectUrl>https://github.com/FoundatioFx/Foundatio.Redis</PackageProjectUrl>
-    <PackageReleaseNotes>https://github.com/FoundatioFx/Foundatio.Redis/releases</PackageReleaseNotes>
-    <PackageTags>Queue;Messaging;Message;Bus;ServiceBus;Locking;Lock;Distributed;File;Storage;Blob;Jobs;Metrics;Stats;Azure;Redis;StatsD;Amazon;AWS;S3;broker;Logging;Log</PackageTags>
+    <PackageProjectUrl>https://github.com/FoundatioFx/Foundatio.Repositories</PackageProjectUrl>
+    <PackageReleaseNotes>https://github.com/FoundatioFx/Foundatio.Repositories/releases</PackageReleaseNotes>
 
     <Copyright>Copyright (c) 2019 Foundatio.  All rights reserved.</Copyright>
     <Authors>FoundatioFx</Authors>
