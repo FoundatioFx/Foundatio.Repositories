@@ -269,7 +269,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [MemberData(nameof(DatesToCheck))]
         public async Task GetDateOffsetAggregationsAsync(DateTime utcNow) {
             using (TestSystemClock.Install()) {
-                SystemClock.Test.SetFixedTime(utcNow);
+                TestSystemClock.SetFrozenTime(utcNow);
 
                 var today = SystemClock.OffsetNow.Floor(TimeSpan.FromMilliseconds(1));
 
