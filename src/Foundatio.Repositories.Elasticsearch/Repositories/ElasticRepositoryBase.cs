@@ -21,21 +21,22 @@ using Foundatio.Utility;
 using Newtonsoft.Json.Linq;
 using Foundatio.Repositories.Options;
 using Microsoft.Extensions.Logging;
+using System.Linq.Expressions;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IElasticRepository<T> where T : class, IIdentity, new() {
         protected readonly IValidator<T> _validator;
         protected readonly IMessagePublisher _messagePublisher;
+        private readonly List<Lazy<Field>> _propertiesRequiredForRemove = new List<Lazy<Field>>();
 
         protected ElasticRepositoryBase(IIndex<T> index, IValidator<T> validator = null) : base(index) {
             _validator = validator;
             _messagePublisher = index.Configuration.MessageBus;
             NotificationsEnabled = _messagePublisher != null;
 
-            if (HasCreatedDate) {
-                string propertyName = index.GetPropertyName(e => ((IHaveCreatedDate)e).CreatedUtc);
-                FieldsRequiredForRemove.Add(propertyName);
-            }
+            AddPropertyRequiredForRemove(_idField);
+            if (HasCreatedDate)
+                AddPropertyRequiredForRemove(e => ((IHaveCreatedDate)e).CreatedUtc);
         }
 
         public virtual async Task<T> AddAsync(T document, ICommandOptions options = null) {
@@ -378,8 +379,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                     affectedRecords += response.Updated + response.Noops;
                     Debug.Assert(response.Total == affectedRecords, "Unable to update all documents");
                 } else {
-                    if (!query.GetIncludes().Contains(_idField))
-                        query.Include(_idField);
+                    if (!query.GetIncludes().Contains(_idField.Value))
+                        query.Include(_idField.Value);
 
                     affectedRecords += await BatchProcessAsync(query, async results => {
                         var bulkResult = await _client.BulkAsync(b => {
@@ -534,8 +535,22 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             return await RemoveAllAsync(NewQuery(), options).AnyContext();
         }
-
-        protected List<Field> FieldsRequiredForRemove { get; } = new List<Field>();
+        
+        protected void AddPropertyRequiredForRemove(string field) {
+            _propertiesRequiredForRemove.Add(new Lazy<Field>(() => field));
+        }
+        
+        protected void AddPropertyRequiredForRemove(Lazy<string> field) {
+            _propertiesRequiredForRemove.Add(new Lazy<Field>(() => field.Value));
+        }
+        
+        protected void AddPropertyRequiredForRemove(Expression<Func<T, object>> objectPath) {
+            _propertiesRequiredForRemove.Add(new Lazy<Field>(() => ElasticIndex.GetPropertyName(objectPath)));
+        }
+        
+        protected void AddPropertyRequiredForRemove(params Expression<Func<T, object>>[] objectPaths) {
+            _propertiesRequiredForRemove.AddRange(objectPaths.Select(o => new Lazy<Field>(() => ElasticIndex.GetPropertyName(o))));
+        }
 
         public virtual Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
             return RemoveAllAsync(query.Configure(), options.Configure());
@@ -547,8 +562,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             options = ConfigureOptions(options);
             if (IsCacheEnabled && options.ShouldUseCache(true)) {
-                foreach (var field in FieldsRequiredForRemove.Union(new Field[] { _idField }))
-                    if (!query.GetIncludes().Contains(field))
+                foreach (var field in _propertiesRequiredForRemove.Select(f => f.Value))
+                    if (field != null && !query.GetIncludes().Contains(field))
                         query.Include(field);
 
                 // TODO: What if you only want to send one notification?
@@ -560,6 +575,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(ElasticIndex.Name, ElasticConfiguration.DocType) {
                 Refresh = options.GetRefreshMode(ElasticIndex.DefaultConsistency) != Refresh.False,
+                Conflicts = Conflicts.Proceed,
                 Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext()
             }).AnyContext();
 

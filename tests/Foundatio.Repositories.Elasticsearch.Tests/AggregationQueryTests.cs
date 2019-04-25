@@ -258,7 +258,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             new object[] { new DateTime(2016, 2, 29, 0, 0, 0, DateTimeKind.Utc) },
             new object[] { new DateTime(2016, 8, 31, 0, 0, 0, DateTimeKind.Utc) },
             new object[] { new DateTime(2016, 9, 1, 0, 0, 0, DateTimeKind.Utc) },
-            new object[] { new DateTime(2016, 9, 1, 0, 0, 0, DateTimeKind.Utc) },
             new object[] { new DateTime(2017, 3, 1, 0, 0, 0, DateTimeKind.Utc) },
             new object[] { new DateTime(2017, 4, 10, 18, 43, 39, 0, DateTimeKind.Utc) },
             new object[] { new DateTime(2017, 4, 10, 23, 0, 0, 0, DateTimeKind.Utc) },
@@ -270,7 +269,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [MemberData(nameof(DatesToCheck))]
         public async Task GetDateOffsetAggregationsAsync(DateTime utcNow) {
             using (TestSystemClock.Install()) {
-                SystemClock.Test.SetFixedTime(utcNow);
+                TestSystemClock.SetFrozenTime(utcNow);
 
                 var today = SystemClock.OffsetNow.Floor(TimeSpan.FromMilliseconds(1));
 

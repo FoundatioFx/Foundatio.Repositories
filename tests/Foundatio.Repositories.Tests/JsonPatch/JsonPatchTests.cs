@@ -368,6 +368,19 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
                 patcher.Patch(ref sample, patchDocument);
             });
         }
+        
+        [Fact]
+        public void Can_replace_existing_boolean() {
+            var sample = JToken.FromObject(new MyConfigClass { RequiresConfiguration = true });
+
+            var patchDocument = new PatchDocument();
+            patchDocument.AddOperation(new ReplaceOperation { Path = "/RequiresConfiguration", Value = new JValue(false) });
+
+            var patcher = new JsonPatcher();
+            patcher.Patch(ref sample, patchDocument);
+            
+            Assert.False(sample.ToObject<MyConfigClass>().RequiresConfiguration);
+        }
 
         public static JToken GetSample2() {
             return JToken.Parse(@"{
@@ -383,5 +396,9 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
     ]
 }");
         }
+    }
+    
+    public class MyConfigClass {
+        public bool RequiresConfiguration { get; set; }
     }
 }

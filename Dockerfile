@@ -1,11 +1,12 @@
-FROM microsoft/dotnet:2.2.100-sdk AS build  
+FROM microsoft/dotnet:2.2.105-sdk AS build  
 WORKDIR /app
 
 ARG VERSION_SUFFIX=0-dev
 ENV VERSION_SUFFIX=$VERSION_SUFFIX
 
 COPY ./*.sln ./NuGet.config ./
-COPY ./build/*.props ./build/
+COPY ./*/*.props ./
+COPY ./LICENSE.txt ./LICENSE.txt
 
 # Copy the main source project files
 COPY src/*/*.csproj ./

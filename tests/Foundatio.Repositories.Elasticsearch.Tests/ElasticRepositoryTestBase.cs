@@ -27,6 +27,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             _workItemQueue = new InMemoryQueue<WorkItemData>(new InMemoryQueueOptions<WorkItemData> { LoggerFactory = Log });
             _configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log);
             _client = _configuration.Client;
+            _configuration.WaitForReady(new CancellationTokenSource(TimeSpan.FromMinutes(1)).Token);
         }
 
         protected virtual async Task RemoveDataAsync(bool configureIndexes = true) {

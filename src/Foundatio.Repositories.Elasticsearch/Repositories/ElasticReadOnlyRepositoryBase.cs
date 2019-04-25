@@ -25,18 +25,21 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected static readonly bool HasVersion = typeof(IVersioned).IsAssignableFrom(typeof(T));
         protected static readonly string EntityTypeName = typeof(T).Name;
         protected static readonly IReadOnlyCollection<T> EmptyList = new List<T>(0).AsReadOnly();
-        protected readonly string _idField;
+        private readonly List<Lazy<Field>> _defaultExcludes = new List<Lazy<Field>>();
+        protected readonly Lazy<string> _idField;
 
         protected readonly ILogger _logger;
-        protected readonly IElasticClient _client;
+        protected readonly Lazy<IElasticClient> _lazyClient;
+        protected IElasticClient _client => _lazyClient.Value;
 
         private ScopedCacheClient _scopedCacheClient;
 
         protected ElasticReadOnlyRepositoryBase(IIndex<T> index) {
             ElasticIndex = index;
             if (HasIdentity)
-                _idField = index.GetFieldName(doc => ((IIdentity)doc).Id) ?? "id";
-            _client = index.Configuration.Client;
+                _idField = new Lazy<string>(() => index.GetFieldName(doc => ((IIdentity)doc).Id) ?? "id");
+            _lazyClient = new Lazy<IElasticClient>(() => index.Configuration.Client);
+
             SetCache(index.Configuration.Cache);
             _logger = index.Configuration.LoggerFactory.CreateLogger(GetType());
         }
@@ -363,7 +366,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
             var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
-            searchDescriptor.DocvalueFields(_idField);
+            searchDescriptor.DocvalueFields(_idField.Value);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
 
             if (response.IsValid) {
@@ -449,10 +452,26 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (query == null)
                 query = new RepositoryQuery<T>();
 
-            if (DefaultExcludes.Count > 0 && query.GetExcludes().Count == 0)
-                query.Exclude(DefaultExcludes);
+            if (_defaultExcludes.Count > 0 && query.GetExcludes().Count == 0)
+                query.Exclude(_defaultExcludes.Select(e => e.Value));
 
             return query;
+        }
+        
+        protected void AddDefaultExclude(string field) {
+            _defaultExcludes.Add(new Lazy<Field>(() => field));
+        }
+        
+        protected void AddDefaultExclude(Lazy<string> field) {
+            _defaultExcludes.Add(new Lazy<Field>(() => field.Value));
+        }
+        
+        protected void AddDefaultExclude(Expression<Func<T, object>> objectPath) {
+            _defaultExcludes.Add(new Lazy<Field>(() => ElasticIndex.GetPropertyName(objectPath)));
+        }
+        
+        protected void AddDefaultExclude(params Expression<Func<T, object>>[] objectPaths) {
+            _defaultExcludes.AddRange(objectPaths.Select(o => new Lazy<Field>(() => ElasticIndex.GetPropertyName(o))));
         }
 
         public bool IsCacheEnabled { get; private set; } = true;
