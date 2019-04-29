@@ -1,11 +1,12 @@
 using System;
 using System.Text;
 using Elasticsearch.Net;
+using Nest;
 using Newtonsoft.Json;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     internal static class IBodyWithApiCallDetailsExtensions {
-        public static T DeserializeRaw<T>(this IBodyWithApiCallDetails call) where T : class, new() {
+        public static T DeserializeRaw<T>(this IResponse call) where T : class, new() {
             if (call?.ApiCall?.ResponseBodyInBytes == null)
                 return default;
 

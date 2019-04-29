@@ -13,7 +13,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
             AddAlias($"{Name}-last30days", TimeSpan.FromDays(30));
         }
 
-        public override TypeMappingDescriptor<LogEvent> BuildMapping(TypeMappingDescriptor<LogEvent> map) {
+        public override ITypeMapping ConfigureIndexMapping(TypeMappingDescriptor<LogEvent> map) {
             return map
                 .Dynamic(false)
                 .Properties(p => p

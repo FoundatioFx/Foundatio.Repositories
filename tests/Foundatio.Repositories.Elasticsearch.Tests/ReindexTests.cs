@@ -37,30 +37,30 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 var employee = await repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
                 Assert.NotNull(employee?.Id);
 
-                var countResponse = await _client.CountAsync<Employee>(d => d.Index(index.Name));
+                var countResponse = await _client.CountAsync<Employee>();
                 _logger.LogTraceRequest(countResponse);
                 Assert.True(countResponse.IsValid);
                 Assert.Equal(1, countResponse.Count);
 
-                var mappingResponse = await _client.GetMappingAsync<Employee>(m => m.Index(index.Name));
+                var mappingResponse = await _client.GetMappingAsync<Employee>();
                 _logger.LogTraceRequest(mappingResponse);
                 Assert.True(mappingResponse.IsValid);
-                Assert.NotNull(mappingResponse.Mappings);
+                Assert.NotNull(mappingResponse.GetMappingFor(index.Name));
 
                 var newIndex = new EmployeeIndexWithYearsEmployed(_configuration);
                 await newIndex.ReindexAsync();
 
-                countResponse = await _client.CountAsync<Employee>(d => d.Index(index.Name));
+                countResponse = await _client.CountAsync<Employee>();
                 _logger.LogTraceRequest(countResponse);
                 Assert.True(countResponse.IsValid);
                 Assert.Equal(1, countResponse.Count);
 
-                string version1Mappings = ToJson(mappingResponse.Mappings);
-                mappingResponse = await _client.GetMappingAsync<Employee>(m => m.Index(index.Name));
+                string version1Mappings = ToJson(mappingResponse.GetMappingFor<Employee>());
+                mappingResponse = await _client.GetMappingAsync<Employee>();
                 _logger.LogTraceRequest(mappingResponse);
                 Assert.True(mappingResponse.IsValid);
-                Assert.NotNull(mappingResponse.Mappings);
-                Assert.NotEqual(version1Mappings, ToJson(mappingResponse.Mappings));
+                Assert.NotNull(mappingResponse.GetMappingFor<Employee>());
+                Assert.NotEqual(version1Mappings, ToJson(mappingResponse.GetMappingFor<Employee>()));
             }
         }
 
@@ -147,11 +147,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                 using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult())) {
                     //Create invalid mappings
-                    var response = await _client.CreateIndexAsync(version2Index.VersionedName, d => d.Mappings(m => m.Map<Employee>(map => map
+                    var response = await _client.CreateIndexAsync(version2Index.VersionedName, d => d.Map<Employee>(map => map
                         .Dynamic(false)
                         .Properties(p => p
                             .Number(f => f.Name(e => e.Id))
-                        ))));
+                        )));
                     _logger.LogTraceRequest(response);
 
                     Assert.True(_client.IndexExists(version2Index.VersionedName).Exists);
@@ -183,7 +183,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.True(countResponse.IsValid);
                     Assert.Equal(0, countResponse.Count);
 
-                    countResponse = await _client.CountAsync<object>(d => d.Index($"{version2Index.VersionedName}-error").Type("failures"));
+                    countResponse = await _client.CountAsync<object>(d => d.Index($"{version2Index.VersionedName}-error"));
                     _logger.LogTraceRequest(countResponse);
                     Assert.True(countResponse.IsValid);
                     Assert.Equal(1, countResponse.Count);
@@ -306,19 +306,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     var mappingResponse = await _client.GetMappingAsync<Employee>(m => m.Index(version1Index.VersionedName));
                     _logger.LogTraceRequest(mappingResponse);
                     Assert.True(mappingResponse.IsValid);
-                    Assert.NotNull(mappingResponse.Mappings);
+                    Assert.NotNull(mappingResponse.GetMappingFor<Employee>());
 
                     existsResponse = await _client.IndexExistsAsync(version2Index.VersionedName);
                     _logger.LogTraceRequest(existsResponse);
                     Assert.True(existsResponse.IsValid);
                     Assert.True(existsResponse.Exists);
 
-                    string version1Mappings = ToJson(mappingResponse.Mappings);
+                    string version1Mappings = ToJson(mappingResponse.GetMappingFor<Employee>());
                     mappingResponse = await _client.GetMappingAsync<Employee>(m => m.Index(version1Index.VersionedName));
                     _logger.LogTraceRequest(mappingResponse);
                     Assert.True(mappingResponse.IsValid);
-                    Assert.NotNull(mappingResponse.Mappings);
-                    Assert.Equal(version1Mappings, ToJson(mappingResponse.Mappings).Replace("-v2", "-v1"));
+                    Assert.NotNull(mappingResponse.GetMappingFor<Employee>());
+                    Assert.Equal(version1Mappings, ToJson(mappingResponse.GetMappingFor<Employee>()).Replace("-v2", "-v1"));
                 }
             }
         }
@@ -683,7 +683,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.True(aliasesResponse.IsValid);
                     Assert.Equal(version1Index.GetVersionedIndex(employee.CreatedUtc, 1), aliasesResponse.Indices.Single().Key);
 
-                    var aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
+                    var aliases = aliasesResponse.Indices.Values.Single().Aliases.Select(s => s.Key).ToList();
                     aliases.Sort();
                     Assert.Equal(GetExpectedEmployeeDailyAliases(version1Index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
@@ -697,7 +697,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.True(aliasesResponse.IsValid);
                     Assert.Equal(version1Index.GetVersionedIndex(employee.CreatedUtc, 2), aliasesResponse.Indices.Single().Key);
 
-                    aliases = aliasesResponse.Indices.Values.Single().Select(s => s.Name).ToList();
+                    aliases = aliasesResponse.Indices.Values.Single().Aliases.Select(s => s.Key).ToList();
                     aliases.Sort();
                     Assert.Equal(GetExpectedEmployeeDailyAliases(version1Index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
@@ -743,19 +743,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     var mappingResponse = await _client.GetMappingAsync<Employee>(m => m.Index(version1Index.GetVersionedIndex(utcNow, 1)));
                     _logger.LogTraceRequest(mappingResponse);
                     Assert.True(mappingResponse.IsValid);
-                    Assert.NotNull(mappingResponse.Mappings);
+                    Assert.NotNull(mappingResponse.GetMappingFor<Employee>());
 
                     existsResponse = await _client.IndexExistsAsync(version2Index.GetVersionedIndex(utcNow, 2));
                     _logger.LogTraceRequest(existsResponse);
                     Assert.True(existsResponse.IsValid);
                     Assert.True(existsResponse.Exists);
 
-                    string version1Mappings = ToJson(mappingResponse.Mappings);
+                    string version1Mappings = ToJson(mappingResponse.GetMappingFor<Employee>());
                     mappingResponse = await _client.GetMappingAsync<Employee>(m => m.Index(version1Index.GetVersionedIndex(utcNow, 2)));
                     _logger.LogTraceRequest(mappingResponse);
                     Assert.True(mappingResponse.IsValid);
-                    Assert.NotNull(mappingResponse.Mappings);
-                    Assert.Equal(version1Mappings, ToJson(mappingResponse.Mappings).Replace("-v2", "-v1"));
+                    Assert.NotNull(mappingResponse.GetMappingFor<Employee>());
+                    Assert.Equal(version1Mappings, ToJson(mappingResponse.GetMappingFor<Employee>()).Replace("-v2", "-v1"));
                 }
             }
         }
@@ -775,7 +775,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         private string ToJson(object data) {
-            return _client.Serializer.SerializeToString(data);
+            return _client.SourceSerializer.SerializeToString(data);
         }
     }
 }

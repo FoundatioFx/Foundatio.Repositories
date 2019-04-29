@@ -69,14 +69,14 @@ namespace Foundatio.Repositories.Options {
             return options.SafeGetOption<ElasticIndexSettings>(ElasticIndexSettingsKey);
         }
 
-        internal const string RootAliasResolverKey = "@RootAliasResolver";
-        public static T RootAliasResolver<T>(this T options, AliasResolver rootAliasResolver) where T : ICommandOptions {
-            options.Values.Set(RootAliasResolverKey, rootAliasResolver);
+        internal const string QueryFieldResolverKey = "@QueryFieldResolver";
+        public static T QueryFieldResolver<T>(this T options, QueryFieldResolver rootAliasResolver) where T : ICommandOptions {
+            options.Values.Set(QueryFieldResolverKey, rootAliasResolver);
             return options;
         }
 
-        public static AliasResolver GetRootAliasResolver(this ICommandOptions options) {
-            return options.SafeGetOption<AliasResolver>(RootAliasResolverKey);
+        public static QueryFieldResolver GetQueryFieldResolver(this ICommandOptions options) {
+            return options.SafeGetOption<QueryFieldResolver>(QueryFieldResolverKey);
         }
 
         public static bool ShouldUseSnapshotPaging(this ICommandOptions options) {

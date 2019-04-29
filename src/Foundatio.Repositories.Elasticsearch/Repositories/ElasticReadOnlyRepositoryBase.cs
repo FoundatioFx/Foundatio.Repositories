@@ -252,7 +252,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             T document = null;
             if (!HasParent || id.Routing != null) {
-                var request = new GetRequest(GetIndexById(id), ElasticConfiguration.DocType, id.Value);
+                var request = new GetRequest(GetIndexById(id), id.Value);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
                 var response = await _client.GetAsync<T>(request).AnyContext();
@@ -297,7 +297,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var multiGet = new MultiGetDescriptor();
             foreach (var id in itemsToFind.Where(i => i.Routing != null || !HasParent)) {
                 multiGet.Get<T>((Func<MultiGetOperationDescriptor<T>, IMultiGetOperation>)((MultiGetOperationDescriptor<T> f) => {
-                    f.Id(id.Value).Index(GetIndexById(id)).Type(ElasticConfiguration.DocType);
+                    f.Id(id.Value).Index(GetIndexById(id));
                     if (id.Routing != null)
                         f.Routing(id.Routing);
 
@@ -308,7 +308,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
             _logger.LogTraceRequest(multiGetResults);
 
-            foreach (var doc in multiGetResults.Documents) {
+            foreach (var doc in multiGetResults.Hits) {
                 hits.Add(((IMultiGetHit<T>)doc).ToFindHit().Document);
                 itemsToFind.Remove(new Id(doc.Id, doc.Routing));
             }
@@ -366,7 +366,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
             var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
-            searchDescriptor.DocvalueFields(_idField.Value);
+            searchDescriptor.DocValueFields(_idField.Value);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
 
             if (response.IsValid) {
@@ -379,7 +379,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
             }
 
-            return response.HitsMetaData.Total > 0;
+            return response.HitsMetadata.Total.Value > 0;
         }
 
         public virtual Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
@@ -420,7 +420,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public virtual async Task<long> CountAsync(ICommandOptions options = null) {
             options = ConfigureOptions(options);
 
-            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null))).Type(ElasticConfiguration.DocType)).AnyContext();
+            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null)))).AnyContext();
 
             if (response.IsValid) {
                 _logger.LogTraceRequest(response);
@@ -529,7 +529,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 search = new SearchDescriptor<T>();
 
             query = ConfigureQuery(query);
-            search.Type(ElasticConfiguration.DocType);
             var indices = GetIndexesByQuery(query);
             if (indices?.Length > 0)
                 search.Index(String.Join(",", indices));

@@ -492,7 +492,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task SetCreatedAndModifiedTimesAsync() {
             using (TestSystemClock.Install()) {
-                SystemClock.Test.SubtractTime(TimeSpan.FromMilliseconds(100));
+                TestSystemClock.SubtractTime(TimeSpan.FromMilliseconds(100));
                 var nowUtc = SystemClock.UtcNow;
                 var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
                 Assert.True(employee.CreatedUtc >= nowUtc);
@@ -502,7 +502,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 var updatedUtc = employee.UpdatedUtc;
 
                 employee.Name = Guid.NewGuid().ToString();
-                SystemClock.Test.AddTime(TimeSpan.FromMilliseconds(100));
+                TestSystemClock.AddTime(TimeSpan.FromMilliseconds(100));
                 employee = await _employeeRepository.SaveAsync(employee);
                 Assert.Equal(createdUtc, employee.CreatedUtc);
                 Assert.True(updatedUtc < employee.UpdatedUtc, $"Previous UpdatedUtc: {updatedUtc} Current UpdatedUtc: {employee.UpdatedUtc}");

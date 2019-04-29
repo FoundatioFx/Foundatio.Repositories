@@ -20,8 +20,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         Task ConfigureAsync();
         Task DeleteAsync();
         Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null);
-        AliasesDescriptor ConfigureIndexAliases(AliasesDescriptor aliases);
-        MappingsDescriptor ConfigureIndexMappings(MappingsDescriptor mappings);
+        IPromise<IAliases> ConfigureIndexAliases(AliasesDescriptor aliases);
         void ConfigureSettings(ConnectionSettings settings);
     }
 
@@ -38,6 +37,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         /// Used for everything not sorting
         /// </summary>
         string GetPropertyName(Expression<Func<T, object>> objectPath);
+        ITypeMapping ConfigureIndexMapping(TypeMappingDescriptor<T> mappings);
     }
 
     public interface IHavePipelinedIndexType {

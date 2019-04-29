@@ -80,8 +80,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             bool hasFailures = (firstPassResult.Failures + secondPassResult.Failures) > 0;
             if (!hasFailures && workItem.DeleteOld && workItem.OldIndex != workItem.NewIndex) {
                 await _client.RefreshAsync(Indices.All).AnyContext();
-                long newDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.NewIndex).AllTypes()).AnyContext()).Count;
-                long oldDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.OldIndex).AllTypes()).AnyContext()).Count;
+                long newDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.NewIndex)).AnyContext()).Count;
+                long oldDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.OldIndex)).AnyContext()).Count;
                 await progressCallbackAsync(98, $"Old Docs: {oldDocCount} New Docs: {newDocCount}").AnyContext();
                 if (newDocCount >= oldDocCount) {
                     await _client.DeleteIndexAsync(Indices.Index(workItem.OldIndex)).AnyContext();
@@ -199,7 +199,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (!existsResponse.IsValid || existsResponse.Exists)
                 return true;
 
-            var createResponse = await _client.CreateIndexAsync(errorIndex, d => d.Mappings(m => m.Map("failures", md => md.Dynamic(false)))).AnyContext();
+            var createResponse = await _client.CreateIndexAsync(errorIndex, d => d.Map(md => md.Dynamic(false))).AnyContext();
             if (!createResponse.IsValid) {
                 _logger.LogErrorRequest(createResponse, "Unable to create error index");
                 return false;
@@ -210,32 +210,31 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         private async Task HandleFailureAsync(ReindexWorkItem workItem, BulkIndexByScrollFailure failure) {
-            _logger.LogError("Error reindexing document {Index}/{Type}/{Id}: [{Status}] {Message}", failure.Index, failure.Type, failure.Id, failure.Status, failure.Cause.Reason);
-            var gr = await _client.GetAsync<object>(request: new GetRequest(failure.Index, failure.Type, failure.Id)).AnyContext();
+            _logger.LogError("Error reindexing document {Index}/{Id}: [{Status}] {Message}", failure.Index, failure.Id, failure.Status, failure.Cause.Reason);
+            var gr = await _client.GetAsync<object>(request: new GetRequest(failure.Index, failure.Id)).AnyContext();
 
             if (!gr.IsValid) {
-                _logger.LogErrorRequest(gr, "Error getting document {Index}/{Type}/{Id}", failure.Index, failure.Type, failure.Id);
+                _logger.LogErrorRequest(gr, "Error getting document {Index}/{Id}", failure.Index, failure.Id);
                 return;
             }
 
             _logger.LogTraceRequest(gr);
             var document = JObject.FromObject(new {
                 failure.Index,
-                failure.Type,
                 failure.Id,
                 gr.Version,
-                gr.Parent,
+                gr.Routing,
                 gr.Source,
                 failure.Cause,
                 failure.Status,
                 gr.Found,
             });
 
-            var indexResponse = await _client.IndexAsync(document, d => d.Index(workItem.NewIndex + "-error").Type(ElasticConfiguration.DocType)).AnyContext();
+            var indexResponse = await _client.IndexAsync(document, d => d.Index(workItem.NewIndex + "-error")).AnyContext();
             if (indexResponse.IsValid)
                 _logger.LogTraceRequest(indexResponse);
             else
-                _logger.LogErrorRequest(indexResponse, "Error indexing document {Index}/{Type}/{Id}", workItem.NewIndex + "-error", gr.Type, gr.Id);
+                _logger.LogErrorRequest(indexResponse, "Error indexing document {Index}/{Id}", workItem.NewIndex + "-error", gr.Id);
         }
 
         private async Task<List<string>> GetIndexAliasesAsync(string index) {
@@ -244,7 +243,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (aliasesResponse.IsValid && aliasesResponse.Indices.Count > 0) {
                 var aliases = aliasesResponse.Indices.Single(a => a.Key == index);
-                return aliases.Value.Select(a => a.Name).ToList();
+                return aliases.Value.Aliases.Select(a => a.Key).ToList();
             }
 
             return new List<string>();
@@ -278,7 +277,6 @@ namespace Foundatio.Repositories.Elasticsearch {
         private async Task<object> GetResumeStartingPointAsync(string newIndex, string timestampField) {
             var newestDocumentResponse = await _client.SearchAsync<JObject>(d => d
                 .Index(Indices.Index(newIndex))
-                .AllTypes()
                 .Sort(s => s.Descending(new Field(timestampField)))
                 .Source(s => s.Includes(f => f.Field(timestampField)))
                 .Size(1)

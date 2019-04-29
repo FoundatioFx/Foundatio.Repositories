@@ -79,7 +79,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected async Task<bool> AliasExistsAsync(string alias) {
-            var response = await Configuration.Client.AliasExistsAsync(a => a.Name(alias)).AnyContext();
+            var response = await Configuration.Client.AliasExistsAsync(Names.Parse(alias)).AnyContext();
             if (response.IsValid)
                 return response.Exists;
 
@@ -176,7 +176,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             if (response.IsValid && response.Indices.Count > 0) {
                 _logger.LogTraceRequest(response);
-                return response.Indices.Keys.Select(GetIndexVersion).OrderBy(v => v).First();
+                return response.Indices.Keys.Select(i => GetIndexVersion(i.Name)).OrderBy(v => v).First();
             }
 
             _logger.LogErrorRequest(response, "Error getting index version from alias");
@@ -204,7 +204,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 filter += "-*";
 
             var sw = Stopwatch.StartNew();
-            var response = await Configuration.Client.CatIndicesAsync(i => i.Pri().H("index").Index(Indices.Index(filter))).AnyContext();
+            var response = await Configuration.Client.CatIndicesAsync(i => i.Pri().Index(Indices.Index(filter))).AnyContext();
             sw.Stop();
 
             if (!response.IsValid) {

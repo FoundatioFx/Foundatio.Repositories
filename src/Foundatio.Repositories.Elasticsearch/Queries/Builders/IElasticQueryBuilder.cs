@@ -12,14 +12,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new();
     }
 
-    public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitorContext, IQueryVisitorContextWithAliasResolver, IQueryVisitorContextWithIncludeResolver where T : class, new() {
+    public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitorContext, IQueryVisitorContextWithFieldResolver, IQueryVisitorContextWithIncludeResolver where T : class, new() {
         public QueryBuilderContext(IRepositoryQuery source, ICommandOptions options, SearchDescriptor<T> search = null, IQueryBuilderContext parentContext = null, string type = null) {
             Source = source;
             Options = options;
             Search = search ?? new SearchDescriptor<T>();
             Parent = parentContext;
             Type = type ?? ContextType.Default;
-            ((IQueryVisitorContextWithAliasResolver)this).RootAliasResolver = options.GetRootAliasResolver();
+            ((IQueryVisitorContextWithFieldResolver)this).FieldResolver = options.GetQueryFieldResolver();
 
             var range = GetDateRange();
             if (range != null) {
@@ -37,13 +37,16 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         public SearchDescriptor<T> Search { get; }
         public IDictionary<string, object> Data { get; } = new Dictionary<string, object>();
 
-        AliasResolver IQueryVisitorContextWithAliasResolver.RootAliasResolver { get; set; }
+        QueryFieldResolver IQueryVisitorContextWithFieldResolver.FieldResolver { get; set; }
         Func<string, Task<string>> IQueryVisitorContextWithIncludeResolver.IncludeResolver { get; set; }
 
         Operator IElasticQueryVisitorContext.DefaultOperator { get; set; }
         bool IElasticQueryVisitorContext.UseScoring { get; set; }
-        string[] IElasticQueryVisitorContext.DefaultFields { get; set; }
+        string[] IQueryVisitorContext.DefaultFields { get; set; }
+        string IQueryVisitorContext.QueryType { get; set; }
         Func<string, IProperty> IElasticQueryVisitorContext.GetPropertyMappingFunc { get; set; }
+
+        IDictionary<string, object> IQueryVisitorContext.Data => throw new NotImplementedException();
 
         private DateRange GetDateRange() {
             foreach (var dateRange in Source.GetDateRanges()) {

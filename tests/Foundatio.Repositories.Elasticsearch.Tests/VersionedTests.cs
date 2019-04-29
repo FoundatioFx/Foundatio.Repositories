@@ -90,7 +90,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             Assert.Equal(employee, await _employeeRepository.GetByIdAsync(employee.Id));
 
-            var request = new UpdateRequest<Employee, Employee>(_configuration.Employees.Name, ElasticConfiguration.DocType, employee.Id) {
+            var request = new UpdateRequest<Employee, Employee>(_configuration.Employees.Name, employee.Id) {
                 Script = new InlineScript("ctx._source.version = 112"),
                 Refresh = Refresh.True
             };

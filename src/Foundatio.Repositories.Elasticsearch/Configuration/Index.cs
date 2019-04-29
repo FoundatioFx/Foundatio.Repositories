@@ -28,7 +28,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private readonly ConcurrentDictionary<string, PropertyInfo> _cachedProperties = new ConcurrentDictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
         private readonly Lazy<IElasticQueryBuilder> _queryBuilder;
         private readonly Lazy<ElasticQueryParser> _queryParser;
-        private readonly Lazy<AliasMap> _aliasMap;
+        private readonly Lazy<QueryFieldResolver> _fieldResolver;
         protected readonly ILockProvider _lockProvider;
         protected readonly ILogger _logger;
 
@@ -39,7 +39,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             DefaultConsistency = defaultConsistency;
             _queryBuilder = new Lazy<IElasticQueryBuilder>(CreateQueryBuilder);
             _queryParser = new Lazy<ElasticQueryParser>(CreateQueryParser);
-            _aliasMap = new Lazy<AliasMap>(GetAliasMap);
+            _fieldResolver = new Lazy<QueryFieldResolver>(CreateQueryFieldResolver);
             _lockProvider = new CacheLockProvider(configuration.Cache, configuration.MessageBus, configuration.LoggerFactory);
             _logger = configuration.LoggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
         }
@@ -57,7 +57,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual ElasticQueryParser CreateQueryParser() {
             var parser = new ElasticQueryParser(config => {
-                config.UseMappings(this);
+                config.UseFieldResolver(CreateQueryFieldResolver());
                 config.UseNested();
                 Configuration.ConfigureGlobalQueryParsers(config);
                 ConfigureQueryParser(config);
@@ -65,6 +65,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             return parser;
         }
+
+        protected virtual QueryFieldResolver CreateQueryFieldResolver() => null;
 
         protected virtual void ConfigureQueryParser(ElasticQueryParserConfiguration config) { }
 
@@ -99,38 +101,25 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return CreateIndexAsync(Name, ConfigureIndex);
         }
 
-        public virtual AliasesDescriptor ConfigureIndexAliases(AliasesDescriptor aliases) {
+        public virtual IPromise<IAliases> ConfigureIndexAliases(AliasesDescriptor aliases) {
             return aliases;
         }
 
-        public virtual MappingsDescriptor ConfigureIndexMappings(MappingsDescriptor mappings) {
-            return mappings.Map<T>(ElasticConfiguration.DocType, BuildMapping);
-        }
-
-        public virtual TypeMappingDescriptor<T> BuildMapping(TypeMappingDescriptor<T> map) {
+        public virtual ITypeMapping ConfigureIndexMapping(TypeMappingDescriptor<T> map) {
             return map.Properties(p => p.SetupDefaults());
         }
 
         public IElasticQueryBuilder QueryBuilder => _queryBuilder.Value;
         public ElasticQueryParser QueryParser => _queryParser.Value;
-        public AliasMap AliasMap => _aliasMap.Value;
+        public QueryFieldResolver FieldResolver => _fieldResolver.Value;
 
         public int DefaultCacheExpirationSeconds { get; set; } = RepositoryConstants.DEFAULT_CACHE_EXPIRATION_SECONDS;
         public int BulkBatchSize { get; set; } = 1000;
 
-        private AliasMap GetAliasMap() {
-            var visitor = new AliasMappingVisitor(Configuration.Client.Infer);
-            var walker = new MappingWalker(visitor);
-            var descriptor = BuildMapping(new TypeMappingDescriptor<T>());
-            walker.Accept(descriptor);
-
-            return visitor.RootAliasMap;
-        }
-
         public string GetFieldName(Field field) {
-            var result = AliasMap?.Resolve(field.Name);
-            if (!String.IsNullOrEmpty(result?.Name))
-                return result.Name;
+            var result = FieldResolver?.Invoke(field.Name);
+            if (!String.IsNullOrEmpty(result))
+                return result;
 
             if (!String.IsNullOrEmpty(field.Name))
                 field = GetPropertyInfo(field.Name) ?? field;
@@ -229,18 +218,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public virtual CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
-            var aliases = new AliasesDescriptor();
-            var mappings = new MappingsDescriptor();
-
-            aliases = ConfigureIndexAliases(aliases);
-            mappings = ConfigureIndexMappings(mappings);
-
-            return idx.Aliases(a => aliases).Mappings(m => mappings);
+            return idx.Aliases(a => ConfigureIndexAliases(a)).Map<T>(m => ConfigureIndexMapping(m));
         }
 
         public virtual void ConfigureSettings(ConnectionSettings settings) {
-            settings.MapDefaultTypeIndices(m => m[Type] = Name);
-            settings.MapDefaultTypeNames(m => m[Type] = ElasticConfiguration.DocType);
+            settings.DefaultMappingFor(Type, d => d.IndexName(Name));
         }
 
         public virtual void Dispose() {}

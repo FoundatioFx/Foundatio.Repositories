@@ -18,8 +18,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class ElasticConfiguration: IElasticConfiguration {
-        public const string DocType = "doc";
-
         protected readonly IQueue<WorkItemData> _workItemQueue;
         protected readonly ILogger _logger;
         protected readonly ILockProvider _beginReindexLockProvider;

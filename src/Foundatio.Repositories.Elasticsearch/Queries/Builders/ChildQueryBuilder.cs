@@ -6,14 +6,14 @@ using Nest;
 
 namespace Foundatio.Repositories {
     public class ChildQuery {
-        public TypeName Type { get; set; }
+        public string Type { get; set; }
         public IRepositoryQuery Query { get; set; }
     }
 
     public static class ChildQueryExtensions {
         internal const string ChildQueryKey = "@ChildQuery";
 
-        public static T ChildQuery<T>(this T query, TypeName childType, IRepositoryQuery childQuery) where T : IRepositoryQuery {
+        public static T ChildQuery<T>(this T query, string childType, IRepositoryQuery childQuery) where T : IRepositoryQuery {
             if (childType == null)
                 throw new ArgumentNullException(nameof(childType));
             if (childQuery == null)
@@ -22,7 +22,7 @@ namespace Foundatio.Repositories {
             return query.BuildOption(ChildQueryKey, new ChildQuery { Type = childType, Query = childQuery });
         }
 
-        public static T ChildQuery<T>(this T query, TypeName childType, RepositoryQueryDescriptor childQuery) where T : IRepositoryQuery {
+        public static T ChildQuery<T>(this T query, string childType, RepositoryQueryDescriptor childQuery) where T : IRepositoryQuery {
             if (childType == null)
                 throw new ArgumentNullException(nameof(childType));
             if (childQuery == null)

@@ -25,7 +25,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (versionedDoc != null)
                 versionedDoc.Version = hit.Version;
 
-            var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index }, { ElasticDataKeys.IndexType, hit.Type } };
+            var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
             return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, hit.Routing, data);
         }
 
@@ -34,7 +34,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (versionedDoc != null && hit.Version.HasValue)
                 versionedDoc.Version = hit.Version.Value;
 
-            var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index }, { ElasticDataKeys.IndexType, hit.Type } };
+            var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
             return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), versionedDoc?.Version ?? null, hit.Routing, data);
         }
 
@@ -43,7 +43,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (versionedDoc != null)
                 versionedDoc.Version = hit.Version;
 
-            var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index }, { ElasticDataKeys.IndexType, hit.Type } };
+            var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
             return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, hit.Routing, data);
         }
 
@@ -82,7 +82,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
             if (aggregate is Nest.TopHitsAggregate topHitsAggregate)
                 return new TopHitsAggregate(topHitsAggregate.Documents<JToken>().Select(topHit => new LazyDocument(topHit.Value<JToken>())).ToList()) {
-                    Total = topHitsAggregate.Total,
+                    Total = topHitsAggregate.Total.Value,
                     MaxScore = topHitsAggregate.MaxScore,
                     Data = topHitsAggregate.Meta.ToData<TopHitsAggregate>()
                 };
@@ -110,7 +110,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 };
 
             if (aggregate is Nest.SingleBucketAggregate singleBucketAggregate)
-                return new SingleBucketAggregate(singleBucketAggregate.Aggregations.ToAggregations()) {
+                return new SingleBucketAggregate(singleBucketAggregate.ToAggregations()) {
                     Data = singleBucketAggregate.Meta.ToData<SingleBucketAggregate>(),
                     Total = singleBucketAggregate.DocCount
                 };
@@ -157,7 +157,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 if (hasTimezone)
                     data.Add("@timezone", parentData["@timezone"]);
                         
-                return new DateHistogramBucket(date, dateHistogramBucket.Aggregations.ToAggregations()) {
+                return new DateHistogramBucket(date, dateHistogramBucket.ToAggregations()) {
                     Total = dateHistogramBucket.DocCount,
                     Key = dateHistogramBucket.Key,
                     KeyAsString = date.ToString("O"),
@@ -166,7 +166,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             }
 
             if (bucket is Nest.RangeBucket rangeBucket)
-                return new RangeBucket(rangeBucket.Aggregations.ToAggregations()) {
+                return new RangeBucket(rangeBucket.ToAggregations()) {
                     Total = rangeBucket.DocCount,
                     Key = rangeBucket.Key,
                     From = rangeBucket.From,
@@ -177,7 +177,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 };
 
             if (bucket is Nest.KeyedBucket<string> stringKeyedBucket)
-                return new KeyedBucket<string>(stringKeyedBucket.Aggregations.ToAggregations()) {
+                return new KeyedBucket<string>(stringKeyedBucket.ToAggregations()) {
                     Total = stringKeyedBucket.DocCount,
                     Key = stringKeyedBucket.Key,
                     KeyAsString = stringKeyedBucket.KeyAsString,
@@ -185,7 +185,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 };
 
             if (bucket is Nest.KeyedBucket<double> doubleKeyedBucket)
-                return new KeyedBucket<double>(doubleKeyedBucket.Aggregations.ToAggregations()) {
+                return new KeyedBucket<double>(doubleKeyedBucket.ToAggregations()) {
                     Total = doubleKeyedBucket.DocCount,
                     Key = doubleKeyedBucket.Key,
                     KeyAsString = doubleKeyedBucket.KeyAsString,
@@ -193,7 +193,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 };
 
             if (bucket is Nest.KeyedBucket<object> objectKeyedBucket)
-                return new KeyedBucket<object>(objectKeyedBucket.Aggregations.ToAggregations()) {
+                return new KeyedBucket<object>(objectKeyedBucket.ToAggregations()) {
                     Total = objectKeyedBucket.DocCount,
                     Key = objectKeyedBucket.Key,
                     KeyAsString = objectKeyedBucket.KeyAsString,
@@ -221,13 +221,13 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 pd.Keyword(p => p.Name(d => ((IIdentity)d).Id));
 
             if (supportsSoftDeletes)
-                pd.Boolean(p => p.Name(d => ((ISupportSoftDeletes)d).IsDeleted).Alias("deleted"));
+                pd.Boolean(p => p.Name(d => ((ISupportSoftDeletes)d).IsDeleted)).FieldAlias(a => a.Path(p => ((ISupportSoftDeletes)p).IsDeleted).Name("deleted"));
 
             if (hasCreatedDate)
-                pd.Date(p => p.Name(d => ((IHaveCreatedDate)d).CreatedUtc).Alias("created"));
+                pd.Date(p => p.Name(d => ((IHaveCreatedDate)d).CreatedUtc)).FieldAlias(a => a.Path(p => ((IHaveCreatedDate)p).CreatedUtc).Name("created"));
 
             if (hasDates)
-                pd.Date(p => p.Name(d => ((IHaveDates)d).UpdatedUtc).Alias("updated"));
+                pd.Date(p => p.Name(d => ((IHaveDates)d).UpdatedUtc)).FieldAlias(a => a.Path(p => ((IHaveDates)p).UpdatedUtc).Name("updated"));;
 
             return pd;
         }

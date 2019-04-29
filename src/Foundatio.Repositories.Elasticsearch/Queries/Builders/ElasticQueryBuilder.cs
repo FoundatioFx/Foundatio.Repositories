@@ -51,9 +51,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             Register(new AggregationsQueryBuilder());
         }
 
-        public void UseAliases(AliasMap aliasMap) {
+        public void UseAliases(QueryFieldResolver aliasMap) {
             Unregister<ExpressionQueryBuilder>();
-            Register(new AliasedExpressionQueryBuilder(aliasMap));
+            Register(new FieldResolverQueryBuilder(aliasMap));
         }
 
         public void RegisterDefaults() {

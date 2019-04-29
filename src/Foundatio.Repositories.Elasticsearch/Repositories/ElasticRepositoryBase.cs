@@ -22,6 +22,7 @@ using Newtonsoft.Json.Linq;
 using Foundatio.Repositories.Options;
 using Microsoft.Extensions.Logging;
 using System.Linq.Expressions;
+using System.Threading;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IElasticRepository<T> where T : class, IIdentity, new() {
@@ -129,7 +130,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             string pipeline = pipelinedIndexType?.Pipeline;
             if (operation is ScriptPatch scriptOperation) {
                 // TODO: Figure out how to specify a pipeline here.
-                var request = new UpdateRequest<T, T>(GetIndexById(id), ElasticConfiguration.DocType, id.Value) {
+                var request = new UpdateRequest<T, T>(GetIndexById(id), id.Value) {
                     Script = new InlineScript(scriptOperation.Script) { Params = scriptOperation.Params },
                     RetryOnConflict = 10,
                     Refresh = options.GetRefreshMode(ElasticIndex.DefaultConsistency)
@@ -146,7 +147,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                 }
             } else if (operation is Models.JsonPatch jsonOperation) {
-                var request = new GetRequest(GetIndexById(id), ElasticConfiguration.DocType, id.Value);
+                var request = new GetRequest(GetIndexById(id), id.Value);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
 
@@ -162,14 +163,14 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var target = response.Source as JToken;
                 new JsonPatcher().Patch(ref target, jsonOperation.Patch);
 
-                var updateResponse = await _client.LowLevel.IndexPutAsync<object>(response.Index, response.Type, id.Value, new PostData<object>(target.ToString()), p => {
-                    p.Pipeline(pipeline);
-                    p.Refresh(options.GetRefreshMode(ElasticIndex.DefaultConsistency));
-                    if (id.Routing != null)
-                        p.Routing(id.Routing);
-
-                    return p;
-                }).AnyContext();
+                var indexParameters = new IndexRequestParameters {
+                    Pipeline = pipeline,
+                    Refresh = options.GetRefreshMode(ElasticIndex.DefaultConsistency)
+                };
+                if (id.Routing != null)
+                    indexParameters.Routing = id.Routing;
+                
+                var updateResponse = await _client.LowLevel.IndexAsync<VoidResponse>(response.Index, id.Value, PostData.String(target.ToString()), indexParameters, default(CancellationToken)).AnyContext();
 
                 if (updateResponse.Success) {
                     _logger.LogTraceRequest(updateResponse);
@@ -179,7 +180,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
             } else if (operation is PartialPatch partialOperation) {
                 // TODO: Figure out how to specify a pipeline here.
-                var request = new UpdateRequest<T, object>(GetIndexById(id), ElasticConfiguration.DocType, id.Value) {
+                var request = new UpdateRequest<T, object>(GetIndexById(id), id.Value) {
                     Doc = partialOperation.Document,
                     RetryOnConflict = 10
                 };
@@ -244,8 +245,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                         b.Update<T>(u => {
                             u.Id(id.Value)
                               .Index(GetIndexById(id))
-                              .Type(ElasticConfiguration.DocType)
-                              .Script(s => s.Inline(scriptOperation.Script).Params(scriptOperation.Params))
+                              .Script(s => s.Source(scriptOperation.Script).Params(scriptOperation.Params))
                               .RetriesOnConflict(10);
 
                             if (id.Routing != null)
@@ -257,7 +257,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                         b.Update<T, object>(u => {
                             u.Id(id.Value)
                                 .Index(GetIndexById(id))
-                                .Type(ElasticConfiguration.DocType)
                                 .Doc(partialOperation.Document)
                                 .RetriesOnConflict(10);
 
@@ -323,7 +322,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                                 .Id(h.Id)
                                 .Routing(h.Routing)
                                 .Index(h.GetIndex())
-                                .Type(h.GetIndexType())
                                 .Pipeline(pipeline)
                                 .Version(h.Version));
                         }
@@ -357,7 +355,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ArgumentException("Unknown operation type", nameof(operation));
 
                 if (!IsCacheEnabled && scriptOperation != null) {
-                    var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", GetIndexesByQuery(query))), ElasticConfiguration.DocType) {
+                    var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", GetIndexesByQuery(query)))) {
                         Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext(),
                         Conflicts = Conflicts.Proceed,
                         Script = new InlineScript(scriptOperation.Script) { Params = scriptOperation.Params },
@@ -393,14 +391,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                                         .Id(h.Id)
                                         .Routing(h.Routing)
                                         .Index(h.GetIndex())
-                                        .Type(h.GetIndexType())
-                                        .Script(s => s.Inline(scriptOperation.Script).Params(scriptOperation.Params))
+                                        .Script(s => s.Source(scriptOperation.Script).Params(scriptOperation.Params))
                                         .RetriesOnConflict(10));
                                 else if (partialOperation != null)
                                     b.Update<T, object>(u => u.Id(h.Id)
                                         .Routing(h.Routing)
                                         .Index(h.GetIndex())
-                                        .Type(h.GetIndexType())
                                         .Doc(partialOperation.Document));
                             }
 
@@ -487,12 +483,12 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (docs.Count == 1) {
                 var document = docs.Single();
-                var request = new DeleteRequest(GetDocumentIndexFunc?.Invoke(document), ElasticConfiguration.DocType, document.Id) {
+                var request = new DeleteRequest(GetDocumentIndexFunc?.Invoke(document), document.Id) {
                     Refresh = options.GetRefreshMode(ElasticIndex.DefaultConsistency)
                 };
 
                 if (GetParentIdFunc != null)
-                    request.Parent = GetParentIdFunc(document);
+                    request.Routing = GetParentIdFunc(document);
 
                 var response = await _client.DeleteAsync(request).AnyContext();
 
@@ -507,10 +503,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                     bulk.Refresh(options.GetRefreshMode(ElasticIndex.DefaultConsistency));
                     foreach (var doc in docs)
                         bulk.Delete<T>(d => {
-                            d.Id(doc.Id).Index(GetDocumentIndexFunc?.Invoke(doc)).Type(ElasticConfiguration.DocType);
+                            d.Id(doc.Id).Index(GetDocumentIndexFunc?.Invoke(doc));
 
                             if (GetParentIdFunc != null)
-                                d.Parent(GetParentIdFunc(doc));
+                                d.Routing(GetParentIdFunc(doc));
 
                             return d;
                         });
@@ -573,7 +569,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }, options.Clone()).AnyContext();
             }
 
-            var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(ElasticIndex.Name, ElasticConfiguration.DocType) {
+            var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(ElasticIndex.Name) {
                 Refresh = options.GetRefreshMode(ElasticIndex.DefaultConsistency) != Refresh.False,
                 Conflicts = Conflicts.Proceed,
                 Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext()
@@ -773,12 +769,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var document = documents.Single();
                 var response = await _client.IndexAsync(document, i => {
                     i.OpType(isCreateOperation ? OpType.Create : OpType.Index);
-                    i.Type(ElasticConfiguration.DocType);
                     i.Pipeline(pipeline);
                     i.Refresh(options.GetRefreshMode(ElasticIndex.DefaultConsistency));
 
                     if (GetParentIdFunc != null)
-                        i.Parent(GetParentIdFunc(document));
+                        i.Routing(GetParentIdFunc(document));
 
                     if (GetDocumentIndexFunc != null)
                         i.Index(GetDocumentIndexFunc(document));
@@ -812,9 +807,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                         ? (IBulkOperation)new BulkCreateOperation<T>(d) { Pipeline = pipeline }
                         : new BulkIndexOperation<T>(d) { Pipeline = pipeline };
 
-                    o.Type = ElasticConfiguration.DocType;
                     if (GetParentIdFunc != null)
-                        o.Parent = GetParentIdFunc(d);
+                        o.Routing = GetParentIdFunc(d);
 
                     if (GetDocumentIndexFunc != null)
                         o.Index = GetDocumentIndexFunc(d);
