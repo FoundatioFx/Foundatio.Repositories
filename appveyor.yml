@@ -34,7 +34,10 @@ before_build:
 build_script:
   - docker build --target shared-testrunner -t foundatio:shared-test --build-arg VERSION_SUFFIX=${VERSION_SUFFIX} .
   - docker build --target elasticsearch-testrunner -t foundatio:elasticsearch-test --build-arg VERSION_SUFFIX=${VERSION_SUFFIX} .
-  - docker run -d -m 2g -p 9200:9200 -p 9300:9300 -e discovery.type=single-node -e xpack.security.enabled=false -e ES_JAVA_OPTS='-Xms512m -Xmx512m' docker.elastic.co/elasticsearch/elasticsearch:5.6.13
+  - MACHINE_IP=$(hostname -I | awk '{ print $1 }')
+  - export ELASTICSEARCH_URL="http://$MACHINE_IP:9200"
+  - echo $ELASTICSEARCH_URL
+  - docker run -d -m 1g -p 9200:9200 -e discovery.type=single-node -e ES_JAVA_OPTS='-Xms512m -Xmx512m' docker.elastic.co/elasticsearch/elasticsearch:7.0.0
   - docker run -e APPVEYOR_API_URL --net=host -v $(pwd)/artifacts:/app/artifacts foundatio:shared-test
   - docker run -e APPVEYOR_API_URL --net=host -v $(pwd)/artifacts:/app/artifacts foundatio:elasticsearch-test
 
