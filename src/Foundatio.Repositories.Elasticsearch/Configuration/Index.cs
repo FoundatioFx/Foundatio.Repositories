@@ -167,7 +167,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (names == null || names.Length == 0)
                 throw new ArgumentNullException(nameof(names));
 
-            var response = await Configuration.Client.DeleteIndexAsync(Indices.Index(names)).AnyContext();
+            var response = await Configuration.Client.DeleteIndexAsync(Indices.Index(names), i => i.IgnoreUnavailable()).AnyContext();
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
                 _logger.LogTrace(response.GetRequest());
 
@@ -222,7 +222,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public virtual void ConfigureSettings(ConnectionSettings settings) {
-            settings.DefaultMappingFor(Type, d => d.IndexName(Name));
+            // TODO: Figure out if we need this and if we do then wait for https://github.com/elastic/elasticsearch-net/issues/3706
+            // settings.DefaultMappingFor<T>(d => d.IndexName(Name));
         }
 
         public virtual void Dispose() {}

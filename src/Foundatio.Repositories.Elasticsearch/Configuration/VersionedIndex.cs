@@ -173,7 +173,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual async Task<int> GetVersionFromAliasAsync(string alias) {
             var response = await Configuration.Client.GetAliasAsync(a => a.Name(alias)).AnyContext();
-
+            if (response.IsValid == false && response.ServerError.Status == 404)
+                return -1;
+            
             if (response.IsValid && response.Indices.Count > 0) {
                 _logger.LogTraceRequest(response);
                 return response.Indices.Keys.Select(i => GetIndexVersion(i.Name)).OrderBy(v => v).First();

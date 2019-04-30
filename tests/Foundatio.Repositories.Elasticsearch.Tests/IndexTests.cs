@@ -394,6 +394,44 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task CanCreateAndDeleteIndex() {
+            var index = new EmployeeIndex(_configuration);
+
+            await index.ConfigureAsync();
+            var existsResponse = await _client.IndexExistsAsync(index.Name);
+            _logger.LogTraceRequest(existsResponse);
+            Assert.True(existsResponse.IsValid);
+            Assert.True(existsResponse.Exists);
+
+            await index.DeleteAsync();
+            existsResponse = await _client.IndexExistsAsync(index.Name);
+            _logger.LogTraceRequest(existsResponse);
+            Assert.True(existsResponse.IsValid);
+            Assert.False(existsResponse.Exists);
+        }
+
+        [Fact]
+        public async Task CanCreateAndDeleteVersionedIndex() {
+            var index = new VersionedEmployeeIndex(_configuration, 1);
+
+            await index.ConfigureAsync();
+            var existsResponse = await _client.IndexExistsAsync(index.VersionedName);
+            _logger.LogTraceRequest(existsResponse);
+            Assert.True(existsResponse.IsValid);
+            Assert.True(existsResponse.Exists);
+
+            await _client.AssertSingleIndexAlias(index.VersionedName, index.Name);
+
+            await index.DeleteAsync();
+            existsResponse = await _client.IndexExistsAsync(index.VersionedName);
+            _logger.LogTraceRequest(existsResponse);
+            Assert.True(existsResponse.IsValid);
+            Assert.False(existsResponse.Exists);
+
+            Assert.Equal(0, await _client.GetAliasIndexCount(index.Name));
+        }
+
+        [Fact]
         public async Task MaintainOnlyOldIndexesWithNoExistingAliasesAsync() {
             using (TestSystemClock.Install()) {
                 TestSystemClock.SetFrozenTime(SystemClock.UtcNow.EndOfYear());

@@ -31,13 +31,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Scalar(f => f.Age, f => f.Name(e => e.Age)).FieldAlias(a => a.Path(f => f.Age).Name("aliasedage"))
                     .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview)).FieldAlias(a => a.Path(f => f.NextReview).Name("next"))
                     .GeoPoint(f => f.Name(e => e.Location))
+                    .FieldAlias(a => a.Path(f => f.PhoneNumbers.First().Number).Name("phone"))
                     .Object<PhoneInfo>(f => f
                         .Name(u => u.PhoneNumbers.First()).Properties(mp => mp
-                            .Text(fu => fu.Name(m => m.Number)).FieldAlias(a => a.Path(f2 => f2.Number).Name("phone"))))
+                            .Text(fu => fu.Name(m => m.Number))))
+                    .FieldAlias(a => a.Path("data.@user_meta.twitter_id").Name("twitter"))
+                    .FieldAlias(a => a.Path("data.@user_meta.twitter_followers").Name("followers"))
                     .Object<Dictionary<string, object>>(f => f.Name(e => e.Data).Properties(p1 => p1
                         .Object<object>(f2 => f2.Name("@user_meta").Properties(p2 => p2
-                            .Text(f3 => f3.Name("twitter_id").Boost(1.1).AddKeywordField()).FieldAlias(a => a.Path("twitter_id").Name("twitter"))
-                            .Number(f3 => f3.Name("twitter_followers").Boost(1.1)).FieldAlias(a => a.Path("twitter_followers").Name("followers"))
+                            .Text(f3 => f3.Name("twitter_id").Boost(1.1).AddKeywordField())
+                            .Number(f3 => f3.Name("twitter_followers").Boost(1.1))
                         ))))
                     .Nested<PeerReview>(f => f.Name(e => e.PeerReviews).Properties(p1 => p1
                         .Keyword(f2 => f2.Name(p2 => p2.ReviewerEmployeeId))
@@ -119,7 +122,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Text(f => f.Name(e => e.Name).AddKeywordField())
                     .Scalar(f => f.Age, f => f.Name(e => e.Age))
                     .Date(f => f.Name(e => e.LastReview))
-                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview)).FieldAlias(a => a.Name(f2 => f2.NextReview).Path("next"))
+                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
+                    .FieldAlias(a => a.Name(f2 => f2.NextReview).Path("next"))
                 ));
         }
 
