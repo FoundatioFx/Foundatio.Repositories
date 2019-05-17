@@ -117,7 +117,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             return Task.CompletedTask;
         }
 
-        public virtual Task<bool> OnIndexDeleteFailure(string indexName, TimeSpan duration, IDeleteIndexResponse response, Exception ex) {
+        public virtual Task<bool> OnIndexDeleteFailure(string indexName, TimeSpan duration, DeleteIndexResponse response, Exception ex) {
             _logger.LogErrorRequest(ex, response, "Failed to delete index {IndexName} after {Duration:g}", indexName, duration);
             return Task.FromResult(true);
         }

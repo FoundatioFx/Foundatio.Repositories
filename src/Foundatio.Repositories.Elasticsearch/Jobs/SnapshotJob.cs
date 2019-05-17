@@ -99,7 +99,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             return Task.CompletedTask;
         }
 
-        public virtual Task OnFailure(string snapshotName, ISnapshotResponse response, TimeSpan duration) {
+        public virtual Task OnFailure(string snapshotName, SnapshotResponse response, TimeSpan duration) {
             _logger.LogErrorRequest(response, "Failed snapshot {SnapshotName} in {Repository} after {Duration:g}", snapshotName, Repository, duration);
             return Task.CompletedTask;
         }

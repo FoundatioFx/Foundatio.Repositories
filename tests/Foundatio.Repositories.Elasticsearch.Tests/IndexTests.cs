@@ -246,7 +246,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             }
         }
 
-        [Fact(Skip = "Skip until we figure out why NEST is blowing up trying to deserialize the response.")]
+        [Fact]
         public async Task MaintainDailyIndexesAsync() {
             using (TestSystemClock.Install()) {
                 var index = new DailyEmployeeIndex(_configuration, 1);
@@ -429,6 +429,42 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.False(existsResponse.Exists);
 
             Assert.Equal(0, await _client.GetAliasIndexCount(index.Name));
+        }
+
+        [Fact]
+        public async Task CanCreateAndDeleteDailyIndex() {
+            var index = new DailyEmployeeIndex(_configuration, 1);
+
+            await index.ConfigureAsync();
+            var todayDate = SystemClock.Now;
+            var yesterdayDate = SystemClock.Now.SubtractDays(1);
+            var todayIndex = index.GetIndex(todayDate);
+            var yesterdayIndex = index.GetIndex(yesterdayDate);
+
+            await index.EnsureIndexAsync(todayDate);
+            await index.EnsureIndexAsync(yesterdayDate);
+
+            var existsResponse = await _client.IndexExistsAsync(todayIndex);
+            _logger.LogTraceRequest(existsResponse);
+            Assert.True(existsResponse.IsValid);
+            Assert.True(existsResponse.Exists);
+
+            existsResponse = await _client.IndexExistsAsync(yesterdayIndex);
+            _logger.LogTraceRequest(existsResponse);
+            Assert.True(existsResponse.IsValid);
+            Assert.True(existsResponse.Exists);
+
+            await index.DeleteAsync();
+
+            existsResponse = await _client.IndexExistsAsync(todayIndex);
+            _logger.LogTraceRequest(existsResponse);
+            Assert.True(existsResponse.IsValid);
+            Assert.False(existsResponse.Exists);
+
+            existsResponse = await _client.IndexExistsAsync(yesterdayIndex);
+            _logger.LogTraceRequest(existsResponse);
+            Assert.True(existsResponse.IsValid);
+            Assert.False(existsResponse.Exists);
         }
 
         [Fact]

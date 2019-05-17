@@ -45,8 +45,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         string[] IQueryVisitorContext.DefaultFields { get; set; }
         string IQueryVisitorContext.QueryType { get; set; }
         Func<string, IProperty> IElasticQueryVisitorContext.GetPropertyMappingFunc { get; set; }
-
-        IDictionary<string, object> IQueryVisitorContext.Data => throw new NotImplementedException();
+        IDictionary<string, object> IQueryVisitorContext.Data { get; } = new Dictionary<string, object>();
 
         private DateRange GetDateRange() {
             foreach (var dateRange in Source.GetDateRanges()) {
@@ -87,7 +86,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             return new BoolQuery {
                 Must = new[] { ctx.Query },
-                Filter = new[] { ctx.Filter }
+                Filter = new[] { ctx.Filter ?? new MatchAllQuery() }
             };
         }
 

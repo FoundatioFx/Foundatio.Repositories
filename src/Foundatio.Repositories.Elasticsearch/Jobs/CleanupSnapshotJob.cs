@@ -114,7 +114,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             return Task.CompletedTask;
         }
 
-        public virtual Task<bool> OnSnapshotDeleteFailure(string snapshotName, TimeSpan duration, IDeleteSnapshotResponse response, Exception ex) {
+        public virtual Task<bool> OnSnapshotDeleteFailure(string snapshotName, TimeSpan duration, DeleteSnapshotResponse response, Exception ex) {
             _logger.LogErrorRequest(ex, response, "Failed to delete snapshot {SnapshotName} after {Duration:g}", snapshotName, duration);
             return Task.FromResult(true);
         }

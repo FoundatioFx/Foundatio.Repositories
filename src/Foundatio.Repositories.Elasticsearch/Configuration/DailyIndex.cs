@@ -195,7 +195,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public override Task DeleteAsync() {
-            return DeleteIndexAsync($"{VersionedName}-*");
+            return DeleteIndexAsync($"{Name}-v*");
         }
 
         public override async Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {

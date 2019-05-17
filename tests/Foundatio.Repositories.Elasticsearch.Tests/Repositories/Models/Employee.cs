@@ -28,7 +28,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
         public DateTimeOffset NextReview { get; set; }
         public DateTime CreatedUtc { get; set; }
         public DateTime UpdatedUtc { get; set; }
-        public long Version { get; set; }
+        public string Version { get; set; }
         public bool IsDeleted { get; set; }
         public PeerReview[] PeerReviews { get; set; }
         public Dictionary<string, object> Data { get; set; }

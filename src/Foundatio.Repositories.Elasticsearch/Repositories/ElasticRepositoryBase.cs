@@ -23,6 +23,7 @@ using Foundatio.Repositories.Options;
 using Microsoft.Extensions.Logging;
 using System.Linq.Expressions;
 using System.Threading;
+using Newtonsoft.Json;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IElasticRepository<T> where T : class, IIdentity, new() {
@@ -151,8 +152,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (id.Routing != null)
                     request.Routing = id.Routing;
 
-                var response = await _client.GetAsync<JObject>(request).AnyContext();
-
+                var response = await _client.GetAsync<BytesResponse>(request).AnyContext();
+                var jobject = new JObject(); // JObject.Parse(response.Source.Body);
                 if (response.IsValid) {
                     _logger.LogTraceRequest(response);
                 } else {
@@ -160,7 +161,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                 }
 
-                var target = response.Source as JToken;
+                var target = (JToken)jobject;
                 new JsonPatcher().Patch(ref target, jsonOperation.Patch);
 
                 var indexParameters = new IndexRequestParameters {
@@ -323,7 +324,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                                 .Routing(h.Routing)
                                 .Index(h.GetIndex())
                                 .Pipeline(pipeline)
-                                .Version(h.Version));
+                                .IfPrimaryTerm(h.GetPrimaryTerm())
+                                .IfSequenceNumber(h.GetSequenceNumber()));
                         }
 
                         return b;
@@ -492,7 +494,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 var response = await _client.DeleteAsync(request).AnyContext();
 
-                if (response.IsValid) {
+                if (response.IsValid || response.ApiCall.HttpStatusCode == 404) {
                     _logger.LogTraceRequest(response);
                 } else {
                     _logger.LogErrorRequest(response, "Error removing document {Index}/{Id}", GetDocumentIndexFunc?.Invoke(document), document.Id);
@@ -780,7 +782,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     if (HasVersion && !isCreateOperation) {
                         var versionedDoc = (IVersioned)document;
-                        i.Version(versionedDoc.Version);
+                        i.IfPrimaryTerm(versionedDoc.GetPrimaryTerm());
+                        i.IfSequenceNumber(versionedDoc.GetSequenceNumber());
                     }
 
                     return i;
@@ -798,28 +801,31 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 if (HasVersion) {
                     var versionDoc = (IVersioned)document;
-                    versionDoc.Version = response.Version;
+                    versionDoc.Version = response.GetVersion();
                 }
             } else {
                 var bulkRequest = new BulkRequest();
                 var list = documents.Select(d => {
-                    var o = isCreateOperation
-                        ? (IBulkOperation)new BulkCreateOperation<T>(d) { Pipeline = pipeline }
-                        : new BulkIndexOperation<T>(d) { Pipeline = pipeline };
+                    var createOperation = new BulkCreateOperation<T>(d) { Pipeline = pipeline };
+                    var indexOperation = new BulkIndexOperation<T>(d) { Pipeline = pipeline };
+                    var baseOperation = isCreateOperation ? (IBulkOperation)createOperation : indexOperation;
 
                     if (GetParentIdFunc != null)
-                        o.Routing = GetParentIdFunc(d);
+                        baseOperation.Routing = GetParentIdFunc(d);
 
                     if (GetDocumentIndexFunc != null)
-                        o.Index = GetDocumentIndexFunc(d);
+                        baseOperation.Index = GetDocumentIndexFunc(d);
 
                     if (HasVersion && !isCreateOperation) {
                         var versionedDoc = (IVersioned)d;
-                        if (versionedDoc != null)
-                            o.Version = versionedDoc.Version;
+                        if (versionedDoc != null) {
+                            // TODO: Fix this once it's in NEST
+                            indexOperation.IfSequenceNumber = versionedDoc.GetSequenceNumber();
+                            indexOperation.IfPrimaryTerm = versionedDoc.GetPrimaryTerm();
+                        }
                     }
 
-                    return o;
+                    return baseOperation;
                 }).ToList();
                 bulkRequest.Operations = list;
                 bulkRequest.Refresh = options.GetRefreshMode(ElasticIndex.DefaultConsistency);
@@ -836,7 +842,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                             continue;
 
                         var versionDoc = (IVersioned)document;
-                        versionDoc.Version = hit.Version;
+                        versionDoc.Version = hit.GetVersion();
                     }
                 }
 

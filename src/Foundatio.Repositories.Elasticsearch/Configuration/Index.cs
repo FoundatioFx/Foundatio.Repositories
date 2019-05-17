@@ -57,8 +57,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual ElasticQueryParser CreateQueryParser() {
             var parser = new ElasticQueryParser(config => {
+                config.SetLoggerFactory(Configuration.LoggerFactory);
                 config.UseFieldResolver(CreateQueryFieldResolver());
                 config.UseNested();
+                config.UseMappings(Configuration.Client, Name);
                 Configuration.ConfigureGlobalQueryParsers(config);
                 ConfigureQueryParser(config);
             });
@@ -218,7 +220,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public virtual CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
-            return idx.Aliases(a => ConfigureIndexAliases(a)).Map<T>(m => ConfigureIndexMapping(m));
+            return idx.Aliases(ConfigureIndexAliases).Map<T>(ConfigureIndexMapping);
         }
 
         public virtual void ConfigureSettings(ConnectionSettings settings) {

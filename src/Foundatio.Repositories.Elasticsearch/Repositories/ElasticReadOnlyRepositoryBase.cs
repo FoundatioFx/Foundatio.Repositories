@@ -533,7 +533,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (indices?.Length > 0)
                 search.Index(String.Join(",", indices));
             if (HasVersion)
-                search.Version(HasVersion);
+                search.SequenceNumberPrimaryTerm(HasVersion);
 
             search.IgnoreUnavailable();
 

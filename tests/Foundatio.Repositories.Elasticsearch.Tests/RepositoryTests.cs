@@ -532,7 +532,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
             Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
             Assert.Equal("Patched", employee.Name);
-            Assert.Equal(2, employee.Version);
+            Assert.Equal("2", employee.Version);
         }
 
         [Fact]
@@ -543,7 +543,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
             Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
             Assert.Equal("Patched", employee.Name);
-            Assert.Equal(2, employee.Version);
+            Assert.Equal("2", employee.Version);
         }
 
         [Fact]
@@ -554,7 +554,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
             Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
             Assert.Equal("Patched", employee.Name);
-            Assert.Equal(2, employee.Version);
+            Assert.Equal("1:1", employee.Version);
         }
 
         [Fact]

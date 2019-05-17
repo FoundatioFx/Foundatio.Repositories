@@ -210,11 +210,11 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         private async Task HandleFailureAsync(ReindexWorkItem workItem, BulkIndexByScrollFailure failure) {
-            _logger.LogError("Error reindexing document {Index}/{Id}: [{Status}] {Message}", failure.Index, failure.Id, failure.Status, failure.Cause.Reason);
-            var gr = await _client.GetAsync<object>(request: new GetRequest(failure.Index, failure.Id)).AnyContext();
+            _logger.LogError("Error reindexing document {Index}/{Id}: [{Status}] {Message}", workItem.OldIndex, failure.Id, failure.Status, failure.Cause.Reason);
+            var gr = await _client.GetAsync<object>(request: new GetRequest(workItem.OldIndex, failure.Id)).AnyContext();
 
             if (!gr.IsValid) {
-                _logger.LogErrorRequest(gr, "Error getting document {Index}/{Id}", failure.Index, failure.Id);
+                _logger.LogErrorRequest(gr, "Error getting document {Index}/{Id}", workItem.OldIndex, failure.Id);
                 return;
             }
 

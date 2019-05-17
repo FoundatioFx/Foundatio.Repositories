@@ -28,7 +28,7 @@ Generic repository contract and implementations. Currently only implemented for 
   - Plan to add additional implementations (Postgres with Marten would be a good fit)
 - Elasticsearch index configuration allows simpler and more organized configuration
   - Schema versioning
-  - Parent child indexes
+  - Parent child queries
   - Daily and monthly index strategies
 - Supports different consistency models (immediate, wait or eventual)
   - Can be configured at the index type or individual query level
@@ -37,7 +37,6 @@ Generic repository contract and implementations. Currently only implemented for 
 - Field includes and excludes to make the response size smaller
 - Field conditions query builder
 - Paging including snapshot paging support
-- Automatic alias support right in the index type mappings
-- Aliases can be dynamic as well
+- Dynamic field resolution for using friendly names of dynamically generated fields
 - Jobs for index maintenance, snapshots, reindex
 - Strongly typed field access (using lambda expressions) to enable refactoring

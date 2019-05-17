@@ -51,11 +51,11 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
             if (response?.ServerError?.Error != null) {
                 sb.AppendLine("Server Error (Index={ErrorIndex}): {ErrorReason}");
-                messageArguments.Add(response.ServerError.Error.Metadata?.Index);
+                messageArguments.Add(response.ServerError.Error?.Index);
                 messageArguments.Add(response.ServerError.Error.Reason);
             }
 
-            if (elasticResponse is IBulkResponse bulkResponse) {
+            if (elasticResponse is BulkResponse bulkResponse) {
                 sb.AppendLine("Bulk: {BulkErrors}");
                 messageArguments.Add(String.Join("\r\n", bulkResponse.ItemsWithErrors.Select(i => i.Error)));
             }
@@ -77,7 +77,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (ex != null && response?.OriginalException != null)
                 aggEx = new AggregateException(ex, response.OriginalException);
 
-            logger.LogError(aggEx ?? response.OriginalException, sb.ToString(), messageArguments.ToArray());
+            logger.LogError(aggEx ?? response?.OriginalException, sb.ToString(), messageArguments.ToArray());
         }
     }
 

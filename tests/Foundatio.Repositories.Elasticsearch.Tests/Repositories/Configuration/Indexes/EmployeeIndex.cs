@@ -24,22 +24,25 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                 .Dynamic(false)
                 .Properties(p => p
                     .SetupDefaults()
+                    .Text(f => f.Name("_all"))
                     .Keyword(f => f.Name(e => e.Id))
                     .Keyword(f => f.Name(e => e.CompanyId))
                     .Keyword(f => f.Name(e => e.CompanyName))
-                    .Text(f => f.Name(e => e.Name).AddKeywordField())
-                    .Scalar(f => f.Age, f => f.Name(e => e.Age)).FieldAlias(a => a.Path(f => f.Age).Name("aliasedage"))
-                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview)).FieldAlias(a => a.Path(f => f.NextReview).Name("next"))
+                    .Text(f => f.Name(e => e.Name).AddKeywordField().CopyTo(c => c.Field("_all")))
+                    .Scalar(f => f.Age, f => f.Name(e => e.Age))
+                    .FieldAlias(a => a.Name("aliasedage").Path(f => f.Age))
+                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
+                    .FieldAlias(a => a.Name("next").Path(f => f.NextReview))
                     .GeoPoint(f => f.Name(e => e.Location))
-                    .FieldAlias(a => a.Path(f => f.PhoneNumbers.First().Number).Name("phone"))
+                    .FieldAlias(a => a.Name("phone").Path(f => f.PhoneNumbers.First().Number))
                     .Object<PhoneInfo>(f => f
                         .Name(u => u.PhoneNumbers.First()).Properties(mp => mp
-                            .Text(fu => fu.Name(m => m.Number))))
-                    .FieldAlias(a => a.Path("data.@user_meta.twitter_id").Name("twitter"))
-                    .FieldAlias(a => a.Path("data.@user_meta.twitter_followers").Name("followers"))
+                            .Text(fu => fu.Name(m => m.Number).CopyTo(c => c.Field("_all")))))
+                    .FieldAlias(a => a.Name("twitter").Path("data.@user_meta.twitter_id"))
+                    .FieldAlias(a => a.Name("followers").Path("data.@user_meta.twitter_followers"))
                     .Object<Dictionary<string, object>>(f => f.Name(e => e.Data).Properties(p1 => p1
                         .Object<object>(f2 => f2.Name("@user_meta").Properties(p2 => p2
-                            .Text(f3 => f3.Name("twitter_id").Boost(1.1).AddKeywordField())
+                            .Text(f3 => f3.Name("twitter_id").Boost(1.1).AddKeywordField().CopyTo(c => c.Field("_all")))
                             .Number(f3 => f3.Name("twitter_followers").Boost(1.1))
                         ))))
                     .Nested<PeerReview>(f => f.Name(e => e.PeerReviews).Properties(p1 => p1
@@ -82,7 +85,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Scalar(f => f.Age, f => f.Name(e => e.Age))
                     .Scalar(f => f.YearsEmployed, f => f.Name(e => e.YearsEmployed))
                     .Date(f => f.Name(e => e.LastReview))
-                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview)).FieldAlias(a => a.Name(f2 => f2.NextReview).Path("next"))
+                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
+                    .FieldAlias(a => a.Name("next").Path(f2 => f2.NextReview))
                 ));
         }
     }
@@ -123,7 +127,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Scalar(f => f.Age, f => f.Name(e => e.Age))
                     .Date(f => f.Name(e => e.LastReview))
                     .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
-                    .FieldAlias(a => a.Name(f2 => f2.NextReview).Path("next"))
+                    .FieldAlias(a => a.Name("next").Path(f2 => f2.NextReview))
                 ));
         }
 
@@ -160,7 +164,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Text(f => f.Name(e => e.Name).AddKeywordField())
                     .Scalar(f => f.Age, f => f.Name(e => e.Age))
                     .Date(f => f.Name(e => e.LastReview))
-                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview)).FieldAlias(a => a.Path(f => f.NextReview).Name("next"))
+                    .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
+                    .FieldAlias(a => a.Name("next").Path(f => f.NextReview))
                 ));
         }
 

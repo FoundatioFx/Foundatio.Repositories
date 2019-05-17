@@ -5,7 +5,7 @@ namespace Foundatio.Repositories.Models {
     [DebuggerDisplay("Percentile: {Percentile} Value: {Value}")]
     public class PercentileItem {
         public double Percentile { get; set; }
-        public double Value { get; set; }
+        public double? Value { get; set; }
     }
 
     public class PercentilesAggregate : MetricAggregateBase {
