@@ -11,15 +11,14 @@ using Nest;
 using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
-    public interface IVersionedIndex {
+    public interface IVersionedIndex : IIndex {
         int Version { get; }
         string VersionedName { get; }
         Task<int> GetCurrentVersionAsync();
         ReindexWorkItem CreateReindexWorkItem(int currentVersion);
-        Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null);
     }
 
-    public class VersionedIndex<T> : Index<T>, IVersionedIndex, IMaintainableIndex where T: class {
+    public class VersionedIndex : Index, IVersionedIndex {
         public VersionedIndex(IElasticConfiguration configuration, string name, int version = 1)
             : base(configuration, name) {
             Version = version;
@@ -144,7 +143,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             await reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync).AnyContext();
         }
 
-        public virtual async Task MaintainAsync(bool includeOptionalTasks = true) {
+        public override async Task MaintainAsync(bool includeOptionalTasks = true) {
             if (await AliasExistsAsync(Name).AnyContext())
                 return;
 
@@ -202,11 +201,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual async Task<IList<IndexInfo>> GetIndexesAsync(int version = -1) {
             string filter = version < 0 ? $"{Name}-v*" : $"{Name}-v{version}";
-            if (this is ITimeSeriesIndex<T>)
+            if (HasMultipleIndexes)
                 filter += "-*";
 
             var sw = Stopwatch.StartNew();
-            var response = await Configuration.Client.CatIndicesAsync(i => i.Pri().Index(Indices.Index(filter))).AnyContext();
+            var response = await Configuration.Client.CatIndicesAsync(i => i.Pri().Index(Indices.Index((IndexName)filter))).AnyContext();
             sw.Stop();
 
             if (!response.IsValid) {
@@ -236,6 +235,23 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             public int Version { get; set; }
             public int CurrentVersion { get; set; } = -1;
             public DateTime DateUtc { get; set; }
+        }
+    }
+
+    public class VersionedIndex<T> : VersionedIndex where T : class {
+        private readonly string _typeName = typeof(T).Name.ToLower();
+
+        public VersionedIndex(IElasticConfiguration configuration, string name = null, int version = 1) : base(configuration, name, version) {
+            Name = name ?? _typeName;
+        }
+        
+        public virtual ITypeMapping ConfigureIndexMapping(TypeMappingDescriptor<T> map) {
+            return map.AutoMap<T>().Properties(p => p.SetupDefaults());
+        }
+
+        public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+            idx = base.ConfigureIndex(idx);
+            return idx.Map<T>(ConfigureIndexMapping);
         }
     }
 }

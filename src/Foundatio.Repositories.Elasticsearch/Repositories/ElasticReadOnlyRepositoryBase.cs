@@ -34,15 +34,19 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         private ScopedCacheClient _scopedCacheClient;
 
-        protected ElasticReadOnlyRepositoryBase(IIndex<T> index) {
+        protected ElasticReadOnlyRepositoryBase(IIndex index) {
             ElasticIndex = index;
             if (HasIdentity)
-                _idField = new Lazy<string>(() => index.GetFieldName(doc => ((IIdentity)doc).Id) ?? "id");
+                _idField = new Lazy<string>(() => InferField(d => ((IIdentity)d).Id) ?? "id");
             _lazyClient = new Lazy<IElasticClient>(() => index.Configuration.Client);
 
             SetCache(index.Configuration.Cache);
             _logger = index.Configuration.LoggerFactory.CreateLogger(GetType());
         }
+
+        protected Inferrer Infer => _elasticIndex.Configuration.Client.Infer;
+        protected string InferField(Expression<Func<T, object>> objectPath) => _elasticIndex.Configuration.Client.Infer.Field(objectPath);
+        protected string InferPropertyName(Expression<Func<T, object>> objectPath) => _elasticIndex.Configuration.Client.Infer.PropertyName(objectPath);
 
         public virtual Task<FindResults<T>> FindAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
             return FindAsAsync<T>(query.Configure(), options.Configure());
@@ -53,6 +57,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected ICollection<Field> DefaultExcludes { get; } = new List<Field>();
+        protected bool HasParent { get; set; } = false;
 
         public virtual Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) where TResult : class, new() {
             return FindAsAsync<TResult>(query.Configure(), options.Configure());
@@ -252,7 +257,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             T document = null;
             if (!HasParent || id.Routing != null) {
-                var request = new GetRequest(GetIndexById(id), id.Value);
+                var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
                 var response = await _client.GetAsync<T>(request).AnyContext();
@@ -297,7 +302,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var multiGet = new MultiGetDescriptor();
             foreach (var id in itemsToFind.Where(i => i.Routing != null || !HasParent)) {
                 multiGet.Get<T>((Func<MultiGetOperationDescriptor<T>, IMultiGetOperation>)((MultiGetOperationDescriptor<T> f) => {
-                    f.Id(id.Value).Index(GetIndexById(id));
+                    f.Id(id.Value).Index(ElasticIndex.GetIndex(id));
                     if (id.Routing != null)
                         f.Routing(id.Routing);
 
@@ -314,7 +319,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             // fallback to doing a find
-            if (itemsToFind.Count > 0 && (HasParent || HasMultipleIndexes)) {
+            if (itemsToFind.Count > 0 && (HasParent || ElasticIndex.HasMultipleIndexes)) {
                 var response = await FindAsync(q => q.Id(itemsToFind.Select(id => id.Value)), o => o.PageLimit(1000)).AnyContext();
                 do {
                     if (response.Hits.Count > 0)
@@ -338,9 +343,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (String.IsNullOrEmpty(id.Value))
                 return false;
 
-            if (!HasParent || id.Routing != null) {
+            if (HasParent || id.Routing != null) {
                 var response = await _client.DocumentExistsAsync(new DocumentPath<T>(id.Value), d => {
-                    d.Index(GetIndexById(id));
+                    d.Index(ElasticIndex.GetIndex(d));
                     if (id.Routing != null)
                         d.Routing(id.Routing);
 
@@ -420,7 +425,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public virtual async Task<long> CountAsync(ICommandOptions options = null) {
             options = ConfigureOptions(options);
 
-            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null)))).AnyContext();
+            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", ElasticIndex.GetIndexesByQuery(null)))).AnyContext();
 
             if (response.IsValid) {
                 _logger.LogTraceRequest(response);
@@ -467,11 +472,11 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
         
         protected void AddDefaultExclude(Expression<Func<T, object>> objectPath) {
-            _defaultExcludes.Add(new Lazy<Field>(() => ElasticIndex.GetPropertyName(objectPath)));
+            _defaultExcludes.Add(new Lazy<Field>(() => InferPropertyName(objectPath)));
         }
         
         protected void AddDefaultExclude(params Expression<Func<T, object>>[] objectPaths) {
-            _defaultExcludes.AddRange(objectPaths.Select(o => new Lazy<Field>(() => ElasticIndex.GetPropertyName(o))));
+            _defaultExcludes.AddRange(objectPaths.Select(o => new Lazy<Field>(() => InferPropertyName(o))));
         }
 
         public bool IsCacheEnabled { get; private set; } = true;
@@ -529,7 +534,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 search = new SearchDescriptor<T>();
 
             query = ConfigureQuery(query);
-            var indices = GetIndexesByQuery(query);
+            var indices = ElasticIndex.GetIndexesByQuery(query);
             if (indices?.Length > 0)
                 search.Index(String.Join(",", indices));
             if (HasVersion)
@@ -547,20 +552,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                 options = new CommandOptions<T>();
 
             options.ElasticIndex(ElasticIndex);
+            options.SupportsSoftDeletes(SupportsSoftDeletes);
+            options.DocumentType(typeof(T));
 
             return options;
         }
 
-        protected virtual string[] GetIndexesByQuery(IRepositoryQuery query, ICommandOptions options = null) {
-            return HasMultipleIndexes ? TimeSeriesIndex.GetIndexesByQuery(query) : new[] { ElasticIndex.Name };
-        }
-
-        protected virtual string GetIndexById(Id id) {
-            return HasMultipleIndexes ? TimeSeriesIndex.GetIndexById(id) : ElasticIndex.Name;
-        }
-
         protected Func<T, string> GetParentIdFunc => null; //HasParent ? d => ChildType.GetParentId(d) : (Func<T, string>)null;
-        protected Func<T, string> GetDocumentIndexFunc => HasMultipleIndexes ? d => TimeSeriesIndex.GetDocumentIndex(d) : (Func<T, string>)(d => ElasticIndex.Name);
 
         protected async Task<TResult> GetCachedQueryResultAsync<TResult>(ICommandOptions options, string cachePrefix = null, string cacheSuffix = null) {
             if (!IsCacheEnabled || options == null || !options.ShouldReadCache() || !options.HasCacheKey())
@@ -592,34 +590,12 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         #region Elastic Type Configuration
 
-        private IIndex<T> _elasticIndex;
+        private IIndex _elasticIndex;
 
-        protected IIndex<T> ElasticIndex {
-            get { return _elasticIndex; }
-            private set {
-                _elasticIndex = value;
-
-                // if (_elasticIndex is IChildIndexType<T>) {
-                //     HasParent = true;
-                //     ChildType = _elasticType as IChildIndexType<T>;
-                // } else {
-                //     HasParent = false;
-                //     ChildType = null;
-                // }
-
-                if (_elasticIndex is ITimeSeriesIndex) {
-                    HasMultipleIndexes = true;
-                    TimeSeriesIndex = _elasticIndex as ITimeSeriesIndex<T>;
-                } else {
-                    HasMultipleIndexes = false;
-                    TimeSeriesIndex = null;
-                }
-            }
+        protected IIndex ElasticIndex {
+            get => _elasticIndex;
+            private set => _elasticIndex = value;
         }
-
-        protected bool HasParent { get; private set; }
-        protected bool HasMultipleIndexes { get; private set; }
-        protected ITimeSeriesIndex<T> TimeSeriesIndex { get; private set; }
 
         #endregion
 

@@ -42,7 +42,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .FieldAlias(a => a.Name("followers").Path("data.@user_meta.twitter_followers"))
                     .Object<Dictionary<string, object>>(f => f.Name(e => e.Data).Properties(p1 => p1
                         .Object<object>(f2 => f2.Name("@user_meta").Properties(p2 => p2
-                            .Text(f3 => f3.Name("twitter_id").Boost(1.1).AddKeywordField().CopyTo(c => c.Field("_all")))
+                            .Keyword(f3 => f3.Name("twitter_id").Boost(1.1).CopyTo(c => c.Field("_all")))
                             .Number(f3 => f3.Name("twitter_followers").Boost(1.1))
                         ))))
                     .Nested<PeerReview>(f => f.Name(e => e.PeerReviews).Properties(p1 => p1
@@ -94,8 +94,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
     public sealed class VersionedEmployeeIndex : VersionedIndex<Employee> {
         public VersionedEmployeeIndex(IElasticConfiguration configuration, int version) : base(configuration, "employees", version) {
             AddReindexScript(20, "ctx._source.companyName = 'scripted';");
-            // AddReindexScript(21, "ctx._source.companyName = 'NOOO';", "notEmployee");
-            // AddReindexScript(21, "ctx._source.companyName = 'typed script';", "employee");
+            AddReindexScript(21, "ctx._source.companyName = 'typed script';");
             AddReindexScript(22, "ctx._source.FAIL = 'should not work");
         }
 

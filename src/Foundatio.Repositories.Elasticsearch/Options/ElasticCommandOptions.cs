@@ -5,6 +5,7 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
+using Nest;
 
 namespace Foundatio.Repositories {
     public static class SetElasticOptionsExtensions {
@@ -59,14 +60,34 @@ namespace Foundatio.Repositories {
 
 namespace Foundatio.Repositories.Options {
     public static class ReadElasticOptionsExtensions {
-        internal const string ElasticIndexSettingsKey = "@ElasticIndexSettings";
+        internal const string ElasticIndexKey = "@ElasticIndex";
         public static T ElasticIndex<T>(this T options, IIndex index) where T: ICommandOptions {
-            options.Values.Set(ElasticIndexSettingsKey, new ElasticIndexSettings(index));
+            options.Values.Set(ElasticIndexKey, index);
             return options;
         }
 
-        public static ElasticIndexSettings GetElasticTypeSettings(this ICommandOptions options) {
-            return options.SafeGetOption<ElasticIndexSettings>(ElasticIndexSettingsKey);
+        public static IIndex GetElasticIndex(this ICommandOptions options) {
+            return options.SafeGetOption<IIndex>(ElasticIndexKey);
+        }
+
+        internal const string SupportsSoftDeletesKey = "@SupportsSoftDeletesKey";
+        public static T SupportsSoftDeletes<T>(this T options, bool supportsSoftDeletes) where T: ICommandOptions {
+            options.Values.Set(SupportsSoftDeletesKey, supportsSoftDeletes);
+            return options;
+        }
+
+        public static bool SupportsSoftDeletes(this ICommandOptions options) {
+            return options.SafeGetOption<bool>(SupportsSoftDeletesKey);
+        }
+
+        internal const string DocumentTypeKey = "@DocumentType";
+        public static T DocumentType<T>(this T options, Type documentType) where T : ICommandOptions {
+            options.Values.Set(DocumentTypeKey, documentType);
+            return options;
+        }
+
+        public static Type DocumentType(this ICommandOptions options) {
+            return options.SafeGetOption<Type>(DocumentTypeKey);
         }
 
         internal const string QueryFieldResolverKey = "@QueryFieldResolver";
@@ -126,24 +147,20 @@ namespace Foundatio.Repositories.Options {
     }
 
     public class ElasticIndexSettings {
-        public ElasticIndexSettings(IIndex index) {
+        public ElasticIndexSettings(IIndex index, bool supportsSoftDeletes) {
             Index = index;
             //ChildType = index as IChildIndexType;
-            TimeSeries = index as ITimeSeriesIndex;
+            SupportsSoftDeletes = supportsSoftDeletes;
+            //HasIdentity = typeof(IIdentity).IsAssignableFrom(index.Type);
             //HasParent = ChildType != null;
-            HasMultipleIndexes = TimeSeries != null;
-            SupportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(index.Type);
-            HasIdentity = typeof(IIdentity).IsAssignableFrom(index.Type);
             //ParentSupportsSoftDeletes = ChildType != null && typeof(ISupportSoftDeletes).IsAssignableFrom(ChildType.GetParentIndexType().Type);
         }
 
         public bool SupportsSoftDeletes { get; }
-        public bool HasIdentity { get; }
+        //public bool HasIdentity { get; }
         public IIndex Index { get; }
         //public bool HasParent { get; }
         //public bool ParentSupportsSoftDeletes { get; }
-        public bool HasMultipleIndexes { get; }
-        public ITimeSeriesIndex TimeSeries { get; }
     }
 }
 

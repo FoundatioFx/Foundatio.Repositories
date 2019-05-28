@@ -67,29 +67,28 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public ILoggerFactory LoggerFactory { get; }
         public IReadOnlyCollection<IIndex> Indexes => _frozenIndexes.Value;
 
-        public IIndex GetIndex(string name) {
-            foreach (var index in Indexes)
-                if (index.Name == name)
-                    return index;
-
-            return null;
-        }
-
         public void AddIndex(IIndex index) {
             if (_frozenIndexes.IsValueCreated)
                 throw new InvalidOperationException("Can't add indexes after the list has been frozen.");
 
             _indexes.Add(index);
         }
+        
+        public IIndex GetIndex(string name) {
+            foreach (var index in Indexes)
+                if (index.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                    return index;
 
+            return null;
+        }
+        
         public async Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true) {
             if (indexes == null)
                 indexes = Indexes;
 
             foreach (var idx in indexes) {
                 await idx.ConfigureAsync().AnyContext();
-                if (idx is IMaintainableIndex maintainableIndex)
-                    await maintainableIndex.MaintainAsync(includeOptionalTasks: false).AnyContext();
+                await idx.MaintainAsync(includeOptionalTasks: false).AnyContext();
 
                 if (!beginReindexingOutdated)
                     continue;
@@ -119,7 +118,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (indexes == null)
                 indexes = Indexes;
 
-            foreach (var idx in indexes.OfType<IMaintainableIndex>())
+            foreach (var idx in indexes)
                 await idx.MaintainAsync().AnyContext();
         }
 

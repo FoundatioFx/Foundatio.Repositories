@@ -21,8 +21,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return Task.CompletedTask;
 
             // check to see if the model supports soft deletes
-            var options = ctx.Options.GetElasticTypeSettings();
-            if (options == null || !options.SupportsSoftDeletes)
+            if (!ctx.Options.SupportsSoftDeletes())
                 return Task.CompletedTask;
 
             // if we are querying for specific ids then we don't need a deleted filter
@@ -30,7 +29,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (ids.Count > 0)
                 return Task.CompletedTask;
 
-            string fieldName = options.Index?.GetFieldName(IsDeleted) ?? IsDeleted;
+            var documentType = ctx.Options.DocumentType();
+            var property = documentType.GetProperty(nameof(ISupportSoftDeletes.IsDeleted));
+            var index = ctx.Options.GetElasticIndex();
+            string fieldName = index?.Configuration.Client.Infer.Field(new Field(property)) ?? "deleted";
             if (mode == SoftDeleteQueryMode.ActiveOnly)
                 ctx.Filter &= new TermQuery { Field = fieldName, Value = false };
             else if (mode == SoftDeleteQueryMode.DeletedOnly)

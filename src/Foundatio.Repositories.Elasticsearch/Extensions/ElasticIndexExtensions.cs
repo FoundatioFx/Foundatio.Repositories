@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using Elasticsearch.Net;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
@@ -159,12 +160,15 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     Data = statsAggregate.Meta.ToData<StatsAggregate>()
                 };
 
-            if (aggregate is Nest.TopHitsAggregate topHitsAggregate)
-                return new TopHitsAggregate(topHitsAggregate.Documents<JToken>().Select(topHit => new LazyDocument(topHit.Value<JToken>())).ToList()) {
+            if (aggregate is Nest.TopHitsAggregate topHitsAggregate) {
+                IList<Nest.LazyDocument> hits;
+                return new TopHitsAggregate(topHitsAggregate.Documents<byte[]>()
+                    .Select(topHit => new LazyDocument(topHit)).ToList()) {
                     Total = topHitsAggregate.Total.Value,
                     MaxScore = topHitsAggregate.MaxScore,
                     Data = topHitsAggregate.Meta.ToData<TopHitsAggregate>()
                 };
+            }
 
             if (aggregate is Nest.ExtendedStatsAggregate extendedStatsAggregate)
                 return new ExtendedStatsAggregate {

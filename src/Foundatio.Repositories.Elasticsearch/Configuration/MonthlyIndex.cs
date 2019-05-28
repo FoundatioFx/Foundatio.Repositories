@@ -1,11 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 using Exceptionless.DateTimeExtensions;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Utility;
+using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
-    public class MonthlyIndex<T>: DailyIndex<T> where T: class {
-        public MonthlyIndex(IElasticConfiguration configuration, string name, int version = 1, Func<T, DateTime> getDocumentDateUtc = null)
+    public class MonthlyIndex: DailyIndex {
+        public MonthlyIndex(IElasticConfiguration configuration, string name, int version = 1, Func<object, DateTime> getDocumentDateUtc = null)
             : base(configuration, name, version, getDocumentDateUtc) {
             DateFormat = "yyyy.MM";
         }
@@ -27,7 +29,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             var indices = new List<string>();
             for (var current = utcStartOfDay; current <= utcEndOfMonth; current = current.AddMonths(1))
-                indices.Add(GetIndex(current));
+                indices.Add(GetIndexByDate(current));
 
             return indices.ToArray();
         }
@@ -41,6 +43,23 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return true;
 
             return SystemClock.UtcNow.Date.SafeSubtract(alias.MaxAge) <= documentDateUtc.EndOfMonth();
+        }
+    }
+
+    public class MonthlyIndex<T> : MonthlyIndex where T : class {
+        private readonly string _typeName = typeof(T).Name.ToLower();
+
+        public MonthlyIndex(IElasticConfiguration configuration, string name = null, int version = 1, Func<object, DateTime> getDocumentDateUtc = null) : base(configuration, name, version, getDocumentDateUtc) {
+            Name = name ?? _typeName;
+        }
+        
+        public virtual ITypeMapping ConfigureIndexMapping(TypeMappingDescriptor<T> map) {
+            return map.AutoMap<T>().Properties(p => p.SetupDefaults());
+        }
+
+        public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+            idx = base.ConfigureIndex(idx);
+            return idx.Map<T>(ConfigureIndexMapping);
         }
     }
 }

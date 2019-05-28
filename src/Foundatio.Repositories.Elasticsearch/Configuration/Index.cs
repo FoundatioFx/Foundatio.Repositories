@@ -21,10 +21,7 @@ using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
-    public class Index<T> : IIndex<T> where T : class {
-        protected static readonly bool HasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
-        protected static readonly bool HasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
-        private readonly string _typeName = typeof(T).Name.ToLower();
+    public class Index : IIndex {
         private readonly ConcurrentDictionary<string, PropertyInfo> _cachedProperties = new ConcurrentDictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
         private readonly Lazy<IElasticQueryBuilder> _queryBuilder;
         private readonly Lazy<ElasticQueryParser> _queryParser;
@@ -32,11 +29,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         protected readonly ILockProvider _lockProvider;
         protected readonly ILogger _logger;
 
-        public Index(IElasticConfiguration configuration, string name = null, Consistency defaultConsistency = Consistency.Eventual) {
-            Name = name ?? _typeName;
-            Type = typeof(T);
+        public Index(IElasticConfiguration configuration, string name = null) {
+            Name = name;
             Configuration = configuration;
-            DefaultConsistency = defaultConsistency;
             _queryBuilder = new Lazy<IElasticQueryBuilder>(CreateQueryBuilder);
             _queryParser = new Lazy<ElasticQueryParser>(CreateQueryParser);
             _fieldResolver = new Lazy<QueryFieldResolver>(CreateQueryFieldResolver);
@@ -72,43 +67,49 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual void ConfigureQueryParser(ElasticQueryParserConfiguration config) { }
 
-        public string Name { get; }
-        public Type Type { get; }
-        public Consistency DefaultConsistency { get; }
+        public string Name { get; protected set; }
+        public bool HasMultipleIndexes { get; protected set; } = false;
         public ISet<string> AllowedQueryFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public ISet<string> AllowedAggregationFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public ISet<string> AllowedSortFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public IElasticConfiguration Configuration { get; }
 
-        public virtual string CreateDocumentId(T document) {
-            if (document == null)
-                throw new ArgumentNullException(nameof(document));
-
-            if (HasIdentity) {
-                string id = ((IIdentity)document).Id;
-                if (!String.IsNullOrEmpty(id))
-                    return id;
+        public virtual string CreateDocumentId(object document) {
+            switch (document) {
+                case null:
+                    throw new ArgumentNullException(nameof(document));
+                case IIdentity identityDoc when !String.IsNullOrEmpty(identityDoc.Id):
+                    return identityDoc.Id;
+                case IHaveCreatedDate createdDoc when createdDoc.CreatedUtc != DateTime.MinValue:
+                    return ObjectId.GenerateNewId(createdDoc.CreatedUtc).ToString();
+                default:
+                    return ObjectId.GenerateNewId().ToString();
             }
+        }
 
-            if (HasCreatedDate) {
-                var date = ((IHaveCreatedDate)document).CreatedUtc;
-                if (date != DateTime.MinValue)
-                    return ObjectId.GenerateNewId(date).ToString();
-            }
+        private string[] _indexes;
+        public virtual string[] GetIndexesByQuery(IRepositoryQuery query) {
+            return _indexes ?? (_indexes = new[] { Name });
+        }
 
-            return ObjectId.GenerateNewId().ToString();
+        public virtual string GetIndex(object target) {
+            return Name;
         }
 
         public virtual Task ConfigureAsync() {
             return CreateIndexAsync(Name, ConfigureIndex);
         }
 
-        public virtual IPromise<IAliases> ConfigureIndexAliases(AliasesDescriptor aliases) {
-            return aliases;
+        public virtual Task EnsureIndexAsync(object target) {
+            return Task.CompletedTask;
         }
 
-        public virtual ITypeMapping ConfigureIndexMapping(TypeMappingDescriptor<T> map) {
-            return map.Properties(p => p.SetupDefaults());
+        public virtual Task MaintainAsync(bool includeOptionalTasks = true) {
+            return Task.CompletedTask;
+        }
+
+        public virtual IPromise<IAliases> ConfigureIndexAliases(AliasesDescriptor aliases) {
+            return aliases;
         }
 
         public IElasticQueryBuilder QueryBuilder => _queryBuilder.Value;
@@ -117,25 +118,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public int DefaultCacheExpirationSeconds { get; set; } = RepositoryConstants.DEFAULT_CACHE_EXPIRATION_SECONDS;
         public int BulkBatchSize { get; set; } = 1000;
-
-        public string GetFieldName(Field field) {
-            var result = FieldResolver?.Invoke(field.Name);
-            if (!String.IsNullOrEmpty(result))
-                return result;
-
-            if (!String.IsNullOrEmpty(field.Name))
-                field = GetPropertyInfo(field.Name) ?? field;
-
-            return Configuration.Client.Infer.Field(field);
-        }
-
-        private PropertyInfo GetPropertyInfo(string property) {
-            return _cachedProperties.GetOrAdd(property, s => Type.GetProperty(property, BindingFlags.IgnoreCase | BindingFlags.Public | BindingFlags.Instance));
-        }
-
-        public string GetFieldName(Expression<Func<T, object>> objectPath) => Configuration.Client.Infer.Field(objectPath);
-        public string GetPropertyName(PropertyName property) => Configuration.Client.Infer.PropertyName(property);
-        public string GetPropertyName(Expression<Func<T, object>> objectPath) => Configuration.Client.Infer.PropertyName(objectPath);
 
         public virtual Task DeleteAsync() {
             return DeleteIndexAsync(Name);
@@ -205,22 +187,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
         }
 
-        /// <summary>
-        /// Attempt to get the document modified date for reindexing.
-        /// NOTE: We make the assumption that all types implement the same date interfaces.
-        /// </summary>
         protected virtual string GetTimeStampField() {
-            if (typeof(IHaveDates).IsAssignableFrom(Type))
-                return Configuration.Client.Infer.PropertyName(Type.GetProperty(nameof(IHaveDates.UpdatedUtc)));
-
-            if (typeof(IHaveCreatedDate).IsAssignableFrom(Type))
-                return Configuration.Client.Infer.PropertyName(Type.GetProperty(nameof(IHaveCreatedDate.CreatedUtc)));
-
-            return null;
+            return "updated";
         }
 
         public virtual CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
-            return idx.Aliases(ConfigureIndexAliases).Map<T>(ConfigureIndexMapping);
+            return idx.Aliases(ConfigureIndexAliases);
         }
 
         public virtual void ConfigureSettings(ConnectionSettings settings) {
@@ -229,5 +201,22 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public virtual void Dispose() {}
+    }
+
+    public class Index<T> : Index where T : class {
+        private readonly string _typeName = typeof(T).Name.ToLower();
+
+        public Index(IElasticConfiguration configuration, string name = null) : base(configuration, name) {
+            Name = name ?? _typeName;
+        }
+        
+        public virtual ITypeMapping ConfigureIndexMapping(TypeMappingDescriptor<T> map) {
+            return map.AutoMap<T>().Properties(p => p.SetupDefaults());
+        }
+
+        public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+            idx = base.ConfigureIndex(idx);
+            return idx.Map<T>(ConfigureIndexMapping);
+        }
     }
 }

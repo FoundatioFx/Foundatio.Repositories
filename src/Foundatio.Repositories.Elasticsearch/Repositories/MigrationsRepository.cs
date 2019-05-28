@@ -3,7 +3,7 @@ using Foundatio.Repositories.Migrations;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public class MigrationRepository : ElasticRepositoryBase<Migration>, IMigrationRepository {
-        public MigrationRepository(IIndex<Migration> indexType) : base(indexType) {}
+        public MigrationRepository(IIndex index) : base(index) {}
     }
 
     public sealed class MigrationIndex : DynamicIndex<Migration> {

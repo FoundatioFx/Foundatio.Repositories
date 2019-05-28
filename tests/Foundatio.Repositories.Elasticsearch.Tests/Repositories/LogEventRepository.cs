@@ -12,7 +12,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public DailyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.DailyLogEvents) {
         }
 
-        public DailyLogEventRepository(IIndex<LogEvent> indexType) : base(indexType) {
+        public DailyLogEventRepository(IIndex index) : base(index) {
         }
 
         public Task<FindResults<LogEvent>> GetByCompanyAsync(string company) {

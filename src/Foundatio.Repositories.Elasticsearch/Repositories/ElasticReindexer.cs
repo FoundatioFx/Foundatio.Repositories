@@ -16,12 +16,13 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Newtonsoft.Json;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public class ElasticReindexer {
         private readonly IElasticClient _client;
         private readonly ILogger _logger;
-        private const string ID_FIELD = "id";
+        private const string ID_FIELD = "_id";
         private const int MAX_STATUS_FAILS = 10;
 
         public ElasticReindexer(IElasticClient client, ILogger logger = null) {
@@ -219,7 +220,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             _logger.LogTraceRequest(gr);
-            var document = JObject.FromObject(new {
+            string document = JsonConvert.SerializeObject(new {
                 failure.Index,
                 failure.Id,
                 gr.Version,
@@ -229,9 +230,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 failure.Status,
                 gr.Found,
             });
-
-            var indexResponse = await _client.IndexAsync(document, d => d.Index(workItem.NewIndex + "-error")).AnyContext();
-            if (indexResponse.IsValid)
+            var indexResponse = await _client.LowLevel.IndexAsync<VoidResponse>(workItem.NewIndex + "-error", PostData.String(document));
+            if (indexResponse.Success)
                 _logger.LogTraceRequest(indexResponse);
             else
                 _logger.LogErrorRequest(indexResponse, "Error indexing document {Index}/{Id}", workItem.NewIndex + "-error", gr.Id);
@@ -254,31 +254,29 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (startTime.HasValue)
                 return CreateRangeQuery(descriptor, timestampField, startTime);
 
-            object startingPoint = await GetResumeStartingPointAsync(newIndex, timestampField ?? ID_FIELD).AnyContext();
-            if (startingPoint is DateTime)
-                return CreateRangeQuery(descriptor, timestampField, (DateTime)startingPoint);
-
-            if (startingPoint is string)
-                return descriptor.TermRange(dr => dr.Field(timestampField ?? ID_FIELD).GreaterThanOrEquals((string)startingPoint));
-
-            if (startingPoint != null)
-                throw new ApplicationException("Unable to create resume query from returned starting point");
+            var startingPoint = await GetResumeStartingPointAsync(newIndex, timestampField ?? ID_FIELD).AnyContext();
+            if (startingPoint.HasValue)
+                return CreateRangeQuery(descriptor, timestampField, startingPoint);
 
             return descriptor;
         }
 
         private QueryContainer CreateRangeQuery(QueryContainerDescriptor<object> descriptor, string timestampField, DateTime? startTime) {
+            if (!startTime.HasValue)
+                return descriptor;
+            
             if (!String.IsNullOrEmpty(timestampField))
                 return descriptor.DateRange(dr => dr.Field(timestampField).GreaterThanOrEquals(startTime));
 
             return descriptor.TermRange(dr => dr.Field(ID_FIELD).GreaterThanOrEquals(ObjectId.GenerateNewId(startTime.Value).ToString()));
         }
 
-        private async Task<object> GetResumeStartingPointAsync(string newIndex, string timestampField) {
-            var newestDocumentResponse = await _client.SearchAsync<JObject>(d => d
-                .Index(Indices.Index(newIndex))
-                .Sort(s => s.Descending(new Field(timestampField)))
-                .Source(s => s.Includes(f => f.Field(timestampField)))
+        private async Task<DateTime?> GetResumeStartingPointAsync(string newIndex, string timestampField) {
+            var newestDocumentResponse = await _client.SearchAsync<IDictionary<string, object>>(d => d
+                .Index(newIndex)
+                .Sort(s => s.Descending(timestampField))
+                .DocValueFields(timestampField)
+                .Source(s => s.ExcludeAll())
                 .Size(1)
             ).AnyContext();
 
@@ -286,14 +284,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (!newestDocumentResponse.IsValid || !newestDocumentResponse.Documents.Any())
                 return null;
 
-            var token = newestDocumentResponse.Documents.FirstOrDefault()?[timestampField];
-            if (token == null)
-                return null;
+            var doc = newestDocumentResponse.Hits.FirstOrDefault();
+            var value = doc?.Fields[timestampField];
 
-            if (token.Type == JTokenType.Date)
-                return token.ToObject<DateTime>();
-
-            return token.ToString();
+            var datesArray = value?.As<DateTime[]>();
+            return datesArray?.FirstOrDefault();
         }
 
         private int CalculateProgress(long total, long completed, int startProgress = 0, int endProgress = 100) {

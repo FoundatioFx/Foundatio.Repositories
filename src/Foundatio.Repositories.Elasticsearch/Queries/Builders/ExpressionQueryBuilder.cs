@@ -102,7 +102,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             if (!String.IsNullOrEmpty(sort)) {
                 var result = _parser.Parse(sort);
-                var opt = ctx.Options.GetElasticTypeSettings();
                 TermToFieldVisitor.Run(result, ctx);
                 FieldResolverQueryVisitor.Run(result, _aliasMap, ctx);
                 var fields = GetReferencedFieldsQueryVisitor.Run(result);
@@ -140,7 +139,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             if (!String.IsNullOrEmpty(sort)) {
                 var result = _parser.Parse(sort);
-                var opt = ctx.Options.GetElasticTypeSettings();
                 TermToFieldVisitor.Run(result, ctx);
                 var fields = GetReferencedFieldsQueryVisitor.Run(result);
                 // TODO: Check referenced fields against opt.AllowedSortFields

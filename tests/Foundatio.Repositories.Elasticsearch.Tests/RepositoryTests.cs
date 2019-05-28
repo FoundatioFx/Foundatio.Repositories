@@ -526,13 +526,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task JsonPatchAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+            Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
             var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
             await _employeeRepository.PatchAsync(employee.Id, new Models.JsonPatch(patch));
 
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
             Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
             Assert.Equal("Patched", employee.Name);
-            Assert.Equal("2", employee.Version);
+            Assert.Equal("1:1", employee.Version);
         }
 
         [Fact]
@@ -543,7 +544,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
             Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
             Assert.Equal("Patched", employee.Name);
-            Assert.Equal("2", employee.Version);
+            Assert.Equal("1:1", employee.Version);
         }
 
         [Fact]

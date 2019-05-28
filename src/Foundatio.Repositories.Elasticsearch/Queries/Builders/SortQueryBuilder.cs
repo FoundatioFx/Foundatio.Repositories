@@ -56,8 +56,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (sortFields.Count <= 0) {
                 // always use the default sort if using search after paging
                 if (ctx.Options.ShouldUseSearchAfterPaging()) {
-                    var options = ctx.Options.GetElasticTypeSettings();
-                    string fieldName = options.Index?.GetFieldName(Id) ?? Id;
+                    var index = ctx.Options.GetElasticIndex();
+                    var docType = ctx.Options.DocumentType();
+                    var idProperty = docType?.GetProperty(Id);
+                    string fieldName = index?.Configuration.Client.Infer.Field(idProperty) ?? "_id";
                     ctx.Search.Sort(s => s.Field(fieldName, SortOrder.Ascending));
                 }
                 
