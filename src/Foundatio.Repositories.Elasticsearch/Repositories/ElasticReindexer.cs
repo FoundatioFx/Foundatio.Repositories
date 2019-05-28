@@ -107,16 +107,18 @@ namespace Foundatio.Repositories.Elasticsearch {
                         .WaitForCompletion(false);
 
                         //NEST client emitting script if null, inline this when that's fixed
-                        if (!String.IsNullOrWhiteSpace(workItem.Script)) d.Script(workItem.Script);
+                        if (!String.IsNullOrWhiteSpace(workItem.Script))
+                            d.Script(workItem.Script);
 
                         return d;
-                    }).AnyContext();
+                    }, cancellationToken).AnyContext();
 
                     return response;
                 }, 5, TimeSpan.FromSeconds(10), cancellationToken, _logger).AnyContext();
 
             _logger.LogInformation("Reindex Task Id: {TaskId}", result.Task.FullyQualifiedId);
             _logger.LogTraceRequest(result);
+            var totalDocs = result.Total;
 
             bool taskSuccess = false;
             TaskReindexResult lastReindexResponse = null;
@@ -124,8 +126,6 @@ namespace Foundatio.Repositories.Elasticsearch {
             long lastProgress = 0;
             var sw = Stopwatch.StartNew();
             do {
-                await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken).AnyContext();
-
                 var status = await _client.GetTaskAsync(result.Task, null, cancellationToken).AnyContext();
                 if (status.IsValid) {
                     _logger.LogTraceRequest(status);
@@ -154,7 +154,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 long lastCompleted = status.Task.Status.Created + status.Task.Status.Updated + status.Task.Status.Noops;
 
                 // restart the stop watch if there was progress made
-                if (lastCompleted > lastProgress) sw.Restart();
+                if (lastCompleted > lastProgress)
+                    sw.Restart();
                 lastProgress = lastCompleted;
 
                 string lastMessage = $"Total: {status.Task.Status.Total:N0} Completed: {lastCompleted:N0} VersionConflicts: {status.Task.Status.VersionConflicts:N0}";
@@ -164,11 +165,18 @@ namespace Foundatio.Repositories.Elasticsearch {
                     taskSuccess = true;
                     break;
                 }
-
+                
+                // waited more than 10 minutes with no progress made
                 if (sw.Elapsed > TimeSpan.FromMinutes(10)) {
                     _logger.LogError($"Timed out waiting for reindex {workItem.OldIndex} -> {workItem.NewIndex}.");
                     break;
                 }
+                
+                var timeToWait = TimeSpan.FromSeconds(10);
+                if (status.Task.Status.Total < 100)
+                    timeToWait = TimeSpan.FromMilliseconds(100);
+                
+                await Task.Delay(timeToWait, cancellationToken).AnyContext();
             } while (!cancellationToken.IsCancellationRequested);
             sw.Stop();
 

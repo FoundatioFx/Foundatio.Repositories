@@ -52,8 +52,7 @@ namespace Foundatio.Repositories.Models {
 
         private static TAggregate TryGet<TAggregate>(this IReadOnlyDictionary<string, IAggregate> aggs, string key)
             where TAggregate : class, IAggregate {
-            IAggregate agg;
-            return aggs.TryGetValue(key, out agg) ? agg as TAggregate : null;
+            return aggs.TryGetValue(key, out var agg) ? agg as TAggregate : null;
         }
 
         private static MultiBucketAggregate<TBucket> GetMultiBucketAggregate<TBucket>(this IReadOnlyDictionary<string, IAggregate> aggs, string key)
