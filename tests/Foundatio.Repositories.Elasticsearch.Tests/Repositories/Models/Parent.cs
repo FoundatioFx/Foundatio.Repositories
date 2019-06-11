@@ -4,11 +4,6 @@ using Foundatio.Repositories.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
-    public interface IParentChildDocument : IIdentity {
-        string ParentId { get; set; }
-        JoinField Discriminator { get; set; }
-    }
-    
     public class Parent : IParentChildDocument, IHaveDates, ISupportSoftDeletes {
         public string Id { get; set; }
         string IParentChildDocument.ParentId { get; set; }

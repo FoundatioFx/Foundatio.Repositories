@@ -3,11 +3,13 @@
  using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
  using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
  using Foundatio.Repositories.Models;
+ using Foundatio.Repositories.Options;
  using Nest;
 
  namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories {
      public class ChildRepository : ElasticRepositoryBase<Child> {
          public ChildRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.ParentChild) {
+             BeforeQuery.AddHandler(OnBeforeQuery);
              DocumentsChanging.AddHandler(OnDocumentsChanging);
              GetParentIdFunc = d => d.ParentId;
          }
@@ -19,10 +21,13 @@
              return Task.CompletedTask;
          }
 
-         protected override Task<SearchDescriptor<Child>> ConfigureSearchDescriptorAsync(SearchDescriptor<Child> search, IRepositoryQuery query, ICommandOptions options) {
-             // this need to be a bool filter
-             search.Query(q => q.Bool(b => b.Must(m => m.Term(f => f.Field(c => ((IParentChildDocument)c).Discriminator).Value(RelationName.From<Child>())))));
-             return base.ConfigureSearchDescriptorAsync(search, query, options);
+         protected Task OnBeforeQuery(object sender, BeforeQueryEventArgs<Child> args) {
+             args.Query.Discriminator("child");
+             return Task.CompletedTask;
+         }
+
+         protected override ICommandOptions ConfigureOptions(ICommandOptions options) {
+             return base.ConfigureOptions(options).ParentDocumentType(typeof(Parent));
          }
 
          public Task<FindResults<Child>> QueryAsync(RepositoryQueryDescriptor<Child> query, CommandOptionsDescriptor<Child> options = null) {

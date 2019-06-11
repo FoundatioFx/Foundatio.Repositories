@@ -4,10 +4,9 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Foundatio.Jobs.Commands" Version="8.1.2058" />
-    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="7.0.487-pre" />
+    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="7.0.491-pre" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\..\Foundatio.Parsers\src\Foundatio.Parsers.ElasticQueries\Foundatio.Parsers.ElasticQueries.csproj" />
     <ProjectReference Include="..\Foundatio.Repositories\Foundatio.Repositories.csproj" />
   </ItemGroup>
 </Project>

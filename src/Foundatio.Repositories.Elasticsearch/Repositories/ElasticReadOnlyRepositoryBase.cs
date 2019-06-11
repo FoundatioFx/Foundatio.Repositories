@@ -423,21 +423,8 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public virtual async Task<long> CountAsync(ICommandOptions options = null) {
-            options = ConfigureOptions(options);
-
-            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", ElasticIndex.GetIndexesByQuery(null)))).AnyContext();
-
-            if (response.IsValid) {
-                _logger.LogTraceRequest(response);
-            } else {
-                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
-                    return 0;
-
-                _logger.LogErrorRequest(response, "Error getting document count");
-                throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
-            }
-
-            return response.Count;
+            var result = await CountAsync(NewQuery(), options).AnyContext();
+            return result.Total;
         }
 
         public virtual Task<CountResult> CountBySearchAsync(ISystemFilter systemFilter, string filter = null, string aggregations = null, ICommandOptions options = null) {

@@ -90,6 +90,20 @@ namespace Foundatio.Repositories.Options {
             return options.SafeGetOption<Type>(DocumentTypeKey);
         }
 
+        internal const string ParentDocumentTypeKey = "@ParentDocumentType";
+        public static T ParentDocumentType<T>(this T options, Type parentDocumentType) where T : ICommandOptions {
+            if (parentDocumentType != null)
+                return options.BuildOption(ParentDocumentTypeKey, parentDocumentType);
+
+            options.Values?.Remove(ParentDocumentTypeKey);
+
+            return options;
+        }
+
+        public static Type ParentDocumentType(this ICommandOptions options) {
+            return options.SafeGetOption<Type>(ParentDocumentTypeKey, typeof(object));
+        }
+
         internal const string QueryFieldResolverKey = "@QueryFieldResolver";
         public static T QueryFieldResolver<T>(this T options, QueryFieldResolver rootAliasResolver) where T : ICommandOptions {
             options.Values.Set(QueryFieldResolverKey, rootAliasResolver);

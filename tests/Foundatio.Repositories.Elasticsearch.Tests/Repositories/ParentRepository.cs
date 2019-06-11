@@ -8,6 +8,7 @@
  namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories {
      public class ParentRepository : ElasticRepositoryBase<Parent> {
          public ParentRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.ParentChild) {
+             BeforeQuery.AddHandler(OnBeforeQuery);
              DocumentsChanging.AddHandler(OnDocumentsChanging);
          }
 
@@ -18,10 +19,9 @@
              return Task.CompletedTask;
          }
 
-         protected override Task<SearchDescriptor<Parent>> ConfigureSearchDescriptorAsync(SearchDescriptor<Parent> search, IRepositoryQuery query, ICommandOptions options) {
-             // this need to be a bool filter
-             search.Query(q => q.Bool(b => b.Must(m => m.Term(f => f.Field(c => ((IParentChildDocument)c).Discriminator).Value(RelationName.From<Parent>())))));
-             return base.ConfigureSearchDescriptorAsync(search, query, options);
+         protected Task OnBeforeQuery(object sender, BeforeQueryEventArgs<Parent> args) {
+             args.Query.Discriminator("parent");
+             return Task.CompletedTask;
          }
 
          public Task<FindResults<Parent>> QueryAsync(RepositoryQueryDescriptor<Parent> query) {

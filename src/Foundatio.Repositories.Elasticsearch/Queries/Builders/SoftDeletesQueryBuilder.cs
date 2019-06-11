@@ -41,6 +41,15 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             else if (mode == SoftDeleteQueryMode.DeletedOnly)
                 ctx.Filter &= new TermQuery { Field = fieldName, Value = true };
 
+            var parentType = ctx.Options.ParentDocumentType();
+            if (parentType != null && parentType != typeof(object))
+                ctx.Filter &= new HasParentQuery {
+                    ParentType = parentType,
+                    Query = new BoolQuery {
+                        Filter = new[] { new QueryContainer(new TermQuery { Field = fieldName, Value = false }) }
+                    }
+                };
+
             return Task.CompletedTask;
         }
     }
