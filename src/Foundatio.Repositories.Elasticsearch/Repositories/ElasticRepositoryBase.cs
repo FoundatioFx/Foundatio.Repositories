@@ -773,6 +773,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     if (GetParentIdFunc != null)
                         i.Routing(GetParentIdFunc(document));
+                    //i.Routing(GetParentIdFunc != null ? GetParentIdFunc(document) : document.Id);
 
                     i.Index(ElasticIndex.GetIndex(document));
 
@@ -805,16 +806,15 @@ namespace Foundatio.Repositories.Elasticsearch {
                     var createOperation = new BulkCreateOperation<T>(d) { Pipeline = DefaultPipeline };
                     var indexOperation = new BulkIndexOperation<T>(d) { Pipeline = DefaultPipeline };
                     var baseOperation = isCreateOperation ? (IBulkOperation)createOperation : indexOperation;
-
+                    
                     if (GetParentIdFunc != null)
                         baseOperation.Routing = GetParentIdFunc(d);
-
+                    //baseOperation.Routing = GetParentIdFunc != null ? GetParentIdFunc(d) : d.Id;
                     baseOperation.Index = ElasticIndex.GetIndex(d);
 
                     if (HasVersion && !isCreateOperation) {
                         var versionedDoc = (IVersioned)d;
                         if (versionedDoc != null) {
-                            // TODO: Fix this once it's in NEST
                             indexOperation.IfSequenceNumber = versionedDoc.GetSequenceNumber();
                             indexOperation.IfPrimaryTerm = versionedDoc.GetPrimaryTerm();
                         }

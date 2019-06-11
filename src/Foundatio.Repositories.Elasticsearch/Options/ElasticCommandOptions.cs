@@ -145,22 +145,5 @@ namespace Foundatio.Repositories.Options {
             return Refresh.False;
         }
     }
-
-    public class ElasticIndexSettings {
-        public ElasticIndexSettings(IIndex index, bool supportsSoftDeletes) {
-            Index = index;
-            //ChildType = index as IChildIndexType;
-            SupportsSoftDeletes = supportsSoftDeletes;
-            //HasIdentity = typeof(IIdentity).IsAssignableFrom(index.Type);
-            //HasParent = ChildType != null;
-            //ParentSupportsSoftDeletes = ChildType != null && typeof(ISupportSoftDeletes).IsAssignableFrom(ChildType.GetParentIndexType().Type);
-        }
-
-        public bool SupportsSoftDeletes { get; }
-        //public bool HasIdentity { get; }
-        public IIndex Index { get; }
-        //public bool HasParent { get; }
-        //public bool ParentSupportsSoftDeletes { get; }
-    }
 }
 

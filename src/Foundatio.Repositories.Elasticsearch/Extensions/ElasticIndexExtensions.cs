@@ -130,6 +130,12 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
         private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
 
+        private static readonly Lazy<Func<Nest.TopHitsAggregate, IList<Nest.LazyDocument>>> _getHits =
+            new Lazy<Func<Nest.TopHitsAggregate, IList<Nest.LazyDocument>>>(() => {
+                var hitsField = typeof(Nest.TopHitsAggregate).GetField("_hits", BindingFlags.GetField | BindingFlags.NonPublic | BindingFlags.Instance);
+                return agg => hitsField?.GetValue(agg) as IList<Nest.LazyDocument>;
+            });
+        
         public static IAggregate ToAggregate(this Nest.IAggregate aggregate) {
             if (aggregate is Nest.ValueAggregate valueAggregate) {
                 if (valueAggregate.Meta != null && valueAggregate.Meta.TryGetValue("@field_type", out var value)) {
@@ -162,9 +168,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 };
 
             if (aggregate is Nest.TopHitsAggregate topHitsAggregate) {
-                var edocs = topHitsAggregate.Documents<IDictionary<string, object>>();
-                var hitsField = typeof(Nest.TopHitsAggregate).GetField("_hits", BindingFlags.GetField | BindingFlags.NonPublic | BindingFlags.Instance);
-                var hits = hitsField?.GetValue(topHitsAggregate) as IList<Nest.LazyDocument>;
+                var hits = _getHits.Value(topHitsAggregate);
                 var docs = hits?.Select(h => new ElasticLazyDocument(h)).Cast<ILazyDocument>().ToList();
                 
                 return new TopHitsAggregate(docs) {

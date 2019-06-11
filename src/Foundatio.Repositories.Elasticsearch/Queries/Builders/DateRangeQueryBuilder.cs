@@ -64,14 +64,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (dateRanges.Count <= 0)
                 return Task.CompletedTask;
 
-            var elasticIndex = ctx.Options.GetElasticIndex();
             foreach (var dateRange in dateRanges.Where(dr => dr.UseDateRange)) {
-                string fieldName = dateRange.Field?.Name;
-                if (elasticIndex != null && !String.IsNullOrEmpty(fieldName))
-                    fieldName = elasticIndex.Configuration.Client.Infer.Field(fieldName);
-
                 ctx.Filter &= new DateRangeQuery {
-                    Field = fieldName ?? dateRange.Field,
+                    Field = dateRange.Field,
                     GreaterThanOrEqualTo = dateRange.GetStartDate(),
                     LessThanOrEqualTo = dateRange.GetEndDate()
                 };

@@ -9,8 +9,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         private const string IsDeleted = nameof(ISupportSoftDeletes.IsDeleted);
         
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            // TODO: Figure out how to automatically add parent filter for soft deletes on queries that have a parent document type
+
             // dont add filter to child query system filters
-            if (ctx.Type == ContextType.Child)
+            if (ctx.Parent != null)
                 return Task.CompletedTask;
 
             // get soft delete mode, use parent query as default if it exists
@@ -32,6 +34,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             var documentType = ctx.Options.DocumentType();
             var property = documentType.GetProperty(nameof(ISupportSoftDeletes.IsDeleted));
             var index = ctx.Options.GetElasticIndex();
+            
             string fieldName = index?.Configuration.Client.Infer.Field(new Field(property)) ?? "deleted";
             if (mode == SoftDeleteQueryMode.ActiveOnly)
                 ctx.Filter &= new TermQuery { Field = fieldName, Value = false };

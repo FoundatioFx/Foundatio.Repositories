@@ -558,7 +558,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return options;
         }
 
-        protected Func<T, string> GetParentIdFunc => null; //HasParent ? d => ChildType.GetParentId(d) : (Func<T, string>)null;
+        protected Func<T, string> GetParentIdFunc { get; set; }
 
         protected async Task<TResult> GetCachedQueryResultAsync<TResult>(ICommandOptions options, string cachePrefix = null, string cacheSuffix = null) {
             if (!IsCacheEnabled || options == null || !options.ShouldReadCache() || !options.HasCacheKey())
@@ -588,16 +588,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                 _logger.LogTrace("Set cache: type={ElasticType} key={CacheKey}", ElasticIndex.Name, cacheKey);
         }
 
-        #region Elastic Type Configuration
-
         private IIndex _elasticIndex;
 
         protected IIndex ElasticIndex {
             get => _elasticIndex;
             private set => _elasticIndex = value;
         }
-
-        #endregion
 
         #region Events
 

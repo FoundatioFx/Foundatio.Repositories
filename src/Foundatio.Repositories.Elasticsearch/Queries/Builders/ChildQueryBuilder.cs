@@ -1,73 +1,76 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Options;
 using Nest;
 
 namespace Foundatio.Repositories {
-    public class ChildQuery {
-        public string Type { get; set; }
-        public IRepositoryQuery Query { get; set; }
-    }
-
     public static class ChildQueryExtensions {
-        internal const string ChildQueryKey = "@ChildQuery";
+        internal const string ChildQueriesKey = "@ChildQueries";
 
-        public static T ChildQuery<T>(this T query, string childType, IRepositoryQuery childQuery) where T : IRepositoryQuery {
-            if (childType == null)
-                throw new ArgumentNullException(nameof(childType));
+        public static TQuery ChildQuery<TQuery>(this TQuery query, IRepositoryQuery childQuery) where TQuery : IRepositoryQuery {
             if (childQuery == null)
                 throw new ArgumentNullException(nameof(childQuery));
 
-            return query.BuildOption(ChildQueryKey, new ChildQuery { Type = childType, Query = childQuery });
+            if (childQuery.GetDocumentType() == typeof(object))
+                throw new ArgumentException("DocumentType must be set on child queries", nameof(childQuery));
+
+            return query.AddCollectionOptionValue(ChildQueriesKey, childQuery);
         }
 
-        public static T ChildQuery<T>(this T query, string childType, RepositoryQueryDescriptor childQuery) where T : IRepositoryQuery {
-            if (childType == null)
-                throw new ArgumentNullException(nameof(childType));
+        public static TQuery ChildQuery<TQuery>(this TQuery query, RepositoryQueryDescriptor childQuery) where TQuery : IRepositoryQuery {
             if (childQuery == null)
                 throw new ArgumentNullException(nameof(childQuery));
-
-            return query.BuildOption(ChildQueryKey, new ChildQuery { Type = childType, Query = childQuery.Configure() });
+            
+            var q = childQuery.Configure();
+            if (q.GetDocumentType() == typeof(object))
+                throw new ArgumentException("DocumentType must be set on child queries", nameof(childQuery));
+            
+            return query.AddCollectionOptionValue(ChildQueriesKey, childQuery.Configure());
         }
     }
 }
 
 namespace Foundatio.Repositories.Options {
     public static class ReadChildQueryExtensions {
-        public static ChildQuery GetChildQuery(this IRepositoryQuery query) {
-            return query.SafeGetOption<ChildQuery>(ChildQueryExtensions.ChildQueryKey);
+        public static ICollection<IRepositoryQuery> GetChildQueries(this IRepositoryQuery query) {
+            return query.SafeGetCollection<IRepositoryQuery>(ChildQueryExtensions.ChildQueriesKey);
         }
     }
 }
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class ChildQueryBuilder : IElasticQueryBuilder {
-        private readonly ElasticQueryBuilder _queryBuilder;
-
-        public ChildQueryBuilder(ElasticQueryBuilder queryBuilder) {
-            _queryBuilder = queryBuilder;
-        }
-
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var childQuery = ctx.Source.GetChildQuery();
-            if (childQuery == null)
+            var childQueries = ctx.Source.GetChildQueries();
+            if (childQueries.Count == 0)
                 return;
             
-            var childContext = new QueryBuilderContext<T>(childQuery.Query, ctx.Options, null, ctx, ContextType.Child);
-            await _queryBuilder.BuildAsync(childContext).AnyContext();
+            var index = ctx.Options.GetElasticIndex();
+            foreach (var childQuery in childQueries) {
+                var childOptions = ctx.Options.Clone();
+                childOptions.DocumentType(childQuery.GetDocumentType());
+                var childContext = new QueryBuilderContext<object>(childQuery, childOptions, null);
 
-            if ((childContext.Query == null || ((IQueryContainer)childContext.Query).IsConditionless)
-                && (childContext.Filter == null || ((IQueryContainer)childContext.Filter).IsConditionless))
-                return;
+                await index.QueryBuilder.BuildAsync(childContext);
 
-            ctx.Filter &= new HasChildQuery {
-                Type = childQuery.Type,
-                Query = new BoolQuery {
-                    Must = new QueryContainer[] { childContext.Query },
-                    Filter = new QueryContainer[] { childContext.Filter },
-                }
-            };
+                if (childContext.Filter != null && ((IQueryContainer)childContext.Filter).IsConditionless == false)
+                    ctx.Filter &= new HasChildQuery {
+                        Type = childQuery.GetDocumentType(),
+                        Query = new BoolQuery {
+                            Filter = new[] { childContext.Filter }
+                        }
+                    };
+                     
+                if (childContext.Query != null && ((IQueryContainer)childContext.Query).IsConditionless == false)
+                    ctx.Query &= new HasChildQuery {
+                        Type = childQuery.GetDocumentType(),
+                        Query = new BoolQuery {
+                            Must = new[] { childContext.Query }
+                        }
+                    };
+            }
         }
     }
 }

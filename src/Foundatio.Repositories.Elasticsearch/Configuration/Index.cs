@@ -195,10 +195,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return idx.Aliases(ConfigureIndexAliases);
         }
 
-        public virtual void ConfigureSettings(ConnectionSettings settings) {
-            // TODO: Figure out if we need this and if we do then wait for https://github.com/elastic/elasticsearch-net/issues/3706
-            // settings.DefaultMappingFor<T>(d => d.IndexName(Name));
-        }
+        public virtual void ConfigureSettings(ConnectionSettings settings) {}
 
         public virtual void Dispose() {}
     }
@@ -217,6 +214,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
             idx = base.ConfigureIndex(idx);
             return idx.Map<T>(ConfigureIndexMapping);
+        }
+
+        public override void ConfigureSettings(ConnectionSettings settings) {
+            //settings.DefaultMappingFor<T>(d => d.IndexName(Name));
         }
     }
 }

@@ -13,12 +13,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitorContext, IQueryVisitorContextWithFieldResolver, IQueryVisitorContextWithIncludeResolver where T : class, new() {
-        public QueryBuilderContext(IRepositoryQuery source, ICommandOptions options, SearchDescriptor<T> search = null, IQueryBuilderContext parentContext = null, string type = null) {
+        public QueryBuilderContext(IRepositoryQuery source, ICommandOptions options, SearchDescriptor<T> search = null, IQueryBuilderContext parentContext = null) {
             Source = source;
             Options = options;
             Search = search ?? new SearchDescriptor<T>();
             Parent = parentContext;
-            Type = type ?? ContextType.Default;
             ((IQueryVisitorContextWithFieldResolver)this).FieldResolver = options.GetQueryFieldResolver();
 
             var range = GetDateRange();
@@ -28,7 +27,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             }
         }
 
-        public string Type { get; }
         public IQueryBuilderContext Parent { get; }
         public IRepositoryQuery Source { get; }
         public ICommandOptions Options { get; }
@@ -57,19 +55,12 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
     }
 
-    public class ContextType {
-        public const string Child = "Child";
-        public const string Parent = "Parent";
-        public const string Default = "Default";
-    }
-
     public interface IQueryBuilderContext {
         IQueryBuilderContext Parent { get; }
         IRepositoryQuery Source { get; }
         ICommandOptions Options { get; }
         QueryContainer Query { get; set; }
         QueryContainer Filter { get; set; }
-        string Type { get; }
         IDictionary<string, object> Data { get; }
     }
 

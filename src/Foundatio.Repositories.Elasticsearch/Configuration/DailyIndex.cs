@@ -422,5 +422,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             idx = base.ConfigureIndex(idx);
             return idx.Map<T>(ConfigureIndexMapping);
         }
+
+        public override void ConfigureSettings(ConnectionSettings settings) {
+            //settings.DefaultMappingFor<T>(d => d.IndexName(Name));
+        }
     }
 }

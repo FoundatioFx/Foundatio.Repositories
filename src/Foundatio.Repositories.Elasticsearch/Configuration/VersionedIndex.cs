@@ -172,7 +172,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual async Task<int> GetVersionFromAliasAsync(string alias) {
             var response = await Configuration.Client.GetAliasAsync(a => a.Name(alias)).AnyContext();
-            if (response.IsValid == false && response.ServerError.Status == 404)
+            if (response.IsValid == false && response.ServerError != null && response.ServerError.Status == 404)
                 return -1;
             
             if (response.IsValid && response.Indices.Count > 0) {
@@ -252,6 +252,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
             idx = base.ConfigureIndex(idx);
             return idx.Map<T>(ConfigureIndexMapping);
+        }
+
+        public override void ConfigureSettings(ConnectionSettings settings) {
+            //settings.DefaultMappingFor<T>(d => d.IndexName(Name));
         }
     }
 }

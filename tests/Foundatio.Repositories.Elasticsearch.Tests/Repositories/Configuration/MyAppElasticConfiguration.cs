@@ -21,7 +21,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration 
             AddIndex(MonthlyEmployees = new MonthlyEmployeeIndex(this, 1));
             AddIndex(DailyLogEvents = new DailyLogEventIndex(this));
             AddIndex(MonthlyLogEvents = new MonthlyLogEventIndex(this));
-            //AddIndex(ParentChild = new ParentChildIndex(this));
+            AddIndex(ParentChild = new ParentChildIndex(this));
         }
 
         protected override IConnectionPool CreateConnectionPool() {
@@ -66,6 +66,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration 
         public MonthlyEmployeeIndex MonthlyEmployees { get; }
         public DailyLogEventIndex DailyLogEvents { get; }
         public MonthlyLogEventIndex MonthlyLogEvents { get; }
-        //public ParentChildIndex ParentChild { get; }
+        public ParentChildIndex ParentChild { get; }
     }
 }
