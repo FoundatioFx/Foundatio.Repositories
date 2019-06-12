@@ -47,7 +47,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
 
         private async Task DeleteOldSnapshotsAsync(string repo, TimeSpan maxAge, CancellationToken cancellationToken) {
             var sw = Stopwatch.StartNew();
-            var result = await _client.GetSnapshotAsync(
+            var result = await _client.Snapshot.GetAsync(
                 repo,
                 "_all",
                 d => d.RequestConfiguration(r =>
@@ -91,7 +91,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                     await _lockProvider.TryUsingAsync("es-snapshot", async t => {
                         _logger.LogInformation("Got snapshot lock to delete {SnapshotName} from {Repo}", snapshot.Name, repo);
                         sw.Restart();
-                        var response = await _client.DeleteSnapshotAsync(repo, snapshot.Name, r => r.RequestConfiguration(c => c.RequestTimeout(TimeSpan.FromMinutes(15))), ct: t).AnyContext();
+                        var response = await _client.Snapshot.DeleteAsync(repo, snapshot.Name, r => r.RequestConfiguration(c => c.RequestTimeout(TimeSpan.FromMinutes(15))), ct: t).AnyContext();
                         sw.Stop();
                         _logger.LogTraceRequest(response);
 

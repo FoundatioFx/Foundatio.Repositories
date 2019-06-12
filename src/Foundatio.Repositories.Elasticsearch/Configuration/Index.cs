@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -127,7 +127,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (name == null)
                 throw new ArgumentNullException(nameof(name));
 
-            var response = await Configuration.Client.CreateIndexAsync(name, descriptor).AnyContext();
+            var response = await Configuration.Client.Indices.CreateAsync(name, descriptor).AnyContext();
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
                 _logger.LogInformation(response.GetRequest());
 
@@ -151,7 +151,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (names == null || names.Length == 0)
                 throw new ArgumentNullException(nameof(names));
 
-            var response = await Configuration.Client.DeleteIndexAsync(Indices.Index(names), i => i.IgnoreUnavailable()).AnyContext();
+            var response = await Configuration.Client.Indices.DeleteAsync(Indices.Index(names), i => i.IgnoreUnavailable()).AnyContext();
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
                 _logger.LogTrace(response.GetRequest());
 
@@ -166,7 +166,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (name == null)
                 throw new ArgumentNullException(nameof(name));
 
-            var response = await Configuration.Client.IndexExistsAsync(name).AnyContext();
+            var response = await Configuration.Client.Indices.ExistsAsync(name).AnyContext();
             if (response.IsValid)
                 return response.Exists;
 
@@ -217,7 +217,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public override void ConfigureSettings(ConnectionSettings settings) {
-            //settings.DefaultMappingFor<T>(d => d.IndexName(Name));
+            settings.DefaultMappingFor<T>(d => d.IndexName(Name));
         }
     }
 }

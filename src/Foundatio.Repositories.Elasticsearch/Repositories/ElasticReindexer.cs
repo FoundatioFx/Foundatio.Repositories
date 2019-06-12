@@ -60,7 +60,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     aliases.Add(workItem.Alias);
 
                 if (aliases.Count > 0) {
-                    var bulkResponse = await _client.AliasAsync(x => {
+                    var bulkResponse = await _client.Indices.BulkAliasAsync(x => {
                         foreach (string alias in aliases)
                             x = x.Remove(a => a.Alias(alias).Index(workItem.OldIndex)).Add(a => a.Alias(alias).Index(workItem.NewIndex));
 
@@ -72,7 +72,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
             }
 
-            await _client.RefreshAsync(Indices.All).AnyContext();
+            await _client.Indices.RefreshAsync(Indices.All).AnyContext();
             var secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime).AnyContext();
             if (!secondPassResult.Succeeded) return;
 
@@ -80,12 +80,12 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             bool hasFailures = (firstPassResult.Failures + secondPassResult.Failures) > 0;
             if (!hasFailures && workItem.DeleteOld && workItem.OldIndex != workItem.NewIndex) {
-                await _client.RefreshAsync(Indices.All).AnyContext();
+                await _client.Indices.RefreshAsync(Indices.All).AnyContext();
                 long newDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.NewIndex)).AnyContext()).Count;
                 long oldDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.OldIndex)).AnyContext()).Count;
                 await progressCallbackAsync(98, $"Old Docs: {oldDocCount} New Docs: {newDocCount}").AnyContext();
                 if (newDocCount >= oldDocCount) {
-                    await _client.DeleteIndexAsync(Indices.Index(workItem.OldIndex)).AnyContext();
+                    await _client.Indices.DeleteAsync(Indices.Index(workItem.OldIndex)).AnyContext();
                     await progressCallbackAsync(99, $"Deleted index: {workItem.OldIndex}").AnyContext();
                 }
             }
@@ -126,7 +126,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             long lastProgress = 0;
             var sw = Stopwatch.StartNew();
             do {
-                var status = await _client.GetTaskAsync(result.Task, null, cancellationToken).AnyContext();
+                var status = await _client.Tasks.GetTaskAsync(result.Task, null, cancellationToken).AnyContext();
                 if (status.IsValid) {
                     _logger.LogTraceRequest(status);
                 } else {
@@ -203,12 +203,12 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         private async Task<bool> CreateFailureIndexAsync(ReindexWorkItem workItem) {
             string errorIndex = workItem.NewIndex + "-error";
-            var existsResponse = await _client.IndexExistsAsync(errorIndex).AnyContext();
+            var existsResponse = await _client.Indices.ExistsAsync(errorIndex).AnyContext();
             _logger.LogTraceRequest(existsResponse);
             if (!existsResponse.IsValid || existsResponse.Exists)
                 return true;
 
-            var createResponse = await _client.CreateIndexAsync(errorIndex, d => d.Map(md => md.Dynamic(false))).AnyContext();
+            var createResponse = await _client.Indices.CreateAsync(errorIndex, d => d.Map(md => md.Dynamic(false))).AnyContext();
             if (!createResponse.IsValid) {
                 _logger.LogErrorRequest(createResponse, "Unable to create error index");
                 return false;
@@ -246,7 +246,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         private async Task<List<string>> GetIndexAliasesAsync(string index) {
-            var aliasesResponse = await _client.GetAliasAsync(a => a.Index(index)).AnyContext();
+            var aliasesResponse = await _client.Indices.GetAliasAsync(index).AnyContext();
             _logger.LogTraceRequest(aliasesResponse);
 
             if (aliasesResponse.IsValid && aliasesResponse.Indices.Count > 0) {

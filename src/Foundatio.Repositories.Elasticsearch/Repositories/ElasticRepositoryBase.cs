@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using Elasticsearch.Net;
 using FluentValidation;
 using Nest;
-using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
@@ -23,7 +22,6 @@ using Foundatio.Repositories.Options;
 using Microsoft.Extensions.Logging;
 using System.Linq.Expressions;
 using System.Threading;
-using Newtonsoft.Json;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IElasticRepository<T> where T : class, IIdentity, new() {

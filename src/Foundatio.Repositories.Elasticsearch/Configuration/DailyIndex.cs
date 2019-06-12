@@ -271,7 +271,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 }
             }
 
-            var response = await Configuration.Client.AliasAsync(aliasDescriptor).AnyContext();
+            var response = await Configuration.Client.Indices.BulkAliasAsync(aliasDescriptor).AnyContext();
 
             if (response.IsValid) {
                 _logger.LogTraceRequest(response);

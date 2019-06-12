@@ -65,7 +65,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (await AliasExistsAsync(name).AnyContext())
                 return;
 
-            var response = await Configuration.Client.AliasAsync(a => a.Add(s => s.Index(index).Alias(name))).AnyContext();
+            var response = await Configuration.Client.Indices.BulkAliasAsync(a => a.Add(s => s.Index(index).Alias(name))).AnyContext();
             if (response.IsValid)
                 return;
 
@@ -78,7 +78,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected async Task<bool> AliasExistsAsync(string alias) {
-            var response = await Configuration.Client.AliasExistsAsync(Names.Parse(alias)).AnyContext();
+            var response = await Configuration.Client.Indices.AliasExistsAsync(Names.Parse(alias)).AnyContext();
             if (response.IsValid)
                 return response.Exists;
 
@@ -171,7 +171,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected virtual async Task<int> GetVersionFromAliasAsync(string alias) {
-            var response = await Configuration.Client.GetAliasAsync(a => a.Name(alias)).AnyContext();
+            var response = await Configuration.Client.Indices.GetAliasAsync(alias).AnyContext();
             if (response.IsValid == false && response.ServerError != null && response.ServerError.Status == 404)
                 return -1;
             
@@ -205,7 +205,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 filter += "-*";
 
             var sw = Stopwatch.StartNew();
-            var response = await Configuration.Client.CatIndicesAsync(i => i.Pri().Index(Indices.Index((IndexName)filter))).AnyContext();
+            var response = await Configuration.Client.Cat.IndicesAsync(i => i.Pri().Index(Indices.Index((IndexName)filter))).AnyContext();
             sw.Stop();
 
             if (!response.IsValid) {
@@ -255,7 +255,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         public override void ConfigureSettings(ConnectionSettings settings) {
-            //settings.DefaultMappingFor<T>(d => d.IndexName(Name));
+            settings.DefaultMappingFor<T>(d => d.IndexName(Name));
         }
     }
 }

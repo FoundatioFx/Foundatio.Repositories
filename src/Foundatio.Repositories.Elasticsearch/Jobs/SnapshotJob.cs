@@ -34,7 +34,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             await _lockProvider.TryUsingAsync("es-snapshot", async t => {
                 var sw = Stopwatch.StartNew();
                 var result = await Run.WithRetriesAsync(async () => {
-                        var response = await _client.SnapshotAsync(
+                        var response = await _client.Snapshot.SnapshotAsync(
                             Repository,
                             snapshotName,
                             d => d
@@ -64,7 +64,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 do {
                     await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken).AnyContext();
 
-                    var status = await _client.SnapshotStatusAsync(s => s.Snapshot(snapshotName).RepositoryName(Repository), cancellationToken).AnyContext();
+                    var status = await _client.Snapshot.StatusAsync(s => s.Snapshot(snapshotName).RepositoryName(Repository), cancellationToken).AnyContext();
                     _logger.LogTraceRequest(status);
                     if (status.IsValid && status.Snapshots.Count > 0) {
                         string state = status.Snapshots.First().State;

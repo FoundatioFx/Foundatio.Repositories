@@ -47,7 +47,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             _logger.LogInformation("Starting index cleanup...");
 
             var sw = Stopwatch.StartNew();
-            var result = await _client.CatIndicesAsync(
+            var result = await _client.Cat.IndicesAsync(
                 d => d.RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
             sw.Stop();
 
@@ -92,7 +92,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                     await _lockProvider.TryUsingAsync("es-delete-index", async t => {
                         _logger.LogInformation("Got lock to delete index {OldIndex}", oldIndex.Index);
                         sw.Restart();
-                        var response = await _client.DeleteIndexAsync(oldIndex.Index, d => d, t).AnyContext();
+                        var response = await _client.Indices.DeleteAsync(oldIndex.Index, d => d, t).AnyContext();
                         sw.Stop();
                         _logger.LogTraceRequest(response);
 
