@@ -646,7 +646,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(1000));
                 added += 1000;
             } while (added < COUNT);
-            await _client.RefreshAsync(Indices.All);
+            await _client.Indices.RefreshAsync(Indices.All);
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Trace);
 
             var tasks = Enumerable.Range(1, 6).Select(async i => {

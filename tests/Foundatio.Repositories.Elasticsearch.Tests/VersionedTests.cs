@@ -96,7 +96,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Refresh = Refresh.True
             };
 
-            var response = await _client.UpdateAsync<Employee>(request);
+            var response = await _client.UpdateAsync(request);
 
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
             Assert.Equal("1:1", employee.Version);

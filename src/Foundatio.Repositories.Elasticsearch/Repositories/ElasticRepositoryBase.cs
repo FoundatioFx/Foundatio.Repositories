@@ -138,7 +138,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (id.Routing != null)
                     request.Routing = id.Routing;
 
-                var response = await _client.UpdateAsync<T>(request).AnyContext();
+                var response = await _client.UpdateAsync(request).AnyContext();
 
                 if (response.IsValid) {
                     _logger.LogTraceRequest(response);

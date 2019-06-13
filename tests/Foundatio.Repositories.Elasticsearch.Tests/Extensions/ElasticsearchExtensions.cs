@@ -1,11 +1,11 @@
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Nest;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public static class ElasticsearchExtensions {
         public static async Task AssertSingleIndexAlias(this IElasticClient client, string indexName, string aliasName) {
-            var aliasResponse = await client.GetAliasAsync(a => a.Name(aliasName).IgnoreUnavailable());
+            var aliasResponse = await client.Indices.GetAliasAsync(aliasName, a => a.IgnoreUnavailable());
             Assert.True(aliasResponse.IsValid);
             Assert.Contains(indexName, aliasResponse.Indices);
             Assert.Single(aliasResponse.Indices);
@@ -16,7 +16,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public static async Task<int> GetAliasIndexCount(this IElasticClient client, string aliasName) {
-            var aliasResponse = await client.GetAliasAsync(a => a.Name(aliasName).IgnoreUnavailable());
+            var aliasResponse = await client.Indices.GetAliasAsync(aliasName, a => a.IgnoreUnavailable());
             if (aliasResponse.ServerError.Status == 404)
                 return 0;
             
