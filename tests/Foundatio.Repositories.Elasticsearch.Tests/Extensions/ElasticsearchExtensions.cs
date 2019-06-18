@@ -16,12 +16,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public static async Task<int> GetAliasIndexCount(this IElasticClient client, string aliasName) {
-            var aliasResponse = await client.Indices.GetAliasAsync(aliasName, a => a.IgnoreUnavailable());
-            if (aliasResponse.ServerError.Status == 404)
+            var response = await client.Indices.GetAliasAsync(aliasName, a => a.IgnoreUnavailable());
+            if (!response.IsValid && response.ServerError?.Status == 404)
                 return 0;
             
-            Assert.True(aliasResponse.IsValid);
-            return aliasResponse.Indices.Count;
+            Assert.True(response.IsValid);
+            return response.Indices.Count;
         }
     }
 }
