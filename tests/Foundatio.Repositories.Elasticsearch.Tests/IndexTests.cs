@@ -150,12 +150,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
-                Assert.True(_client.Indices.Exists(version1Index.VersionedName).Exists);
+                Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
                 Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
 
                 using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult())) {
                     await version2Index.ConfigureAsync();
-                    Assert.True(_client.Indices.Exists(version2Index.VersionedName).Exists);
+                    Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName)).Exists);
                     Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
 
                     // delete all aliases
@@ -200,7 +200,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                     await version1Index.ConfigureAsync();
                     await version1Index.EnsureIndexAsync(SystemClock.UtcNow);
-                    Assert.True(_client.Indices.Exists(version1Index.GetVersionedIndex(SystemClock.UtcNow)).Exists);
+                    Assert.True((await _client.Indices.ExistsAsync(version1Index.GetVersionedIndex(SystemClock.UtcNow))).Exists);
                     Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
 
                     // delete all aliases
@@ -210,7 +210,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult())) {
                         await version2Index.ConfigureAsync();
                         await version2Index.EnsureIndexAsync(SystemClock.UtcNow);
-                        Assert.True(_client.Indices.Exists(version2Index.GetVersionedIndex(SystemClock.UtcNow)).Exists);
+                        Assert.True((await _client.Indices.ExistsAsync(version2Index.GetVersionedIndex(SystemClock.UtcNow))).Exists);
                         Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
 
                         // delete all aliases

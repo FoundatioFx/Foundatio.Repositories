@@ -90,12 +90,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return ids.Length;
         }
 
-        public async Task<long> IncrementYearsEmployeedAsync(RepositoryQueryDescriptor<Employee> query, int years = 1) {
+        public Task<long> IncrementYearsEmployeedAsync(RepositoryQueryDescriptor<Employee> query, int years = 1) {
             if (query == null)
                 throw new ArgumentNullException(nameof(query));
 
             string script = $"ctx._source.yearsEmployed += {years};";
-            return await PatchAllAsync(query, new ScriptPatch(script), o => o.ImmediateConsistency(true));
+            return PatchAllAsync(query, new ScriptPatch(script), o => o.ImmediateConsistency(true));
         }
 
         public Task<FindResults<Employee>> GetByFilterAsync(string filter) {

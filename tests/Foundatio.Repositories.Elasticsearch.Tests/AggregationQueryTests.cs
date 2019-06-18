@@ -506,9 +506,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(8, employees.First().YearsEmployed);
         }
 
-        internal async Task CreateDataAsync() {
+        private Task CreateDataAsync() {
             var utcToday = SystemClock.UtcNow.Date;
-            await _employeeRepository.AddAsync(new List<Employee> {
+            return _employeeRepository.AddAsync(new List<Employee> {
                 EmployeeGenerator.Generate(age: 19, yearsEmployed: 1,  location: "10,10", createdUtc: utcToday.SubtractYears(1), updatedUtc: utcToday.SubtractYears(1)),
                 EmployeeGenerator.Generate(age: 22, yearsEmployed: 2,  location: "10,10", createdUtc: utcToday.SubtractYears(2), updatedUtc: utcToday.SubtractYears(2)),
                 EmployeeGenerator.Generate(age: 25, yearsEmployed: 3,  location: "10,10", createdUtc: utcToday.SubtractYears(3), updatedUtc: utcToday.SubtractYears(3)),
