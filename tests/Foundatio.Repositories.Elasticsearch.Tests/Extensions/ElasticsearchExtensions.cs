@@ -17,6 +17,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         public static async Task<int> GetAliasIndexCount(this IElasticClient client, string aliasName) {
             var response = await client.Indices.GetAliasAsync(aliasName, a => a.IgnoreUnavailable());
+            // TODO: Fix this properly once https://github.com/elastic/elasticsearch-net/issues/3828 is fixed in beta2
+            if (!response.IsValid)
+                return 0;
+            
             if (!response.IsValid && response.ServerError?.Status == 404)
                 return 0;
             
