@@ -673,7 +673,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                     var existsResponse = await _client.Indices.ExistsAsync(version2Index.GetVersionedIndex(utcNow, 2));
                     _logger.LogTraceRequest(existsResponse);
-                    Assert.True(existsResponse.IsValid);
+                    Assert.True(existsResponse.ApiCall.Success);
                     Assert.False(existsResponse.Exists);
 
                     // alias should still point to the old version until reindex
@@ -702,7 +702,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                     existsResponse = await _client.Indices.ExistsAsync(version1Index.GetVersionedIndex(utcNow, 1));
                     _logger.LogTraceRequest(existsResponse);
-                    Assert.True(existsResponse.IsValid);
+                    Assert.True(existsResponse.ApiCall.Success);
                     Assert.False(existsResponse.Exists);
 
                     existsResponse = await _client.Indices.ExistsAsync(version2Index.GetVersionedIndex(utcNow, 2));

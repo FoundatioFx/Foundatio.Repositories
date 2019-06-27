@@ -167,7 +167,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ArgumentNullException(nameof(name));
 
             var response = await Configuration.Client.Indices.ExistsAsync(name).AnyContext();
-            if (response.IsValid)
+            if (response.ApiCall.Success)
                 return response.Exists;
 
             string message = $"Error checking to see if index {name} exists: {response.GetErrorMessage()}";

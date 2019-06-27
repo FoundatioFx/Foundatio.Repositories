@@ -79,7 +79,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected async Task<bool> AliasExistsAsync(string alias) {
             var response = await Configuration.Client.Indices.AliasExistsAsync(Names.Parse(alias)).AnyContext();
-            if (response.IsValid)
+            if (response.ApiCall.Success)
                 return response.Exists;
 
             _logger.LogErrorRequest(response, "Error checking to see if alias {Name}", alias);

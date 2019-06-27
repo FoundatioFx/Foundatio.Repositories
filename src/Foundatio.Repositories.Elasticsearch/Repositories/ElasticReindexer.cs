@@ -294,8 +294,10 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var doc = newestDocumentResponse.Hits.FirstOrDefault();
             var value = doc?.Fields[timestampField];
+            if (value == null)
+                return null;
 
-            var datesArray = value?.As<DateTime[]>();
+            var datesArray = await value.AsAsync<DateTime[]>();
             return datesArray?.FirstOrDefault();
         }
 

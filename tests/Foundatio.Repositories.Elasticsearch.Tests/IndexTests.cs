@@ -297,7 +297,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     await index.MaintainAsync();
                     existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc));
                     _logger.LogTraceRequest(existsResponse);
-                    Assert.True(existsResponse.IsValid);
+                    Assert.True(existsResponse.ApiCall.Success);
                     Assert.False(existsResponse.Exists);
 
                     aliasesResponse = await _client.Indices.GetAliasAsync(index.GetIndex(employee.CreatedUtc));
@@ -390,7 +390,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 await index.MaintainAsync();
                 existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(SystemClock.UtcNow.SubtractMonths(12)));
                 _logger.LogTraceRequest(existsResponse);
-                Assert.True(existsResponse.IsValid);
+                Assert.True(existsResponse.ApiCall.Success);
                 Assert.False(existsResponse.Exists);
             }
         }
@@ -408,7 +408,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await index.DeleteAsync();
             existsResponse = await _client.Indices.ExistsAsync(index.Name);
             _logger.LogTraceRequest(existsResponse);
-            Assert.True(existsResponse.IsValid);
+            Assert.True(existsResponse.ApiCall.Success);
             Assert.False(existsResponse.Exists);
         }
 
@@ -427,7 +427,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await index.DeleteAsync();
             existsResponse = await _client.Indices.ExistsAsync(index.VersionedName);
             _logger.LogTraceRequest(existsResponse);
-            Assert.True(existsResponse.IsValid);
+            Assert.True(existsResponse.ApiCall.Success);
             Assert.False(existsResponse.Exists);
 
             Assert.Equal(0, await _client.GetAliasIndexCount(index.Name));
@@ -460,12 +460,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             existsResponse = await _client.Indices.ExistsAsync(todayIndex);
             _logger.LogTraceRequest(existsResponse);
-            Assert.True(existsResponse.IsValid);
+            Assert.True(existsResponse.ApiCall.Success);
             Assert.False(existsResponse.Exists);
 
             existsResponse = await _client.Indices.ExistsAsync(yesterdayIndex);
             _logger.LogTraceRequest(existsResponse);
-            Assert.True(existsResponse.IsValid);
+            Assert.True(existsResponse.ApiCall.Success);
             Assert.False(existsResponse.Exists);
         }
 
@@ -490,7 +490,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 await index.MaintainAsync();
                 existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(SystemClock.UtcNow.SubtractMonths(12)));
                 _logger.LogTraceRequest(existsResponse);
-                Assert.True(existsResponse.IsValid);
+                Assert.True(existsResponse.ApiCall.Success);
                 Assert.False(existsResponse.Exists);
             }
         }
@@ -517,7 +517,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 await index.MaintainAsync();
                 existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(SystemClock.UtcNow.SubtractMonths(12)));
                 _logger.LogTraceRequest(existsResponse);
-                Assert.True(existsResponse.IsValid);
+                Assert.True(existsResponse.ApiCall.Success);
                 Assert.False(existsResponse.Exists);
             }
         }
@@ -683,7 +683,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     await Assert.ThrowsAsync<ArgumentException>(async () => await index.EnsureIndexAsync(utcNow.SubtractDays(2)));
                     existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(utcNow.SubtractDays(2)));
                     _logger.LogTraceRequest(existsResponse);
-                    Assert.True(existsResponse.IsValid);
+                    Assert.True(existsResponse.ApiCall.Success);
                     Assert.False(existsResponse.Exists);
                 }
             }
@@ -712,7 +712,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     await index.EnsureIndexAsync(utcNow.Subtract(index.MaxIndexAge.GetValueOrDefault()));
                     existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(utcNow.Subtract(index.MaxIndexAge.GetValueOrDefault())));
                     _logger.LogTraceRequest(existsResponse);
-                    Assert.True(existsResponse.IsValid);
+                    Assert.True(existsResponse.ApiCall.Success);
                     Assert.True(existsResponse.Exists);
 
                     var endOfTwoMonthsAgo = utcNow.SubtractMonths(2).EndOfMonth();
@@ -720,7 +720,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                         await Assert.ThrowsAsync<ArgumentException>(async () => await index.EnsureIndexAsync(endOfTwoMonthsAgo));
                         existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(endOfTwoMonthsAgo));
                         _logger.LogTraceRequest(existsResponse);
-                        Assert.True(existsResponse.IsValid);
+                        Assert.True(existsResponse.ApiCall.Success);
                         Assert.False(existsResponse.Exists);
                     }
                 }
