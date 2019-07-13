@@ -19,7 +19,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
             return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
         }
 
-        public override ITypeMapping ConfigureIndexMapping(TypeMappingDescriptor<Employee> map) {
+        public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map) {
             return base.ConfigureIndexMapping(map
                 .Dynamic(false)
                 .Properties(p => p
@@ -73,7 +73,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
             return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
         }
 
-        public override ITypeMapping ConfigureIndexMapping(TypeMappingDescriptor<Employee> map) {
+        public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map) {
             return base.ConfigureIndexMapping(map
                 .Dynamic(false)
                 .Properties(p => p

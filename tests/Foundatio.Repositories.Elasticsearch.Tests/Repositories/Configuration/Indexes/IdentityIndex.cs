@@ -10,7 +10,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
             return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
         }
 
-        public override ITypeMapping ConfigureIndexMapping(TypeMappingDescriptor<Identity> map) {
+        public override TypeMappingDescriptor<Identity> ConfigureIndexMapping(TypeMappingDescriptor<Identity> map) {
             return map
                 .Dynamic(false)
                 .Properties(p => p
