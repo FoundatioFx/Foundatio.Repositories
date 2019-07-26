@@ -7,6 +7,6 @@ namespace Foundatio.Repositories.Elasticsearch {
     }
 
     public sealed class MigrationType : DynamicIndexType<Migration> {
-        public MigrationType(IIndex index) : base(index) {}
+        public MigrationType(IIndex index, string name = "migration") : base(index, name) {}
     }
 }
