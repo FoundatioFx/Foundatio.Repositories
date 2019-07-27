@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -61,7 +61,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var response = await Configuration.Client.CreateIndexAsync(name, descriptor).AnyContext();
 
             // check for valid response or that the index already exists
-            if (response.IsValid || response.ServerError.Status == 400 && response.ServerError.Error.Type == "index_already_exists_exception") {
+            if (response.IsValid || response.ServerError.Status == 400 && (response.ServerError.Error.Type == "index_already_exists_exception" || response.ServerError.Error.Type == "resource_already_exists_exception")) {
                 _logger.LogTraceRequest(response);
                 return;
             }
