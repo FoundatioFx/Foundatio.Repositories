@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -9,7 +8,6 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Nest;
 using System.Linq.Expressions;
-using System.Reflection;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Parsers.ElasticQueries;
@@ -22,11 +20,9 @@ using Foundatio.Repositories.Elasticsearch.Jobs;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class Index : IIndex {
-        private readonly ConcurrentDictionary<string, PropertyInfo> _cachedProperties = new ConcurrentDictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
         private readonly Lazy<IElasticQueryBuilder> _queryBuilder;
         private readonly Lazy<ElasticQueryParser> _queryParser;
         private readonly Lazy<QueryFieldResolver> _fieldResolver;
-        protected readonly ILockProvider _lockProvider;
         protected readonly ILogger _logger;
 
         public Index(IElasticConfiguration configuration, string name = null) {
@@ -35,7 +31,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _queryBuilder = new Lazy<IElasticQueryBuilder>(CreateQueryBuilder);
             _queryParser = new Lazy<ElasticQueryParser>(CreateQueryParser);
             _fieldResolver = new Lazy<QueryFieldResolver>(CreateQueryFieldResolver);
-            _lockProvider = new CacheLockProvider(configuration.Cache, configuration.MessageBus, configuration.LoggerFactory);
             _logger = configuration.LoggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
         }
 

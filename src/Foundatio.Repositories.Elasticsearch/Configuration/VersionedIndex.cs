@@ -245,7 +245,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             Name = name ?? _typeName;
         }
         
-        public virtual ITypeMapping ConfigureIndexMapping(TypeMappingDescriptor<T> map) {
+        public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map) {
             return map.AutoMap<T>().Properties(p => p.SetupDefaults());
         }
 
