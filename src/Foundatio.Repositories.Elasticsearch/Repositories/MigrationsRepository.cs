@@ -3,10 +3,10 @@ using Foundatio.Repositories.Migrations;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public class MigrationRepository : ElasticRepositoryBase<Migration>, IMigrationRepository {
-        public MigrationRepository(IIndex index) : base(index) {}
+        public MigrationRepository(MigrationIndex index) : base(index) {}
     }
 
-    public sealed class MigrationIndex : DynamicIndex<Migration> {
-        public MigrationIndex(IElasticConfiguration configuration) : base(configuration) {}
+    public sealed class MigrationIndex : Index<Migration> {
+        public MigrationIndex(IElasticConfiguration configuration, string name = "migration") : base(configuration, name) {}
     }
 }
