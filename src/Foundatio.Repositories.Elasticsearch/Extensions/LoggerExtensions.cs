@@ -83,9 +83,26 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
     internal class JsonUtility {
         public static string NormalizeJsonString(string json) {
-            var parsedObject = JObject.Parse(json);
-            var normalizedObject = SortPropertiesAlphabetically(parsedObject);
-            return JsonConvert.SerializeObject(normalizedObject, Formatting.Indented);
+            try {
+                var parsedObject = JObject.Parse(json);
+                var normalizedObject = SortPropertiesAlphabetically(parsedObject);
+                return JsonConvert.SerializeObject(normalizedObject, Formatting.Indented);
+            } catch (JsonReaderException) {
+                var sb = new StringBuilder();
+                
+                foreach (string line in json.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries)) {
+                    try {
+                        var parsedObject = JObject.Parse(line);
+                        var normalizedObject = SortPropertiesAlphabetically(parsedObject);
+                        sb.AppendLine(JsonConvert.SerializeObject(normalizedObject, Formatting.Indented));
+                    } catch {
+                        // just return the original json
+                        sb.AppendLine(line);
+                    }
+                }
+
+                return sb.ToString();
+            }
         }
 
         private static JObject SortPropertiesAlphabetically(JObject original) {
