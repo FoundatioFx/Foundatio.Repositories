@@ -12,15 +12,14 @@ using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class LoggerExtensions {
-        public static void LogTraceRequest(this ILogger logger, IElasticsearchResponse elasticResponse, bool normalize = false) {
+        public static void LogTraceRequest(this ILogger logger, IElasticsearchResponse elasticResponse) {
             if (elasticResponse == null || !logger.IsEnabled(LogLevel.Trace))
                 return;
 
             var apiCall = elasticResponse?.ApiCall;
             if (apiCall?.RequestBodyInBytes != null) {
                 string body = Encoding.UTF8.GetString(apiCall?.RequestBodyInBytes);
-                if (normalize)
-                    body = JsonUtility.NormalizeJsonString(body);
+                body = JsonUtility.NormalizeJsonString(body);
 
                 logger.LogTrace("[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}\r\n{HttpBody}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri.PathAndQuery, body);
             } else {
@@ -69,6 +68,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
             if (elasticResponse.ApiCall?.RequestBodyInBytes != null) {
                 string body = Encoding.UTF8.GetString(elasticResponse.ApiCall?.RequestBodyInBytes);
+                body = JsonUtility.NormalizeJsonString(body);
                 sb.AppendLine("{HttpBody}");
                 messageArguments.Add(body);
             }

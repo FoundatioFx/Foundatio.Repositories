@@ -123,15 +123,17 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ArgumentNullException(nameof(name));
 
             var response = await Configuration.Client.Indices.CreateAsync(name, descriptor).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogInformation(response.GetRequest());
-
+            
             // check for valid response or that the index already exists
-            if (response.IsValid || response.ServerError.Status == 400 && (response.ServerError.Error.Type == "index_already_exists_exception" || response.ServerError.Error.Type == "resource_already_exists_exception"))
+            if (response.IsValid || response.ServerError.Status == 400 &&
+                (response.ServerError.Error.Type == "index_already_exists_exception"
+                 || response.ServerError.Error.Type == "resource_already_exists_exception")) {
+                _logger.LogTraceRequest(response);
                 return;
+            }
 
             string message = $"Error creating the index {name}: {response.GetErrorMessage()}";
-            _logger.LogError(response.OriginalException, message);
+            _logger.LogErrorRequest(response.OriginalException, response, message);
             throw new ApplicationException(message, response.OriginalException);
         }
 
@@ -147,14 +149,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ArgumentNullException(nameof(names));
 
             var response = await Configuration.Client.Indices.DeleteAsync(Indices.Index(names), i => i.IgnoreUnavailable()).AnyContext();
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace(response.GetRequest());
 
-            if (response.IsValid)
+            if (response.IsValid) {
+                _logger.LogTraceRequest(response);
                 return;
+            }
 
             string message = $"Error deleting index {names}: {response.GetErrorMessage()}";
-            _logger.LogWarning(response.OriginalException, message);
+            _logger.LogErrorRequest(response.OriginalException, response, message);
         }
 
         protected async Task<bool> IndexExistsAsync(string name) {
@@ -162,11 +164,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ArgumentNullException(nameof(name));
 
             var response = await Configuration.Client.Indices.ExistsAsync(name).AnyContext();
-            if (response.ApiCall.Success)
+            if (response.ApiCall.Success) {
+                _logger.LogTraceRequest(response);
                 return response.Exists;
+            }
 
             string message = $"Error checking to see if index {name} exists: {response.GetErrorMessage()}";
-            _logger.LogError(response.OriginalException, message);
+            _logger.LogErrorRequest(response, message);
             throw new ApplicationException(message, response.OriginalException);
         }
 
