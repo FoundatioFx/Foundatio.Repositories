@@ -43,7 +43,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
             var response = elasticResponse as IResponse;
             if (response?.OriginalException != null) {
-                sb.AppendLine("Original: [OriginalExceptionType] {OriginalExceptionMessage}");
+                sb.AppendLine("Original: [{OriginalExceptionType}] {OriginalExceptionMessage}");
                 messageArguments.Add(response.OriginalException.GetType().Name);
                 messageArguments.Add(response.OriginalException.Message);
             }
@@ -70,6 +70,13 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 string body = Encoding.UTF8.GetString(elasticResponse.ApiCall?.RequestBodyInBytes);
                 body = JsonUtility.NormalizeJsonString(body);
                 sb.AppendLine("{HttpBody}");
+                messageArguments.Add(body);
+            }
+
+            if (elasticResponse.ApiCall?.ResponseBodyInBytes != null) {
+                string body = Encoding.UTF8.GetString(elasticResponse.ApiCall?.ResponseBodyInBytes);
+                body = JsonUtility.NormalizeJsonString(body);
+                sb.AppendLine("{HttpResponse}");
                 messageArguments.Add(body);
             }
 
