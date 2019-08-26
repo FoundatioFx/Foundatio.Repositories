@@ -320,8 +320,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                                 .Routing(h.Routing)
                                 .Index(h.GetIndex())
                                 .Pipeline(DefaultPipeline)
-                                .IfPrimaryTerm(h.GetPrimaryTerm())
-                                .IfSequenceNumber(h.GetSequenceNumber()));
+                                .IfPrimaryTerm(h.GetVersion().PrimaryTerm)
+                                .IfSequenceNumber(h.GetVersion().SequenceNumber));
                         }
 
                         return b;
@@ -777,8 +777,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     if (HasVersion && !isCreateOperation) {
                         var versionedDoc = (IVersioned)document;
-                        i.IfPrimaryTerm(versionedDoc.GetPrimaryTerm());
-                        i.IfSequenceNumber(versionedDoc.GetSequenceNumber());
+                        i.IfPrimaryTerm(versionedDoc.GetVersion().PrimaryTerm);
+                        i.IfSequenceNumber(versionedDoc.GetVersion().SequenceNumber);
                     }
 
                     return i;
@@ -813,8 +813,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                     if (HasVersion && !isCreateOperation) {
                         var versionedDoc = (IVersioned)d;
                         if (versionedDoc != null) {
-                            indexOperation.IfSequenceNumber = versionedDoc.GetSequenceNumber();
-                            indexOperation.IfPrimaryTerm = versionedDoc.GetPrimaryTerm();
+                            indexOperation.IfSequenceNumber = versionedDoc.GetVersion().SequenceNumber;
+                            indexOperation.IfPrimaryTerm = versionedDoc.GetVersion().PrimaryTerm;
                         }
                     }
 

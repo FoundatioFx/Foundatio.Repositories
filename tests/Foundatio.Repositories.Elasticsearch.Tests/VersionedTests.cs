@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Elasticsearch.Net;
-using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Extensions;
@@ -160,18 +159,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             };
 
             await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
-            Assert.True(employees.All(e => e.GetPrimaryTerm() == 1));
-            Assert.True(employees.All(e => e.GetSequenceNumber() >= 0 && e.GetSequenceNumber() < 101));
+            Assert.True(employees.All(e => e.GetVersion().PrimaryTerm == 1));
+            Assert.True(employees.All(e => e.GetVersion().SequenceNumber >= 0 && e.GetVersion().SequenceNumber < 101));
 
             Assert.Equal(2, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company"));
 
             var results = await _employeeRepository.GetAllByCompanyAsync("1");
             Assert.Equal(2, results.Documents.Count);
             foreach (var document in results.Documents) {
-                Assert.Equal(1, document.GetPrimaryTerm());
-                var sequenceNumber = document.GetSequenceNumber();
-                Assert.True(sequenceNumber.HasValue);
-                Assert.InRange(sequenceNumber.Value, 0, 4);
+                var originalDoc = employees.First(e => e.Id == document.Id);
+                Assert.True(document.GetVersion() > originalDoc.GetVersion());
                 Assert.Equal("1", document.CompanyId);
                 Assert.Equal("Test Company", document.CompanyName);
             }
@@ -371,17 +368,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task UpdateAllWithPageLimitAsync() {
             const int NUMBER_OF_EMPLOYEES = 100;
             Log.MinimumLevel = LogLevel.Warning;
-
-            await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1"), o => o.ImmediateConsistency());
+            var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
+            await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company", limit: 100));
 
             var results = await _employeeRepository.GetAllByCompanyAsync("1", o => o.PageLimit(NUMBER_OF_EMPLOYEES));
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Documents.Count);
             foreach (var document in results.Documents) {
-                Assert.Equal(1, document.GetPrimaryTerm());
-                var sequenceNumber = document.GetSequenceNumber();
-                Assert.True(sequenceNumber.HasValue);
-                Assert.InRange(sequenceNumber.Value, 0, 200);
+                var originalDoc = employees.First(e => e.Id == document.Id);
+                Assert.True(document.GetVersion() > originalDoc.GetVersion());
                 Assert.Equal("1", document.CompanyId);
                 Assert.Equal("Test Company", document.CompanyName);
             }
@@ -390,17 +385,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task UpdateAllWithNoPageLimitAsync() {
             const int NUMBER_OF_EMPLOYEES = 100;
-            await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1"), o => o.ImmediateConsistency());
+            var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
+            await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company"));
 
             var results = await _employeeRepository.GetAllByCompanyAsync("1", o => o.PageLimit(NUMBER_OF_EMPLOYEES));
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Documents.Count);
             foreach (var document in results.Documents) {
-                Assert.Equal(1, document.GetPrimaryTerm());
-                var sequenceNumber = document.GetSequenceNumber();
-                Assert.True(sequenceNumber.HasValue);
-                Assert.InRange(sequenceNumber.Value, 0, 200);
+                var originalDoc = employees.First(e => e.Id == document.Id);
+                Assert.True(document.GetVersion() > originalDoc.GetVersion());
                 Assert.Equal("1", document.CompanyId);
                 Assert.Equal("Test Company", document.CompanyName);
             }

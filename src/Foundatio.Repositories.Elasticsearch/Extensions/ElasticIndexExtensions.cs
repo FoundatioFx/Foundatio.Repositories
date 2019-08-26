@@ -3,12 +3,9 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
-using Elasticsearch.Net;
-using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Utility;
-using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticIndexExtensions {
@@ -31,83 +28,53 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, hit.Routing, data);
         }
 
-        public static string GetVersion<T>(this Nest.GetResponse<T> hit) where T : class {
-            if (hit.PrimaryTerm == 0 || hit.SequenceNumber < 0)
-                return null;
+        public static ElasticDocumentVersion GetVersion<T>(this Nest.GetResponse<T> hit) where T : class {
+            if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
+                return ElasticDocumentVersion.Empty;
             
-            return String.Concat(hit.SequenceNumber, ":", hit.PrimaryTerm);
+            return new ElasticDocumentVersion(hit.SequenceNumber.Value, hit.PrimaryTerm.Value);
         }
 
-        public static string GetVersion<T>(this Nest.IHit<T> hit) where T : class {
-            if (hit.PrimaryTerm == 0 || hit.SequenceNumber < 0)
-                return null;
+        public static ElasticDocumentVersion GetVersion<T>(this Nest.IHit<T> hit) where T : class {
+            if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
+                return ElasticDocumentVersion.Empty;
             
-            return String.Concat(hit.SequenceNumber, ":", hit.PrimaryTerm);
+            return new ElasticDocumentVersion(hit.SequenceNumber.Value, hit.PrimaryTerm.Value);
         }
 
-        public static string GetVersion(this Nest.IndexResponse hit) {
-            if (hit.PrimaryTerm == 0 || hit.SequenceNumber < 0)
-                return null;
+        public static ElasticDocumentVersion GetVersion<T>(this FindHit<T> hit) where T : class {
+            if (hit == null || String.IsNullOrEmpty(hit.Version))
+                return ElasticDocumentVersion.Empty;
             
-            return String.Concat(hit.SequenceNumber, ":", hit.PrimaryTerm);
+            return hit.Version;
         }
 
-        public static string GetVersion<T>(this Nest.IMultiGetHit<T> hit) where T : class {
-            if (hit.PrimaryTerm == 0 || hit.SequenceNumber < 0)
-                return null;
+        public static ElasticDocumentVersion GetVersion(this Nest.IndexResponse hit) {
+            if (hit.PrimaryTerm == 0 && hit.SequenceNumber == 0)
+                return ElasticDocumentVersion.Empty;
             
-            return String.Concat(hit.SequenceNumber, ":", hit.PrimaryTerm);
+            return new ElasticDocumentVersion(hit.SequenceNumber, hit.PrimaryTerm);
         }
 
-        public static string GetVersion(this Nest.BulkResponseItemBase hit) {
-            if (hit.PrimaryTerm == 0 || hit.SequenceNumber < 0)
-                return null;
+        public static ElasticDocumentVersion GetVersion<T>(this Nest.IMultiGetHit<T> hit) where T : class {
+            if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
+                return ElasticDocumentVersion.Empty;
             
-            return String.Concat(hit.SequenceNumber, ":", hit.PrimaryTerm);
+            return new ElasticDocumentVersion(hit.SequenceNumber.Value, hit.PrimaryTerm.Value);
         }
 
-        public static long? GetSequenceNumber<T>(this FindHit<T> hit) where T : class {
-            if (String.IsNullOrEmpty(hit.Version))
-                return null;
+        public static ElasticDocumentVersion GetVersion(this Nest.BulkResponseItemBase hit) {
+            if (hit.PrimaryTerm == 0 && hit.SequenceNumber == 0)
+                return ElasticDocumentVersion.Empty;
             
-            string[] parts = hit.Version.Split(':');
-            if (Int64.TryParse(parts[0], out var sequenceNumber))
-                return sequenceNumber;
-            
-            return null;
-        }
-        
-        public static long? GetPrimaryTerm<T>(this FindHit<T> hit) where T : class {
-            if (String.IsNullOrEmpty(hit.Version))
-                return null;
-            
-            string[] parts = hit.Version.Split(':');
-            if (parts.Length == 2 && Int64.TryParse(parts[1], out var primaryTerm))
-                return primaryTerm;
-            
-            return null;
+            return new ElasticDocumentVersion(hit.SequenceNumber, hit.PrimaryTerm);
         }
 
-        public static long? GetSequenceNumber(this IVersioned hit) {
-            if (String.IsNullOrEmpty(hit.Version))
-                return null;
+        public static ElasticDocumentVersion GetVersion(this IVersioned versioned) {
+            if (versioned == null || String.IsNullOrEmpty(versioned.Version))
+                return ElasticDocumentVersion.Empty;
             
-            string[] parts = hit.Version.Split(':');
-            if (Int64.TryParse(parts[0], out var sequenceNumber))
-                return sequenceNumber;
-            
-            return null;
-        }
-        
-        public static long? GetPrimaryTerm(this IVersioned hit) {
-            if (String.IsNullOrEmpty(hit.Version))
-                return null;
-            
-            string[] parts = hit.Version.Split(':');
-            if (parts.Length == 2 && Int64.TryParse(parts[1], out var primaryTerm))
-                return primaryTerm;
-            
-            return null;
+            return versioned.Version;
         }
 
         public static FindHit<T> ToFindHit<T>(this Nest.IHit<T> hit) where T : class {
