@@ -370,7 +370,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var options = ConfigureOptions(null);
             await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
-            var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
+            var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(0);
             searchDescriptor.DocValueFields(_idField.Value);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
 
