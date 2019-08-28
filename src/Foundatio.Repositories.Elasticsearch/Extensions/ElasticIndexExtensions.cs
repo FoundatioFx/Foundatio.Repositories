@@ -32,14 +32,14 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
                 return ElasticDocumentVersion.Empty;
             
-            return new ElasticDocumentVersion(hit.SequenceNumber.Value, hit.PrimaryTerm.Value);
+            return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SequenceNumber.Value);
         }
 
         public static ElasticDocumentVersion GetVersion<T>(this Nest.IHit<T> hit) where T : class {
             if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
                 return ElasticDocumentVersion.Empty;
             
-            return new ElasticDocumentVersion(hit.SequenceNumber.Value, hit.PrimaryTerm.Value);
+            return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SequenceNumber.Value);
         }
 
         public static ElasticDocumentVersion GetVersion<T>(this FindHit<T> hit) where T : class {
@@ -53,21 +53,21 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (hit.PrimaryTerm == 0 && hit.SequenceNumber == 0)
                 return ElasticDocumentVersion.Empty;
             
-            return new ElasticDocumentVersion(hit.SequenceNumber, hit.PrimaryTerm);
+            return new ElasticDocumentVersion(hit.PrimaryTerm, hit.SequenceNumber);
         }
 
         public static ElasticDocumentVersion GetVersion<T>(this Nest.IMultiGetHit<T> hit) where T : class {
             if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
                 return ElasticDocumentVersion.Empty;
             
-            return new ElasticDocumentVersion(hit.SequenceNumber.Value, hit.PrimaryTerm.Value);
+            return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SequenceNumber.Value);
         }
 
         public static ElasticDocumentVersion GetVersion(this Nest.BulkResponseItemBase hit) {
             if (hit.PrimaryTerm == 0 && hit.SequenceNumber == 0)
                 return ElasticDocumentVersion.Empty;
             
-            return new ElasticDocumentVersion(hit.SequenceNumber, hit.PrimaryTerm);
+            return new ElasticDocumentVersion(hit.PrimaryTerm, hit.SequenceNumber);
         }
 
         public static ElasticDocumentVersion GetVersion(this IVersioned versioned) {

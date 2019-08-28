@@ -1,8 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <PackageReference Include="FluentValidation" Version="8.4.0" />
-    <PackageReference Include="Foundatio" Version="8.1.2058" />
-    <PackageReference Include="Foundatio.JsonNet" Version="8.1.2058" />
+    <PackageReference Include="Foundatio" Version="8.1.2123" />
+    <PackageReference Include="Foundatio.JsonNet" Version="8.1.2123" />
     <PackageReference Include="Newtonsoft.Json" Version="12.0.2" />
   </ItemGroup>
 </Project>

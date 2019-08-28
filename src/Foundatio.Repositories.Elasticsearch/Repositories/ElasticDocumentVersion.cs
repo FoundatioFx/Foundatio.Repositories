@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Models;
 
@@ -7,15 +6,16 @@ namespace Foundatio.Repositories.Elasticsearch {
     public struct ElasticDocumentVersion : IEquatable<ElasticDocumentVersion>, IComparable<ElasticDocumentVersion>, IComparable {
         public static ElasticDocumentVersion Empty = new ElasticDocumentVersion();
         
-        public ElasticDocumentVersion(long sequenceNumber, long primaryTerm) {
-            SequenceNumber = sequenceNumber;
+        public ElasticDocumentVersion(long primaryTerm, long sequenceNumber) {
             PrimaryTerm = primaryTerm;
+            SequenceNumber = sequenceNumber;
         }
 
-        public long SequenceNumber { get; }
         public long PrimaryTerm { get; }
+        public long SequenceNumber { get; }
+        public bool IsEmpty => PrimaryTerm <= 0 && SequenceNumber <= 0;
         
-        public override string ToString() => String.Concat(SequenceNumber.ToString(), ":", PrimaryTerm.ToString());
+        public override string ToString() => String.Concat(PrimaryTerm.ToString(), ":", SequenceNumber.ToString());
 
         public override bool Equals(object obj) {
             if (obj is ElasticDocumentVersion version)
@@ -32,15 +32,15 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         public override int GetHashCode() {
             unchecked {
-                return (SequenceNumber.GetHashCode() * 397) ^ PrimaryTerm.GetHashCode();
+                return (PrimaryTerm.GetHashCode() * 397) ^ SequenceNumber.GetHashCode();
             }
         }
         
         public bool Equals(ElasticDocumentVersion v) {
-            if (v == Empty || this == Empty)
+            if (IsEmpty || v.IsEmpty)
                 return false;
             
-            return SequenceNumber == v.SequenceNumber && PrimaryTerm == v.PrimaryTerm;
+            return PrimaryTerm == v.PrimaryTerm && SequenceNumber == v.SequenceNumber;
         }
 
         public static bool operator ==(ElasticDocumentVersion lhs, ElasticDocumentVersion rhs) {
@@ -56,8 +56,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return Empty;
             
             var parts = version.Split(':');
-            if (Int64.TryParse(parts[0], out long sequenceNumber) && Int64.TryParse(parts[1], out long primaryTerm))
-                return new ElasticDocumentVersion(sequenceNumber, primaryTerm);
+            if (parts.Length != 2)
+                return Empty;
+            
+            if (Int64.TryParse(parts[0], out long primaryTerm) && Int64.TryParse(parts[1], out long sequenceNumber))
+                return new ElasticDocumentVersion(primaryTerm, sequenceNumber);
             
             return Empty;
         }
@@ -66,8 +69,11 @@ namespace Foundatio.Repositories.Elasticsearch {
         public static implicit operator string(ElasticDocumentVersion version) => version.ToString();
 
         public int CompareTo(ElasticDocumentVersion other) {
-            int sequenceNumberComparison = SequenceNumber.CompareTo(other.SequenceNumber);
-            return sequenceNumberComparison != 0 ? sequenceNumberComparison : PrimaryTerm.CompareTo(other.PrimaryTerm);
+            var result = PrimaryTerm.CompareTo(other.PrimaryTerm);
+            if (result != 0)
+                return result;
+
+            return SequenceNumber.CompareTo(other.SequenceNumber);
         }
 
         public int CompareTo(object obj) {
