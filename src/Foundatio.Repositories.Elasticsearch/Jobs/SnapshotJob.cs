@@ -26,8 +26,15 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
         }
 
-        public virtual async Task<JobResult>
-            RunAsync(CancellationToken cancellationToken = default) {
+        public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default) {
+            var hasSnapshotRepositoryResponse = await _client.Snapshot.GetRepositoryAsync(r => r.RepositoryName(Repository), cancellationToken);
+            if (!hasSnapshotRepositoryResponse.IsValid) {
+                if (hasSnapshotRepositoryResponse.ApiCall.HttpStatusCode == 404)
+                    return JobResult.CancelledWithMessage($"Snapshot repository {Repository} has not been configured.");
+
+                return JobResult.FromException(hasSnapshotRepositoryResponse.OriginalException, hasSnapshotRepositoryResponse.GetErrorMessage());
+            }
+            
             string snapshotName = SystemClock.UtcNow.ToString("'" + Repository + "-'yyyy-MM-dd-HH-mm");
             _logger.LogInformation("Starting {Repository} snapshot {SnapshotName}...", Repository, snapshotName);
 
