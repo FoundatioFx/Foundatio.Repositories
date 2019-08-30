@@ -122,12 +122,15 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             await _beginReindexLockProvider.TryUsingAsync(enqueueReindexLockName, () => _workItemQueue.EnqueueAsync(reindexWorkItem), TimeSpan.Zero, new CancellationToken(true)).AnyContext();
         }
 
-        public async Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null) {
+        public Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null) {
             if (indexes == null)
                 indexes = Indexes;
 
+            var tasks = new List<Task>();
             foreach (var idx in indexes)
-                await idx.MaintainAsync().AnyContext();
+                tasks.Add(idx.MaintainAsync());
+
+            return Task.WhenAll(tasks);
         }
 
         public Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null) {
