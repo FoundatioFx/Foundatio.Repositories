@@ -82,36 +82,44 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return null;
         }
         
-        public async Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true) {
+        public Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true) {
             if (indexes == null)
                 indexes = Indexes;
+            
+            
+            var tasks = new List<Task>();
+            foreach (var idx in indexes)
+                tasks.Add(ConfigureIndexInternalAsync(idx, beginReindexingOutdated));
 
-            foreach (var idx in indexes) {
-                await idx.ConfigureAsync().AnyContext();
-                await idx.MaintainAsync(includeOptionalTasks: false).AnyContext();
+            return Task.WhenAll(tasks);
+        }
 
-                if (!beginReindexingOutdated)
-                    continue;
+        private async Task ConfigureIndexInternalAsync(IIndex idx, bool beginReindexingOutdated) {
+            await idx.ConfigureAsync().AnyContext();
+            await idx.MaintainAsync(includeOptionalTasks: false).AnyContext();
 
-                if (_workItemQueue == null || _beginReindexLockProvider == null)
-                    throw new InvalidOperationException("Must specify work item queue and lock provider in order to reindex.");
+            if (!beginReindexingOutdated)
+                return;
 
-                if (!(idx is IVersionedIndex versionedIndex))
-                    continue;
+            if (_workItemQueue == null || _beginReindexLockProvider == null)
+                throw new InvalidOperationException("Must specify work item queue and lock provider in order to reindex.");
 
-                int currentVersion = await versionedIndex.GetCurrentVersionAsync().AnyContext();
-                if (versionedIndex.Version <= currentVersion)
-                    continue;
+            if (!(idx is IVersionedIndex versionedIndex))
+                return;
 
-                var reindexWorkItem = versionedIndex.CreateReindexWorkItem(currentVersion);
-                bool isReindexing = await _lockProvider.IsLockedAsync(String.Join(":", "reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex)).AnyContext();
-                if (isReindexing)
-                    continue;
+            int currentVersion = await versionedIndex.GetCurrentVersionAsync().AnyContext();
+            if (versionedIndex.Version <= currentVersion)
+                return;
 
-                // enqueue reindex to new version, only allowed every 15 minutes
-                string enqueueReindexLockName = String.Join(":", "enqueue-reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex);
-                await _beginReindexLockProvider.TryUsingAsync(enqueueReindexLockName, () => _workItemQueue.EnqueueAsync(reindexWorkItem), TimeSpan.Zero, new CancellationToken(true)).AnyContext();
-            }
+            var reindexWorkItem = versionedIndex.CreateReindexWorkItem(currentVersion);
+            bool isReindexing = await _lockProvider.IsLockedAsync(String.Join(":", "reindex", reindexWorkItem.Alias,
+                reindexWorkItem.OldIndex, reindexWorkItem.NewIndex)).AnyContext();
+            if (isReindexing)
+                return;
+
+            // enqueue reindex to new version, only allowed every 15 minutes
+            string enqueueReindexLockName = String.Join(":", "enqueue-reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex);
+            await _beginReindexLockProvider.TryUsingAsync(enqueueReindexLockName, () => _workItemQueue.EnqueueAsync(reindexWorkItem), TimeSpan.Zero, new CancellationToken(true)).AnyContext();
         }
 
         public async Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null) {
