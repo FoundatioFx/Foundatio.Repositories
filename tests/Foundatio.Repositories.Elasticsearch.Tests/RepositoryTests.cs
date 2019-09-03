@@ -32,8 +32,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             _employeeRepository = new EmployeeRepository(_configuration);
             _identityRepository = new IdentityRepository(_configuration);
             _identityRepositoryWithNoCaching = new IdentityWithNoCachingRepository(_configuration);
+        }
 
-            RemoveDataAsync().GetAwaiter().GetResult();
+        public override async Task InitializeAsync() {
+            _logger.LogInformation("Starting init");
+            await base.InitializeAsync();
+            await RemoveDataAsync();
+            _logger.LogInformation("Done removing data");
         }
 
         [Fact]
@@ -629,9 +634,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             const int COUNT = 1000 * 10;
             int added = 0;
             do {
-                await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(1000), o => o.ImmediateConsistency(true));
+                await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(1000));
                 added += 1000;
             } while (added < COUNT);
+            await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name);
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Trace);
 
             Assert.Equal(COUNT, await _dailyRepository.IncrementValueAsync(new string[0]));
@@ -646,7 +652,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(1000));
                 added += 1000;
             } while (added < COUNT);
-            await _client.Indices.RefreshAsync(Indices.All);
+            await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name);
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Trace);
 
             var tasks = Enumerable.Range(1, 6).Select(async i => {

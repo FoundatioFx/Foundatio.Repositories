@@ -159,8 +159,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             };
 
             await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
-            Assert.True(employees.All(e => e.GetVersion().PrimaryTerm == 1));
-            Assert.True(employees.All(e => e.GetVersion().SequenceNumber >= 0 && e.GetVersion().SequenceNumber < 101));
+            Assert.True(employees.All(e => e.GetElasticVersion().PrimaryTerm == 1));
+            Assert.True(employees.All(e => e.GetElasticVersion().SequenceNumber >= 0 && e.GetElasticVersion().SequenceNumber < 101));
 
             Assert.Equal(2, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company"));
 
@@ -168,7 +168,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(2, results.Documents.Count);
             foreach (var document in results.Documents) {
                 var originalDoc = employees.First(e => e.Id == document.Id);
-                Assert.True(document.GetVersion() > originalDoc.GetVersion());
+                Assert.True(document.GetElasticVersion() > originalDoc.GetElasticVersion());
                 Assert.Equal("1", document.CompanyId);
                 Assert.Equal("Test Company", document.CompanyName);
             }
@@ -376,7 +376,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Documents.Count);
             foreach (var document in results.Documents) {
                 var originalDoc = employees.First(e => e.Id == document.Id);
-                Assert.True(document.GetVersion() > originalDoc.GetVersion());
+                Assert.True(document.GetElasticVersion() > originalDoc.GetElasticVersion());
                 Assert.Equal("1", document.CompanyId);
                 Assert.Equal("Test Company", document.CompanyName);
             }
@@ -394,7 +394,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Documents.Count);
             foreach (var document in results.Documents) {
                 var originalDoc = employees.First(e => e.Id == document.Id);
-                Assert.True(document.GetVersion() > originalDoc.GetVersion());
+                Assert.True(document.GetElasticVersion() > originalDoc.GetElasticVersion());
                 Assert.Equal("1", document.CompanyId);
                 Assert.Equal("Test Company", document.CompanyName);
             }

@@ -313,6 +313,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                         foreach (var h in results.Hits) {
                             var target = h.Document as JToken;
                             patcher.Patch(ref target, jsonOperation.Patch);
+                            var elasticVersion = h.GetElasticVersion();
 
                             b.Index<JObject>(i => i
                                 .Document(target as JObject)
@@ -320,8 +321,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                                 .Routing(h.Routing)
                                 .Index(h.GetIndex())
                                 .Pipeline(DefaultPipeline)
-                                .IfPrimaryTerm(h.GetVersion().PrimaryTerm)
-                                .IfSequenceNumber(h.GetVersion().SequenceNumber));
+                                .IfPrimaryTerm(elasticVersion.PrimaryTerm)
+                                .IfSequenceNumber(elasticVersion.SequenceNumber));
                         }
 
                         return b;
@@ -776,9 +777,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                     i.Index(ElasticIndex.GetIndex(document));
 
                     if (HasVersion && !isCreateOperation) {
-                        var versionedDoc = (IVersioned)document;
-                        i.IfPrimaryTerm(versionedDoc.GetVersion().PrimaryTerm);
-                        i.IfSequenceNumber(versionedDoc.GetVersion().SequenceNumber);
+                        var elasticVersion = ((IVersioned)document).GetElasticVersion();
+                        i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
+                        i.IfSequenceNumber(elasticVersion.SequenceNumber);
                     }
 
                     return i;
@@ -796,7 +797,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 if (HasVersion) {
                     var versionDoc = (IVersioned)document;
-                    versionDoc.Version = response.GetVersion();
+                    var elasticVersion = response.GetElasticVersion();
+                    versionDoc.Version = elasticVersion;
                 }
             } else {
                 var bulkRequest = new BulkRequest();
@@ -811,11 +813,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                     baseOperation.Index = ElasticIndex.GetIndex(d);
 
                     if (HasVersion && !isCreateOperation) {
-                        var versionedDoc = (IVersioned)d;
-                        if (versionedDoc != null) {
-                            indexOperation.IfSequenceNumber = versionedDoc.GetVersion().SequenceNumber;
-                            indexOperation.IfPrimaryTerm = versionedDoc.GetVersion().PrimaryTerm;
-                        }
+                        var elasticVersion = ((IVersioned)d).GetElasticVersion();
+                        indexOperation.IfSequenceNumber = elasticVersion.SequenceNumber;
+                        indexOperation.IfPrimaryTerm = elasticVersion.PrimaryTerm;
                     }
 
                     return baseOperation;
@@ -835,7 +835,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                             continue;
 
                         var versionDoc = (IVersioned)document;
-                        versionDoc.Version = hit.GetVersion();
+                        var elasticVersion = hit.GetElasticVersion();
+                        versionDoc.Version = elasticVersion;
                     }
                 }
 

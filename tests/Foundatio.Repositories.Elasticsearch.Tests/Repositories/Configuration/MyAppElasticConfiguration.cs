@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using Elasticsearch.Net;
 using Foundatio.Caching;
@@ -45,14 +47,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration 
         }
 
         private bool IsPortOpen(int port) {
-            using (var tcpClient = new TcpClient()) {
-                try {
-                    tcpClient.Connect("127.0.0.1", port);
+            var ipGlobalProperties = IPGlobalProperties.GetIPGlobalProperties();
+            var tcpConnInfoArray = ipGlobalProperties.GetActiveTcpListeners();
+
+            foreach (var endpoint in tcpConnInfoArray) {
+                if (endpoint.Port == port)
                     return true;
-                } catch (Exception) {
-                    return false;
-                }
             }
+
+            return false;
         }
 
         protected override void ConfigureSettings(ConnectionSettings settings) {

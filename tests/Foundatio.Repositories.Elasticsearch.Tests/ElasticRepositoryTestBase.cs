@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.Caching;
@@ -9,12 +10,13 @@ using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Utility;
+using Microsoft.Extensions.Logging;
 using Nest;
 using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
-    public abstract class ElasticRepositoryTestBase : TestWithLoggingBase {
+    public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, Xunit.IAsyncLifetime {
         protected readonly MyAppElasticConfiguration _configuration;
         protected readonly InMemoryCacheClient _cache;
         protected readonly IElasticClient _client;
@@ -22,7 +24,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         protected readonly InMemoryMessageBus _messageBus;
 
         public ElasticRepositoryTestBase(ITestOutputHelper output) : base(output) {
-            Log.MinimumLevel = LogLevel.Trace;
+            Log.MinimumLevel = LogLevel.Information;
             Log.SetLogLevel<ScheduledTimer>(LogLevel.Warning);
 
             _cache = new InMemoryCacheClient(new InMemoryCacheClientOptions { LoggerFactory = Log });
@@ -30,12 +32,22 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             _workItemQueue = new InMemoryQueue<WorkItemData>(new InMemoryQueueOptions<WorkItemData> { LoggerFactory = Log });
             _configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log);
             _client = _configuration.Client;
-            _client.WaitForReady(new CancellationTokenSource(TimeSpan.FromMinutes(1)).Token);
+        }
+
+        private static bool _elaticsearchReady;
+        public virtual async Task InitializeAsync() {
+            if (!_elaticsearchReady)
+                await _client.WaitForReadyAsync(new CancellationTokenSource(TimeSpan.FromMinutes(1)).Token);
+            
+            _elaticsearchReady = true;
         }
 
         protected virtual async Task RemoveDataAsync(bool configureIndexes = true) {
             var minimumLevel = Log.MinimumLevel;
             Log.MinimumLevel = LogLevel.Warning;
+
+            var sw = Stopwatch.StartNew();
+            _logger.LogInformation("Starting remove data");
 
             await _workItemQueue.DeleteQueueAsync();
             await _configuration.DeleteIndexesAsync();
@@ -45,8 +57,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _cache.RemoveAllAsync();
             await _client.Indices.RefreshAsync(Indices.All);
             _messageBus.ResetMessagesSent();
+            sw.Stop();
+            _logger.LogInformation("Done removing data {Duration}", sw.Elapsed);
 
             Log.MinimumLevel = minimumLevel;
         }
+
+        public virtual Task DisposeAsync() => Task.CompletedTask;
     }
 }

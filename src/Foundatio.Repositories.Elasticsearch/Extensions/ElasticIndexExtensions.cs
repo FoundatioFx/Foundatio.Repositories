@@ -22,55 +22,55 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         public static FindHit<T> ToFindHit<T>(this Nest.GetResponse<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
             if (versionedDoc != null)
-                versionedDoc.Version = hit.GetVersion();
+                versionedDoc.Version = hit.GetElasticVersion();
 
             var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
             return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, hit.Routing, data);
         }
 
-        public static ElasticDocumentVersion GetVersion<T>(this Nest.GetResponse<T> hit) where T : class {
+        public static ElasticDocumentVersion GetElasticVersion<T>(this Nest.GetResponse<T> hit) where T : class {
             if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
                 return ElasticDocumentVersion.Empty;
             
             return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SequenceNumber.Value);
         }
 
-        public static ElasticDocumentVersion GetVersion<T>(this Nest.IHit<T> hit) where T : class {
+        public static ElasticDocumentVersion GetElasticVersion<T>(this Nest.IHit<T> hit) where T : class {
             if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
                 return ElasticDocumentVersion.Empty;
             
             return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SequenceNumber.Value);
         }
 
-        public static ElasticDocumentVersion GetVersion<T>(this FindHit<T> hit) where T : class {
+        public static ElasticDocumentVersion GetElasticVersion<T>(this FindHit<T> hit) where T : class {
             if (hit == null || String.IsNullOrEmpty(hit.Version))
                 return ElasticDocumentVersion.Empty;
             
             return hit.Version;
         }
 
-        public static ElasticDocumentVersion GetVersion(this Nest.IndexResponse hit) {
+        public static ElasticDocumentVersion GetElasticVersion(this Nest.IndexResponse hit) {
             if (hit.PrimaryTerm == 0 && hit.SequenceNumber == 0)
                 return ElasticDocumentVersion.Empty;
             
             return new ElasticDocumentVersion(hit.PrimaryTerm, hit.SequenceNumber);
         }
 
-        public static ElasticDocumentVersion GetVersion<T>(this Nest.IMultiGetHit<T> hit) where T : class {
+        public static ElasticDocumentVersion GetElasticVersion<T>(this Nest.IMultiGetHit<T> hit) where T : class {
             if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
                 return ElasticDocumentVersion.Empty;
             
             return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SequenceNumber.Value);
         }
 
-        public static ElasticDocumentVersion GetVersion(this Nest.BulkResponseItemBase hit) {
+        public static ElasticDocumentVersion GetElasticVersion(this Nest.BulkResponseItemBase hit) {
             if (hit.PrimaryTerm == 0 && hit.SequenceNumber == 0)
                 return ElasticDocumentVersion.Empty;
             
             return new ElasticDocumentVersion(hit.PrimaryTerm, hit.SequenceNumber);
         }
 
-        public static ElasticDocumentVersion GetVersion(this IVersioned versioned) {
+        public static ElasticDocumentVersion GetElasticVersion(this IVersioned versioned) {
             if (versioned == null || String.IsNullOrEmpty(versioned.Version))
                 return ElasticDocumentVersion.Empty;
             
@@ -80,7 +80,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         public static FindHit<T> ToFindHit<T>(this Nest.IHit<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
             if (versionedDoc != null && hit.PrimaryTerm.HasValue)
-                versionedDoc.Version = hit.GetVersion();
+                versionedDoc.Version = hit.GetElasticVersion();
 
             var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
             return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), versionedDoc?.Version ?? null, hit.Routing, data);
@@ -89,7 +89,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         public static FindHit<T> ToFindHit<T>(this Nest.IMultiGetHit<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
             if (versionedDoc != null)
-                versionedDoc.Version = hit.GetVersion();
+                versionedDoc.Version = hit.GetElasticVersion();
 
             var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
             return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, hit.Routing, data);

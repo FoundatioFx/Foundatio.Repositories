@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Models;
 
@@ -25,7 +25,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return Equals(Parse(stringVersion));
             
             if (obj is IVersioned versioned)
-                return Equals(versioned.GetVersion());
+                return Equals(versioned.GetElasticVersion());
 
             return false;
         }
@@ -87,7 +87,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return CompareTo(Parse(stringVersion));
             
             if (obj is IVersioned versioned)
-                return CompareTo(versioned.GetVersion());
+                return CompareTo(versioned.GetElasticVersion());
 
             throw new ArgumentException($"Object must be of type {nameof(ElasticDocumentVersion)}");;
         }
