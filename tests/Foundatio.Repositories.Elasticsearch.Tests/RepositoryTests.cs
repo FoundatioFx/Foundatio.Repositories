@@ -631,11 +631,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task PatchAllBulkAsync() {
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Warning);
-            const int COUNT = 1000 * 10;
+            const int COUNT = 1000;
+            const int BATCH_SIZE = 250;
             int added = 0;
             do {
-                await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(1000));
-                added += 1000;
+                await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(BATCH_SIZE));
+                added += BATCH_SIZE;
             } while (added < COUNT);
             await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name);
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Trace);
@@ -646,11 +647,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task PatchAllBulkConcurrentlyAsync() {
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Warning);
-            const int COUNT = 1000 * 10;
+            const int COUNT = 1000;
+            const int BATCH_SIZE = 250;
             int added = 0;
             do {
-                await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(1000));
-                added += 1000;
+                await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(BATCH_SIZE));
+                added += BATCH_SIZE;
             } while (added < COUNT);
             await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name);
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Trace);

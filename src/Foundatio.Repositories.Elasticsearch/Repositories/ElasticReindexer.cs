@@ -172,7 +172,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     break;
                 }
                 
-                var timeToWait = TimeSpan.FromSeconds(10);
+                var timeToWait = TimeSpan.FromSeconds(totalDocs < 100000 ? 1 : 10);
                 if (status.Task.Status.Total < 100)
                     timeToWait = TimeSpan.FromMilliseconds(100);
                 

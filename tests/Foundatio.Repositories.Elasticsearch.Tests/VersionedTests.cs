@@ -19,8 +19,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         public VersionedTests(ITestOutputHelper output) : base(output) {
             _employeeRepository = new EmployeeRepository(_configuration);
+        }
 
-            RemoveDataAsync().GetAwaiter().GetResult();
+        public override async Task InitializeAsync() {
+            await base.InitializeAsync();
+            await RemoveDataAsync();
         }
 
         [Fact]
@@ -269,7 +272,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             Log.MinimumLevel = LogLevel.Warning;
             var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
-            await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+            await _employeeRepository.AddAsync(employees);
+            await _client.Indices.RefreshAsync(Indices.All);
             Log.MinimumLevel = LogLevel.Trace;
 
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
@@ -289,7 +293,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.DoesNotContain(newEmployees, d => viewedIds.Contains(d.Id));
 
                 pagedRecords += results.Documents.Count;
-                newEmployees.Add(await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: "1"), o => o.ImmediateConsistency(true)));
+                newEmployees.Add(await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: "1"), o => o.ImmediateConsistency()));
             } while (await results.NextPageAsync());
 
             Assert.False(results.HasMore);
@@ -304,7 +308,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             Log.MinimumLevel = LogLevel.Warning;
             var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
-            await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+            await _employeeRepository.AddAsync(employees);
+            await _client.Indices.RefreshAsync(Indices.All);
             Log.MinimumLevel = LogLevel.Trace;
 
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
@@ -324,7 +329,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.DoesNotContain(newEmployees, d => viewedIds.Contains(d.Id));
 
                 pagedRecords += results.Documents.Count;
-                newEmployees.Add(await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: "1"), o => o.ImmediateConsistency(true)));
+                newEmployees.Add(await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: "1"), o => o.ImmediateConsistency()));
 
                 results = await _employeeRepository.GetAllAsync(o => o.SnapshotPagingScrollId(results));
             } while (results != null && results.Hits.Count > 0);

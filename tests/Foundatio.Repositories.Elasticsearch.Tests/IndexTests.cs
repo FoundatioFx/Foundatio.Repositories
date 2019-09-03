@@ -17,7 +17,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class IndexTests : ElasticRepositoryTestBase {
         public IndexTests(ITestOutputHelper output) : base(output) {
             Log.SetLogLevel<EmployeeRepository>(LogLevel.Warning);
-            RemoveDataAsync(configureIndexes: false).GetAwaiter().GetResult();
+        }
+
+        public override async Task InitializeAsync() {
+            await base.InitializeAsync();
+            await RemoveDataAsync(false);
         }
 
         [Theory]

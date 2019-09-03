@@ -1,4 +1,4 @@
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Xunit;
@@ -12,8 +12,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public ParentChildTests(ITestOutputHelper output) : base(output) {
             _parentRepository = new ParentRepository(_configuration);
             _childRepository = new ChildRepository(_configuration);
+        }
 
-            RemoveDataAsync().GetAwaiter().GetResult();
+        public override async Task InitializeAsync() {
+            await base.InitializeAsync();
+            await RemoveDataAsync();
         }
 
         [Fact]

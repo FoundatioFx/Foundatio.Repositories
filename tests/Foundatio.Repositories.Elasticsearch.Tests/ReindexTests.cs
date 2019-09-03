@@ -21,7 +21,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class ReindexTests : ElasticRepositoryTestBase {
         public ReindexTests(ITestOutputHelper output) : base(output) {
             Log.SetLogLevel<EmployeeRepository>(LogLevel.Warning);
-            RemoveDataAsync(configureIndexes: false).GetAwaiter().GetResult();
+        }
+
+        public override async Task InitializeAsync() {
+            await base.InitializeAsync();
+            await RemoveDataAsync(false);
         }
 
         [Fact(Skip = "This will only work if the mapping is manually updated.")]

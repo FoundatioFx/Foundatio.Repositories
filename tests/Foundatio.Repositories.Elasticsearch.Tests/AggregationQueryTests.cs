@@ -1,4 +1,4 @@
-using Exceptionless.DateTimeExtensions;
+﻿using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
@@ -18,7 +18,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         public AggregationQueryTests(ITestOutputHelper output) : base(output) {
             _employeeRepository = new EmployeeRepository(_configuration);
-            RemoveDataAsync().GetAwaiter().GetResult();
+        }
+
+        public override async Task InitializeAsync() {
+            await base.InitializeAsync();
+            await RemoveDataAsync();
         }
 
         [Fact]
