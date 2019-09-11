@@ -38,6 +38,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             if (_repositories.Count == 0)
                 _repositories.Add(new RepositoryMaxAge { Name = "data", MaxAge = TimeSpan.FromDays(3) });
 
+            // need retries, need check for snapshot running, use cat for snapshot names
             foreach (var repo in _repositories)
                 await DeleteOldSnapshotsAsync(repo.Name, repo.MaxAge, cancellationToken).AnyContext();
 
@@ -124,7 +125,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         }
 
         private DateTime GetSnapshotDate(string repo, string name) {
-            if (DateTime.TryParseExact(name, "'" + repo + "-'yyyy-MM-dd-HH-mm", _enUS, DateTimeStyles.None, out DateTime result))
+            if (DateTime.TryParseExact(name, "'" + repo + "-'yyyy-MM-dd-HH-mm", _enUS, DateTimeStyles.None, out var result))
                 return result;
 
             return DateTime.MaxValue;

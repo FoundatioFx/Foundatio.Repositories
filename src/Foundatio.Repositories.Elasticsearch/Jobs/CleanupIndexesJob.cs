@@ -9,7 +9,6 @@ using Exceptionless.DateTimeExtensions;
 using Foundatio.Jobs;
 using Foundatio.Lock;
 using Microsoft.Extensions.Logging;
-using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
@@ -30,7 +29,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
         }
 
-        protected void AddIndex(TimeSpan maxAge, Func<string, DateTime?> getAge) {
+        protected void AddIndex(TimeSpan maxAge, ExtractDateFunc getAge) {
             _indexes.Add(new IndexMaxAge(maxAge, getAge));
         }
 
@@ -145,13 +144,13 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         }
 
         private class IndexMaxAge {
-            public IndexMaxAge(TimeSpan maxAge, Func<string, DateTime?> getAge) {
+            public IndexMaxAge(TimeSpan maxAge, ExtractDateFunc getAge) {
                 MaxAge = maxAge;
                 GetDate = getAge;
             }
 
             public TimeSpan MaxAge { get; }
-            public Func<string, DateTime?> GetDate { get; }
+            public ExtractDateFunc GetDate { get; }
         }
 
         private class IndexDate {
