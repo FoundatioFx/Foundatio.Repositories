@@ -45,8 +45,8 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected Inferrer Infer => _elasticIndex.Configuration.Client.Infer;
-        protected string InferField(Expression<Func<T, object>> objectPath) => _elasticIndex.Configuration.Client.Infer.Field(objectPath);
-        protected string InferPropertyName(Expression<Func<T, object>> objectPath) => _elasticIndex.Configuration.Client.Infer.PropertyName(objectPath);
+        protected string InferField(Expression<Func<T, object>> objectPath) => Infer.Field(objectPath);
+        protected string InferPropertyName(Expression<Func<T, object>> objectPath) => Infer.PropertyName(objectPath);
 
         public virtual Task<FindResults<T>> FindAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
             return FindAsAsync<T>(query.Configure(), options.Configure());
