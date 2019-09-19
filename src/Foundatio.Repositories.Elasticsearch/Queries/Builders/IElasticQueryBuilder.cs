@@ -20,6 +20,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             Parent = parentContext;
             Type = type ?? ContextType.Default;
             ((IQueryVisitorContextWithAliasResolver)this).RootAliasResolver = options.GetRootAliasResolver();
+            ((IQueryVisitorContextWithIncludeResolver)this).IncludeResolver = options.GetIncludeResolver();
 
             var range = GetDateRange();
             if (range != null) {
@@ -38,7 +39,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         public IDictionary<string, object> Data { get; } = new Dictionary<string, object>();
 
         AliasResolver IQueryVisitorContextWithAliasResolver.RootAliasResolver { get; set; }
-        Func<string, Task<string>> IQueryVisitorContextWithIncludeResolver.IncludeResolver { get; set; }
+        IncludeResolver IQueryVisitorContextWithIncludeResolver.IncludeResolver { get; set; }
 
         Operator IElasticQueryVisitorContext.DefaultOperator { get; set; }
         bool IElasticQueryVisitorContext.UseScoring { get; set; }

@@ -79,6 +79,16 @@ namespace Foundatio.Repositories.Options {
             return options.SafeGetOption<AliasResolver>(RootAliasResolverKey);
         }
 
+        internal const string IncludeResolverKey = "@IncludeResolver";
+        public static T IncludeResolver<T>(this T options, IncludeResolver includeResolver) where T : ICommandOptions {
+            options.Values.Set(IncludeResolverKey, includeResolver);
+            return options;
+        }
+
+        public static IncludeResolver GetIncludeResolver(this ICommandOptions options) {
+            return options.SafeGetOption<IncludeResolver>(IncludeResolverKey);
+        }
+
         public static bool ShouldUseSnapshotPaging(this ICommandOptions options) {
             return options.SafeGetOption<bool>(SetElasticOptionsExtensions.SnapshotPagingKey, false);
         }
