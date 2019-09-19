@@ -65,11 +65,13 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return Task.CompletedTask;
 
             foreach (var dateRange in dateRanges.Where(dr => dr.UseDateRange)) {
-                ctx.Filter &= new DateRangeQuery {
-                    Field = dateRange.Field,
-                    GreaterThanOrEqualTo = dateRange.GetStartDate(),
-                    LessThanOrEqualTo = dateRange.GetEndDate()
-                };
+                var rangeQuery = new DateRangeQuery { Field = dateRange.Field };
+                if (dateRange.UseStartDate)
+                    rangeQuery.GreaterThanOrEqualTo = dateRange.GetStartDate();
+                if (dateRange.UseEndDate)
+                    rangeQuery.LessThanOrEqualTo = dateRange.GetEndDate();
+                
+                ctx.Filter &= rangeQuery;
             }
 
             return Task.CompletedTask;

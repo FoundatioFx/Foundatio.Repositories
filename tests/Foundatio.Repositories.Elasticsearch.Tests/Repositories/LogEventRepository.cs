@@ -32,7 +32,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
         
         public Task<FindResults<LogEvent>> GetByDateRange(DateTime utcStart, DateTime utcEnd) {
-            return FindAsync(q => q.DateRange(utcStart, utcEnd, InferField(e => e.CreatedUtc)).Index(utcStart, utcEnd));
+            return FindAsync(q => q
+                .DateRange(utcStart, utcEnd, InferField(e => e.CreatedUtc))
+                .Index(utcStart, utcEnd)
+            );
         }
         
         public async Task<long> IncrementValueAsync(string[] ids, int value = 1) {
