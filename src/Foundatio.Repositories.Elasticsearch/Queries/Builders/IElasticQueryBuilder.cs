@@ -18,6 +18,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             Options = options;
             Search = search ?? new SearchDescriptor<T>();
             Parent = parentContext;
+            ((IQueryVisitorContextWithIncludeResolver)this).IncludeResolver = options.GetIncludeResolver();
             ((IQueryVisitorContextWithFieldResolver)this).FieldResolver = options.GetQueryFieldResolver();
 
             var range = GetDateRange();
@@ -36,7 +37,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         public IDictionary<string, object> Data { get; } = new Dictionary<string, object>();
 
         QueryFieldResolver IQueryVisitorContextWithFieldResolver.FieldResolver { get; set; }
-        Func<string, Task<string>> IQueryVisitorContextWithIncludeResolver.IncludeResolver { get; set; }
+        IncludeResolver IQueryVisitorContextWithIncludeResolver.IncludeResolver { get; set; }
 
         Operator IElasticQueryVisitorContext.DefaultOperator { get; set; }
         bool IElasticQueryVisitorContext.UseScoring { get; set; }
