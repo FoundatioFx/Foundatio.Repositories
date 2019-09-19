@@ -2,6 +2,7 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Exceptionless.DateTimeExtensions;
 using Xunit;
 using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -86,12 +87,27 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(log, results.Documents.First());
 
             results = await _dailyRepository.GetPartialByCompanyAsync(log.CompanyId);
-            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(x1, results.Documents.Count);
             var companyLog = results.Documents.First();
             Assert.Equal(log.Id, companyLog.Id);
             Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
             Assert.Null(companyLog.Message);
             Assert.Null(companyLog.CompanyId);
+        }
+
+        [Fact]
+        public async Task GetByCreatedDate() {
+            var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+            Assert.NotNull(log?.Id);
+
+            var results = await _dailyRepository.GetByDateRange(DateTime.UtcNow.SubtractDays(1), DateTime.UtcNow.AddDays(1));
+            Assert.Equal(log, results.Documents.Single());
+            
+            results = await _dailyRepository.GetByDateRange(DateTime.MinValue, DateTime.MaxValue);
+            Assert.Equal(log, results.Documents.Single());
+            
+            results = await _dailyRepository.GetByDateRange(DateTime.UtcNow.AddDays(1), DateTime.MaxValue);
+            Assert.Empty(results.Documents);
         }
 
         [Fact]

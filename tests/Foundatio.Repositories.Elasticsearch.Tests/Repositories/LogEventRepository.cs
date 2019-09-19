@@ -30,7 +30,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public Task<CountResult> GetCountByCompanyAsync(string company) {
             return CountAsync(q => q.Company(company), o => o.CacheKey(company));
         }
-
+        
+        public Task<FindResults<LogEvent>> GetByDateRange(DateTime utcStart, DateTime utcEnd) {
+            return FindAsync(q => q.DateRange(utcStart, utcEnd, InferField(e => e.CreatedUtc)).Index(utcStart, utcEnd));
+        }
+        
         public async Task<long> IncrementValueAsync(string[] ids, int value = 1) {
             if (ids == null)
                 throw new ArgumentNullException(nameof(ids));
