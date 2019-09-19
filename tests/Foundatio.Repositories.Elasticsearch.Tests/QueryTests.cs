@@ -87,7 +87,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(log, results.Documents.First());
 
             results = await _dailyRepository.GetPartialByCompanyAsync(log.CompanyId);
-            Assert.Equal(x1, results.Documents.Count);
+            Assert.Equal(1, results.Documents.Count);
             var companyLog = results.Documents.First();
             Assert.Equal(log.Id, companyLog.Id);
             Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
