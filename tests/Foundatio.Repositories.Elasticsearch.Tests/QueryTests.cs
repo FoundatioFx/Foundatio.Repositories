@@ -128,6 +128,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             
             results = await _employeeRepository.GetByFilterAsync("age:>18 AND age:<=19");
             Assert.Equal(1, results.Total);
+            
+            results = await _employeeRepository.GetByFilterAsync("age:[18..19]");
+            Assert.Equal(1, results.Total);
 
             results = await _employeeRepository.GetByFilterAsync("age:>19");
             Assert.Equal(1, results.Total);

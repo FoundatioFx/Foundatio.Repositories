@@ -154,11 +154,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (indexes.Count == 0)
                 return Version;
 
-            return indexes
+            var currentIndexes = indexes
                 .Where(i => SystemClock.UtcNow <= GetIndexExpirationDate(i.DateUtc))
                 .Select(i => i.CurrentVersion >= 0 ? i.CurrentVersion : i.Version)
                 .OrderBy(v => v)
-                .First();
+                .ToList();
+
+            return currentIndexes.Count > 0 ? currentIndexes.First() : Version;
         }
 
         public virtual string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd) {
