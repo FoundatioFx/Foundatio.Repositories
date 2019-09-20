@@ -1,4 +1,4 @@
-﻿using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -125,6 +125,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var results = await _employeeRepository.GetByFilterAsync("age:19");
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Age == 19));
+            
+            results = await _employeeRepository.GetByFilterAsync("age:(>18 AND <=19)");
+            Assert.Equal(1, results.Total);
 
             results = await _employeeRepository.GetByFilterAsync("age:>19");
             Assert.Equal(1, results.Total);
@@ -132,6 +135,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             results = await _employeeRepository.GetByFilterAsync("age:<19");
             Assert.Equal(0, results.Total);
+            
+            results = await _employeeRepository.GetByFilterAsync("_missing_:age");
+            Assert.Equal(0, results.Total);
+
+            results = await _employeeRepository.GetByFilterAsync("_exists_:age");
+            Assert.Equal(1, results.Total);
         }
 
         [Fact]
