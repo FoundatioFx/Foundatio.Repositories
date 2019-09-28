@@ -108,6 +108,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             searchResults = await _dailyRepository.SearchAsync(new RepositoryQuery().Company(yesterdayLog.CompanyId).DateRange(utcNow.Subtract(TimeSpan.FromHours(1)), utcNow, "created"));
             Assert.Equal(0, searchResults.Total);
+            
+            searchResults = await _dailyRepository.SearchAsync(new RepositoryQuery().Company(yesterdayLog.CompanyId).DateRange(utcNow.Subtract(TimeSpan.FromHours(1)), DateTime.MaxValue, (LogEvent e) => e.CreatedUtc));
+            Assert.Equal(0, searchResults.Total);
 
             searchResults = await _dailyRepository.SearchAsync(new RepositoryQuery().Id(yesterdayLog.Id));
             Assert.Equal(1, searchResults.Total);

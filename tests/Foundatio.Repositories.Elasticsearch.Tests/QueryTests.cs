@@ -1,4 +1,4 @@
-﻿using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -59,7 +59,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, await _employeeRepository.GetCountByCompanyAsync(employee1.CompanyId));
             await _employeeRepository.RemoveAsync(employee1, o => o.Cache().ImmediateConsistency());
 
-           await  _employeeRepository.GetByQueryAsync(q => q.FieldCondition(e => e.Age, ComparisonOperator.Equals, 12));
+            var result = await  _employeeRepository.GetByQueryAsync(q => q.FieldCondition(e => e.Age, ComparisonOperator.Equals, 12));
+            Assert.Empty(result.Documents);
+
+            var query = new RepositoryQuery<Employee>();
+            query.FieldEquals(e => e.Age, 12);
+            result = await  _employeeRepository.SearchAsync(query);
+            Assert.Empty(result.Documents);
+            
             Assert.Equal(1, await _employeeRepository.CountAsync());
             Assert.Equal(0, await _employeeRepository.GetCountByCompanyAsync(employee1.CompanyId));
         }
