@@ -248,7 +248,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (IsCacheEnabled && options.ShouldReadCache()) {
                 if (options.HasCacheKey() && HasIdentity) {
                    var cacheKeyHits = await Cache.GetAsync<ICollection<T>>(options.GetCacheKey()).AnyContext();
-                   var value = cacheKeyHits.HasValue ? cacheKeyHits.Value.FirstOrDefault(v => String.Equals(((IIdentity)v).Id, id)) : null;
+                   var value = cacheKeyHits.HasValue && !cacheKeyHits.IsNull ? cacheKeyHits.Value.FirstOrDefault(v => String.Equals(((IIdentity)v).Id, id)) : null;
                    if (value != null)
                        hit = new CacheValue<T>(value, true);
                 }
@@ -309,7 +309,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 
                 if (options.HasCacheKey() && HasIdentity) {
                     var cacheKeyHits = await Cache.GetAsync<ICollection<T>>(options.GetCacheKey()).AnyContext();
-                    var values = cacheKeyHits.HasValue ? cacheKeyHits.Value.OfType<IIdentity>().Where(v => idList.Contains(v.Id)) : Enumerable.Empty<IIdentity>();
+                    var values = cacheKeyHits.HasValue && !cacheKeyHits.IsNull ? cacheKeyHits.Value.OfType<IIdentity>().Where(v => idList.Contains(v.Id)) : Enumerable.Empty<IIdentity>();
                     foreach (var value in values) {
                         hits.Add((T)value);
                         idsToLookupFromCache.Remove(value.Id);
@@ -516,7 +516,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return Task.CompletedTask;
 
             var keysToRemove = new List<string>(documents?.Count + 1 ?? 1);
-            if (options != null && options.HasCacheKey())
+            
+            ConfigureOptions(options);
+            if (options.HasCacheKey())
                 keysToRemove.Add(options.GetCacheKey());
             
             if (HasIdentity && documents != null && documents.Count > 0)
