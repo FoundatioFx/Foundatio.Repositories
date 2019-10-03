@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -245,8 +245,17 @@ namespace Foundatio.Repositories.Elasticsearch {
             options = ConfigureOptions(options);
 
             CacheValue<T> hit = null;
-            if (IsCacheEnabled && options.ShouldReadCache())
-                hit = await Cache.GetAsync<T>(id).AnyContext();
+            if (IsCacheEnabled && options.ShouldReadCache()) {
+                if (options.HasCacheKey() && HasIdentity) {
+                   var cacheKeyHits = await Cache.GetAsync<ICollection<T>>(options.GetCacheKey()).AnyContext();
+                   var value = cacheKeyHits.HasValue ? cacheKeyHits.Value.FirstOrDefault(v => String.Equals(((IIdentity)v).Id, id)) : null;
+                   if (value != null)
+                       hit = new CacheValue<T>(value, true);
+                }
+
+                if (hit == null)
+                    hit = await Cache.GetAsync<T>(id).AnyContext();
+            }
 
             bool isTraceLogLevelEnabled = _logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace);
             if (hit != null && hit.HasValue) {
@@ -273,8 +282,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                     document = findResult.Document;
             }
 
-            if (IsCacheEnabled && options.ShouldUseCache())
-                await Cache.SetAsync(id, document, options.GetExpiresIn()).AnyContext();
+            if (IsCacheEnabled && options.ShouldUseCache()) {
+                var expiresIn = options.GetExpiresIn();
+                if (options.HasCacheKey())
+                    await Cache.SetAsync(options.GetCacheKey(), new List<T> { document }, expiresIn).AnyContext();
+                
+                await Cache.SetAsync(id, document, expiresIn).AnyContext();
+            }
 
             return document;
         }
@@ -286,13 +300,26 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (!HasIdentity)
                 throw new NotSupportedException("Model type must implement IIdentity.");
-
+            
             options = ConfigureOptions(options);
-
+            
             var hits = new List<T>();
             if (IsCacheEnabled && options.ShouldReadCache()) {
-                var cacheHits = await Cache.GetAllAsync<T>(idList.Select(id => id.Value)).AnyContext();
-                hits.AddRange(cacheHits.Where(kvp => kvp.Value.HasValue).Select(kvp => kvp.Value.Value));
+                var idsToLookupFromCache = idList.Select(id => id.Value).ToList();
+                
+                if (options.HasCacheKey() && HasIdentity) {
+                    var cacheKeyHits = await Cache.GetAsync<ICollection<T>>(options.GetCacheKey()).AnyContext();
+                    var values = cacheKeyHits.HasValue ? cacheKeyHits.Value.OfType<IIdentity>().Where(v => idList.Contains(v.Id)) : Enumerable.Empty<IIdentity>();
+                    foreach (var value in values) {
+                        hits.Add((T)value);
+                        idsToLookupFromCache.Remove(value.Id);
+                    }
+                }
+
+                if (idsToLookupFromCache.Count > 0) {
+                    var cacheHits = await Cache.GetAllAsync<T>(idsToLookupFromCache).AnyContext();
+                    hits.AddRange(cacheHits.Where(kvp => kvp.Value.HasValue).Select(kvp => kvp.Value.Value));
+                }
             }
 
             var itemsToFind = idList.Except(hits.OfType<IIdentity>().Select(i => (Id)i.Id)).ToList();
@@ -301,13 +328,13 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var multiGet = new MultiGetDescriptor();
             foreach (var id in itemsToFind.Where(i => i.Routing != null || !HasParent)) {
-                multiGet.Get<T>((Func<MultiGetOperationDescriptor<T>, IMultiGetOperation>)((MultiGetOperationDescriptor<T> f) => {
+                multiGet.Get<T>(f => {
                     f.Id(id.Value).Index(ElasticIndex.GetIndex(id));
                     if (id.Routing != null)
                         f.Routing(id.Routing);
 
                     return f;
-                }));
+                });
             }
 
             var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
@@ -327,12 +354,17 @@ namespace Foundatio.Repositories.Elasticsearch {
                 } while (await response.NextPageAsync().AnyContext());
             }
 
+            var documents = hits.Where(h => h != null).ToList().AsReadOnly();
+            
             if (IsCacheEnabled && options.ShouldUseCache()) {
                 var expiresIn = options.GetExpiresIn();
-                await Cache.SetAllAsync(idList.ToDictionary(id => id.Value, id => hits.OfType<IIdentity>().FirstOrDefault(h => h.Id == id.Value)), expiresIn).AnyContext();
+                if (options.HasCacheKey())
+                    await Cache.SetAsync(options.GetCacheKey(), documents, expiresIn).AnyContext();
+                
+                await Cache.SetAllAsync(idList.ToDictionary(id => id.Value, id => documents.OfType<IIdentity>().FirstOrDefault(h => h.Id == id.Value)), expiresIn).AnyContext();
             }
 
-            return hits.Where(h => h != null).ToList().AsReadOnly();
+            return documents;
         }
 
         public virtual Task<FindResults<T>> GetAllAsync(ICommandOptions options = null) {

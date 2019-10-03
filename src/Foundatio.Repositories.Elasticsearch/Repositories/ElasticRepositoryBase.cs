@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -869,12 +869,20 @@ namespace Foundatio.Repositories.Elasticsearch {
             // 429 // 503
         }
 
-        protected virtual async Task AddToCacheAsync(ICollection<T> documents, ICommandOptions options) {
+        protected virtual Task AddToCacheAsync(ICollection<T> documents, ICommandOptions options) {
             if (!IsCacheEnabled || Cache == null || !options.ShouldUseCache())
-                return;
+                return Task.CompletedTask;
+
+            var expiresIn = options.GetExpiresIn();
+
+            var tasks = new List<Task>(documents.Count + 1);
+            if (options.HasCacheKey()) 
+                tasks.Add(Cache.SetAsync(options.GetCacheKey(), documents, expiresIn));
 
             foreach (var document in documents)
-                await Cache.SetAsync(document.Id, document, options.GetExpiresIn()).AnyContext();
+                tasks.Add(Cache.SetAsync(document.Id, document, expiresIn));
+
+            return Task.WhenAll(tasks);
         }
 
         protected bool NotificationsEnabled { get; set; }
