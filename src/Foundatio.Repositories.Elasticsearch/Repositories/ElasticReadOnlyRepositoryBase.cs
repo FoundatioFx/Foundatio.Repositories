@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -511,16 +511,21 @@ namespace Foundatio.Repositories.Elasticsearch {
             _scopedCacheClient = new ScopedCacheClient(new NullCacheClient(), EntityTypeName);
         }
 
-        protected virtual async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
+        protected virtual Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
             if (!IsCacheEnabled)
-                return;
+                return Task.CompletedTask;
 
-            if (documents != null && documents.Count > 0 && HasIdentity) {
-                var keys = documents.Select(d => ((IIdentity)d.Value).Id).ToList();
-
-                if (keys.Count > 0)
-                    await Cache.RemoveAllAsync(keys).AnyContext();
-            }
+            var keysToRemove = new List<string>(documents?.Count + 1 ?? 1);
+            if (options != null && options.HasCacheKey())
+                keysToRemove.Add(options.GetCacheKey());
+            
+            if (HasIdentity && documents != null && documents.Count > 0)
+                keysToRemove.AddRange(documents.Select(d => ((IIdentity)d.Value).Id));
+            
+            if (keysToRemove.Count > 0)
+                return Cache.RemoveAllAsync(keysToRemove);
+            
+            return Task.CompletedTask;
         }
 
         public virtual Task InvalidateCacheAsync(T document, ICommandOptions options = null) {
