@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -593,7 +593,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     query.ExcludedId(deletedIds.Value);
             }
 
-            if (BeforeQuery == null)
+            if (BeforeQuery == null || !BeforeQuery.HasHandlers)
                 return;
 
             await BeforeQuery.InvokeAsync(this, new BeforeQueryEventArgs<T>(query, options, this, resultType)).AnyContext();

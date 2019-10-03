@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -645,7 +645,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             documents.EnsureIds(ElasticIndex.CreateDocumentId);
 
-            if (DocumentsAdding != null)
+            if (DocumentsAdding != null && DocumentsAdding.HasHandlers)
                 await DocumentsAdding.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
             await OnDocumentsChangingAsync(ChangeType.Added, documents, options).AnyContext();
@@ -654,7 +654,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public AsyncEvent<DocumentsEventArgs<T>> DocumentsAdded { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
 
         private async Task OnDocumentsAddedAsync(IReadOnlyCollection<T> documents, ICommandOptions options) {
-            if (DocumentsAdded != null)
+            if (DocumentsAdded != null && DocumentsAdded.HasHandlers)
                 await DocumentsAdded.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
             var modifiedDocs = documents.Select(d => new ModifiedDocument<T>(d, null)).ToList();
@@ -677,7 +677,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 documents, cf => cf.Id, cf => cf.Id,
                 (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m => new ModifiedDocument<T>( m.Modified, m.Original)).ToList();
 
-            if (DocumentsSaving != null)
+            if (DocumentsSaving != null && DocumentsSaving.HasHandlers)
                 await DocumentsSaving.InvokeAsync(this, new ModifiedDocumentsEventArgs<T>(modifiedDocs, this, options)).AnyContext();
 
             await OnDocumentsChangingAsync(ChangeType.Saved, modifiedDocs, options).AnyContext();
@@ -700,7 +700,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     await Cache.SetRemoveAsync("deleted", undeletedIds, TimeSpan.FromSeconds(30)).AnyContext();
             }
 
-            if (DocumentsSaved != null)
+            if (DocumentsSaved != null && DocumentsSaved.HasHandlers)
                 await DocumentsSaved.InvokeAsync(this, new ModifiedDocumentsEventArgs<T>(modifiedDocs, this, options)).AnyContext();
 
             await OnDocumentsChangedAsync(ChangeType.Saved, modifiedDocs, options).AnyContext();
@@ -710,7 +710,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public AsyncEvent<DocumentsEventArgs<T>> DocumentsRemoving { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
 
         private async Task OnDocumentsRemovingAsync(IReadOnlyCollection<T> documents, ICommandOptions options) {
-            if (DocumentsRemoving != null)
+            if (DocumentsRemoving != null && DocumentsRemoving.HasHandlers)
                 await DocumentsRemoving.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
             await OnDocumentsChangingAsync(ChangeType.Removed, documents, options).AnyContext();
@@ -719,7 +719,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public AsyncEvent<DocumentsEventArgs<T>> DocumentsRemoved { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
 
         private async Task OnDocumentsRemovedAsync(IReadOnlyCollection<T> documents, ICommandOptions options) {
-            if (DocumentsRemoved != null)
+            if (DocumentsRemoved != null && DocumentsRemoved.HasHandlers)
                 await DocumentsRemoved.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
             await OnDocumentsChangedAsync(ChangeType.Removed, documents, options).AnyContext();
@@ -729,14 +729,17 @@ namespace Foundatio.Repositories.Elasticsearch {
         public AsyncEvent<DocumentsChangeEventArgs<T>> DocumentsChanging { get; } = new AsyncEvent<DocumentsChangeEventArgs<T>>();
 
         private Task OnDocumentsChangingAsync(ChangeType changeType, IReadOnlyCollection<T> documents, ICommandOptions options) {
+            if (DocumentsChanging == null || !DocumentsChanging.HasHandlers)
+                return Task.CompletedTask;
+            
             return OnDocumentsChangingAsync(changeType, documents.Select(d => new ModifiedDocument<T>(d, null)).ToList(), options);
         }
 
-        private async Task OnDocumentsChangingAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
-            if (DocumentsChanging == null)
-                return;
+        private Task OnDocumentsChangingAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
+            if (DocumentsChanging == null || !DocumentsChanging.HasHandlers)
+                return Task.CompletedTask;
 
-            await DocumentsChanging.InvokeAsync(this, new DocumentsChangeEventArgs<T>(changeType, documents, this, options)).AnyContext();
+            return DocumentsChanging.InvokeAsync(this, new DocumentsChangeEventArgs<T>(changeType, documents, this, options));
         }
 
         public AsyncEvent<DocumentsChangeEventArgs<T>> DocumentsChanged { get; } = new AsyncEvent<DocumentsChangeEventArgs<T>>();
@@ -746,12 +749,12 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         private async Task OnDocumentsChangedAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
-            if (DocumentsChanged == null)
-                return;
-
             if (changeType != ChangeType.Added)
                 await InvalidateCacheAsync(documents, options).AnyContext();
-
+            
+            if (DocumentsChanged == null || !DocumentsChanged.HasHandlers)
+                return;
+            
             await DocumentsChanged.InvokeAsync(this, new DocumentsChangeEventArgs<T>(changeType, documents, this, options)).AnyContext();
         }
 
@@ -982,7 +985,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (!NotificationsEnabled || _messagePublisher == null)
                 return;
 
-            if (BeforePublishEntityChanged != null) {
+            if (BeforePublishEntityChanged != null && BeforePublishEntityChanged.HasHandlers) {
                 var eventArgs = new BeforePublishEntityChangedEventArgs<T>(this, message);
                 await BeforePublishEntityChanged.InvokeAsync(this, eventArgs).AnyContext();
                 if (eventArgs.Cancel)
