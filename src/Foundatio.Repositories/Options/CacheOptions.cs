@@ -82,7 +82,7 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static string GetDefaultCacheKey(this ICommandOptions options) {
-            return options.SafeGetOption<string>(SetCacheOptionsExtensions.CacheKeyKey, null);
+            return options.SafeGetOption<string>(SetCacheOptionsExtensions.DefaultCacheKeyKey, null);
         }
 
         public static TimeSpan GetExpiresIn(this ICommandOptions options) {
