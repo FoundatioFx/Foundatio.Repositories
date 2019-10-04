@@ -248,9 +248,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (IsCacheEnabled && options.ShouldReadCache()) {
                 if (options.HasCacheKey() && HasIdentity) {
                    var cacheKeyHits = await Cache.GetAsync<ICollection<T>>(options.GetCacheKey()).AnyContext();
-                   var value = cacheKeyHits.HasValue && !cacheKeyHits.IsNull ? cacheKeyHits.Value.FirstOrDefault(v => String.Equals(((IIdentity)v).Id, id)) : null;
+                   var value = cacheKeyHits.HasValue && !cacheKeyHits.IsNull ? cacheKeyHits.Value.OfType<IIdentity>().FirstOrDefault(v => String.Equals(v.Id, id)) : null;
                    if (value != null)
-                       hit = new CacheValue<T>(value, true);
+                       hit = new CacheValue<T>((T)value, true);
                 }
 
                 if (hit == null)
