@@ -517,8 +517,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var keysToRemove = new List<string>(documents?.Count + 1 ?? 1);
             
-            ConfigureOptions(options);
-            if (options.HasCacheKey())
+            if (options != null && options.HasCacheKey())
                 keysToRemove.Add(options.GetCacheKey());
             
             if (HasIdentity && documents != null && documents.Count > 0)
