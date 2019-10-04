@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -201,9 +201,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ArgumentNullException(nameof(query));
 
             options = ConfigureOptions(options);
-            var result = IsCacheEnabled ? await GetCachedQueryResultAsync<FindHit<T>>(options).AnyContext() : null;
+            var result = IsCacheEnabled && options.ShouldUseCache() && options.HasCacheKey() ? await GetCachedFindHit(options).AnyContext() : null;
             if (result != null)
-                return result;
+                return result.FirstOrDefault();
 
             await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
@@ -220,11 +220,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
             }
 
-            result = response.Hits.FirstOrDefault()?.ToFindHit();
+            result = response.Hits.Select(h => h.ToFindHit()).ToList();
             if (IsCacheEnabled)
-                await SetCachedQueryResultAsync(options, result).AnyContext();
+                await SetCachedFindHit(result, options.GetCacheKey(), options.GetExpiresIn()).AnyContext();
 
-            return result;
+            return result.FirstOrDefault();
         }       
 
         public virtual Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, ICommandOptions options = null) {
@@ -247,14 +247,15 @@ namespace Foundatio.Repositories.Elasticsearch {
             CacheValue<T> hit = null;
             if (IsCacheEnabled && options.ShouldReadCache()) {
                 if (options.HasCacheKey() && HasIdentity) {
-                   var cacheKeyHits = await Cache.GetAsync<ICollection<T>>(options.GetCacheKey()).AnyContext();
-                   var value = cacheKeyHits.HasValue && !cacheKeyHits.IsNull ? cacheKeyHits.Value.OfType<IIdentity>().FirstOrDefault(v => String.Equals(v.Id, id)) : null;
-                   if (value != null)
-                       hit = new CacheValue<T>((T)value, true);
+                    var value = await GetCachedFindHit(id, options.GetCacheKey()).AnyContext();
+                    if (value?.Document != null)
+                       hit = new CacheValue<T>(value.Document, true);
                 }
 
-                if (hit == null)
-                    hit = await Cache.GetAsync<T>(id).AnyContext();
+                if (hit == null) {
+                    var value = await GetCachedFindHit(id).AnyContext();
+                    hit = new CacheValue<T>(value?.Document, value?.Document != null);
+                }
             }
 
             bool isTraceLogLevelEnabled = _logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace);
@@ -264,7 +265,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return hit.Value;
             }
 
-            T document = null;
+            FindHit<T> findHit;
             if (!HasParent || id.Routing != null) {
                 var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
                 if (id.Routing != null)
@@ -273,24 +274,22 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (isTraceLogLevelEnabled)
                     _logger.LogTraceRequest(response);
 
-                document = response.Found ? response.ToFindHit().Document : null;
+                findHit = response.Found ? response.ToFindHit() : null;
             } else {
                 // we don't have the parent id so we have to do a query
                 // TODO: Ensure this is find one query is not cached.
-                var findResult = await FindOneAsync(NewQuery().Id(id)).AnyContext();
-                if (findResult != null)
-                    document = findResult.Document;
+                findHit = await FindOneAsync(NewQuery().Id(id)).AnyContext();
             }
 
             if (IsCacheEnabled && options.ShouldUseCache()) {
                 var expiresIn = options.GetExpiresIn();
                 if (options.HasCacheKey())
-                    await Cache.SetAsync(options.GetCacheKey(), new List<T> { document }, expiresIn).AnyContext();
+                    await SetCachedFindHit(findHit, options.GetCacheKey(), expiresIn).AnyContext();
                 
-                await Cache.SetAsync(id, document, expiresIn).AnyContext();
+                await SetCachedFindHit(findHit, id, expiresIn).AnyContext();
             }
 
-            return document;
+            return findHit?.Document;
         }
 
         public virtual async Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, ICommandOptions options = null) {
@@ -303,28 +302,25 @@ namespace Foundatio.Repositories.Elasticsearch {
             
             options = ConfigureOptions(options);
             
-            var hits = new List<T>();
+            var hits = new List<FindHit<T>>();
             if (IsCacheEnabled && options.ShouldReadCache()) {
-                var idsToLookupFromCache = idList.Select(id => id.Value).ToList();
+                var idsToLookupFromCache = idList.ToList();
                 
                 if (options.HasCacheKey() && HasIdentity) {
-                    var cacheKeyHits = await Cache.GetAsync<ICollection<T>>(options.GetCacheKey()).AnyContext();
-                    var values = cacheKeyHits.HasValue && !cacheKeyHits.IsNull ? cacheKeyHits.Value.OfType<IIdentity>().Where(v => idList.Contains(v.Id)) : Enumerable.Empty<IIdentity>();
+                    var values = await GetCachedFindHit(idList, options.GetCacheKey()).AnyContext();
                     foreach (var value in values) {
-                        hits.Add((T)value);
+                        hits.Add(value);
                         idsToLookupFromCache.Remove(value.Id);
                     }
                 }
 
-                if (idsToLookupFromCache.Count > 0) {
-                    var cacheHits = await Cache.GetAllAsync<T>(idsToLookupFromCache).AnyContext();
-                    hits.AddRange(cacheHits.Where(kvp => kvp.Value.HasValue).Select(kvp => kvp.Value.Value));
-                }
+                if (idsToLookupFromCache.Count > 0)
+                    hits.AddRange(await GetCachedFindHit(idsToLookupFromCache).AnyContext());
             }
 
             var itemsToFind = idList.Except(hits.OfType<IIdentity>().Select(i => (Id)i.Id)).ToList();
             if (itemsToFind.Count == 0)
-                return hits.Where(h => h != null).ToList().AsReadOnly();
+                return hits.Select(h => h.Document).ToList().AsReadOnly();
 
             var multiGet = new MultiGetDescriptor();
             foreach (var id in itemsToFind.Where(i => i.Routing != null || !HasParent)) {
@@ -341,7 +337,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             _logger.LogTraceRequest(multiGetResults);
 
             foreach (var doc in multiGetResults.Hits) {
-                hits.Add(((IMultiGetHit<T>)doc).ToFindHit().Document);
+                hits.Add(((IMultiGetHit<T>)doc).ToFindHit());
                 itemsToFind.Remove(new Id(doc.Id, doc.Routing));
             }
 
@@ -350,23 +346,21 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var response = await FindAsync(q => q.Id(itemsToFind.Select(id => id.Value)), o => o.PageLimit(1000)).AnyContext();
                 do {
                     if (response.Hits.Count > 0)
-                        hits.AddRange(response.Hits.Where(h => h.Document != null).Select(h => h.Document));
+                        hits.AddRange(response.Hits.Where(h => h.Document != null));
                 } while (await response.NextPageAsync().AnyContext());
             }
 
-            var documents = hits.Where(h => h != null).ToList().AsReadOnly();
-            
             if (IsCacheEnabled && options.ShouldUseCache()) {
                 var expiresIn = options.GetExpiresIn();
                 if (options.HasCacheKey())
-                    await Cache.SetAsync(options.GetCacheKey(), documents, expiresIn).AnyContext();
-                
-                await Cache.SetAllAsync(idList.ToDictionary(id => id.Value, id => documents.OfType<IIdentity>().FirstOrDefault(h => h.Id == id.Value)), expiresIn).AnyContext();
+                    await SetCachedFindHit(hits, options.GetCacheKey(), expiresIn).AnyContext();
+
+                await SetCachedFindHit(hits, null, expiresIn).AnyContext();
             }
 
-            return documents;
+            return hits.Select(h => h.Document).ToList().AsReadOnly();
         }
-
+        
         public virtual Task<FindResults<T>> GetAllAsync(ICommandOptions options = null) {
             return FindAsync(null, options);
         }
@@ -586,7 +580,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected Func<T, string> GetParentIdFunc { get; set; }
 
         protected async Task<TResult> GetCachedQueryResultAsync<TResult>(ICommandOptions options, string cachePrefix = null, string cacheSuffix = null) {
-            if (!IsCacheEnabled || options == null || !options.ShouldReadCache() || !options.HasCacheKey())
+            if (!IsCacheEnabled || !options.ShouldReadCache() || !options.HasCacheKey())
                 return default;
 
             string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey();
@@ -601,7 +595,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected async Task SetCachedQueryResultAsync<TResult>(ICommandOptions options, TResult result, string cachePrefix = null, string cacheSuffix = null) {
-            if (!IsCacheEnabled || result == null || options == null || !options.ShouldUseCache() || !options.HasCacheKey())
+            if (!IsCacheEnabled || result == null || !options.ShouldUseCache() || !options.HasCacheKey())
                 return;
 
             string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey();
@@ -611,6 +605,69 @@ namespace Foundatio.Repositories.Elasticsearch {
             await Cache.SetAsync(cacheKey, result, options.GetExpiresIn()).AnyContext();
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
                 _logger.LogTrace("Set cache: type={ElasticType} key={CacheKey}", ElasticIndex.Name, cacheKey);
+        }
+
+        protected async Task<ICollection<FindHit<T>>> GetCachedFindHit(ICommandOptions options) {
+            string cacheKey = options.GetCacheKey();
+            var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
+            
+            var result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull ? cacheKeyHits.Value : null;
+            
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace("Cache {HitOrMiss}: type={ElasticType} key={CacheKey}", (result != null ? "hit" : "miss"), ElasticIndex.Name, cacheKey);
+
+            return result;
+        }
+        
+        protected async Task<FindHit<T>> GetCachedFindHit(Id id, string cacheKey = null) {
+            var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey ?? id).AnyContext();
+            
+            var result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull
+                ? cacheKeyHits.Value.FirstOrDefault(v => v != null && String.Equals(v.Id, id))
+                : null;
+            
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace("Cache {HitOrMiss}: type={ElasticType} key={CacheKey}", (result != null ? "hit" : "miss"), ElasticIndex.Name, cacheKey ?? id);
+
+            return result;
+        }
+
+        protected async Task<ICollection<FindHit<T>>> GetCachedFindHit(ICollection<Id> ids, string cacheKey = null) {
+            var idList = ids.Select(id => id.Value).ToList();
+            IEnumerable<FindHit<T>> result;
+            
+            if (String.IsNullOrEmpty(cacheKey)) {
+                var cacheHitsById = await Cache.GetAllAsync<ICollection<FindHit<T>>>(idList).AnyContext();
+                
+                result = cacheHitsById
+                    .Where(kvp => kvp.Value.HasValue && !kvp.Value.IsNull)
+                    .SelectMany(kvp => kvp.Value.Value)
+                    .Where(v => v?.Document != null && idList.Contains(v.Id));
+            } else {
+                var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
+                result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull
+                    ? cacheKeyHits.Value.Where(v => v?.Document != null && idList.Contains(v.Id))
+                    : Enumerable.Empty<FindHit<T>>();
+            }
+            
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace("Cache {HitOrMiss}: type={ElasticType} key={CacheKey}", (result != null ? "hit" : "miss"), ElasticIndex.Name, cacheKey ?? String.Join(", ", idList));
+
+            return result.ToList();
+        }
+
+        protected Task SetCachedFindHit(FindHit<T> findHit, string cacheKey = null, TimeSpan? expiresIn = null) { 
+            return SetCachedFindHit(new List<FindHit<T>> { findHit }, cacheKey ?? findHit.Id, expiresIn);
+        }
+
+        protected async Task SetCachedFindHit(ICollection<FindHit<T>> findHits, string cacheKey = null, TimeSpan? expiresIn = null) { 
+            if (!String.IsNullOrEmpty(cacheKey))
+                await Cache.SetAsync(cacheKey, findHits, expiresIn).AnyContext();
+            else
+                await Cache.SetAllAsync(findHits.ToDictionary(hit => hit.Id, hit => findHits.Where(h => h.Id == hit.Id)), expiresIn).AnyContext();
+            
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace("Set cache: type={ElasticType} key={CacheKey}", ElasticIndex.Name, cacheKey ?? String.Join(", ", findHits.Select(h => h.Id)));
         }
 
         private IIndex _elasticIndex;
