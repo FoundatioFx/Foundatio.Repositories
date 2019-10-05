@@ -1,9 +1,5 @@
 using System;
-using System.Collections.Generic;
-using System.Text;
 using Foundatio.Serializer;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Models {
     public interface ILazyDocument {

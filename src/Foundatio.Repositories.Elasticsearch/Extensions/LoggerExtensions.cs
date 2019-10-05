@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Elasticsearch.Net;
-using Foundatio.Parsers.ElasticQueries.Extensions;
 using Microsoft.Extensions.Logging;
 using Nest;
 using Newtonsoft.Json;
@@ -90,17 +89,19 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
     internal class JsonUtility {
         public static string NormalizeJsonString(string json) {
-            try {
-                var parsedObject = JObject.Parse(json);
-                var normalizedObject = SortPropertiesAlphabetically(parsedObject);
-                return JsonConvert.SerializeObject(normalizedObject, Formatting.Indented);
-            } catch (JsonReaderException) {
+            if (String.IsNullOrEmpty(json))
+                return json;
+
+            JObject parsedObject;
+            JObject normalizedObject;
+            
+            if (json.Contains("\n")) {
                 var sb = new StringBuilder();
                 
                 foreach (string line in json.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries)) {
                     try {
-                        var parsedObject = JObject.Parse(line);
-                        var normalizedObject = SortPropertiesAlphabetically(parsedObject);
+                        parsedObject = JObject.Parse(line);
+                        normalizedObject = SortPropertiesAlphabetically(parsedObject);
                         sb.AppendLine(JsonConvert.SerializeObject(normalizedObject, Formatting.Indented));
                     } catch {
                         // just return the original json
@@ -110,6 +111,10 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
                 return sb.ToString();
             }
+            
+            parsedObject = JObject.Parse(json);
+            normalizedObject = SortPropertiesAlphabetically(parsedObject);
+            return JsonConvert.SerializeObject(normalizedObject, Formatting.Indented);
         }
 
         private static JObject SortPropertiesAlphabetically(JObject original) {
@@ -119,12 +124,10 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 if (property.Value is JObject value) {
                     value = SortPropertiesAlphabetically(value);
                     result.Add(property.Name, value);
-                }
-                else if (property.Value is JArray array) {
+                } else if (property.Value is JArray array) {
                     array = SortArrayAlphabetically(array);
                     result.Add(property.Name, array);
-                }
-                else {
+                } else {
                     result.Add(property.Name, property.Value);
                 }
             }
