@@ -204,7 +204,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task AddCollectionWithCacheKeyAsync() {
             const string cacheKey = "test-cache-key";
-            Log.MinimumLevel = LogLevel.Trace;
             
             var identity = IdentityGenerator.Generate();
             var identity2 = IdentityGenerator.Generate();
@@ -248,6 +247,35 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(3, _cache.Misses);
         }
 
+                [Fact]
+        public async Task AddSaveAndFindOneWillUseSameCacheEntry() {
+            const string cacheKey = "test-cache-key";
+            
+            var identity = IdentityGenerator.Generate();
+            await _identityRepository.AddAsync(new List<Identity> { identity }, o => o.Cache(cacheKey));
+            Assert.NotNull(identity?.Id);
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(0, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache(cacheKey)));
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(1, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            var idsResult = await _identityRepository.GetByIdsAsync(new[] { identity.Id }, o => o.Cache(cacheKey));
+            Assert.Equal(identity, idsResult.Single());
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(2, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            var findResult = await _identityRepository.FindOneAsync(q => q.FieldEquals(f => f.Id, identity.Id), o => o.Cache(cacheKey));
+            Assert.Equal(identity, findResult.Document);
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(3, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+        }
+        
         [Fact]
         public async Task SaveAsync() {
             var log = await _dailyRepository.AddAsync(LogEventGenerator.Default, o => o.Notifications(false));
