@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -254,6 +254,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var identity = IdentityGenerator.Generate();
             await _identityRepository.AddAsync(new List<Identity> { identity }, o => o.Cache(cacheKey));
             Assert.NotNull(identity?.Id);
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(0, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+            
+            await _identityRepository.SaveAsync(identity, o => o.Cache(cacheKey));
             Assert.Equal(2, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);

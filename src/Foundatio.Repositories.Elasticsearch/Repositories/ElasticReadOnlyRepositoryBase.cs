@@ -201,7 +201,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ArgumentNullException(nameof(query));
 
             options = ConfigureOptions(options);
-            var result = IsCacheEnabled && options.ShouldUseCache() && options.HasCacheKey() ? await GetCachedFindHit(options).AnyContext() : null;
+            var result = IsCacheEnabled && options.ShouldReadCache() && options.HasCacheKey() ? await GetCachedFindHit(options).AnyContext() : null;
             if (result != null)
                 return result.FirstOrDefault();
 
@@ -221,7 +221,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             result = response.Hits.Select(h => h.ToFindHit()).ToList();
-            if (IsCacheEnabled)
+            if (IsCacheEnabled && options.ShouldUseCache())
                 await SetCachedFindHit(result, options.GetCacheKey(), options.GetExpiresIn()).AnyContext();
 
             return result.FirstOrDefault();
@@ -422,9 +422,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ArgumentNullException(nameof(query));
 
             options = ConfigureOptions(options);
-            var result = await GetCachedQueryResultAsync<CountResult>(options, "count").AnyContext();
-            if (result != null)
-                return result;
+
+            CountResult result;
+            if (IsCacheEnabled && options.ShouldReadCache()) {
+                result = await GetCachedQueryResultAsync<CountResult>(options, "count").AnyContext();
+                if (result != null)
+                    return result;
+            }
 
             await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
@@ -442,9 +446,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                 _logger.LogErrorRequest(response, "Error getting document count");
                 throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
             }
-
+            
             result = new CountResult(response.Total, response.ToAggregations());
-            await SetCachedQueryResultAsync(options, result, "count").AnyContext();
+            if (IsCacheEnabled && options.ShouldUseCache()) 
+                await SetCachedQueryResultAsync(options, result, "count").AnyContext();
+
             return result;
         }
 
@@ -667,7 +673,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (!String.IsNullOrEmpty(cacheKey)) {
                 await Cache.SetAsync(cacheKey, findHits, expiresIn).AnyContext();
             } else {
-                await Cache.SetAllAsync(findHits.ToDictionary(hit => hit.Id, hit => findHits.Where(h => h.Id == hit.Id)), expiresIn).AnyContext();
+                await Cache.SetAllAsync(findHits.ToDictionary(hit => hit.Id, hit => (ICollection<FindHit<T>>)findHits.Where(h => h.Id == hit.Id).ToList()), expiresIn).AnyContext();
             }
             
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
