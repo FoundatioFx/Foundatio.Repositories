@@ -5,7 +5,6 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories {
     public static class SetElasticOptionsExtensions {

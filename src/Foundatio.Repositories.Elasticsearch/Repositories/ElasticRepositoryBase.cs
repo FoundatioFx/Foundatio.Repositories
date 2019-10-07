@@ -874,15 +874,23 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return Task.CompletedTask;
 
             var expiresIn = options.GetExpiresIn();
+            var findHits = documents.Select(ToFindHit).ToList();
 
-            var tasks = new List<Task>(documents.Count + 1);
-            if (options.HasCacheKey()) 
-                tasks.Add(Cache.SetAsync(options.GetCacheKey(), documents, expiresIn));
+            var saveDocumentsToCacheWithKeyTask = options.HasCacheKey()
+                ? SetCachedFindHit(findHits, options.GetCacheKey(), expiresIn)
+                : Task.CompletedTask;
+            
+            return Task.WhenAll(saveDocumentsToCacheWithKeyTask, SetCachedFindHit(findHits, null, expiresIn));
+        }
+        
+        protected Task SetCachedFindHit(T document, string cacheKey = null, TimeSpan? expiresIn = null) {
+            return SetCachedFindHit(new List<FindHit<T>> { ToFindHit(document) }, cacheKey ?? document.Id, expiresIn);
+        }
 
-            foreach (var document in documents)
-                tasks.Add(Cache.SetAsync(document.Id, document, expiresIn));
-
-            return Task.WhenAll(tasks);
+        protected FindHit<T> ToFindHit(T document) {
+            string version = HasVersion ? ((IVersioned)document)?.Version : null;
+            string routing = GetParentIdFunc?.Invoke(document);
+            return new FindHit<T>(document?.Id, document, 0, version, routing);
         }
 
         protected bool NotificationsEnabled { get; set; }

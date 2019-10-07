@@ -1,21 +1,18 @@
-﻿using Elasticsearch.Net;
-using Foundatio.Parsers.ElasticQueries.Extensions;
-using Foundatio.Repositories.Elasticsearch.Extensions;
-using Foundatio.Repositories.Elasticsearch.Jobs;
-using Foundatio.Repositories.Extensions;
-using Foundatio.Repositories.Utility;
-using Foundatio.Utility;
-using Nest;
-using Newtonsoft.Json.Linq;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Elasticsearch.Net;
+using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Jobs;
+using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Utility;
+using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Foundatio.Repositories.Elasticsearch.Configuration;
+using Nest;
 using Newtonsoft.Json;
 
 namespace Foundatio.Repositories.Elasticsearch {
