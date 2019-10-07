@@ -247,7 +247,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(3, _cache.Misses);
         }
 
-                [Fact]
+        [Fact]
         public async Task AddSaveAndFindOneWillUseSameCacheEntry() {
             const string cacheKey = "test-cache-key";
             
