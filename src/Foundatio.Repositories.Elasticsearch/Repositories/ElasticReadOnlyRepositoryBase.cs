@@ -644,7 +644,6 @@ namespace Foundatio.Repositories.Elasticsearch {
             
             if (String.IsNullOrEmpty(cacheKey)) {
                 var cacheHitsById = await Cache.GetAllAsync<ICollection<FindHit<T>>>(idList).AnyContext();
-                
                 result = cacheHitsById
                     .Where(kvp => kvp.Value.HasValue && !kvp.Value.IsNull)
                     .SelectMany(kvp => kvp.Value.Value)
@@ -666,18 +665,23 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected Task SetCachedFindHit(FindHit<T> findHit, string cacheKey = null, TimeSpan? expiresIn = null) { 
-            return SetCachedFindHit(new List<FindHit<T>> { findHit }, cacheKey ?? findHit.Id, expiresIn);
+            return SetCachedFindHit(new List<FindHit<T>> { findHit }, cacheKey ?? findHit?.Id, expiresIn);
         }
 
         protected async Task SetCachedFindHit(ICollection<FindHit<T>> findHits, string cacheKey = null, TimeSpan? expiresIn = null) { 
             if (!String.IsNullOrEmpty(cacheKey)) {
                 await Cache.SetAsync(cacheKey, findHits, expiresIn).AnyContext();
             } else {
-                await Cache.SetAllAsync(findHits.ToDictionary(hit => hit.Id, hit => (ICollection<FindHit<T>>)findHits.Where(h => h.Id == hit.Id).ToList()), expiresIn).AnyContext();
+                var findHitsById = findHits
+                    .Where(hit => hit != null)
+                    .ToDictionary(hit => hit.Id, hit => (ICollection<FindHit<T>>)findHits.Where(h => h.Id == hit.Id).ToList());
+                
+                if (findHitsById.Keys.Count > 0)
+                    await Cache.SetAllAsync(findHitsById, expiresIn).AnyContext();
             }
             
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace("Set cache: type={ElasticType} key={CacheKey}", ElasticIndex.Name, cacheKey ?? String.Join(", ", findHits.Select(h => h.Id)));
+                _logger.LogTrace("Set cache: type={ElasticType} key={CacheKey}", ElasticIndex.Name, cacheKey ?? String.Join(", ", findHits.Select(h => h?.Id)));
         }
 
         private IIndex _elasticIndex;
