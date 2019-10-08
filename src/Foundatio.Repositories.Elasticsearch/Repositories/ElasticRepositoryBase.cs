@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -322,7 +322,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                                   .Index(h.GetIndex())
                                   .Pipeline(DefaultPipeline);
 
-                                 if (!elasticVersion.IsEmpty) {
+                                 if (HasVersion) {
                                      i.IfPrimaryTerm(elasticVersion.PrimaryTerm)
                                       .IfSequenceNumber(elasticVersion.SequenceNumber);
                                  }
@@ -787,10 +787,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     if (HasVersion && !isCreateOperation) {
                         var elasticVersion = ((IVersioned)document).GetElasticVersion();
-                        if (!elasticVersion.IsEmpty) {
-                            i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
-                            i.IfSequenceNumber(elasticVersion.SequenceNumber);
-                        }
+                        i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
+                        i.IfSequenceNumber(elasticVersion.SequenceNumber);
                     }
 
                     return i;
@@ -825,10 +823,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     if (HasVersion && !isCreateOperation) {
                         var elasticVersion = ((IVersioned)d).GetElasticVersion();
-                        if (!elasticVersion.IsEmpty) {
-                            indexOperation.IfSequenceNumber = elasticVersion.SequenceNumber;
-                            indexOperation.IfPrimaryTerm = elasticVersion.PrimaryTerm;
-                        }
+                        indexOperation.IfSequenceNumber = elasticVersion.SequenceNumber;
+                        indexOperation.IfPrimaryTerm = elasticVersion.PrimaryTerm;
                     }
 
                     return baseOperation;
