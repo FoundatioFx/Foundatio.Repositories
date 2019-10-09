@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Nest;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Caching;
+using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
@@ -414,6 +415,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public DailyIndex(IElasticConfiguration configuration, string name = null, int version = 1, Func<object, DateTime> getDocumentDateUtc = null) : base(configuration, name, version, getDocumentDateUtc) {
             Name = name ?? _typeName;
+        }
+        
+        protected override ElasticQueryParser CreateQueryParser() {
+            var parser = base.CreateQueryParser();
+            parser.Configuration.UseMappings<T>(ConfigureIndexMapping, Configuration.Client, Name);
+            return parser;
         }
         
         public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map) {

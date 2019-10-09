@@ -201,7 +201,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public Index(IElasticConfiguration configuration, string name = null) : base(configuration, name) {
             Name = name ?? _typeName;
         }
-        
+
+        protected override ElasticQueryParser CreateQueryParser() {
+            var parser = base.CreateQueryParser();
+            parser.Configuration.UseMappings<T>(ConfigureIndexMapping, Configuration.Client, Name);
+            return parser;
+        }
+
         public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map) {
             return map.AutoMap<T>().Properties(p => p.SetupDefaults());
         }
