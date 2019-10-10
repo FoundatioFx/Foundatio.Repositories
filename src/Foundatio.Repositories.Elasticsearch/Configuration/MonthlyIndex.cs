@@ -56,7 +56,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         
         protected override ElasticQueryParser CreateQueryParser() {
             var parser = base.CreateQueryParser();
-            parser.Configuration.UseMappings<T>(ConfigureIndexMapping, Configuration.Client, Name);
+            parser.Configuration.UseMappings<T>(ConfigureIndexMapping, Configuration.Client, VersionedName);
             return parser;
         }
         

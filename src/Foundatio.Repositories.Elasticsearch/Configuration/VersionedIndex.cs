@@ -61,6 +61,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                     await CreateIndexAsync(VersionedName, ConfigureIndex).AnyContext();
             }
         }
+        
+        protected override ElasticQueryParser CreateQueryParser() {
+            var parser = base.CreateQueryParser();
+            parser.Configuration.UseMappings(Configuration.Client, VersionedName);
+            return parser;
+        }
 
         protected virtual async Task CreateAliasAsync(string index, string name) {
             if (await AliasExistsAsync(name).AnyContext())
@@ -248,7 +254,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         
         protected override ElasticQueryParser CreateQueryParser() {
             var parser = base.CreateQueryParser();
-            parser.Configuration.UseMappings<T>(ConfigureIndexMapping, Configuration.Client, Name);
+            parser.Configuration.UseMappings<T>(ConfigureIndexMapping, Configuration.Client, VersionedName);
             return parser;
         }
         
