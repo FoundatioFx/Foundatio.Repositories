@@ -353,6 +353,32 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return $"{Name}-{date.ToString(DateFormat)}";
         }
 
+        protected ITypeMapping GetLatestIndexMapping() {
+            string filter = $"{Name}-v{Version}-*";
+            var catResponse = Configuration.Client.Cat.Indices(i => i.Pri().Index(Indices.Index((IndexName)filter)));
+            if (!catResponse.IsValid) {
+                _logger.LogErrorRequest(catResponse, "Error getting latest index mapping {Indexes}", filter);
+                string message = $"Error getting latest index mapping {filter}: {catResponse.GetErrorMessage()}";
+                throw new ApplicationException(message, catResponse.OriginalException);
+            }
+
+            var latestIndex = catResponse.Records
+                .Where(i => GetIndexVersion(i.Index) == Version)
+                .Select(i => new IndexInfo { DateUtc = GetIndexDate(i.Index), Index = i.Index, Version = GetIndexVersion(i.Index) })
+                .OrderByDescending(i => i.DateUtc)
+                .FirstOrDefault();
+
+            if (latestIndex == null)
+                return null;
+
+            var mappingResponse = Configuration.Client.Indices.GetMapping(new GetMappingRequest(latestIndex.Index));
+            _logger.LogTrace("GetMapping: {Request}", mappingResponse.GetRequest(false, true));
+
+            // use first returned mapping because index could have been an index alias
+            var mapping = mappingResponse.Indices.Values.FirstOrDefault()?.Mappings;
+            return mapping;
+        }
+
         public override string GetIndex(object target) {
             if (target == null)
                 throw new ArgumentNullException(nameof(target));
@@ -419,7 +445,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         
         protected override ElasticQueryParser CreateQueryParser() {
             var parser = base.CreateQueryParser();
-            parser.Configuration.UseMappings<T>(ConfigureIndexMapping, Configuration.Client, VersionedName);
+            parser.Configuration.UseMappings<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMapping);
             return parser;
         }
         

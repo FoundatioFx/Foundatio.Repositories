@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Parsers.ElasticQueries;
@@ -56,7 +56,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         
         protected override ElasticQueryParser CreateQueryParser() {
             var parser = base.CreateQueryParser();
-            parser.Configuration.UseMappings<T>(ConfigureIndexMapping, Configuration.Client, VersionedName);
+            parser.Configuration.UseMappings<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMapping);
             return parser;
         }
         
