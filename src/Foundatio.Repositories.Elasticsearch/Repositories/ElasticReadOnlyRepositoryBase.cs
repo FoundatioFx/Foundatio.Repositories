@@ -202,7 +202,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             options = ConfigureOptions(options);
             var result = IsCacheEnabled && options.ShouldReadCache() && options.HasCacheKey() ? await GetCachedFindHit(options).AnyContext() : null;
-            if (result != null)
+            if (result != null && result.Count == 1)
                 return result.FirstOrDefault();
 
             await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
