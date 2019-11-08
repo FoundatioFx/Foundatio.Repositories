@@ -530,7 +530,32 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(2, results.Total);
             currentScrollCount = await GetCurrentScrollCountAsync();
             Assert.Equal(baselineScrollCount, currentScrollCount);
+            
+            // use while loop and verify scroll is cleared
+            var findResults = await _identityRepository.GetAllAsync(o => o.PageLimit(1).SnapshotPagingLifetime(TimeSpan.FromMinutes(10)));
+            do {
+                Assert.Equal(1, findResults.Documents.Count);
+                Assert.Equal(2, findResults.Total);
+ 
+                currentScrollCount = await GetCurrentScrollCountAsync();
+                Assert.Equal(baselineScrollCount + 1, currentScrollCount);
+            } while (await findResults.NextPageAsync().ConfigureAwait(false));
+            
+            currentScrollCount = await GetCurrentScrollCountAsync();
+            Assert.Equal(baselineScrollCount, currentScrollCount);
+            
+            findResults = await _identityRepository.GetAllAsync(o => o.PageLimit(5).SnapshotPagingLifetime(TimeSpan.FromMinutes(10)));
+            do {
+                Assert.Equal(2, findResults.Documents.Count);
+                Assert.Equal(1, findResults.Page);
+                Assert.Equal(2, findResults.Total);
 
+                currentScrollCount = await GetCurrentScrollCountAsync();
+                Assert.Equal(baselineScrollCount, currentScrollCount);
+            } while (await findResults.NextPageAsync().ConfigureAwait(false));
+            
+            currentScrollCount = await GetCurrentScrollCountAsync();
+            Assert.Equal(baselineScrollCount, currentScrollCount);
         }
         
         private async Task<long> GetCurrentScrollCountAsync() {
