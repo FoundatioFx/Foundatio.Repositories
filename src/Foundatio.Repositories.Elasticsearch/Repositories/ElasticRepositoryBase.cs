@@ -699,11 +699,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (SupportsSoftDeletes && IsCacheEnabled) {
                 string[] deletedIds = modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Value).IsDeleted).Select(m => m.Value.Id).ToArray();
                 if (deletedIds.Length > 0)
-                    await Cache.SetAddAsync("deleted", deletedIds, TimeSpan.FromSeconds(30)).AnyContext();
+                    await Cache.ListAddAsync("deleted", deletedIds, TimeSpan.FromSeconds(30)).AnyContext();
 
                 string[] undeletedIds = modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Value).IsDeleted == false).Select(m => m.Value.Id).ToArray();
                 if (undeletedIds.Length > 0)
-                    await Cache.SetRemoveAsync("deleted", undeletedIds, TimeSpan.FromSeconds(30)).AnyContext();
+                    await Cache.ListRemoveAsync("deleted", undeletedIds, TimeSpan.FromSeconds(30)).AnyContext();
             }
 
             if (DocumentsSaved != null && DocumentsSaved.HasHandlers)

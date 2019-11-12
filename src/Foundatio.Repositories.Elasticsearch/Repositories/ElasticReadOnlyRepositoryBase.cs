@@ -707,7 +707,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         private async Task OnBeforeQueryAsync(IRepositoryQuery query, ICommandOptions options, Type resultType) {
             if (SupportsSoftDeletes && IsCacheEnabled && query.GetSoftDeleteMode() == SoftDeleteQueryMode.ActiveOnly) {
-                var deletedIds = await Cache.GetSetAsync<string>("deleted").AnyContext();
+                var deletedIds = await Cache.GetListAsync<string>("deleted").AnyContext();
                 if (deletedIds.HasValue)
                     query.ExcludedId(deletedIds.Value);
             }
