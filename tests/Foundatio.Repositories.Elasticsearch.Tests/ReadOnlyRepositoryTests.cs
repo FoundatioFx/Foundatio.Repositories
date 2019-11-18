@@ -676,12 +676,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task GetWithDateRangeHonoringTimeZoneAsync() {
-            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: DateTimeOffset.Now), o => o.ImmediateConsistency());
+            Log.MinimumLevel = Microsoft.Extensions.Logging.LogLevel.Trace;
+            var dateTimeOffset = SystemClock.OffsetUtcNow;
+            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: dateTimeOffset), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);
 
-            var query = new RepositoryQuery<Employee>()
-                    .DateRange(DateTime.UtcNow.SubtractHours(1), DateTime.UtcNow, "next", "America/Chicaco");
-            var results = await _employeeRepository.GetByQueryAsync(query);
+            var results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(dateTimeOffset.DateTime.SubtractHours(1), dateTimeOffset.DateTime, "next"));
 
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
@@ -689,13 +689,18 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.False(results.HasMore);
             Assert.Equal(1, results.Total);
 
-            results = await _employeeRepository.GetByQueryAsync(query);
+            var localNow = dateTimeOffset.ToLocalTime().DateTime;
+            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(localNow.SubtractHours(1), localNow, "next", "America/Chicago"));
+
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(1, results.Total);
+
+            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(localNow.SubtractHours(1), localNow, "next", "Asia/Shanghai"));
             Assert.Empty(results.Documents);
-
-            Assert.Equal("America/Chicaco", results.Data["@timezone"]);
         }
-
-
 
         [Fact]
         public async Task ExistsAsync() {

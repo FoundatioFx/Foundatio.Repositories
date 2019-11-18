@@ -74,6 +74,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             elasticContext.DefaultTimeZone = timeZone;
         }
+
+        public static string GetTimeZone(this IQueryBuilderContext context) {
+            var elasticContext = context as IElasticQueryVisitorContext;
+            return elasticContext?.DefaultTimeZone;
+        }
     }
 
     public static class ElasticQueryBuilderExtensions {

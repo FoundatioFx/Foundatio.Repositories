@@ -13,6 +13,7 @@ namespace Foundatio.Repositories {
     public class DateRange {
         public DateTime? StartDate { get; set; }
         public DateTime? EndDate { get; set; }
+        public string TimeZone { get; set; }
         public Field Field { get; set; }
 
         public bool UseStartDate => StartDate.HasValue && StartDate.Value > DateTime.MinValue;
@@ -33,18 +34,28 @@ namespace Foundatio.Repositories {
     public static class DateRangesQueryExtensions {
         internal const string DateRangesKey = "@DateRanges";
 
-        public static T DateRange<T>(this T query, DateTime? utcStart, DateTime? utcEnd, Field field) where T : IRepositoryQuery {
+        public static T DateRange<T>(this T query, DateTime? utcStart, DateTime? utcEnd, Field field, string timeZone = null) where T : IRepositoryQuery {
             if (field == null)
                 throw new ArgumentNullException(nameof(field));
 
-            return query.AddCollectionOptionValue(DateRangesKey, new DateRange { StartDate = utcStart, EndDate = utcEnd, Field = field });
+            return query.AddCollectionOptionValue(DateRangesKey, new DateRange {
+                StartDate = utcStart,
+                EndDate = utcEnd,
+                Field = field,
+                TimeZone = timeZone
+            });
         }
 
-        public static T DateRange<T, TModel>(this T query, DateTime? utcStart, DateTime? utcEnd, Expression<Func<TModel, object>> objectPath) where T : IRepositoryQuery {
+        public static T DateRange<T, TModel>(this T query, DateTime? utcStart, DateTime? utcEnd, Expression<Func<TModel, object>> objectPath, string timeZone = null) where T : IRepositoryQuery {
             if (objectPath == null)
                 throw new ArgumentNullException(nameof(objectPath));
 
-            return query.AddCollectionOptionValue(DateRangesKey, new DateRange { StartDate = utcStart, EndDate = utcEnd, Field = objectPath });
+            return query.AddCollectionOptionValue(DateRangesKey, new DateRange {
+                StartDate = utcStart,
+                EndDate = utcEnd,
+                Field = objectPath,
+                TimeZone = timeZone
+            });
         }
     }
 }
@@ -70,6 +81,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                     rangeQuery.GreaterThanOrEqualTo = dateRange.GetStartDate();
                 if (dateRange.UseEndDate)
                     rangeQuery.LessThanOrEqualTo = dateRange.GetEndDate();
+                if (!String.IsNullOrEmpty(dateRange.TimeZone))
+                    rangeQuery.TimeZone = dateRange.TimeZone;
                 
                 ctx.Filter &= rangeQuery;
             }

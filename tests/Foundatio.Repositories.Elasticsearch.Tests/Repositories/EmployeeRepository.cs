@@ -46,13 +46,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return FindAsync(query);
         }
 
-        /// <summary>
-        /// Exposed only for testing purposes.
-        /// </summary>
-        public Task<FindResults<Employee>> GetByQueryAsync(RepositoryQuery<Employee> query) {
-            return FindAsync(query);
-        }
-
         public Task<FindResults<Employee>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<Employee> options = null) {
             var commandOptions = options.Configure();
             if (commandOptions.ShouldUseCache())
