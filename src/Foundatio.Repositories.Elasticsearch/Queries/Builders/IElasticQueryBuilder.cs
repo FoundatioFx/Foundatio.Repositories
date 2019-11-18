@@ -40,6 +40,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         IncludeResolver IQueryVisitorContextWithIncludeResolver.IncludeResolver { get; set; }
 
         Operator IElasticQueryVisitorContext.DefaultOperator { get; set; }
+        string IElasticQueryVisitorContext.DefaultTimeZone { get; set; }
         bool IElasticQueryVisitorContext.UseScoring { get; set; }
         string[] IQueryVisitorContext.DefaultFields { get; set; }
         string IQueryVisitorContext.QueryType { get; set; }
@@ -67,7 +68,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
     public static class QueryBuilderContextExtensions {
         public static void SetTimeZone(this IQueryBuilderContext context, string timeZone) {
-            context.Data["timezone"] = timeZone;
+            var elasticContext = context as IElasticQueryVisitorContext;
+            if (elasticContext == null)
+                throw new ArgumentException("Context must be of type IElasticQueryVisitorContext", nameof(context));
+
+            elasticContext.DefaultTimeZone = timeZone;
         }
     }
 

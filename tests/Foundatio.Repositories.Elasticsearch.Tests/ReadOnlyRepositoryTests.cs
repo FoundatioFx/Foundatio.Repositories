@@ -675,6 +675,29 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task GetWithDateRangeHonoringTimeZoneAsync() {
+            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: DateTimeOffset.Now), o => o.ImmediateConsistency());
+            Assert.NotNull(employee?.Id);
+
+            var query = new RepositoryQuery<Employee>()
+                    .DateRange(DateTime.UtcNow.SubtractHours(1), DateTime.UtcNow, "next", "America/Chicaco");
+            var results = await _employeeRepository.GetByQueryAsync(query);
+
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(1, results.Total);
+
+            results = await _employeeRepository.GetByQueryAsync(query);
+            Assert.Empty(results.Documents);
+
+            Assert.Equal("America/Chicaco", results.Data["@timezone"]);
+        }
+
+
+
+        [Fact]
         public async Task ExistsAsync() {
             Assert.False(await _identityRepository.ExistsAsync(Id.Null));
 
