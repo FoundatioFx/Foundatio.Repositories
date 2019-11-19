@@ -681,7 +681,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: dateTimeOffset), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);
 
-            var results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(dateTimeOffset.DateTime.SubtractHours(1), dateTimeOffset.DateTime, "next"));
+            var results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(dateTimeOffset.UtcDateTime.SubtractHours(1), dateTimeOffset.UtcDateTime, "next"));
 
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
