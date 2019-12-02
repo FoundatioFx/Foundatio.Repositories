@@ -46,7 +46,7 @@ namespace Foundatio.Repositories.Models {
             Original = original;
         }
 
-        public T Value { get; private set; }
+        public T Value { get; set; }
         public T Original { get; private set; }
     }
 }
