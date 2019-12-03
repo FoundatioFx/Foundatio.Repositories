@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -666,12 +666,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: DateTimeOffset.Now), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);
 
-            var results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.UtcNow.SubtractHours(1), DateTime.UtcNow, "next"));
+            var results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.UtcNow.SubtractHours(1), DateTime.UtcNow, "next").AggregationsExpression("date:next"));
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
             Assert.False(results.HasMore);
             Assert.Equal(1, results.Total);
+            
+            Assert.Equal(1, results.Aggregations.Count);
+            Assert.True(results.Aggregations.ContainsKey("date_next"));
+            var aggregation = results.Aggregations["date_next"] as BucketAggregate;
+            Assert.NotNull(aggregation);
+            Assert.InRange(aggregation.Items.Count, 120, 121);
+            Assert.Equal(0, aggregation.Total);
         }
 
         [Fact]
