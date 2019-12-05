@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Options;
 using Foundatio.Utility;
 using Nest;
@@ -38,6 +39,12 @@ namespace Foundatio.Repositories {
             if (field == null)
                 throw new ArgumentNullException(nameof(field));
 
+            if (!utcStart.HasValue && !utcEnd.HasValue)
+                throw new ArgumentNullException(nameof(utcStart), "Start date and end date cannot be null.");
+            
+            if (utcStart.HasValue && utcEnd.HasValue && utcStart.Value.IsAfter(utcEnd.Value))
+                throw new ArgumentOutOfRangeException(nameof(utcStart), "Start date must be before end date.");
+
             return query.AddCollectionOptionValue(DateRangesKey, new DateRange {
                 StartDate = utcStart,
                 EndDate = utcEnd,
@@ -49,6 +56,12 @@ namespace Foundatio.Repositories {
         public static T DateRange<T, TModel>(this T query, DateTime? utcStart, DateTime? utcEnd, Expression<Func<TModel, object>> objectPath, string timeZone = null) where T : IRepositoryQuery {
             if (objectPath == null)
                 throw new ArgumentNullException(nameof(objectPath));
+
+            if (!utcStart.HasValue && !utcEnd.HasValue)
+                throw new ArgumentNullException(nameof(utcStart), "Start date and end date cannot be null.");
+            
+            if (utcStart.HasValue && utcEnd.HasValue && utcStart.Value.IsAfter(utcEnd.Value))
+                throw new ArgumentOutOfRangeException(nameof(utcStart), "Start date must be before end date.");
 
             return query.AddCollectionOptionValue(DateRangesKey, new DateRange {
                 StartDate = utcStart,

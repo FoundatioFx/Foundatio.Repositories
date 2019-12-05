@@ -1,10 +1,10 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <Compile Include="..\Foundatio.Repositories\Extensions\TaskExtensions.cs" Link="Extensions\TaskExtensions.cs" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Foundatio.Jobs.Commands" Version="9.0.2201-pre" />
-    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="7.0.552-pre" />
+    <PackageReference Include="Foundatio.Jobs.Commands" Version="9.0.2210-pre" />
+    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="7.0.553-pre" />
   </ItemGroup>
   <ItemGroup>
     <!-- ProjectReference Include="..\..\..\Foundatio.Parsers\src\Foundatio.Parsers.ElasticQueries\Foundatio.Parsers.ElasticQueries.csproj" /-->

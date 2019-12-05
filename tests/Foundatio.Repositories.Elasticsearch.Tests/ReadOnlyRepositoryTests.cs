@@ -707,6 +707,38 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(localNow.SubtractHours(1), localNow, "next", "Asia/Shanghai"));
             Assert.Empty(results.Documents);
+            
+            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(null, localNow, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            Assert.Empty(results.Documents);
+            
+            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(null, DateTime.MaxValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(1, results.Total);
+            
+            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(localNow.SubtractHours(1), null, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(1, results.Total);
+            
+            // No date range will be applied.
+            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.MinValue, DateTime.MinValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(1, results.Total);
+            
+            // start date won't be used but max value will.
+            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.MaxValue, DateTime.MaxValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            Assert.Empty(results.Documents);
+            
+            await Assert.ThrowsAsync<ArgumentNullException>(() => _employeeRepository.GetByQueryAsync(o => o.DateRange(null, null, "next", "Asia/Shanghai").AggregationsExpression("date:next")));
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.MaxValue, DateTime.MinValue, "next", "Asia/Shanghai").AggregationsExpression("date:next")));
         }
 
         [Fact]
