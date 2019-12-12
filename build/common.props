@@ -1,7 +1,7 @@
-<Project ToolsVersion="15.0">
+<Project>
 
   <PropertyGroup Label="Version">
-    <VersionPrefix>7.0</VersionPrefix>
+    <VersionPrefix>7.5</VersionPrefix>
     <VersionSuffix>0-dev</VersionSuffix>
     <Version>$(VersionPrefix).$(VersionSuffix)</Version>
     <AssemblyVersion>$(VersionPrefix)</AssemblyVersion>
