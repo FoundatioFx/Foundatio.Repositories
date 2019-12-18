@@ -725,13 +725,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.False(results.HasMore);
             Assert.Equal(1, results.Total);
             
-            // No date range will be applied.
+            // No matching documents will be found.
             results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.MinValue, DateTime.MinValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
-            Assert.NotNull(results);
-            Assert.Equal(1, results.Documents.Count);
-            Assert.Equal(1, results.Page);
-            Assert.False(results.HasMore);
-            Assert.Equal(1, results.Total);
+            Assert.Empty(results.Documents);
             
             // start date won't be used but max value will.
             results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.MaxValue, DateTime.MaxValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));

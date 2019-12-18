@@ -304,7 +304,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                     var existsResponse = await _client.Indices.ExistsAsync(version1Index.VersionedName);
                     _logger.LogTraceRequest(existsResponse);
-                    Assert.True(existsResponse.IsValid);
+                    Assert.True(existsResponse.ApiCall.Success);
                     Assert.True(existsResponse.Exists);
 
                     var mappingResponse = await _client.Indices.GetMappingAsync<Employee>(m => m.Index(version1Index.VersionedName));
@@ -315,7 +315,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                     existsResponse = await _client.Indices.ExistsAsync(version2Index.VersionedName);
                     _logger.LogTraceRequest(existsResponse);
-                    Assert.True(existsResponse.IsValid);
+                    Assert.True(existsResponse.ApiCall.Success);
                     Assert.True(existsResponse.Exists);
                     string version1Mappings = ToJson(mappingsV1);
 
@@ -711,7 +711,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                     existsResponse = await _client.Indices.ExistsAsync(version2Index.GetVersionedIndex(utcNow, 2));
                     _logger.LogTraceRequest(existsResponse);
-                    Assert.True(existsResponse.IsValid);
+                    Assert.True(existsResponse.ApiCall.Success);
                     Assert.True(existsResponse.Exists);
                 }
             }
@@ -740,7 +740,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
                     var existsResponse = await _client.Indices.ExistsAsync(version1Index.GetVersionedIndex(utcNow, 1));
                     _logger.LogTraceRequest(existsResponse);
-                    Assert.True(existsResponse.IsValid);
+                    Assert.True(existsResponse.ApiCall.Success);
                     Assert.True(existsResponse.Exists);
 
                     var indexV1 = version1Index.GetVersionedIndex(utcNow, 1);
@@ -754,7 +754,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     var indexV2 = version2Index.GetVersionedIndex(utcNow, 2);
                     existsResponse = await _client.Indices.ExistsAsync(indexV2);
                     _logger.LogTraceRequest(existsResponse);
-                    Assert.True(existsResponse.IsValid);
+                    Assert.True(existsResponse.ApiCall.Success);
                     Assert.True(existsResponse.Exists);
 
                     mappingResponse = await _client.Indices.GetMappingAsync<Employee>(m => m.Index(indexV2));

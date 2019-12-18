@@ -202,7 +202,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             string errorIndex = workItem.NewIndex + "-error";
             var existsResponse = await _client.Indices.ExistsAsync(errorIndex).AnyContext();
             _logger.LogTraceRequest(existsResponse);
-            if (!existsResponse.IsValid || existsResponse.Exists)
+            if (existsResponse.ApiCall.Success && existsResponse.Exists)
                 return true;
 
             var createResponse = await _client.Indices.CreateAsync(errorIndex, d => d.Map(md => md.Dynamic(false))).AnyContext();
