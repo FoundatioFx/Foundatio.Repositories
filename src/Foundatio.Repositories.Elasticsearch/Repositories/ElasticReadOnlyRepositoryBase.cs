@@ -576,6 +576,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 search.SequenceNumberPrimaryTerm(HasVersion);
 
             search.IgnoreUnavailable();
+            search.TrackTotalHits();
 
             await ElasticIndex.QueryBuilder.ConfigureSearchAsync(query, options, search).AnyContext();
 
