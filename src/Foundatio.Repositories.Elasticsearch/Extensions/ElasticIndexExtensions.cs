@@ -206,10 +206,10 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         }
         
         private static DateTime GetDate(long ticks, DateTimeKind kind) {
-            if (ticks < DateTime.MinValue.Ticks)
+            if (ticks <= DateTime.MinValue.Ticks)
                 return DateTime.MinValue;
             
-            if (ticks > DateTime.MaxValue.Ticks)
+            if (ticks >= DateTime.MaxValue.Ticks)
                 return DateTime.MaxValue;
             
             return new DateTime(ticks, kind);
