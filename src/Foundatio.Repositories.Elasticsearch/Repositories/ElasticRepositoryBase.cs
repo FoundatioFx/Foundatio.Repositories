@@ -366,7 +366,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                         Script = new InlineScript(scriptOperation.Script) { Params = scriptOperation.Params },
                         Pipeline = DefaultPipeline,
                         Version = HasVersion,
-                        Refresh = options.GetRefreshMode(DefaultConsistency) != Refresh.False
+                        Refresh = options.GetRefreshMode(DefaultConsistency) != Refresh.False,
+                        IgnoreUnavailable = true
                     };
 
                     var response = await _client.UpdateByQueryAsync(request).AnyContext();
