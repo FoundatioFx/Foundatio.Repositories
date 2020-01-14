@@ -202,6 +202,16 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 ticks -= Exceptionless.DateTimeExtensions.TimeUnit.Parse(value.ToString()).Ticks;
             }
 
+            return GetDate(ticks, kind);
+        }
+        
+        private static DateTime GetDate(long ticks, DateTimeKind kind) {
+            if (ticks < DateTime.MinValue.Ticks)
+                return DateTime.MinValue;
+            
+            if (ticks > DateTime.MaxValue.Ticks)
+                return DateTime.MaxValue;
+            
             return new DateTime(ticks, kind);
         }
 
@@ -209,7 +219,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (bucket is Nest.DateHistogramBucket dateHistogramBucket) {
                 bool hasTimezone = parentData != null && parentData.ContainsKey("@timezone");
                 var kind = hasTimezone ? DateTimeKind.Unspecified : DateTimeKind.Utc;
-                var date = new DateTime(_epochTicks + ((long)dateHistogramBucket.Key * TimeSpan.TicksPerMillisecond), kind);
+                var date = GetDate(_epochTicks + ((long)dateHistogramBucket.Key * TimeSpan.TicksPerMillisecond), kind);
                 var data = new Dictionary<string, object> { { "@type", "datehistogram" } };
                 
                 if (hasTimezone)
