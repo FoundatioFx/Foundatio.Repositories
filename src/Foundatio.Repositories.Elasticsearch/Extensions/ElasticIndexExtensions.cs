@@ -219,7 +219,8 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (bucket is Nest.DateHistogramBucket dateHistogramBucket) {
                 bool hasTimezone = parentData != null && parentData.ContainsKey("@timezone");
                 var kind = hasTimezone ? DateTimeKind.Unspecified : DateTimeKind.Utc;
-                var date = GetDate(_epochTicks + ((long)dateHistogramBucket.Key * TimeSpan.TicksPerMillisecond), kind);
+                var ticks = _epochTicks + ((long)dateHistogramBucket.Key * TimeSpan.TicksPerMillisecond);
+                var date = GetDate(ticks, kind);
                 var data = new Dictionary<string, object> { { "@type", "datehistogram" } };
                 
                 if (hasTimezone)

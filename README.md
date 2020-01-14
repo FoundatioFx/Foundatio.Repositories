@@ -1,6 +1,6 @@
 ![Foundatio](https://raw.githubusercontent.com/FoundatioFx/Foundatio/master/media/foundatio.png "Foundatio")
 
-[![Build status](https://ci.appveyor.com/api/projects/status/fhuovj9tddvjgxja?svg=true)](https://ci.appveyor.com/project/Exceptionless/foundatio-repositories)
+[![Build status](https://github.com/FoundatioFx/Foundatio.Repositories/workflows/Build/badge.svg)](https://github.com/FoundatioFx/Foundatio.Repositories/actions)
 [![NuGet Version](http://img.shields.io/nuget/v/Foundatio.Repositories.svg?style=flat)](https://www.nuget.org/packages/Foundatio.Repositories/)
 [![Slack Status](https://slack.exceptionless.com/badge.svg)](https://slack.exceptionless.com)
 
