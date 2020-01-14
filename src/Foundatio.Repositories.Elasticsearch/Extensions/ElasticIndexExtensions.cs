@@ -124,6 +124,23 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     Data = scriptedAggregate.Meta.ToData<ObjectValueAggregate>()
                 };
 
+            if (aggregate is Nest.ExtendedStatsAggregate extendedStatsAggregate)
+                return new ExtendedStatsAggregate {
+                    Count = extendedStatsAggregate.Count,
+                    Min = extendedStatsAggregate.Min,
+                    Max = extendedStatsAggregate.Max,
+                    Average = extendedStatsAggregate.Average,
+                    Sum = extendedStatsAggregate.Sum,
+                    StdDeviation = extendedStatsAggregate.StdDeviation,
+                    StdDeviationBounds = new StandardDeviationBounds {
+                        Lower = extendedStatsAggregate.StdDeviationBounds.Lower,
+                        Upper = extendedStatsAggregate.StdDeviationBounds.Upper
+                    },
+                    SumOfSquares = extendedStatsAggregate.SumOfSquares,
+                    Variance = extendedStatsAggregate.Variance,
+                    Data = extendedStatsAggregate.Meta.ToData<ExtendedStatsAggregate>()
+                };
+            
             if (aggregate is Nest.StatsAggregate statsAggregate)
                 return new StatsAggregate {
                     Count = statsAggregate.Count,
@@ -144,23 +161,6 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     Data = topHitsAggregate.Meta.ToData<TopHitsAggregate>()
                 };
             }
-
-            if (aggregate is Nest.ExtendedStatsAggregate extendedStatsAggregate)
-                return new ExtendedStatsAggregate {
-                    Count = extendedStatsAggregate.Count,
-                    Min = extendedStatsAggregate.Min,
-                    Max = extendedStatsAggregate.Max,
-                    Average = extendedStatsAggregate.Average,
-                    Sum = extendedStatsAggregate.Sum,
-                    StdDeviation = extendedStatsAggregate.StdDeviation,
-                    StdDeviationBounds = new StandardDeviationBounds {
-                        Lower = extendedStatsAggregate.StdDeviationBounds.Lower,
-                        Upper = extendedStatsAggregate.StdDeviationBounds.Upper
-                    },
-                    SumOfSquares = extendedStatsAggregate.SumOfSquares,
-                    Variance = extendedStatsAggregate.Variance,
-                    Data = extendedStatsAggregate.Meta.ToData<ExtendedStatsAggregate>()
-                };
 
             if (aggregate is Nest.PercentilesAggregate percentilesAggregate)
                 return new PercentilesAggregate(percentilesAggregate.Items.Select(i => new PercentileItem { Percentile = i.Percentile, Value = i.Value })) {
