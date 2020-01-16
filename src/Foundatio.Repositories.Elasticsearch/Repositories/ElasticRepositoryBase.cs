@@ -367,11 +367,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                         Pipeline = DefaultPipeline,
                         Version = HasVersion,
                         Refresh = options.GetRefreshMode(DefaultConsistency) != Refresh.False,
-                        IgnoreUnavailable = true
+                        IgnoreUnavailable = true,
+                        WaitForCompletion = false
                     };
 
                     var response = await _client.UpdateByQueryAsync(request).AnyContext();
-
                     if (response.IsValid) {
                         _logger.LogTraceRequest(response);
                     } else {
@@ -379,8 +379,22 @@ namespace Foundatio.Repositories.Elasticsearch {
                         throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                     }
 
-                    // TODO: What do we want to do about failures and timeouts?
-                    affectedRecords += response.Updated + response.Noops;
+                    var taskId = response.Task;
+                    int attempts = 1;
+                    do {
+                        var taskStatus = await _client.Tasks.GetTaskAsync(taskId, t => t.WaitForCompletion(false)).AnyContext();
+                        var status = taskStatus.Task.Status;
+                        if (taskStatus.Completed) {
+                            _logger.LogDebug("Script operation task ({TaskId}) completed: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, status.Created, status.Updated, status.Deleted, status.VersionConflicts, status.Total);
+                            affectedRecords += status.Created + status.Updated + status.Deleted;
+                            break;
+                        }
+            
+                        _logger.LogDebug("Checking script operation task ({TaskId}) status: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, status.Created, status.Updated, status.Deleted, status.VersionConflicts, status.Total);
+                        var delay = TimeSpan.FromSeconds(attempts++ <= 5 ? 1 : 5);
+                        await Task.Delay(delay).AnyContext();
+                    } while (true);
+                    
                     Debug.Assert(response.Total == affectedRecords, "Unable to update all documents");
                 } else {
                     if (!query.GetIncludes().Contains(_idField.Value))
