@@ -27,6 +27,8 @@ services:
     command: elasticsearch:9200
     depends_on:
       - elasticsearch
+    networks:
+      - foundatio
 
 networks:
   foundatio:
