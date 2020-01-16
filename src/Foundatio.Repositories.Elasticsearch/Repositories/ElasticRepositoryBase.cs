@@ -1,13 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Elasticsearch.Net;
 using FluentValidation;
 using Nest;
-using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
@@ -22,6 +20,8 @@ using Foundatio.Utility;
 using Newtonsoft.Json.Linq;
 using Foundatio.Repositories.Options;
 using Microsoft.Extensions.Logging;
+using System.Linq.Expressions;
+using System.Threading;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IElasticRepository<T> where T : class, IIdentity, new() {
@@ -29,15 +29,18 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected readonly IMessagePublisher _messagePublisher;
         private readonly List<Lazy<Field>> _propertiesRequiredForRemove = new List<Lazy<Field>>();
 
-        protected ElasticRepositoryBase(IIndexType<T> indexType, IValidator<T> validator = null) : base(indexType) {
+        protected ElasticRepositoryBase(IIndex index, IValidator<T> validator = null) : base(index) {
             _validator = validator;
-            _messagePublisher = indexType.Configuration.MessageBus;
+            _messagePublisher = index.Configuration.MessageBus;
             NotificationsEnabled = _messagePublisher != null;
 
             AddPropertyRequiredForRemove(_idField);
             if (HasCreatedDate)
                 AddPropertyRequiredForRemove(e => ((IHaveCreatedDate)e).CreatedUtc);
         }
+
+        protected string DefaultPipeline { get; set; } = null;
+        protected Consistency DefaultConsistency { get; set; } = Consistency.Eventual;
 
         public virtual async Task<T> AddAsync(T document, ICommandOptions options = null) {
             if (document == null)
@@ -125,74 +128,72 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             options = ConfigureOptions(options);
 
-            var pipelinedIndexType = ElasticType as IHavePipelinedIndexType;
-            string pipeline = pipelinedIndexType?.Pipeline;
             if (operation is ScriptPatch scriptOperation) {
                 // TODO: Figure out how to specify a pipeline here.
-                var request = new UpdateRequest<T, T>(GetIndexById(id), ElasticType.Name, id.Value) {
+                var request = new UpdateRequest<T, T>(ElasticIndex.GetIndex(id), id.Value) {
                     Script = new InlineScript(scriptOperation.Script) { Params = scriptOperation.Params },
                     RetryOnConflict = 10,
-                    Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency)
+                    Refresh = options.GetRefreshMode(DefaultConsistency)
                 };
                 if (id.Routing != null)
                     request.Routing = id.Routing;
-
-                var response = await _client.UpdateAsync<T>(request).AnyContext();
-
-                if (response.IsValid) {
-                    _logger.LogTraceRequest(response);
-                } else {
-                    _logger.LogErrorRequest(response, "Error patching document {Index}/{Type}/{Id}", GetIndexById(id), ElasticType.Name, id.Value);
-                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
-                }
-            } else if (operation is Models.JsonPatch jsonOperation) {
-                var request = new GetRequest(GetIndexById(id), ElasticType.Name, id.Value);
-                if (id.Routing != null)
-                    request.Routing = id.Routing;
-
-                var response = await _client.GetAsync<JObject>(request).AnyContext();
-
-                if (response.IsValid) {
-                    _logger.LogTraceRequest(response);
-                } else {
-                    _logger.LogErrorRequest(response, "Error patching document {Index}/{Type}/{Id}", GetIndexById(id), ElasticType.Name, id.Value);
-                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
-                }
-
-                var target = response.Source as JToken;
-                new JsonPatcher().Patch(ref target, jsonOperation.Patch);
-
-                var updateResponse = await _client.LowLevel.IndexPutAsync<object>(response.Index, response.Type, id.Value, new PostData<object>(target.ToString()), p => {
-                    p.Pipeline(pipeline);
-                    p.Refresh(options.GetRefreshMode(ElasticType.DefaultConsistency));
-                    if (id.Routing != null)
-                        p.Routing(id.Routing);
-
-                    return p;
-                }).AnyContext();
-
-                if (updateResponse.Success) {
-                    _logger.LogTraceRequest(updateResponse);
-                } else {
-                    _logger.LogErrorRequest(updateResponse, "Error patching document {Index}/{Type}/{Id} with {Pipeline}", GetIndexById(id), ElasticType.Name, id.Value, pipeline);
-                    throw new ApplicationException(updateResponse.GetErrorMessage(), updateResponse.OriginalException);
-                }
-            } else if (operation is PartialPatch partialOperation) {
-                // TODO: Figure out how to specify a pipeline here.
-                var request = new UpdateRequest<T, object>(GetIndexById(id), ElasticType.Name, id.Value) {
-                    Doc = partialOperation.Document,
-                    RetryOnConflict = 10
-                };
-                if (id.Routing != null)
-                    request.Routing = id.Routing;
-                request.Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency);
 
                 var response = await _client.UpdateAsync(request).AnyContext();
 
                 if (response.IsValid) {
                     _logger.LogTraceRequest(response);
                 } else {
-                    _logger.LogErrorRequest(response, "Error patching document {Index}/{Type}/{Id}", GetIndexById(id), ElasticType.Name, id.Value);
+                    _logger.LogErrorRequest(response, "Error patching document {Index}/{Id}", ElasticIndex.GetIndex(id), id.Value);
+                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+                }
+            } else if (operation is Models.JsonPatch jsonOperation) {
+                var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
+                if (id.Routing != null)
+                    request.Routing = id.Routing;
+
+                var response = await _client.LowLevel.GetAsync<GetResponse<IDictionary<string, object>>>(ElasticIndex.GetIndex(id), id.Value).AnyContext();
+                var jobject = JObject.FromObject(response.Source);
+                if (response.IsValid) {
+                    _logger.LogTraceRequest(response);
+                } else {
+                    _logger.LogErrorRequest(response, "Error patching document {Index}/{Id}", ElasticIndex.GetIndex(id), id.Value);
+                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+                }
+
+                var target = (JToken)jobject;
+                new JsonPatcher().Patch(ref target, jsonOperation.Patch);
+
+                var indexParameters = new IndexRequestParameters {
+                    Pipeline = DefaultPipeline,
+                    Refresh = options.GetRefreshMode(DefaultConsistency)
+                };
+                if (id.Routing != null)
+                    indexParameters.Routing = id.Routing;
+                
+                var updateResponse = await _client.LowLevel.IndexAsync<VoidResponse>(ElasticIndex.GetIndex(id), id.Value, PostData.String(target.ToString()), indexParameters, default(CancellationToken)).AnyContext();
+
+                if (updateResponse.Success) {
+                    _logger.LogTraceRequest(updateResponse);
+                } else {
+                    _logger.LogErrorRequest(updateResponse, "Error patching document {Index}/{Id} with {Pipeline}", ElasticIndex.GetIndex(id), id.Value, DefaultPipeline);
+                    throw new ApplicationException(updateResponse.GetErrorMessage(), updateResponse.OriginalException);
+                }
+            } else if (operation is PartialPatch partialOperation) {
+                // TODO: Figure out how to specify a pipeline here.
+                var request = new UpdateRequest<T, object>(ElasticIndex.GetIndex(id), id.Value) {
+                    Doc = partialOperation.Document,
+                    RetryOnConflict = 10
+                };
+                if (id.Routing != null)
+                    request.Routing = id.Routing;
+                request.Refresh = options.GetRefreshMode(DefaultConsistency);
+
+                var response = await _client.UpdateAsync(request).AnyContext();
+
+                if (response.IsValid) {
+                    _logger.LogTraceRequest(response);
+                } else {
+                    _logger.LogErrorRequest(response, "Error patching document {Index}/{Id}", ElasticIndex.GetIndex(id), id.Value);
                     throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                 }
             } else {
@@ -229,23 +230,21 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return;
             }
 
-            string pipeline = ElasticType is IHavePipelinedIndexType type ? type.Pipeline : null;
             var scriptOperation = operation as ScriptPatch;
             var partialOperation = operation as PartialPatch;
             if (scriptOperation == null && partialOperation == null)
                 throw new ArgumentException("Unknown operation type", nameof(operation));
 
             var bulkResponse = await _client.BulkAsync(b => {
-                b.Refresh(options.GetRefreshMode(ElasticType.DefaultConsistency));
+                b.Refresh(options.GetRefreshMode(DefaultConsistency));
                 foreach (var id in ids) {
-                    b.Pipeline(pipeline);
+                    b.Pipeline(DefaultPipeline);
 
                     if (scriptOperation != null)
                         b.Update<T>(u => {
                             u.Id(id.Value)
-                              .Index(GetIndexById(id))
-                              .Type(ElasticType.Name)
-                              .Script(s => s.Inline(scriptOperation.Script).Params(scriptOperation.Params))
+                              .Index(ElasticIndex.GetIndex(id))
+                              .Script(s => s.Source(scriptOperation.Script).Params(scriptOperation.Params))
                               .RetriesOnConflict(10);
 
                             if (id.Routing != null)
@@ -256,8 +255,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     else if (partialOperation != null)
                         b.Update<T, object>(u => {
                             u.Id(id.Value)
-                                .Index(GetIndexById(id))
-                                .Type(ElasticType.Name)
+                                .Index(ElasticIndex.GetIndex(id))
                                 .Doc(partialOperation.Document)
                                 .RetriesOnConflict(10);
 
@@ -275,7 +273,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (bulkResponse.IsValid) {
                 _logger.LogTraceRequest(bulkResponse);
             } else {
-                _logger.LogErrorRequest(bulkResponse, "Error bulk patching documents of {Type}", ElasticType.Name);
+                _logger.LogErrorRequest(bulkResponse, "Error bulk patching documents");
                 throw new ApplicationException(bulkResponse.GetErrorMessage(), bulkResponse.OriginalException);
             }
 
@@ -307,25 +305,30 @@ namespace Foundatio.Repositories.Elasticsearch {
             options = ConfigureOptions(options);
 
             long affectedRecords = 0;
-            var pipelinedIndexType = ElasticType as IHavePipelinedIndexType;
-            string pipeline = pipelinedIndexType?.Pipeline;
             if (operation is Models.JsonPatch jsonOperation) {
                 var patcher = new JsonPatcher();
                 affectedRecords += await BatchProcessAsAsync<JObject>(query, async results => {
                     var bulkResult = await _client.BulkAsync(b => {
-                        b.Refresh(options.GetRefreshMode(ElasticType.DefaultConsistency));
+                        b.Refresh(options.GetRefreshMode(DefaultConsistency));
                         foreach (var h in results.Hits) {
                             var target = h.Document as JToken;
                             patcher.Patch(ref target, jsonOperation.Patch);
+                            var elasticVersion = h.GetElasticVersion();
 
-                            b.Index<JObject>(i => i
-                                .Document(target as JObject)
-                                .Id(h.Id)
-                                .Routing(h.Routing)
-                                .Index(h.GetIndex())
-                                .Type(h.GetIndexType())
-                                .Pipeline(pipeline)
-                                .Version(h.Version));
+                            b.Index<JObject>(i => {
+                                 i.Document(target as JObject)
+                                  .Id(h.Id)
+                                  .Routing(h.Routing)
+                                  .Index(h.GetIndex())
+                                  .Pipeline(DefaultPipeline);
+
+                                 if (HasVersion) {
+                                     i.IfPrimaryTerm(elasticVersion.PrimaryTerm)
+                                      .IfSequenceNumber(elasticVersion.SequenceNumber);
+                                 }
+
+                                 return i;
+                            });
                         }
 
                         return b;
@@ -357,18 +360,18 @@ namespace Foundatio.Repositories.Elasticsearch {
                     throw new ArgumentException("Unknown operation type", nameof(operation));
 
                 if (!IsCacheEnabled && scriptOperation != null) {
-                    var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", GetIndexesByQuery(query))),
-                        ElasticType.Name) {
-                        Query = await ElasticType.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext(),
+                    var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", ElasticIndex.GetIndexesByQuery(query)))) {
+                        Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext(),
                         Conflicts = Conflicts.Proceed,
                         Script = new InlineScript(scriptOperation.Script) { Params = scriptOperation.Params },
-                        Pipeline = pipeline,
+                        Pipeline = DefaultPipeline,
                         Version = HasVersion,
-                        Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency) != Refresh.False
+                        Refresh = options.GetRefreshMode(DefaultConsistency) != Refresh.False,
+                        IgnoreUnavailable = true,
+                        WaitForCompletion = false
                     };
 
                     var response = await _client.UpdateByQueryAsync(request).AnyContext();
-
                     if (response.IsValid) {
                         _logger.LogTraceRequest(response);
                     } else {
@@ -376,17 +379,33 @@ namespace Foundatio.Repositories.Elasticsearch {
                         throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                     }
 
-                    // TODO: What do we want to do about failures and timeouts?
-                    affectedRecords += response.Updated + response.Noops;
-                    Debug.Assert(response.Total == affectedRecords, "Unable to update all documents");
+                    var taskId = response.Task;
+                    int attempts = 0;
+                    do {
+                        attempts++;
+                        var taskStatus = await _client.Tasks.GetTaskAsync(taskId, t => t.WaitForCompletion(false)).AnyContext();
+                        var status = taskStatus.Task.Status;
+                        if (taskStatus.Completed) {
+                            // TODO: need to check to see if the task failed or completed successfully. Throw if it failed.
+                            _logger.LogInformation("Script operation task ({TaskId}) completed: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, status.Created, status.Updated, status.Deleted, status.VersionConflicts, status.Total);
+                            affectedRecords += status.Created + status.Updated + status.Deleted;
+                            break;
+                        }
+                        
+                        _logger.LogDebug("Checking script operation task ({TaskId}) status: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, status.Created, status.Updated, status.Deleted, status.VersionConflicts, status.Total);
+                        var delay = TimeSpan.FromSeconds(attempts <= 5 ? 1 : 5);
+                        await Task.Delay(delay).AnyContext();
+                    } while (true);
+
+                    return affectedRecords;
                 } else {
                     if (!query.GetIncludes().Contains(_idField.Value))
                         query.Include(_idField.Value);
 
                     affectedRecords += await BatchProcessAsync(query, async results => {
                         var bulkResult = await _client.BulkAsync(b => {
-                            b.Pipeline(pipeline);
-                            b.Refresh(options.GetRefreshMode(ElasticType.DefaultConsistency));
+                            b.Pipeline(DefaultPipeline);
+                            b.Refresh(options.GetRefreshMode(DefaultConsistency));
 
                             foreach (var h in results.Hits) {
                                 if (scriptOperation != null)
@@ -394,14 +413,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                                         .Id(h.Id)
                                         .Routing(h.Routing)
                                         .Index(h.GetIndex())
-                                        .Type(h.GetIndexType())
-                                        .Script(s => s.Inline(scriptOperation.Script).Params(scriptOperation.Params))
+                                        .Script(s => s.Source(scriptOperation.Script).Params(scriptOperation.Params))
                                         .RetriesOnConflict(10));
                                 else if (partialOperation != null)
                                     b.Update<T, object>(u => u.Id(h.Id)
                                         .Routing(h.Routing)
                                         .Index(h.GetIndex())
-                                        .Type(h.GetIndexType())
                                         .Doc(partialOperation.Document));
                             }
 
@@ -478,9 +495,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (docs.Count == 0)
                 return;
 
-            if (HasMultipleIndexes) {
-                foreach (var documentGroup in docs.GroupBy(TimeSeriesType.GetDocumentIndex))
-                    await TimeSeriesType.EnsureIndexAsync(documentGroup.First()).AnyContext();
+            if (ElasticIndex.HasMultipleIndexes) {
+                foreach (var documentGroup in docs.GroupBy(ElasticIndex.GetIndex))
+                    await ElasticIndex.EnsureIndexAsync(documentGroup.First()).AnyContext();
             }
 
             options = ConfigureOptions(options);
@@ -488,30 +505,30 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (docs.Count == 1) {
                 var document = docs.Single();
-                var request = new DeleteRequest(GetDocumentIndexFunc?.Invoke(document), ElasticType.Name, document.Id) {
-                    Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency)
+                var request = new DeleteRequest(ElasticIndex.GetIndex(document), document.Id) {
+                    Refresh = options.GetRefreshMode(DefaultConsistency)
                 };
 
                 if (GetParentIdFunc != null)
-                    request.Parent = GetParentIdFunc(document);
+                    request.Routing = GetParentIdFunc(document);
 
                 var response = await _client.DeleteAsync(request).AnyContext();
 
-                if (response.IsValid) {
+                if (response.IsValid || response.ApiCall.HttpStatusCode == 404) {
                     _logger.LogTraceRequest(response);
                 } else {
-                    _logger.LogErrorRequest(response, "Error removing document {Index}/{Type}/{Id}", GetDocumentIndexFunc?.Invoke(document), ElasticType.Name, document.Id);
+                    _logger.LogErrorRequest(response, "Error removing document {Index}/{Id}", ElasticIndex.GetIndex(document), document.Id);
                     throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
                 }
             } else {
                 var response = await _client.BulkAsync(bulk => {
-                    bulk.Refresh(options.GetRefreshMode(ElasticType.DefaultConsistency));
+                    bulk.Refresh(options.GetRefreshMode(DefaultConsistency));
                     foreach (var doc in docs)
                         bulk.Delete<T>(d => {
-                            d.Id(doc.Id).Index(GetDocumentIndexFunc?.Invoke(doc)).Type(ElasticType.Name);
+                            d.Id(doc.Id).Index(ElasticIndex.GetIndex(doc));
 
                             if (GetParentIdFunc != null)
-                                d.Parent(GetParentIdFunc(doc));
+                                d.Routing(GetParentIdFunc(doc));
 
                             return d;
                         });
@@ -546,13 +563,13 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
         
         protected void AddPropertyRequiredForRemove(Expression<Func<T, object>> objectPath) {
-            _propertiesRequiredForRemove.Add(new Lazy<Field>(() => ElasticType.GetPropertyName(objectPath)));
+            _propertiesRequiredForRemove.Add(new Lazy<Field>(() => Infer.PropertyName(objectPath)));
         }
         
         protected void AddPropertyRequiredForRemove(params Expression<Func<T, object>>[] objectPaths) {
-            _propertiesRequiredForRemove.AddRange(objectPaths.Select(o => new Lazy<Field>(() => ElasticType.GetPropertyName(o))));
+            _propertiesRequiredForRemove.AddRange(objectPaths.Select(o => new Lazy<Field>(() => Infer.PropertyName(o))));
         }
-        
+
         public virtual Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
             return RemoveAllAsync(query.Configure(), options.Configure());
         }
@@ -574,10 +591,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }, options.Clone()).AnyContext();
             }
 
-            var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(ElasticType.Index.Name, ElasticType.Name) {
-                Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency) != Refresh.False,
+            var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(ElasticIndex.Name) {
+                Refresh = options.GetRefreshMode(DefaultConsistency) != Refresh.False,
                 Conflicts = Conflicts.Proceed,
-                Query = await ElasticType.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext()
+                Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext()
             }).AnyContext();
 
             if (response.IsValid) {
@@ -649,9 +666,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             else if (HasCreatedDate)
                 documents.OfType<IHaveCreatedDate>().SetCreatedDates();
 
-            documents.EnsureIds(ElasticType.CreateDocumentId);
+            documents.EnsureIds(ElasticIndex.CreateDocumentId);
 
-            if (DocumentsAdding != null)
+            if (DocumentsAdding != null && DocumentsAdding.HasHandlers)
                 await DocumentsAdding.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
             await OnDocumentsChangingAsync(ChangeType.Added, documents, options).AnyContext();
@@ -660,7 +677,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public AsyncEvent<DocumentsEventArgs<T>> DocumentsAdded { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
 
         private async Task OnDocumentsAddedAsync(IReadOnlyCollection<T> documents, ICommandOptions options) {
-            if (DocumentsAdded != null)
+            if (DocumentsAdded != null && DocumentsAdded.HasHandlers)
                 await DocumentsAdded.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
             var modifiedDocs = documents.Select(d => new ModifiedDocument<T>(d, null)).ToList();
@@ -677,13 +694,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (HasDates)
                 documents.Cast<IHaveDates>().SetDates();
 
-            documents.EnsureIds(ElasticType.CreateDocumentId);
+            documents.EnsureIds(ElasticIndex.CreateDocumentId);
 
             var modifiedDocs = originalDocuments.FullOuterJoin(
                 documents, cf => cf.Id, cf => cf.Id,
                 (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m => new ModifiedDocument<T>( m.Modified, m.Original)).ToList();
 
-            if (DocumentsSaving != null)
+            if (DocumentsSaving != null && DocumentsSaving.HasHandlers)
                 await DocumentsSaving.InvokeAsync(this, new ModifiedDocumentsEventArgs<T>(modifiedDocs, this, options)).AnyContext();
 
             await OnDocumentsChangingAsync(ChangeType.Saved, modifiedDocs, options).AnyContext();
@@ -699,14 +716,14 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (SupportsSoftDeletes && IsCacheEnabled) {
                 string[] deletedIds = modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Value).IsDeleted).Select(m => m.Value.Id).ToArray();
                 if (deletedIds.Length > 0)
-                    await Cache.SetAddAsync("deleted", deletedIds, TimeSpan.FromSeconds(30)).AnyContext();
+                    await Cache.ListAddAsync("deleted", deletedIds, TimeSpan.FromSeconds(30)).AnyContext();
 
                 string[] undeletedIds = modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Value).IsDeleted == false).Select(m => m.Value.Id).ToArray();
                 if (undeletedIds.Length > 0)
-                    await Cache.SetRemoveAsync("deleted", undeletedIds, TimeSpan.FromSeconds(30)).AnyContext();
+                    await Cache.ListRemoveAsync("deleted", undeletedIds, TimeSpan.FromSeconds(30)).AnyContext();
             }
 
-            if (DocumentsSaved != null)
+            if (DocumentsSaved != null && DocumentsSaved.HasHandlers)
                 await DocumentsSaved.InvokeAsync(this, new ModifiedDocumentsEventArgs<T>(modifiedDocs, this, options)).AnyContext();
 
             await OnDocumentsChangedAsync(ChangeType.Saved, modifiedDocs, options).AnyContext();
@@ -716,7 +733,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public AsyncEvent<DocumentsEventArgs<T>> DocumentsRemoving { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
 
         private async Task OnDocumentsRemovingAsync(IReadOnlyCollection<T> documents, ICommandOptions options) {
-            if (DocumentsRemoving != null)
+            if (DocumentsRemoving != null && DocumentsRemoving.HasHandlers)
                 await DocumentsRemoving.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
             await OnDocumentsChangingAsync(ChangeType.Removed, documents, options).AnyContext();
@@ -725,7 +742,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public AsyncEvent<DocumentsEventArgs<T>> DocumentsRemoved { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
 
         private async Task OnDocumentsRemovedAsync(IReadOnlyCollection<T> documents, ICommandOptions options) {
-            if (DocumentsRemoved != null)
+            if (DocumentsRemoved != null && DocumentsRemoved.HasHandlers)
                 await DocumentsRemoved.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
             await OnDocumentsChangedAsync(ChangeType.Removed, documents, options).AnyContext();
@@ -735,14 +752,17 @@ namespace Foundatio.Repositories.Elasticsearch {
         public AsyncEvent<DocumentsChangeEventArgs<T>> DocumentsChanging { get; } = new AsyncEvent<DocumentsChangeEventArgs<T>>();
 
         private Task OnDocumentsChangingAsync(ChangeType changeType, IReadOnlyCollection<T> documents, ICommandOptions options) {
+            if (DocumentsChanging == null || !DocumentsChanging.HasHandlers)
+                return Task.CompletedTask;
+            
             return OnDocumentsChangingAsync(changeType, documents.Select(d => new ModifiedDocument<T>(d, null)).ToList(), options);
         }
 
-        private async Task OnDocumentsChangingAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
-            if (DocumentsChanging == null)
-                return;
+        private Task OnDocumentsChangingAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
+            if (DocumentsChanging == null || !DocumentsChanging.HasHandlers)
+                return Task.CompletedTask;
 
-            await DocumentsChanging.InvokeAsync(this, new DocumentsChangeEventArgs<T>(changeType, documents, this, options)).AnyContext();
+            return DocumentsChanging.InvokeAsync(this, new DocumentsChangeEventArgs<T>(changeType, documents, this, options));
         }
 
         public AsyncEvent<DocumentsChangeEventArgs<T>> DocumentsChanged { get; } = new AsyncEvent<DocumentsChangeEventArgs<T>>();
@@ -752,41 +772,40 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         private async Task OnDocumentsChangedAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
-            if (DocumentsChanged == null)
-                return;
-
             if (changeType != ChangeType.Added)
                 await InvalidateCacheAsync(documents, options).AnyContext();
-
+            
+            if (DocumentsChanged == null || !DocumentsChanged.HasHandlers)
+                return;
+            
             await DocumentsChanged.InvokeAsync(this, new DocumentsChangeEventArgs<T>(changeType, documents, this, options)).AnyContext();
         }
 
         #endregion
 
         private async Task IndexDocumentsAsync(IReadOnlyCollection<T> documents, bool isCreateOperation, ICommandOptions options) {
-            if (HasMultipleIndexes) {
-                foreach (var documentGroup in documents.GroupBy(TimeSeriesType.GetDocumentIndex))
-                    await TimeSeriesType.EnsureIndexAsync(documentGroup.First()).AnyContext();
+            if (ElasticIndex.HasMultipleIndexes) {
+                foreach (var documentGroup in documents.GroupBy(ElasticIndex.GetIndex))
+                    await ElasticIndex.EnsureIndexAsync(documentGroup.First()).AnyContext();
             }
 
-            string pipeline = ElasticType is IHavePipelinedIndexType ? ((IHavePipelinedIndexType)ElasticType).Pipeline : null;
             if (documents.Count == 1) {
                 var document = documents.Single();
                 var response = await _client.IndexAsync(document, i => {
                     i.OpType(isCreateOperation ? OpType.Create : OpType.Index);
-                    i.Type(ElasticType.Name);
-                    i.Pipeline(pipeline);
-                    i.Refresh(options.GetRefreshMode(ElasticType.DefaultConsistency));
+                    i.Pipeline(DefaultPipeline);
+                    i.Refresh(options.GetRefreshMode(DefaultConsistency));
 
                     if (GetParentIdFunc != null)
-                        i.Parent(GetParentIdFunc(document));
+                        i.Routing(GetParentIdFunc(document));
+                    //i.Routing(GetParentIdFunc != null ? GetParentIdFunc(document) : document.Id);
 
-                    if (GetDocumentIndexFunc != null)
-                        i.Index(GetDocumentIndexFunc(document));
+                    i.Index(ElasticIndex.GetIndex(document));
 
                     if (HasVersion && !isCreateOperation) {
-                        var versionedDoc = (IVersioned)document;
-                        i.Version(versionedDoc.Version);
+                        var elasticVersion = ((IVersioned)document).GetElasticVersion();
+                        i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
+                        i.IfSequenceNumber(elasticVersion.SequenceNumber);
                     }
 
                     return i;
@@ -804,32 +823,31 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                 if (HasVersion) {
                     var versionDoc = (IVersioned)document;
-                    versionDoc.Version = response.Version;
+                    var elasticVersion = response.GetElasticVersion();
+                    versionDoc.Version = elasticVersion;
                 }
             } else {
                 var bulkRequest = new BulkRequest();
                 var list = documents.Select(d => {
-                    var o = isCreateOperation
-                        ? (IBulkOperation)new BulkCreateOperation<T>(d) { Pipeline = pipeline }
-                        : new BulkIndexOperation<T>(d) { Pipeline = pipeline };
-
-                    o.Type = ElasticType.Name;
+                    var createOperation = new BulkCreateOperation<T>(d) { Pipeline = DefaultPipeline };
+                    var indexOperation = new BulkIndexOperation<T>(d) { Pipeline = DefaultPipeline };
+                    var baseOperation = isCreateOperation ? (IBulkOperation)createOperation : indexOperation;
+                    
                     if (GetParentIdFunc != null)
-                        o.Parent = GetParentIdFunc(d);
-
-                    if (GetDocumentIndexFunc != null)
-                        o.Index = GetDocumentIndexFunc(d);
+                        baseOperation.Routing = GetParentIdFunc(d);
+                    //baseOperation.Routing = GetParentIdFunc != null ? GetParentIdFunc(d) : d.Id;
+                    baseOperation.Index = ElasticIndex.GetIndex(d);
 
                     if (HasVersion && !isCreateOperation) {
-                        var versionedDoc = (IVersioned)d;
-                        if (versionedDoc != null)
-                            o.Version = versionedDoc.Version;
+                        var elasticVersion = ((IVersioned)d).GetElasticVersion();
+                        indexOperation.IfSequenceNumber = elasticVersion.SequenceNumber;
+                        indexOperation.IfPrimaryTerm = elasticVersion.PrimaryTerm;
                     }
 
-                    return o;
+                    return baseOperation;
                 }).ToList();
                 bulkRequest.Operations = list;
-                bulkRequest.Refresh = options.GetRefreshMode(ElasticType.DefaultConsistency);
+                bulkRequest.Refresh = options.GetRefreshMode(DefaultConsistency);
 
                 var response = await _client.BulkAsync(bulkRequest).AnyContext();
 
@@ -843,7 +861,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                             continue;
 
                         var versionDoc = (IVersioned)document;
-                        versionDoc.Version = hit.Version;
+                        var elasticVersion = hit.GetElasticVersion();
+                        versionDoc.Version = elasticVersion;
                     }
                 }
 
@@ -873,12 +892,28 @@ namespace Foundatio.Repositories.Elasticsearch {
             // 429 // 503
         }
 
-        protected virtual async Task AddToCacheAsync(ICollection<T> documents, ICommandOptions options) {
+        protected virtual Task AddToCacheAsync(ICollection<T> documents, ICommandOptions options) {
             if (!IsCacheEnabled || Cache == null || !options.ShouldUseCache())
-                return;
+                return Task.CompletedTask;
 
-            foreach (var document in documents)
-                await Cache.SetAsync(document.Id, document, options.GetExpiresIn()).AnyContext();
+            var expiresIn = options.GetExpiresIn();
+            var findHits = documents.Select(ToFindHit).ToList();
+
+            var saveDocumentsToCacheWithKeyTask = options.HasCacheKey()
+                ? SetCachedFindHit(findHits, options.GetCacheKey(), expiresIn)
+                : Task.CompletedTask;
+            
+            return Task.WhenAll(saveDocumentsToCacheWithKeyTask, SetCachedFindHit(findHits, null, expiresIn));
+        }
+        
+        protected Task SetCachedFindHit(T document, string cacheKey = null, TimeSpan? expiresIn = null) {
+            return SetCachedFindHit(new List<FindHit<T>> { ToFindHit(document) }, cacheKey ?? document.Id, expiresIn);
+        }
+
+        protected FindHit<T> ToFindHit(T document) {
+            string version = HasVersion ? ((IVersioned)document)?.Version : null;
+            string routing = GetParentIdFunc?.Invoke(document);
+            return new FindHit<T>(document?.Id, document, 0, version, routing);
         }
 
         protected bool NotificationsEnabled { get; set; }
@@ -989,7 +1024,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (!NotificationsEnabled || _messagePublisher == null)
                 return;
 
-            if (BeforePublishEntityChanged != null) {
+            if (BeforePublishEntityChanged != null && BeforePublishEntityChanged.HasHandlers) {
                 var eventArgs = new BeforePublishEntityChangedEventArgs<T>(this, message);
                 await BeforePublishEntityChanged.InvokeAsync(this, eventArgs).AnyContext();
                 if (eventArgs.Cancel)

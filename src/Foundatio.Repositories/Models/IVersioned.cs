@@ -3,6 +3,6 @@
         /// <summary>
         /// Current modification version for the document.
         /// </summary>
-        long Version { get; set; }
+        string Version { get; set; }
     }
 }

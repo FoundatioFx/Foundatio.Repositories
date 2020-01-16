@@ -1,11 +1,11 @@
 <Project>
   <Import Project="..\build\common.props" />
   <PropertyGroup>
-    <TargetFramework>netcoreapp2.2</TargetFramework>
+    <TargetFramework>netcoreapp3.1</TargetFramework>
     <IsPackable>False</IsPackable>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Foundatio.Logging.Xunit" Version="8.1.2126" />
+    <PackageReference Include="Foundatio.Logging.Xunit" Version="9.1.0-rc1" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="16.4.0" />
     <PackageReference Include="xunit" Version="2.4.1" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.4.1" />

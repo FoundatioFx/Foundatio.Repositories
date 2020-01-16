@@ -1,88 +1,99 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
-using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Options;
-using Foundatio.Repositories.Queries;
 using Nest;
 
 namespace Foundatio.Repositories {
     public static class ParentQueryExtensions {
-        internal const string ParentQueryKey = "@ParentQuery";
+        internal const string ParentQueriesKey = "@ParentQueries";
 
         public static T ParentQuery<T>(this T query, IRepositoryQuery parentQuery) where T : IRepositoryQuery {
             if (parentQuery == null)
                 throw new ArgumentNullException(nameof(parentQuery));
 
-            return query.BuildOption(ParentQueryKey, parentQuery);
+            return query.AddCollectionOptionValue(ParentQueriesKey, parentQuery);
         }
 
         public static T ParentQuery<T>(this T query, RepositoryQueryDescriptor parentQuery) where T : IRepositoryQuery {
             if (parentQuery == null)
                 throw new ArgumentNullException(nameof(parentQuery));
 
-            return query.BuildOption(ParentQueryKey, parentQuery.Configure());
+            return query.AddCollectionOptionValue(ParentQueriesKey, parentQuery.Configure());
         }
+        
+        internal const string ParentIdKey = "@ParentId";
 
-        public static IRepositoryQuery<TChild> ParentQuery<TChild, TParent>(this IRepositoryQuery<TChild> query, RepositoryQueryDescriptor<TParent> parentQuery) where TChild : class where TParent : class {
-            if (parentQuery == null)
-                throw new ArgumentNullException(nameof(parentQuery));
+        public static T ParentId<T>(this T query, string relation, string parentId) where T : IRepositoryQuery {
+            return query.BuildOption(ParentIdKey, (Relation: relation, ParentId: parentId));
+        }
+        
+        internal const string DiscriminatorKey = "@Discriminator";
 
-            return query.BuildOption(ParentQueryKey, parentQuery.Configure());
+        public static T Discriminator<T>(this T query, string relation) where T : IRepositoryQuery {
+            return query.BuildOption(DiscriminatorKey, relation);
         }
     }
 }
 
 namespace Foundatio.Repositories.Options {
     public static class ReadParentQueryExtensions {
-        public static IRepositoryQuery GetParentQuery(this IRepositoryQuery query) {
-            return query.SafeGetOption<IRepositoryQuery>(ParentQueryExtensions.ParentQueryKey);
+        public static ICollection<IRepositoryQuery> GetParentQueries(this IRepositoryQuery query) {
+            return query.SafeGetCollection<IRepositoryQuery>(ParentQueryExtensions.ParentQueriesKey);
+        }
+        
+        public static (string Relation, string ParentId) GetParentId(this IRepositoryQuery query) {
+            return query.SafeGetOption<(string Relation, string ParentId)>(ParentQueryExtensions.ParentIdKey);
+        }
+        
+        public static string GetDiscriminator(this IRepositoryQuery query) {
+            return query.SafeGetOption<string>(ParentQueryExtensions.DiscriminatorKey);
         }
     }
 }
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class ParentQueryBuilder : IElasticQueryBuilder {
-        private readonly ElasticQueryBuilder _queryBuilder;
-
-        public ParentQueryBuilder(ElasticQueryBuilder queryBuilder) {
-            _queryBuilder = queryBuilder;
-        }
-
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var options = ctx.Options.GetElasticTypeSettings();
-            if (options.HasParent == false)
-                return;
+            var index = ctx.Options.GetElasticIndex();
 
-            var parentQuery = ctx.Source.GetParentQuery();
-            bool hasIds = ctx.Source.GetIds().Count > 0;
+            var parentId = ctx.Source.GetParentId();
+            if (!String.IsNullOrEmpty(parentId.Item2))
+                ctx.Filter &= new ParentIdQuery { Id = parentId.ParentId, Type = parentId.Relation };
 
-            // even if no parent query has been set, run it through to get soft delete filter
-            if (options.ParentSupportsSoftDeletes && hasIds == false && parentQuery == null)
-                parentQuery = new RepositoryQuery();
+            var discriminator = ctx.Source.GetDiscriminator();
+            if (discriminator != null)
+                ctx.Filter &= new TermQuery { Field = "discriminator", Value = discriminator };
 
-            if (parentQuery == null)
-                return;
+            var parentQueries = ctx.Source.GetParentQueries();
+            if (parentQueries.Count > 0) {
+                foreach (var parentQuery in parentQueries) {
+                    var parentOptions = ctx.Options.Clone();
+                    parentOptions.DocumentType(parentQuery.GetDocumentType());
+                    parentOptions.ParentDocumentType(null);
+                    
+                    if (parentQuery.GetDocumentType() == typeof(object))
+                        parentQuery.DocumentType(ctx.Options.ParentDocumentType());
+                    
+                    var parentContext = new QueryBuilderContext<object>(parentQuery, parentOptions, null);
 
-            var parentType = options.ChildType.GetParentIndexType();
-            if (parentType == null)
-                throw new ApplicationException("ParentIndexTypeName on child index type must match the name of the parent type.");
+                    await index.QueryBuilder.BuildAsync(parentContext);
 
-            var parentOptions = new CommandOptions().ElasticType(parentType);
+                    if (parentContext.Filter != null && ((IQueryContainer)parentContext.Filter).IsConditionless == false)
+                        ctx.Filter &= new HasParentQuery {
+                            ParentType = parentQuery.GetDocumentType(), Query = new BoolQuery {
+                                Filter = new[] { parentContext.Filter }
+                            }
+                        };
 
-            var parentContext = new QueryBuilderContext<object>(parentQuery, parentOptions, null, ctx, ContextType.Parent);
-            await _queryBuilder.BuildAsync(parentContext).AnyContext();
-
-            if ((parentContext.Query == null || ((IQueryContainer)parentContext.Query).IsConditionless)
-                && (parentContext.Filter == null || ((IQueryContainer)parentContext.Filter).IsConditionless))
-                return;
-
-            ctx.Filter &= new HasParentQuery {
-                Type = parentType.Name,
-                Query = new BoolQuery {
-                    Must = new QueryContainer[] { parentContext.Query },
-                    Filter = new QueryContainer[] { parentContext.Filter },
+                    if (parentContext.Query != null && ((IQueryContainer)parentContext.Query).IsConditionless == false)
+                        ctx.Query &= new HasParentQuery {
+                            ParentType = parentQuery.GetDocumentType(), Query = new BoolQuery {
+                                Must = new[] { parentContext.Query }
+                            }
+                        };
                 }
-            };
+            }
         }
     }
 }

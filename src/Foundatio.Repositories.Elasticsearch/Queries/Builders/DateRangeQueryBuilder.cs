@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Options;
 using Foundatio.Utility;
 using Nest;
@@ -13,11 +14,12 @@ namespace Foundatio.Repositories {
     public class DateRange {
         public DateTime? StartDate { get; set; }
         public DateTime? EndDate { get; set; }
+        public string TimeZone { get; set; }
         public Field Field { get; set; }
 
         public bool UseStartDate => StartDate.HasValue && StartDate.Value > DateTime.MinValue;
 
-        public bool UseEndDate => EndDate.HasValue;
+        public bool UseEndDate => EndDate.HasValue && EndDate.Value < DateTime.MaxValue;
 
         public bool UseDateRange => Field != null && (UseStartDate || UseEndDate);
 
@@ -33,18 +35,40 @@ namespace Foundatio.Repositories {
     public static class DateRangesQueryExtensions {
         internal const string DateRangesKey = "@DateRanges";
 
-        public static T DateRange<T>(this T query, DateTime? utcStart, DateTime? utcEnd, Field field) where T : IRepositoryQuery {
+        public static T DateRange<T>(this T query, DateTime? utcStart, DateTime? utcEnd, Field field, string timeZone = null) where T : IRepositoryQuery {
             if (field == null)
                 throw new ArgumentNullException(nameof(field));
 
-            return query.AddCollectionOptionValue(DateRangesKey, new DateRange { StartDate = utcStart, EndDate = utcEnd, Field = field });
+            if (!utcStart.HasValue && !utcEnd.HasValue)
+                throw new ArgumentNullException(nameof(utcStart), "Start date and end date cannot be null.");
+            
+            if (utcStart.HasValue && utcEnd.HasValue && utcStart.Value.IsAfter(utcEnd.Value))
+                throw new ArgumentOutOfRangeException(nameof(utcStart), "Start date must be before end date.");
+
+            return query.AddCollectionOptionValue(DateRangesKey, new DateRange {
+                StartDate = utcStart,
+                EndDate = utcEnd,
+                Field = field,
+                TimeZone = timeZone
+            });
         }
 
-        public static T DateRange<T, TModel>(this T query, DateTime? utcStart, DateTime? utcEnd, Expression<Func<TModel, object>> objectPath) where T : IRepositoryQuery {
+        public static T DateRange<T, TModel>(this T query, DateTime? utcStart, DateTime? utcEnd, Expression<Func<TModel, object>> objectPath, string timeZone = null) where T : IRepositoryQuery {
             if (objectPath == null)
                 throw new ArgumentNullException(nameof(objectPath));
 
-            return query.AddCollectionOptionValue(DateRangesKey, new DateRange { StartDate = utcStart, EndDate = utcEnd, Field = objectPath });
+            if (!utcStart.HasValue && !utcEnd.HasValue)
+                throw new ArgumentNullException(nameof(utcStart), "Start date and end date cannot be null.");
+            
+            if (utcStart.HasValue && utcEnd.HasValue && utcStart.Value.IsAfter(utcEnd.Value))
+                throw new ArgumentOutOfRangeException(nameof(utcStart), "Start date must be before end date.");
+
+            return query.AddCollectionOptionValue(DateRangesKey, new DateRange {
+                StartDate = utcStart,
+                EndDate = utcEnd,
+                Field = objectPath,
+                TimeZone = timeZone
+            });
         }
     }
 }
@@ -64,17 +88,16 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (dateRanges.Count <= 0)
                 return Task.CompletedTask;
 
-            var elasticQueryOptions = ctx.Options.GetElasticTypeSettings();
             foreach (var dateRange in dateRanges.Where(dr => dr.UseDateRange)) {
-                string fieldName = dateRange.Field?.Name;
-                if (elasticQueryOptions?.IndexType != null && !String.IsNullOrEmpty(fieldName))
-                    fieldName = elasticQueryOptions.IndexType.GetFieldName(fieldName);
-
-                ctx.Filter &= new DateRangeQuery {
-                    Field = fieldName ?? dateRange.Field,
-                    GreaterThanOrEqualTo = dateRange.GetStartDate(),
-                    LessThanOrEqualTo = dateRange.GetEndDate()
-                };
+                var rangeQuery = new DateRangeQuery { Field = dateRange.Field };
+                if (dateRange.UseStartDate)
+                    rangeQuery.GreaterThanOrEqualTo = dateRange.GetStartDate();
+                if (dateRange.UseEndDate)
+                    rangeQuery.LessThanOrEqualTo = dateRange.GetEndDate();
+                if (!String.IsNullOrEmpty(dateRange.TimeZone))
+                    rangeQuery.TimeZone = dateRange.TimeZone;
+                
+                ctx.Filter &= rangeQuery;
             }
 
             return Task.CompletedTask;

@@ -65,11 +65,11 @@ namespace Foundatio.Repositories.Options {
 }
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public class AliasedExpressionQueryBuilder : IElasticQueryBuilder {
-        private readonly AliasMap _aliasMap;
+    public class FieldResolverQueryBuilder : IElasticQueryBuilder {
+        private readonly QueryFieldResolver _aliasMap;
         private readonly LuceneQueryParser _parser = new LuceneQueryParser();
 
-        public AliasedExpressionQueryBuilder(AliasMap aliasMap) {
+        public FieldResolverQueryBuilder(QueryFieldResolver aliasMap) {
             _aliasMap = aliasMap;
         }
 
@@ -80,7 +80,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             if (!String.IsNullOrEmpty(filter)) {
                 var result = _parser.Parse(filter);
-                filter = GenerateQueryVisitor.Run(AliasedQueryVisitor.Run(result, _aliasMap, ctx), ctx);
+                filter = GenerateQueryVisitor.Run(FieldResolverQueryVisitor.Run(result, _aliasMap, ctx), ctx);
 
                 ctx.Filter &= new QueryStringQuery {
                     Query = filter,
@@ -91,7 +91,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             if (!String.IsNullOrEmpty(search)) {
                 var result = _parser.Parse(search);
-                search = GenerateQueryVisitor.Run(AliasedQueryVisitor.Run(result, _aliasMap, ctx), ctx);
+                search = GenerateQueryVisitor.Run(FieldResolverQueryVisitor.Run(result, _aliasMap, ctx), ctx);
 
                 ctx.Query &= new QueryStringQuery {
                     Query = search,
@@ -102,9 +102,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             if (!String.IsNullOrEmpty(sort)) {
                 var result = _parser.Parse(sort);
-                var opt = ctx.Options.GetElasticTypeSettings();
                 TermToFieldVisitor.Run(result, ctx);
-                AliasedQueryVisitor.Run(result, _aliasMap, ctx);
+                FieldResolverQueryVisitor.Run(result, _aliasMap, ctx);
                 var fields = GetReferencedFieldsQueryVisitor.Run(result);
                 // TODO: Check referenced fields against opt.AllowedSortFields
 
@@ -140,7 +139,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             if (!String.IsNullOrEmpty(sort)) {
                 var result = _parser.Parse(sort);
-                var opt = ctx.Options.GetElasticTypeSettings();
                 TermToFieldVisitor.Run(result, ctx);
                 var fields = GetReferencedFieldsQueryVisitor.Run(result);
                 // TODO: Check referenced fields against opt.AllowedSortFields

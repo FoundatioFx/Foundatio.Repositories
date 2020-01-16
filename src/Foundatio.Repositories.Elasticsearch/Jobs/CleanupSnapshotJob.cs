@@ -38,6 +38,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             if (_repositories.Count == 0)
                 _repositories.Add(new RepositoryMaxAge { Name = "data", MaxAge = TimeSpan.FromDays(3) });
 
+            // need retries, need check for snapshot running, use cat for snapshot names
             foreach (var repo in _repositories)
                 await DeleteOldSnapshotsAsync(repo.Name, repo.MaxAge, cancellationToken).AnyContext();
 
@@ -47,7 +48,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
 
         private async Task DeleteOldSnapshotsAsync(string repo, TimeSpan maxAge, CancellationToken cancellationToken) {
             var sw = Stopwatch.StartNew();
-            var result = await _client.GetSnapshotAsync(
+            var result = await _client.Snapshot.GetAsync(
                 repo,
                 "_all",
                 d => d.RequestConfiguration(r =>
@@ -91,7 +92,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                     await _lockProvider.TryUsingAsync("es-snapshot", async t => {
                         _logger.LogInformation("Got snapshot lock to delete {SnapshotName} from {Repo}", snapshot.Name, repo);
                         sw.Restart();
-                        var response = await _client.DeleteSnapshotAsync(repo, snapshot.Name, r => r.RequestConfiguration(c => c.RequestTimeout(TimeSpan.FromMinutes(15))), cancellationToken: t).AnyContext();
+                        var response = await _client.Snapshot.DeleteAsync(repo, snapshot.Name, r => r.RequestConfiguration(c => c.RequestTimeout(TimeSpan.FromMinutes(15))), ct: t).AnyContext();
                         sw.Stop();
                         _logger.LogTraceRequest(response);
 
@@ -114,7 +115,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             return Task.CompletedTask;
         }
 
-        public virtual Task<bool> OnSnapshotDeleteFailure(string snapshotName, TimeSpan duration, IDeleteSnapshotResponse response, Exception ex) {
+        public virtual Task<bool> OnSnapshotDeleteFailure(string snapshotName, TimeSpan duration, DeleteSnapshotResponse response, Exception ex) {
             _logger.LogErrorRequest(ex, response, "Failed to delete snapshot {SnapshotName} after {Duration:g}", snapshotName, duration);
             return Task.FromResult(true);
         }
@@ -124,7 +125,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         }
 
         private DateTime GetSnapshotDate(string repo, string name) {
-            if (DateTime.TryParseExact(name, "'" + repo + "-'yyyy-MM-dd-HH-mm", _enUS, DateTimeStyles.None, out DateTime result))
+            if (DateTime.TryParseExact(name, "'" + repo + "-'yyyy-MM-dd-HH-mm", _enUS, DateTimeStyles.None, out var result))
                 return result;
 
             return DateTime.MaxValue;

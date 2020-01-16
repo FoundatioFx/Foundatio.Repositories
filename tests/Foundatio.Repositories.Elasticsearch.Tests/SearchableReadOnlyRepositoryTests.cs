@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
@@ -11,7 +11,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         public SearchableReadOnlyRepositoryTests(ITestOutputHelper output) : base(output) {
             _employeeRepository = new EmployeeRepository(_configuration);
-            RemoveDataAsync().GetAwaiter().GetResult();
+        }
+
+        public override async Task InitializeAsync() {
+            await base.InitializeAsync();
+            await RemoveDataAsync();
         }
 
         [Fact]

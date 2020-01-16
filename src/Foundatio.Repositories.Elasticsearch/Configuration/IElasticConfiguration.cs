@@ -15,14 +15,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         IMessageBus MessageBus { get; }
         ILoggerFactory LoggerFactory { get; }
         IReadOnlyCollection<IIndex> Indexes { get; }
-        IIndexType<T> GetIndexType<T>() where T : class;
-        IIndexType GetIndexType(Type type);
         IIndex GetIndex(string name);
         void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder);
         void ConfigureGlobalQueryParsers(ElasticQueryParserConfiguration config);
         Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true);
         Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null);
         Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null);
-        Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func < int, string, Task> progressCallbackAsync = null);
+        Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func <int, string, Task> progressCallbackAsync = null);
     }
 }

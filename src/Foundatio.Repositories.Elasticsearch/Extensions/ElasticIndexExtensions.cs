@@ -2,11 +2,10 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using Foundatio.Parsers.ElasticQueries.Extensions;
+using System.Reflection;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Utility;
-using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticIndexExtensions {
@@ -20,35 +19,90 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return hits.Select(h => h.ToFindHit());
         }
 
-        public static FindHit<T> ToFindHit<T>(this Nest.IGetResponse<T> hit) where T : class {
+        public static FindHit<T> ToFindHit<T>(this Nest.GetResponse<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
             if (versionedDoc != null)
-                versionedDoc.Version = hit.Version;
+                versionedDoc.Version = hit.GetElasticVersion();
 
-            var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index }, { ElasticDataKeys.IndexType, hit.Type } };
+            var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
             return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, hit.Routing, data);
+        }
+
+        public static ElasticDocumentVersion GetElasticVersion<T>(this Nest.GetResponse<T> hit) where T : class {
+            if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
+                return ElasticDocumentVersion.Empty;
+            
+            return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SequenceNumber.Value);
+        }
+
+        public static ElasticDocumentVersion GetElasticVersion<T>(this Nest.IHit<T> hit) where T : class {
+            if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
+                return ElasticDocumentVersion.Empty;
+            
+            return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SequenceNumber.Value);
+        }
+
+        public static ElasticDocumentVersion GetElasticVersion<T>(this FindHit<T> hit) where T : class {
+            if (hit == null || String.IsNullOrEmpty(hit.Version))
+                return ElasticDocumentVersion.Empty;
+            
+            return hit.Version;
+        }
+
+        public static ElasticDocumentVersion GetElasticVersion(this Nest.IndexResponse hit) {
+            if (hit.PrimaryTerm == 0 && hit.SequenceNumber == 0)
+                return ElasticDocumentVersion.Empty;
+            
+            return new ElasticDocumentVersion(hit.PrimaryTerm, hit.SequenceNumber);
+        }
+
+        public static ElasticDocumentVersion GetElasticVersion<T>(this Nest.IMultiGetHit<T> hit) where T : class {
+            if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
+                return ElasticDocumentVersion.Empty;
+            
+            return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SequenceNumber.Value);
+        }
+
+        public static ElasticDocumentVersion GetElasticVersion(this Nest.BulkResponseItemBase hit) {
+            if (hit.PrimaryTerm == 0 && hit.SequenceNumber == 0)
+                return ElasticDocumentVersion.Empty;
+            
+            return new ElasticDocumentVersion(hit.PrimaryTerm, hit.SequenceNumber);
+        }
+
+        public static ElasticDocumentVersion GetElasticVersion(this IVersioned versioned) {
+            if (versioned == null || String.IsNullOrEmpty(versioned.Version))
+                return ElasticDocumentVersion.Empty;
+            
+            return versioned.Version;
         }
 
         public static FindHit<T> ToFindHit<T>(this Nest.IHit<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
-            if (versionedDoc != null && hit.Version.HasValue)
-                versionedDoc.Version = hit.Version.Value;
+            if (versionedDoc != null && hit.PrimaryTerm.HasValue)
+                versionedDoc.Version = hit.GetElasticVersion();
 
-            var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index }, { ElasticDataKeys.IndexType, hit.Type } };
+            var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
             return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), versionedDoc?.Version ?? null, hit.Routing, data);
         }
 
         public static FindHit<T> ToFindHit<T>(this Nest.IMultiGetHit<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
             if (versionedDoc != null)
-                versionedDoc.Version = hit.Version;
+                versionedDoc.Version = hit.GetElasticVersion();
 
-            var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index }, { ElasticDataKeys.IndexType, hit.Type } };
+            var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
             return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, hit.Routing, data);
         }
 
         private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
 
+        private static readonly Lazy<Func<Nest.TopHitsAggregate, IList<Nest.LazyDocument>>> _getHits =
+            new Lazy<Func<Nest.TopHitsAggregate, IList<Nest.LazyDocument>>>(() => {
+                var hitsField = typeof(Nest.TopHitsAggregate).GetField("_hits", BindingFlags.GetField | BindingFlags.NonPublic | BindingFlags.Instance);
+                return agg => hitsField?.GetValue(agg) as IList<Nest.LazyDocument>;
+            });
+        
         public static IAggregate ToAggregate(this Nest.IAggregate aggregate) {
             if (aggregate is Nest.ValueAggregate valueAggregate) {
                 if (valueAggregate.Meta != null && valueAggregate.Meta.TryGetValue("@field_type", out var value)) {
@@ -70,23 +124,6 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     Data = scriptedAggregate.Meta.ToData<ObjectValueAggregate>()
                 };
 
-            if (aggregate is Nest.StatsAggregate statsAggregate)
-                return new StatsAggregate {
-                    Count = statsAggregate.Count,
-                    Min = statsAggregate.Min,
-                    Max = statsAggregate.Max,
-                    Average = statsAggregate.Average,
-                    Sum = statsAggregate.Sum,
-                    Data = statsAggregate.Meta.ToData<StatsAggregate>()
-                };
-
-            if (aggregate is Nest.TopHitsAggregate topHitsAggregate)
-                return new TopHitsAggregate(topHitsAggregate.Documents<JToken>().Select(topHit => new LazyDocument(topHit.Value<JToken>())).ToList()) {
-                    Total = topHitsAggregate.Total,
-                    MaxScore = topHitsAggregate.MaxScore,
-                    Data = topHitsAggregate.Meta.ToData<TopHitsAggregate>()
-                };
-
             if (aggregate is Nest.ExtendedStatsAggregate extendedStatsAggregate)
                 return new ExtendedStatsAggregate {
                     Count = extendedStatsAggregate.Count,
@@ -103,6 +140,27 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     Variance = extendedStatsAggregate.Variance,
                     Data = extendedStatsAggregate.Meta.ToData<ExtendedStatsAggregate>()
                 };
+            
+            if (aggregate is Nest.StatsAggregate statsAggregate)
+                return new StatsAggregate {
+                    Count = statsAggregate.Count,
+                    Min = statsAggregate.Min,
+                    Max = statsAggregate.Max,
+                    Average = statsAggregate.Average,
+                    Sum = statsAggregate.Sum,
+                    Data = statsAggregate.Meta.ToData<StatsAggregate>()
+                };
+
+            if (aggregate is Nest.TopHitsAggregate topHitsAggregate) {
+                var hits = _getHits.Value(topHitsAggregate);
+                var docs = hits?.Select(h => new ElasticLazyDocument(h)).Cast<ILazyDocument>().ToList();
+                
+                return new TopHitsAggregate(docs) {
+                    Total = topHitsAggregate.Total.Value,
+                    MaxScore = topHitsAggregate.MaxScore,
+                    Data = topHitsAggregate.Meta.ToData<TopHitsAggregate>()
+                };
+            }
 
             if (aggregate is Nest.PercentilesAggregate percentilesAggregate)
                 return new PercentilesAggregate(percentilesAggregate.Items.Select(i => new PercentileItem { Percentile = i.Percentile, Value = i.Value })) {
@@ -110,7 +168,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 };
 
             if (aggregate is Nest.SingleBucketAggregate singleBucketAggregate)
-                return new SingleBucketAggregate(singleBucketAggregate.Aggregations.ToAggregations()) {
+                return new SingleBucketAggregate(singleBucketAggregate.ToAggregations()) {
                     Data = singleBucketAggregate.Meta.ToData<SingleBucketAggregate>(),
                     Total = singleBucketAggregate.DocCount
                 };
@@ -138,12 +196,22 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
             var kind = DateTimeKind.Utc;
             long ticks = _epochTicks + ((long)valueAggregate.Value * TimeSpan.TicksPerMillisecond);
-
+            
             if (valueAggregate.Meta.TryGetValue("@timezone", out var value) && value != null) {
                 kind = DateTimeKind.Unspecified;
-                ticks -= TimeUnit.Parse(value.ToString()).Ticks;
+                ticks -= Exceptionless.DateTimeExtensions.TimeUnit.Parse(value.ToString()).Ticks;
             }
 
+            return GetDate(ticks, kind);
+        }
+        
+        private static DateTime GetDate(long ticks, DateTimeKind kind) {
+            if (ticks <= DateTime.MinValue.Ticks)
+                return DateTime.MinValue;
+            
+            if (ticks >= DateTime.MaxValue.Ticks)
+                return DateTime.MaxValue;
+            
             return new DateTime(ticks, kind);
         }
 
@@ -151,13 +219,14 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (bucket is Nest.DateHistogramBucket dateHistogramBucket) {
                 bool hasTimezone = parentData != null && parentData.ContainsKey("@timezone");
                 var kind = hasTimezone ? DateTimeKind.Unspecified : DateTimeKind.Utc;
-                var date = new DateTime(_epochTicks + ((long)dateHistogramBucket.Key * TimeSpan.TicksPerMillisecond), kind);
+                var ticks = _epochTicks + ((long)dateHistogramBucket.Key * TimeSpan.TicksPerMillisecond);
+                var date = GetDate(ticks, kind);
                 var data = new Dictionary<string, object> { { "@type", "datehistogram" } };
                 
                 if (hasTimezone)
                     data.Add("@timezone", parentData["@timezone"]);
                         
-                return new DateHistogramBucket(date, dateHistogramBucket.Aggregations.ToAggregations()) {
+                return new DateHistogramBucket(date, dateHistogramBucket.ToAggregations()) {
                     Total = dateHistogramBucket.DocCount,
                     Key = dateHistogramBucket.Key,
                     KeyAsString = date.ToString("O"),
@@ -166,7 +235,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             }
 
             if (bucket is Nest.RangeBucket rangeBucket)
-                return new RangeBucket(rangeBucket.Aggregations.ToAggregations()) {
+                return new RangeBucket(rangeBucket.ToAggregations()) {
                     Total = rangeBucket.DocCount,
                     Key = rangeBucket.Key,
                     From = rangeBucket.From,
@@ -177,7 +246,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 };
 
             if (bucket is Nest.KeyedBucket<string> stringKeyedBucket)
-                return new KeyedBucket<string>(stringKeyedBucket.Aggregations.ToAggregations()) {
+                return new KeyedBucket<string>(stringKeyedBucket.ToAggregations()) {
                     Total = stringKeyedBucket.DocCount,
                     Key = stringKeyedBucket.Key,
                     KeyAsString = stringKeyedBucket.KeyAsString,
@@ -185,7 +254,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 };
 
             if (bucket is Nest.KeyedBucket<double> doubleKeyedBucket)
-                return new KeyedBucket<double>(doubleKeyedBucket.Aggregations.ToAggregations()) {
+                return new KeyedBucket<double>(doubleKeyedBucket.ToAggregations()) {
                     Total = doubleKeyedBucket.DocCount,
                     Key = doubleKeyedBucket.Key,
                     KeyAsString = doubleKeyedBucket.KeyAsString,
@@ -193,7 +262,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 };
 
             if (bucket is Nest.KeyedBucket<object> objectKeyedBucket)
-                return new KeyedBucket<object>(objectKeyedBucket.Aggregations.ToAggregations()) {
+                return new KeyedBucket<object>(objectKeyedBucket.ToAggregations()) {
                     Total = objectKeyedBucket.DocCount,
                     Key = objectKeyedBucket.Key,
                     KeyAsString = objectKeyedBucket.KeyAsString,
@@ -221,13 +290,13 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 pd.Keyword(p => p.Name(d => ((IIdentity)d).Id));
 
             if (supportsSoftDeletes)
-                pd.Boolean(p => p.Name(d => ((ISupportSoftDeletes)d).IsDeleted).Alias("deleted"));
+                pd.Boolean(p => p.Name(d => ((ISupportSoftDeletes)d).IsDeleted)).FieldAlias(a => a.Path(p => ((ISupportSoftDeletes)p).IsDeleted).Name("deleted"));
 
             if (hasCreatedDate)
-                pd.Date(p => p.Name(d => ((IHaveCreatedDate)d).CreatedUtc).Alias("created"));
+                pd.Date(p => p.Name(d => ((IHaveCreatedDate)d).CreatedUtc)).FieldAlias(a => a.Path(p => ((IHaveCreatedDate)p).CreatedUtc).Name("created"));
 
             if (hasDates)
-                pd.Date(p => p.Name(d => ((IHaveDates)d).UpdatedUtc).Alias("updated"));
+                pd.Date(p => p.Name(d => ((IHaveDates)d).UpdatedUtc)).FieldAlias(a => a.Path(p => ((IHaveDates)p).UpdatedUtc).Name("updated"));;
 
             return pd;
         }

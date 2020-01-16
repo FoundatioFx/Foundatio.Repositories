@@ -13,7 +13,7 @@ namespace Foundatio.Repositories {
         internal const string SortsKey = "@SortsKey";
 
         public static T Sort<T>(this T query, Field field, SortOrder? order = null) where T : IRepositoryQuery {
-            return query.AddCollectionOptionValue<T, IFieldSort>(SortsKey, new SortField { Field = field, Order = order });
+            return query.AddCollectionOptionValue<T, IFieldSort>(SortsKey, new FieldSort { Field = field, Order = order });
         }
 
         public static T SortDescending<T>(this T query, Field field) where T : IRepositoryQuery {
@@ -25,7 +25,7 @@ namespace Foundatio.Repositories {
         }
 
         public static IRepositoryQuery<T> Sort<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, SortOrder? order = null) where T : class {
-            return query.AddCollectionOptionValue<IRepositoryQuery<T>, IFieldSort>(SortsKey, new SortField { Field = objectPath, Order = order });
+            return query.AddCollectionOptionValue<IRepositoryQuery<T>, IFieldSort>(SortsKey, new FieldSort { Field = objectPath, Order = order });
         }
 
         public static IRepositoryQuery<T> SortDescending<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath) where T : class {
@@ -56,8 +56,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (sortFields.Count <= 0) {
                 // always use the default sort if using search after paging
                 if (ctx.Options.ShouldUseSearchAfterPaging()) {
-                    var options = ctx.Options.GetElasticTypeSettings();
-                    string fieldName = options.IndexType?.GetFieldName(Id) ?? Id;
+                    var index = ctx.Options.GetElasticIndex();
+                    var docType = ctx.Options.DocumentType();
+                    var idProperty = docType?.GetProperty(Id);
+                    string fieldName = index?.Configuration.Client.Infer.Field(idProperty) ?? "_id";
                     ctx.Search.Sort(s => s.Field(fieldName, SortOrder.Ascending));
                 }
                 

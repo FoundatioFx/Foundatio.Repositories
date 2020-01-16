@@ -49,7 +49,6 @@ namespace Foundatio.Repositories {
             return condition ? query.FieldCondition(objectPath, op, value) : query;
         }
 
-
         public static T FieldEquals<T>(this T query, Field field, object value = null) where T : IRepositoryQuery {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = field, Value = value, Operator = ComparisonOperator.Equals });
         }

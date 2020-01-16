@@ -102,17 +102,18 @@ namespace Foundatio.Repositories.Models {
     public class FindHit<T> : IHaveData {
         public static readonly FindHit<T> Empty = new FindHit<T>(null, default(T), 0);
 
-        public FindHit(string id, T document, double score, long? version = null, string routing = null, IDictionary<string, object> data = null) {
+        public FindHit(string id, T document, double score, string version = null, string routing = null, IDictionary<string, object> data = null) {
             Id = id;
             Document = document;
             Score = score;
             Version = version;
+            Routing = routing;
             Data = data != null ? new ReadOnlyDictionary<string, object>(data) : EmptyReadOnly<string, object>.Dictionary;
         }
 
         public T Document { get; }
         public double Score { get; }
-        public long? Version { get; }
+        public string Version { get; }
         public string Id { get; }
         public string Routing { get; }
         public IReadOnlyDictionary<string, object> Data { get; }

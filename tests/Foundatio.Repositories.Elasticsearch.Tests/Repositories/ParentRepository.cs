@@ -1,15 +1,31 @@
-﻿using System.Threading.Tasks;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
-using Foundatio.Repositories.Models;
+﻿ using System.Linq;
+ using System.Threading.Tasks;
+ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
+ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+ using Foundatio.Repositories.Models;
+ using Nest;
 
-namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories {
-    public class ParentRepository : ElasticRepositoryBase<Parent> {
-        public ParentRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.ParentChild.Parent) {
-        }
+ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories {
+     public class ParentRepository : ElasticRepositoryBase<Parent> {
+         public ParentRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.ParentChild) {
+             BeforeQuery.AddHandler(OnBeforeQuery);
+             DocumentsChanging.AddHandler(OnDocumentsChanging);
+         }
 
-        public Task<FindResults<Parent>> QueryAsync(RepositoryQueryDescriptor<Parent> query) {
-            return FindAsync(query);
-        }
+         protected Task OnDocumentsChanging(object sender, DocumentsChangeEventArgs<Parent> args) {
+             foreach (var doc in args.Documents.Select(d => d.Value).Cast<IParentChildDocument>())
+                doc.Discriminator = JoinField.Root<Parent>();
+                     
+             return Task.CompletedTask;
+         }
+
+         protected Task OnBeforeQuery(object sender, BeforeQueryEventArgs<Parent> args) {
+             args.Query.Discriminator("parent");
+             return Task.CompletedTask;
+         }
+
+         public Task<FindResults<Parent>> QueryAsync(RepositoryQueryDescriptor<Parent> query) {
+             return FindAsync(query);
+         }
     }
 }

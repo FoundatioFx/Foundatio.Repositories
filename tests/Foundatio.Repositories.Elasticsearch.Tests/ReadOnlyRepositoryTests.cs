@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -21,8 +21,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             _identityRepository = new IdentityRepository(_configuration);
             _dailyRepository = new DailyLogEventRepository(_configuration);
             _employeeRepository = new EmployeeRepository(_configuration);
+        }
 
-            RemoveDataAsync().GetAwaiter().GetResult();
+        public override async Task InitializeAsync() {
+            await base.InitializeAsync();
+            await RemoveDataAsync();
         }
 
         [Fact]
@@ -180,6 +183,47 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(3, _cache.Hits);
             Assert.Equal(2, _cache.Misses);
         }
+        
+        [Fact]
+        public async Task GetByIdWithNullCacheKeyAsync() {
+            var identity = await _identityRepository.AddAsync(IdentityGenerator.Default);
+            Assert.NotNull(identity?.Id);
+
+            Assert.Equal(0, _cache.Count);
+            Assert.Equal(0, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache(null)));
+            Assert.Equal(1, _cache.Count);
+            Assert.Equal(0, _cache.Hits);
+            Assert.Equal(1, _cache.Misses);
+
+            Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache(null)));
+            Assert.Equal(1, _cache.Count);
+            Assert.Equal(1, _cache.Hits);
+            Assert.Equal(1, _cache.Misses);
+
+            Assert.Null(await _identityRepository.GetByIdAsync("not-yet", o => o.Cache(null)));
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(1, _cache.Hits);
+            Assert.Equal(2, _cache.Misses);
+
+            Assert.Null(await _identityRepository.GetByIdAsync("not-yet", o => o.Cache(null)));
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(2, _cache.Hits);
+            Assert.Equal(2, _cache.Misses);
+
+            var newIdentity = await _identityRepository.AddAsync(IdentityGenerator.Generate("not-yet"), o => o.Cache(null));
+            Assert.NotNull(newIdentity?.Id);
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(2, _cache.Hits);
+            Assert.Equal(2, _cache.Misses);
+
+            Assert.Equal(newIdentity, await _identityRepository.GetByIdAsync("not-yet", o => o.Cache(null)));
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(3, _cache.Hits);
+            Assert.Equal(2, _cache.Misses);
+        }
 
         [Fact]
         public async Task GetByIdAnyIdsWithCacheAsync() {
@@ -196,9 +240,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, _cache.Misses);
 
             string cacheKey = _cache.Keys.Single();
-            var cacheValue = await _cache.GetAsync<Identity>(cacheKey);
+            var cacheValue = await _cache.GetAsync<IEnumerable<FindHit<Identity>>>(cacheKey);
             Assert.True(cacheValue.HasValue);
-            Assert.Equal(identity, cacheValue.Value);
+            Assert.Equal(identity, cacheValue.Value.Single().Document);
 
             var results = await _identityRepository.GetByIdsAsync(new Ids(identity.Id), o => o.Cache());
             Assert.Equal(1, results.Count);
@@ -206,9 +250,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, _cache.Count);
             Assert.Equal(2, _cache.Hits);
             Assert.Equal(1, _cache.Misses);
-            cacheValue = await _cache.GetAsync<Identity>(cacheKey);
+            cacheValue = await _cache.GetAsync<IEnumerable<FindHit<Identity>>>(cacheKey);
             Assert.True(cacheValue.HasValue);
-            Assert.Equal(identity, cacheValue.Value);
+            Assert.Equal(identity, cacheValue.Value.Single().Document);
 
             await _identityRepository.InvalidateCacheAsync(identity);
             Assert.Equal(0, _cache.Count);
@@ -221,17 +265,17 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, _cache.Count);
             Assert.Equal(3, _cache.Hits);
             Assert.Equal(2, _cache.Misses);
-            cacheValue = await _cache.GetAsync<Identity>(cacheKey);
+            cacheValue = await _cache.GetAsync<IEnumerable<FindHit<Identity>>>(cacheKey);
             Assert.True(cacheValue.HasValue);
-            Assert.Equal(identity, cacheValue.Value);
+            Assert.Equal(identity, cacheValue.Value.Single().Document);
 
             Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache()));
             Assert.Equal(1, _cache.Count);
             Assert.Equal(5, _cache.Hits);
             Assert.Equal(2, _cache.Misses);
-            cacheValue = await _cache.GetAsync<Identity>(cacheKey);
+            cacheValue = await _cache.GetAsync<IEnumerable<FindHit<Identity>>>(cacheKey);
             Assert.True(cacheValue.HasValue);
-            Assert.Equal(identity, cacheValue.Value);
+            Assert.Equal(identity, cacheValue.Value.Single().Document);
         }
 
         [Fact]
@@ -440,31 +484,84 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
             Assert.NotNull(identity2?.Id);
 
-            var results = await _identityRepository.GetAllAsync(o => o.PageLimit(1).SnapshotPagingLifetime(TimeSpan.FromMinutes(1)));
+            await _client.ClearScrollAsync();
+            long baselineScrollCount = await GetCurrentScrollCountAsync();
+
+            var results = await _identityRepository.GetAllAsync(o => o.PageLimit(1).SnapshotPagingLifetime(TimeSpan.FromMinutes(10)));
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
             Assert.True(results.HasMore);
             Assert.Equal(identity1.Id, results.Documents.First().Id);
             Assert.Equal(2, results.Total);
+            long currentScrollCount = await GetCurrentScrollCountAsync();
+            Assert.Equal(baselineScrollCount + 1, currentScrollCount);
 
             Assert.True(await results.NextPageAsync());
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(2, results.Page);
             Assert.Equal(2, results.Total);
             Assert.Equal(identity2.Id, results.Documents.First().Id);
-            // TODO: Figure out why this is true when there are no more results
+            // returns true even though there are no more results because we don't know if there are more or not for scrolls until we try to get the next page
             Assert.True(results.HasMore);
             var secondDoc = results.Documents.First();
+            currentScrollCount = await GetCurrentScrollCountAsync();
+            Assert.Equal(baselineScrollCount + 1, currentScrollCount);
 
             Assert.False(await results.NextPageAsync());
             Assert.Equal(0, results.Documents.Count);
             Assert.Equal(2, results.Page);
             Assert.False(results.HasMore);
             Assert.Equal(2, results.Total);
+            currentScrollCount = await GetCurrentScrollCountAsync();
+            Assert.Equal(baselineScrollCount, currentScrollCount);
 
             var secondPageResults = await _identityRepository.GetAllAsync(o => o.PageNumber(2).PageLimit(1));
             Assert.Equal(secondDoc, secondPageResults.Documents.First());
+            
+            // make sure a scroll that only has a single page will clear the scroll immediately
+            results = await _identityRepository.GetAllAsync(o => o.PageLimit(5).SnapshotPagingLifetime(TimeSpan.FromMinutes(10)));
+            Assert.NotNull(results);
+            Assert.Equal(2, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(identity1.Id, results.Documents.First().Id);
+            Assert.Equal(identity2.Id, results.Documents.Last().Id);
+            Assert.Equal(2, results.Total);
+            currentScrollCount = await GetCurrentScrollCountAsync();
+            Assert.Equal(baselineScrollCount, currentScrollCount);
+            
+            // use while loop and verify scroll is cleared
+            var findResults = await _identityRepository.GetAllAsync(o => o.PageLimit(1).SnapshotPagingLifetime(TimeSpan.FromMinutes(10)));
+            do {
+                Assert.Equal(1, findResults.Documents.Count);
+                Assert.Equal(2, findResults.Total);
+ 
+                currentScrollCount = await GetCurrentScrollCountAsync();
+                Assert.Equal(baselineScrollCount + 1, currentScrollCount);
+            } while (await findResults.NextPageAsync().ConfigureAwait(false));
+            
+            currentScrollCount = await GetCurrentScrollCountAsync();
+            Assert.Equal(baselineScrollCount, currentScrollCount);
+            
+            findResults = await _identityRepository.GetAllAsync(o => o.PageLimit(5).SnapshotPagingLifetime(TimeSpan.FromMinutes(10)));
+            do {
+                Assert.Equal(2, findResults.Documents.Count);
+                Assert.Equal(1, findResults.Page);
+                Assert.Equal(2, findResults.Total);
+
+                currentScrollCount = await GetCurrentScrollCountAsync();
+                Assert.Equal(baselineScrollCount, currentScrollCount);
+            } while (await findResults.NextPageAsync().ConfigureAwait(false));
+            
+            currentScrollCount = await GetCurrentScrollCountAsync();
+            Assert.Equal(baselineScrollCount, currentScrollCount);
+        }
+        
+        private async Task<long> GetCurrentScrollCountAsync() {
+            var stats = await _client.Nodes.StatsAsync();
+            var nodeStats = stats.Nodes.First().Value;
+            return nodeStats.Indices.Search.ScrollCurrent;
         }
 
         [Fact]
@@ -569,12 +666,82 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: DateTimeOffset.Now), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);
 
-            var results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.UtcNow.SubtractHours(1), DateTime.UtcNow, "next"));
+            var results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.UtcNow.SubtractHours(1), DateTime.UtcNow, "next").AggregationsExpression("date:next"));
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
             Assert.False(results.HasMore);
             Assert.Equal(1, results.Total);
+            
+            Assert.Equal(1, results.Aggregations.Count);
+            Assert.True(results.Aggregations.ContainsKey("date_next"));
+            var aggregation = results.Aggregations["date_next"] as BucketAggregate;
+            Assert.NotNull(aggregation);
+            Assert.InRange(aggregation.Items.Count, 120, 121);
+            Assert.Equal(0, aggregation.Total);
+        }
+
+        [Fact]
+        public async Task GetWithDateRangeHonoringTimeZoneAsync() {
+            Log.MinimumLevel = Microsoft.Extensions.Logging.LogLevel.Trace;
+            var dateTimeOffset = SystemClock.OffsetUtcNow;
+            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: dateTimeOffset), o => o.ImmediateConsistency());
+            Assert.NotNull(employee?.Id);
+
+            var results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(dateTimeOffset.UtcDateTime.SubtractHours(1), dateTimeOffset.UtcDateTime, "next"));
+
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(1, results.Total);
+
+            var localNow = dateTimeOffset.ToLocalTime().DateTime;
+            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(localNow.SubtractHours(1), localNow, "next", TimeZoneInfo.Local.Id));
+
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(1, results.Total);
+
+            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(localNow.SubtractHours(1), localNow, "next", "Asia/Shanghai"));
+            Assert.Empty(results.Documents);
+            
+            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(null, localNow, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            Assert.Empty(results.Documents);
+            
+            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(null, DateTime.MaxValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(1, results.Total);
+            
+            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(localNow.SubtractHours(1), null, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(1, results.Total);
+
+            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.MinValue, DateTime.MaxValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(1, results.Total);
+            
+            // No matching documents will be found.
+            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.MinValue, DateTime.MinValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            Assert.Empty(results.Documents);
+            
+            // start date won't be used but max value will.
+            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.MaxValue, DateTime.MaxValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            Assert.Empty(results.Documents);
+            
+            await Assert.ThrowsAsync<ArgumentNullException>(() => _employeeRepository.GetByQueryAsync(o => o.DateRange(null, null, "next", "Asia/Shanghai").AggregationsExpression("date:next")));
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.MaxValue, DateTime.MinValue, "next", "Asia/Shanghai").AggregationsExpression("date:next")));
         }
 
         [Fact]

@@ -1,6 +1,6 @@
 ![Foundatio](https://raw.githubusercontent.com/FoundatioFx/Foundatio/master/media/foundatio.png "Foundatio")
 
-[![Build status](https://ci.appveyor.com/api/projects/status/fhuovj9tddvjgxja?svg=true)](https://ci.appveyor.com/project/Exceptionless/foundatio-repositories)
+[![Build status](https://github.com/FoundatioFx/Foundatio.Repositories/workflows/Build/badge.svg)](https://github.com/FoundatioFx/Foundatio.Repositories/actions)
 [![NuGet Version](http://img.shields.io/nuget/v/Foundatio.Repositories.svg?style=flat)](https://www.nuget.org/packages/Foundatio.Repositories/)
 [![Slack Status](https://slack.exceptionless.com/badge.svg)](https://slack.exceptionless.com)
 
@@ -28,7 +28,7 @@ Generic repository contract and implementations. Currently only implemented for 
   - Plan to add additional implementations (Postgres with Marten would be a good fit)
 - Elasticsearch index configuration allows simpler and more organized configuration
   - Schema versioning
-  - Parent child indexes
+  - Parent child queries
   - Daily and monthly index strategies
 - Supports different consistency models (immediate, wait or eventual)
   - Can be configured at the index type or individual query level
@@ -37,7 +37,6 @@ Generic repository contract and implementations. Currently only implemented for 
 - Field includes and excludes to make the response size smaller
 - Field conditions query builder
 - Paging including snapshot paging support
-- Automatic alias support right in the index type mappings
-- Aliases can be dynamic as well
+- Dynamic field resolution for using friendly names of dynamically generated fields
 - Jobs for index maintenance, snapshots, reindex
 - Strongly typed field access (using lambda expressions) to enable refactoring

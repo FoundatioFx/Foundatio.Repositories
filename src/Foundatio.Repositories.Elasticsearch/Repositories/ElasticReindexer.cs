@@ -1,26 +1,25 @@
-﻿using Elasticsearch.Net;
-using Foundatio.Parsers.ElasticQueries.Extensions;
-using Foundatio.Repositories.Elasticsearch.Extensions;
-using Foundatio.Repositories.Elasticsearch.Jobs;
-using Foundatio.Repositories.Extensions;
-using Foundatio.Repositories.Utility;
-using Foundatio.Utility;
-using Nest;
-using Newtonsoft.Json.Linq;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Elasticsearch.Net;
+using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Jobs;
+using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Utility;
+using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Nest;
+using Newtonsoft.Json;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public class ElasticReindexer {
         private readonly IElasticClient _client;
         private readonly ILogger _logger;
-        private const string ID_FIELD = "id";
+        private const string ID_FIELD = "_id";
         private const int MAX_STATUS_FAILS = 10;
 
         public ElasticReindexer(IElasticClient client, ILogger logger = null) {
@@ -58,7 +57,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     aliases.Add(workItem.Alias);
 
                 if (aliases.Count > 0) {
-                    var bulkResponse = await _client.AliasAsync(x => {
+                    var bulkResponse = await _client.Indices.BulkAliasAsync(x => {
                         foreach (string alias in aliases)
                             x = x.Remove(a => a.Alias(alias).Index(workItem.OldIndex)).Add(a => a.Alias(alias).Index(workItem.NewIndex));
 
@@ -70,7 +69,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
             }
 
-            await _client.RefreshAsync(Indices.All).AnyContext();
+            await _client.Indices.RefreshAsync(Indices.All).AnyContext();
             var secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime).AnyContext();
             if (!secondPassResult.Succeeded) return;
 
@@ -78,12 +77,12 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             bool hasFailures = (firstPassResult.Failures + secondPassResult.Failures) > 0;
             if (!hasFailures && workItem.DeleteOld && workItem.OldIndex != workItem.NewIndex) {
-                await _client.RefreshAsync(Indices.All).AnyContext();
-                long newDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.NewIndex).AllTypes()).AnyContext()).Count;
-                long oldDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.OldIndex).AllTypes()).AnyContext()).Count;
+                await _client.Indices.RefreshAsync(Indices.All).AnyContext();
+                long newDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.NewIndex)).AnyContext()).Count;
+                long oldDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.OldIndex)).AnyContext()).Count;
                 await progressCallbackAsync(98, $"Old Docs: {oldDocCount} New Docs: {newDocCount}").AnyContext();
                 if (newDocCount >= oldDocCount) {
-                    await _client.DeleteIndexAsync(Indices.Index(workItem.OldIndex)).AnyContext();
+                    await _client.Indices.DeleteAsync(Indices.Index(workItem.OldIndex)).AnyContext();
                     await progressCallbackAsync(99, $"Deleted index: {workItem.OldIndex}").AnyContext();
                 }
             }
@@ -105,16 +104,18 @@ namespace Foundatio.Repositories.Elasticsearch {
                         .WaitForCompletion(false);
 
                         //NEST client emitting script if null, inline this when that's fixed
-                        if (!String.IsNullOrWhiteSpace(workItem.Script)) d.Script(workItem.Script);
+                        if (!String.IsNullOrWhiteSpace(workItem.Script))
+                            d.Script(workItem.Script);
 
                         return d;
-                    }).AnyContext();
+                    }, cancellationToken).AnyContext();
 
                     return response;
                 }, 5, TimeSpan.FromSeconds(10), cancellationToken, _logger).AnyContext();
 
             _logger.LogInformation("Reindex Task Id: {TaskId}", result.Task.FullyQualifiedId);
             _logger.LogTraceRequest(result);
+            var totalDocs = result.Total;
 
             bool taskSuccess = false;
             TaskReindexResult lastReindexResponse = null;
@@ -122,9 +123,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             long lastProgress = 0;
             var sw = Stopwatch.StartNew();
             do {
-                await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken).AnyContext();
-
-                var status = await _client.GetTaskAsync(result.Task, null, cancellationToken).AnyContext();
+                var status = await _client.Tasks.GetTaskAsync(result.Task, null, cancellationToken).AnyContext();
                 if (status.IsValid) {
                     _logger.LogTraceRequest(status);
                 } else {
@@ -152,7 +151,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 long lastCompleted = status.Task.Status.Created + status.Task.Status.Updated + status.Task.Status.Noops;
 
                 // restart the stop watch if there was progress made
-                if (lastCompleted > lastProgress) sw.Restart();
+                if (lastCompleted > lastProgress)
+                    sw.Restart();
                 lastProgress = lastCompleted;
 
                 string lastMessage = $"Total: {status.Task.Status.Total:N0} Completed: {lastCompleted:N0} VersionConflicts: {status.Task.Status.VersionConflicts:N0}";
@@ -162,11 +162,18 @@ namespace Foundatio.Repositories.Elasticsearch {
                     taskSuccess = true;
                     break;
                 }
-
+                
+                // waited more than 10 minutes with no progress made
                 if (sw.Elapsed > TimeSpan.FromMinutes(10)) {
                     _logger.LogError($"Timed out waiting for reindex {workItem.OldIndex} -> {workItem.NewIndex}.");
                     break;
                 }
+                
+                var timeToWait = TimeSpan.FromSeconds(totalDocs < 100000 ? 1 : 10);
+                if (status.Task.Status.Total < 100)
+                    timeToWait = TimeSpan.FromMilliseconds(100);
+                
+                await Task.Delay(timeToWait, cancellationToken).AnyContext();
             } while (!cancellationToken.IsCancellationRequested);
             sw.Stop();
 
@@ -193,12 +200,12 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         private async Task<bool> CreateFailureIndexAsync(ReindexWorkItem workItem) {
             string errorIndex = workItem.NewIndex + "-error";
-            var existsResponse = await _client.IndexExistsAsync(errorIndex).AnyContext();
+            var existsResponse = await _client.Indices.ExistsAsync(errorIndex).AnyContext();
             _logger.LogTraceRequest(existsResponse);
-            if (!existsResponse.IsValid || existsResponse.Exists)
+            if (existsResponse.ApiCall.Success && existsResponse.Exists)
                 return true;
 
-            var createResponse = await _client.CreateIndexAsync(errorIndex, d => d.Mappings(m => m.Map("failures", md => md.Dynamic(false)))).AnyContext();
+            var createResponse = await _client.Indices.CreateAsync(errorIndex, d => d.Map(md => md.Dynamic(false))).AnyContext();
             if (!createResponse.IsValid) {
                 _logger.LogErrorRequest(createResponse, "Unable to create error index");
                 return false;
@@ -209,42 +216,39 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         private async Task HandleFailureAsync(ReindexWorkItem workItem, BulkIndexByScrollFailure failure) {
-            _logger.LogError("Error reindexing document {Index}/{Type}/{Id}: [{Status}] {Message}", failure.Index, failure.Type, failure.Id, failure.Status, failure.Cause.Reason);
-            var gr = await _client.GetAsync<object>(request: new GetRequest(failure.Index, failure.Type, failure.Id)).AnyContext();
+            _logger.LogError("Error reindexing document {Index}/{Id}: [{Status}] {Message}", workItem.OldIndex, failure.Id, failure.Status, failure.Cause.Reason);
+            var gr = await _client.GetAsync<object>(request: new GetRequest(workItem.OldIndex, failure.Id)).AnyContext();
 
             if (!gr.IsValid) {
-                _logger.LogErrorRequest(gr, "Error getting document {Index}/{Type}/{Id}", failure.Index, failure.Type, failure.Id);
+                _logger.LogErrorRequest(gr, "Error getting document {Index}/{Id}", workItem.OldIndex, failure.Id);
                 return;
             }
 
             _logger.LogTraceRequest(gr);
-            var document = JObject.FromObject(new {
+            string document = JsonConvert.SerializeObject(new {
                 failure.Index,
-                failure.Type,
                 failure.Id,
                 gr.Version,
-                gr.Parent,
+                gr.Routing,
                 gr.Source,
                 failure.Cause,
                 failure.Status,
                 gr.Found,
             });
-
-            var indexResponse = await _client.IndexAsync(document, d => d.Index(workItem.NewIndex + "-error").Type("failures")).AnyContext();
-
-            if (indexResponse.IsValid)
+            var indexResponse = await _client.LowLevel.IndexAsync<VoidResponse>(workItem.NewIndex + "-error", PostData.String(document));
+            if (indexResponse.Success)
                 _logger.LogTraceRequest(indexResponse);
             else
-                _logger.LogErrorRequest(indexResponse, "Error indexing document {Index}/{Type}/{Id}", workItem.NewIndex + "-error", gr.Type, gr.Id);
+                _logger.LogErrorRequest(indexResponse, "Error indexing document {Index}/{Id}", workItem.NewIndex + "-error", gr.Id);
         }
 
         private async Task<List<string>> GetIndexAliasesAsync(string index) {
-            var aliasesResponse = await _client.GetAliasAsync(a => a.Index(index)).AnyContext();
+            var aliasesResponse = await _client.Indices.GetAliasAsync(index).AnyContext();
             _logger.LogTraceRequest(aliasesResponse);
 
             if (aliasesResponse.IsValid && aliasesResponse.Indices.Count > 0) {
                 var aliases = aliasesResponse.Indices.Single(a => a.Key == index);
-                return aliases.Value.Select(a => a.Name).ToList();
+                return aliases.Value.Aliases.Select(a => a.Key).ToList();
             }
 
             return new List<string>();
@@ -255,32 +259,29 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (startTime.HasValue)
                 return CreateRangeQuery(descriptor, timestampField, startTime);
 
-            object startingPoint = await GetResumeStartingPointAsync(newIndex, timestampField ?? ID_FIELD).AnyContext();
-            if (startingPoint is DateTime)
-                return CreateRangeQuery(descriptor, timestampField, (DateTime)startingPoint);
-
-            if (startingPoint is string)
-                return descriptor.TermRange(dr => dr.Field(timestampField ?? ID_FIELD).GreaterThanOrEquals((string)startingPoint));
-
-            if (startingPoint != null)
-                throw new ApplicationException("Unable to create resume query from returned starting point");
+            var startingPoint = await GetResumeStartingPointAsync(newIndex, timestampField ?? ID_FIELD).AnyContext();
+            if (startingPoint.HasValue)
+                return CreateRangeQuery(descriptor, timestampField, startingPoint);
 
             return descriptor;
         }
 
         private QueryContainer CreateRangeQuery(QueryContainerDescriptor<object> descriptor, string timestampField, DateTime? startTime) {
+            if (!startTime.HasValue)
+                return descriptor;
+            
             if (!String.IsNullOrEmpty(timestampField))
                 return descriptor.DateRange(dr => dr.Field(timestampField).GreaterThanOrEquals(startTime));
 
             return descriptor.TermRange(dr => dr.Field(ID_FIELD).GreaterThanOrEquals(ObjectId.GenerateNewId(startTime.Value).ToString()));
         }
 
-        private async Task<object> GetResumeStartingPointAsync(string newIndex, string timestampField) {
-            var newestDocumentResponse = await _client.SearchAsync<JObject>(d => d
-                .Index(Indices.Index(newIndex))
-                .AllTypes()
-                .Sort(s => s.Descending(new Field(timestampField)))
-                .Source(s => s.Includes(f => f.Field(timestampField)))
+        private async Task<DateTime?> GetResumeStartingPointAsync(string newIndex, string timestampField) {
+            var newestDocumentResponse = await _client.SearchAsync<IDictionary<string, object>>(d => d
+                .Index(newIndex)
+                .Sort(s => s.Descending(timestampField))
+                .DocValueFields(timestampField)
+                .Source(s => s.ExcludeAll())
                 .Size(1)
             ).AnyContext();
 
@@ -288,14 +289,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (!newestDocumentResponse.IsValid || !newestDocumentResponse.Documents.Any())
                 return null;
 
-            var token = newestDocumentResponse.Documents.FirstOrDefault()?[timestampField];
-            if (token == null)
+            var doc = newestDocumentResponse.Hits.FirstOrDefault();
+            var value = doc?.Fields[timestampField];
+            if (value == null)
                 return null;
 
-            if (token.Type == JTokenType.Date)
-                return token.ToObject<DateTime>();
-
-            return token.ToString();
+            var datesArray = await value.AsAsync<DateTime[]>();
+            return datesArray?.FirstOrDefault();
         }
 
         private int CalculateProgress(long total, long completed, int startProgress = 0, int endProgress = 100) {

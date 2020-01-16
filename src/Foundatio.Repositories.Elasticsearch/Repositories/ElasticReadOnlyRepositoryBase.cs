@@ -34,16 +34,19 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         private ScopedCacheClient _scopedCacheClient;
 
-        
-        protected ElasticReadOnlyRepositoryBase(IIndexType<T> indexType) {
-            ElasticType = indexType;
+        protected ElasticReadOnlyRepositoryBase(IIndex index) {
+            ElasticIndex = index;
             if (HasIdentity)
-                _idField = new Lazy<string>(() => indexType.GetFieldName(doc => ((IIdentity)doc).Id) ?? "id");
-            _lazyClient = new Lazy<IElasticClient>(() => indexType.Configuration.Client);
-            
-            SetCache(indexType.Configuration.Cache);
-            _logger = indexType.Configuration.LoggerFactory.CreateLogger(GetType());
+                _idField = new Lazy<string>(() => InferField(d => ((IIdentity)d).Id) ?? "id");
+            _lazyClient = new Lazy<IElasticClient>(() => index.Configuration.Client);
+
+            SetCache(index.Configuration.Cache);
+            _logger = index.Configuration.LoggerFactory.CreateLogger(GetType());
         }
+
+        protected Inferrer Infer => _elasticIndex.Configuration.Client.Infer;
+        protected string InferField(Expression<Func<T, object>> objectPath) => Infer.Field(objectPath);
+        protected string InferPropertyName(Expression<Func<T, object>> objectPath) => Infer.PropertyName(objectPath);
 
         public virtual Task<FindResults<T>> FindAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
             return FindAsAsync<T>(query.Configure(), options.Configure());
@@ -52,6 +55,9 @@ namespace Foundatio.Repositories.Elasticsearch {
         public virtual Task<FindResults<T>> FindAsync(IRepositoryQuery query, ICommandOptions options = null) {
             return FindAsAsync<T>(query, options);
         }
+
+        protected ICollection<Field> DefaultExcludes { get; } = new List<Field>();
+        protected bool HasParent { get; set; } = false;
 
         public virtual Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) where TResult : class, new() {
             return FindAsAsync<TResult>(query.Configure(), options.Configure());
@@ -81,6 +87,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                     var results = scrollResponse.ToFindResults();
                     results.Page = previousResults.Page + 1;
                     results.HasMore = scrollResponse.Hits.Count >= options.GetLimit();
+                    
+                    // clear the scroll
+                    if (!results.HasMore)
+                        await _client.ClearScrollAsync(s => s.ScrollId(scrollId));
+                    
                     return results;
                 }
 
@@ -137,32 +148,37 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             ISearchResponse<TResult> response;
-                if (useSnapshotPaging == false || !options.HasSnapshotScrollId()) {
-                    var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
-                    if (useSnapshotPaging)
-                        searchDescriptor.Scroll(options.GetSnapshotLifetime());
+            if (useSnapshotPaging == false || !options.HasSnapshotScrollId()) {
+                var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
+                if (useSnapshotPaging)
+                    searchDescriptor.Scroll(options.GetSnapshotLifetime());
 
-                    if (query.ShouldOnlyHaveIds())
-                        searchDescriptor.Source(false);
+                if (query.ShouldOnlyHaveIds())
+                    searchDescriptor.Source(false);
 
-                    response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
-                } else {
+                response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
+            } else {
                 response = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), options.GetSnapshotScrollId()).AnyContext();
-                }
+            }
 
-                if (response.IsValid) {
-                    _logger.LogTraceRequest(response);
-                } else {
-                    if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
-                        return new FindResults<TResult>();
+            if (response.IsValid) {
+                _logger.LogTraceRequest(response);
+            } else {
+                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+                    return new FindResults<TResult>();
 
-                    _logger.LogErrorRequest(response, "Error while searching");
-                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
-                }
+                _logger.LogErrorRequest(response, "Error while searching");
+                throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+            }
 
             if (useSnapshotPaging) {
                 result = response.ToFindResults();
                 result.HasMore = response.Hits.Count >= options.GetLimit();
+                
+                // clear the scroll
+                if (!result.HasMore)
+                    await _client.ClearScrollAsync(s => s.ScrollId(result.GetScrollId()));
+                
                 ((IGetNextPage<TResult>)result).GetNextPageFunc = GetNextPageFunc;
             } else if (options.HasPageLimit()) {
                 int limit = options.GetLimit();
@@ -195,9 +211,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ArgumentNullException(nameof(query));
 
             options = ConfigureOptions(options);
-            var result = IsCacheEnabled ? await GetCachedQueryResultAsync<FindHit<T>>(options).AnyContext() : null;
-            if (result != null)
-                return result;
+            var result = IsCacheEnabled && options.ShouldReadCache() && options.HasCacheKey() ? await GetCachedFindHit(options).AnyContext() : null;
+            if (result != null && result.Count == 1)
+                return result.FirstOrDefault();
 
             await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
@@ -214,11 +230,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
             }
 
-            result = response.Hits.FirstOrDefault()?.ToFindHit();
-            if (IsCacheEnabled)
-                await SetCachedQueryResultAsync(options, result).AnyContext();
+            result = response.Hits.Select(h => h.ToFindHit()).ToList();
+            if (IsCacheEnabled && options.ShouldUseCache())
+                await SetCachedFindHit(result, options.GetCacheKey(), options.GetExpiresIn()).AnyContext();
 
-            return result;
+            return result.FirstOrDefault();
         }       
 
         public virtual Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, ICommandOptions options = null) {
@@ -239,38 +255,51 @@ namespace Foundatio.Repositories.Elasticsearch {
             options = ConfigureOptions(options);
 
             CacheValue<T> hit = null;
-            if (IsCacheEnabled && options.ShouldReadCache())
-                hit = await Cache.GetAsync<T>(id).AnyContext();
+            if (IsCacheEnabled && options.ShouldReadCache()) {
+                if (options.HasCacheKey() && HasIdentity) {
+                    var value = await GetCachedFindHit(id, options.GetCacheKey()).AnyContext();
+                    if (value?.Document != null)
+                       hit = new CacheValue<T>(value.Document, true);
+                }
+
+                if (hit == null) {
+                    var value = await GetCachedFindHit(id).AnyContext();
+                    hit = new CacheValue<T>(value?.Document, value?.Document != null);
+                }
+            }
 
             bool isTraceLogLevelEnabled = _logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace);
             if (hit != null && hit.HasValue) {
                 if (isTraceLogLevelEnabled)
-                    _logger.LogTrace("Cache hit: type={ElasticType} key={Id}", ElasticType.Name, id);
+                    _logger.LogTrace("Cache hit: type={ElasticType} key={Id}", ElasticIndex.Name, id);
                 return hit.Value;
             }
 
-            T document = null;
+            FindHit<T> findHit;
             if (!HasParent || id.Routing != null) {
-                var request = new GetRequest(GetIndexById(id), ElasticType.Name, id.Value);
+                var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
                 var response = await _client.GetAsync<T>(request).AnyContext();
                 if (isTraceLogLevelEnabled)
                     _logger.LogTraceRequest(response);
 
-                document = response.Found ? response.ToFindHit().Document : null;
+                findHit = response.Found ? response.ToFindHit() : null;
             } else {
                 // we don't have the parent id so we have to do a query
                 // TODO: Ensure this is find one query is not cached.
-                var findResult = await FindOneAsync(NewQuery().Id(id)).AnyContext();
-                if (findResult != null)
-                    document = findResult.Document;
+                findHit = await FindOneAsync(NewQuery().Id(id)).AnyContext();
             }
 
-            if (IsCacheEnabled && options.ShouldUseCache())
-                await Cache.SetAsync(id, document, options.GetExpiresIn()).AnyContext();
+            if (IsCacheEnabled && options.ShouldUseCache()) {
+                var expiresIn = options.GetExpiresIn();
+                if (options.HasCacheKey())
+                    await SetCachedFindHit(findHit, options.GetCacheKey(), expiresIn).AnyContext();
+                
+                await SetCachedFindHit(findHit, id, expiresIn).AnyContext();
+            }
 
-            return document;
+            return findHit?.Document;
         }
 
         public virtual async Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, ICommandOptions options = null) {
@@ -280,23 +309,33 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             if (!HasIdentity)
                 throw new NotSupportedException("Model type must implement IIdentity.");
-
+            
             options = ConfigureOptions(options);
-
-            var hits = new List<T>();
+            
+            var hits = new List<FindHit<T>>();
             if (IsCacheEnabled && options.ShouldReadCache()) {
-                var cacheHits = await Cache.GetAllAsync<T>(idList.Select(id => id.Value)).AnyContext();
-                hits.AddRange(cacheHits.Where(kvp => kvp.Value.HasValue).Select(kvp => kvp.Value.Value));
+                var idsToLookupFromCache = idList.ToList();
+                
+                if (options.HasCacheKey() && HasIdentity) {
+                    var values = await GetCachedFindHit(idList, options.GetCacheKey()).AnyContext();
+                    foreach (var value in values) {
+                        hits.Add(value);
+                        idsToLookupFromCache.Remove(value.Id);
+                    }
+                }
+
+                if (idsToLookupFromCache.Count > 0)
+                    hits.AddRange(await GetCachedFindHit(idsToLookupFromCache).AnyContext());
             }
 
-            var itemsToFind = idList.Except(hits.OfType<IIdentity>().Select(i => (Id)i.Id)).ToList();
+            var itemsToFind = idList.Except(hits.Select(i => (Id)i.Id)).ToList();
             if (itemsToFind.Count == 0)
-                return hits.Where(h => h != null).ToList().AsReadOnly();
+                return hits.Where(h => h.Document != null).Select(h => h.Document).ToList().AsReadOnly();
 
             var multiGet = new MultiGetDescriptor();
             foreach (var id in itemsToFind.Where(i => i.Routing != null || !HasParent)) {
                 multiGet.Get<T>(f => {
-                    f.Id(id.Value).Index(GetIndexById(id)).Type(ElasticType.Name);
+                    f.Id(id.Value).Index(ElasticIndex.GetIndex(id));
                     if (id.Routing != null)
                         f.Routing(id.Routing);
 
@@ -307,28 +346,31 @@ namespace Foundatio.Repositories.Elasticsearch {
             var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
             _logger.LogTraceRequest(multiGetResults);
 
-            foreach (var doc in multiGetResults.Documents) {
-                hits.Add(((IMultiGetHit<T>)doc).ToFindHit().Document);
+            foreach (var doc in multiGetResults.Hits) {
+                hits.Add(((IMultiGetHit<T>)doc).ToFindHit());
                 itemsToFind.Remove(new Id(doc.Id, doc.Routing));
             }
 
             // fallback to doing a find
-            if (itemsToFind.Count > 0 && (HasParent || HasMultipleIndexes)) {
+            if (itemsToFind.Count > 0 && (HasParent || ElasticIndex.HasMultipleIndexes)) {
                 var response = await FindAsync(q => q.Id(itemsToFind.Select(id => id.Value)), o => o.PageLimit(1000)).AnyContext();
                 do {
                     if (response.Hits.Count > 0)
-                        hits.AddRange(response.Hits.Where(h => h.Document != null).Select(h => h.Document));
+                        hits.AddRange(response.Hits.Where(h => h.Document != null));
                 } while (await response.NextPageAsync().AnyContext());
             }
 
             if (IsCacheEnabled && options.ShouldUseCache()) {
                 var expiresIn = options.GetExpiresIn();
-                await Cache.SetAllAsync(idList.ToDictionary(id => id.Value, id => hits.OfType<IIdentity>().FirstOrDefault(h => h.Id == id.Value))).AnyContext();
+                if (options.HasCacheKey())
+                    await SetCachedFindHit(hits, options.GetCacheKey(), expiresIn).AnyContext();
+
+                await SetCachedFindHit(hits, null, expiresIn).AnyContext();
             }
 
-            return hits.Where(h => h != null).ToList().AsReadOnly();
+            return hits.Where(h => h.Document != null).Select(h => h.Document).ToList().AsReadOnly();
         }
-
+        
         public virtual Task<FindResults<T>> GetAllAsync(ICommandOptions options = null) {
             return FindAsync(null, options);
         }
@@ -337,9 +379,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (String.IsNullOrEmpty(id.Value))
                 return false;
 
-            if (!HasParent || id.Routing != null) {
+            if (HasParent || id.Routing != null) {
                 var response = await _client.DocumentExistsAsync(new DocumentPath<T>(id.Value), d => {
-                    d.Index(GetIndexById(id));
+                    d.Index(ElasticIndex.GetIndex(d));
                     if (id.Routing != null)
                         d.Routing(id.Routing);
 
@@ -364,8 +406,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             var options = ConfigureOptions(null);
             await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
-            var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
-            searchDescriptor.DocvalueFields(_idField.Value);
+            var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(0);
+            searchDescriptor.DocValueFields(_idField.Value);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
 
             if (response.IsValid) {
@@ -378,7 +420,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
             }
 
-            return response.HitsMetaData.Total > 0;
+            return response.HitsMetadata.Total.Value > 0;
         }
 
         public virtual Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
@@ -390,9 +432,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ArgumentNullException(nameof(query));
 
             options = ConfigureOptions(options);
-            var result = await GetCachedQueryResultAsync<CountResult>(options, "count").AnyContext();
-            if (result != null)
-                return result;
+
+            CountResult result;
+            if (IsCacheEnabled && options.ShouldReadCache()) {
+                result = await GetCachedQueryResultAsync<CountResult>(options, "count").AnyContext();
+                if (result != null)
+                    return result;
+            }
 
             await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
@@ -410,28 +456,17 @@ namespace Foundatio.Repositories.Elasticsearch {
                 _logger.LogErrorRequest(response, "Error getting document count");
                 throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
             }
-
+            
             result = new CountResult(response.Total, response.ToAggregations());
-            await SetCachedQueryResultAsync(options, result, "count").AnyContext();
+            if (IsCacheEnabled && options.ShouldUseCache()) 
+                await SetCachedQueryResultAsync(options, result, "count").AnyContext();
+
             return result;
         }
 
         public virtual async Task<long> CountAsync(ICommandOptions options = null) {
-            options = ConfigureOptions(options);
-
-            var response = await _client.CountAsync<T>(c => c.Query(q => q.MatchAll()).Index(String.Join(",", GetIndexesByQuery(null))).Type(ElasticType.Name)).AnyContext();
-
-            if (response.IsValid) {
-                _logger.LogTraceRequest(response);
-            } else {
-                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
-                    return 0;
-
-                _logger.LogErrorRequest(response, "Error getting document count");
-                throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
-            }
-
-            return response.Count;
+            var result = await CountAsync(NewQuery(), options).AnyContext();
+            return result.Total;
         }
 
         public virtual Task<CountResult> CountBySearchAsync(ISystemFilter systemFilter, string filter = null, string aggregations = null, ICommandOptions options = null) {
@@ -466,11 +501,11 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
         
         protected void AddDefaultExclude(Expression<Func<T, object>> objectPath) {
-            _defaultExcludes.Add(new Lazy<Field>(() => ElasticType.GetPropertyName(objectPath)));
+            _defaultExcludes.Add(new Lazy<Field>(() => InferPropertyName(objectPath)));
         }
         
         protected void AddDefaultExclude(params Expression<Func<T, object>>[] objectPaths) {
-            _defaultExcludes.AddRange(objectPaths.Select(o => new Lazy<Field>(() => ElasticType.GetPropertyName(o))));
+            _defaultExcludes.AddRange(objectPaths.Select(o => new Lazy<Field>(() => InferPropertyName(o))));
         }
 
         public bool IsCacheEnabled { get; private set; } = true;
@@ -486,16 +521,22 @@ namespace Foundatio.Repositories.Elasticsearch {
             _scopedCacheClient = new ScopedCacheClient(new NullCacheClient(), EntityTypeName);
         }
 
-        protected virtual async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
+        protected virtual Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
             if (!IsCacheEnabled)
-                return;
+                return Task.CompletedTask;
 
-            if (documents != null && documents.Count > 0 && HasIdentity) {
-                var keys = documents.Select(d => ((IIdentity)d.Value).Id).ToList();
-
-                if (keys.Count > 0)
-                    await Cache.RemoveAllAsync(keys).AnyContext();
-            }
+            var keysToRemove = new List<string>(documents?.Count + 1 ?? 1);
+            
+            if (options.HasCacheKey())
+                keysToRemove.Add(options.GetCacheKey());
+            
+            if (HasIdentity && documents != null && documents.Count > 0)
+                keysToRemove.AddRange(documents.Select(d => ((IIdentity)d.Value).Id));
+            
+            if (keysToRemove.Count > 0)
+                return Cache.RemoveAllAsync(keysToRemove);
+            
+            return Task.CompletedTask;
         }
 
         public virtual Task InvalidateCacheAsync(T document, ICommandOptions options = null) {
@@ -528,16 +569,16 @@ namespace Foundatio.Repositories.Elasticsearch {
                 search = new SearchDescriptor<T>();
 
             query = ConfigureQuery(query);
-            search.Type(ElasticType.Name);
-            string[] indices = GetIndexesByQuery(query);
+            var indices = ElasticIndex.GetIndexesByQuery(query);
             if (indices?.Length > 0)
                 search.Index(String.Join(",", indices));
             if (HasVersion)
-                search.Version(HasVersion);
+                search.SequenceNumberPrimaryTerm(HasVersion);
 
             search.IgnoreUnavailable();
+            search.TrackTotalHits();
 
-            await ElasticType.QueryBuilder.ConfigureSearchAsync(query, options, search).AnyContext();
+            await ElasticIndex.QueryBuilder.ConfigureSearchAsync(query, options, search).AnyContext();
 
             return search;
         }
@@ -546,24 +587,17 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (options == null)
                 options = new CommandOptions<T>();
 
-            options.ElasticType(ElasticType);
+            options.ElasticIndex(ElasticIndex);
+            options.SupportsSoftDeletes(SupportsSoftDeletes);
+            options.DocumentType(typeof(T));
 
             return options;
         }
 
-        protected virtual string[] GetIndexesByQuery(IRepositoryQuery query, ICommandOptions options = null) {
-            return HasMultipleIndexes ? TimeSeriesType.GetIndexesByQuery(query) : new[] { ElasticIndex.Name };
-        }
-
-        protected virtual string GetIndexById(Id id) {
-            return HasMultipleIndexes ? TimeSeriesType.GetIndexById(id) : ElasticIndex.Name;
-        }
-
-        protected Func<T, string> GetParentIdFunc => HasParent ? d => ChildType.GetParentId(d) : (Func<T, string>)null;
-        protected Func<T, string> GetDocumentIndexFunc => HasMultipleIndexes ? d => TimeSeriesType.GetDocumentIndex(d) : (Func<T, string>)(d => ElasticIndex.Name);
+        protected Func<T, string> GetParentIdFunc { get; set; }
 
         protected async Task<TResult> GetCachedQueryResultAsync<TResult>(ICommandOptions options, string cachePrefix = null, string cacheSuffix = null) {
-            if (!IsCacheEnabled || options == null || !options.ShouldReadCache() || !options.HasCacheKey())
+            if (!IsCacheEnabled || !options.ShouldReadCache() || !options.HasCacheKey())
                 return default;
 
             string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey();
@@ -572,13 +606,13 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var result = await Cache.GetAsync<TResult>(cacheKey, default).AnyContext();
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace("Cache {HitOrMiss}: type={ElasticType} key={CacheKey}", (result != null ? "hit" : "miss"), ElasticType.Name, cacheKey);
+                _logger.LogTrace("Cache {HitOrMiss}: type={ElasticType} key={CacheKey}", (result != null ? "hit" : "miss"), ElasticIndex.Name, cacheKey);
 
             return result;
         }
 
         protected async Task SetCachedQueryResultAsync<TResult>(ICommandOptions options, TResult result, string cachePrefix = null, string cacheSuffix = null) {
-            if (!IsCacheEnabled || result == null || options == null || !options.ShouldUseCache() || !options.HasCacheKey())
+            if (!IsCacheEnabled || result == null || !options.ShouldUseCache() || !options.HasCacheKey())
                 return;
 
             string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey();
@@ -587,44 +621,86 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             await Cache.SetAsync(cacheKey, result, options.GetExpiresIn()).AnyContext();
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace("Set cache: type={ElasticType} key={CacheKey}", ElasticType.Name, cacheKey);
+                _logger.LogTrace("Set cache: type={ElasticType} key={CacheKey}", ElasticIndex.Name, cacheKey);
         }
 
-        #region Elastic Type Configuration
+        protected async Task<ICollection<FindHit<T>>> GetCachedFindHit(ICommandOptions options) {
+            string cacheKey = options.GetCacheKey();
+            var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
+            
+            var result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull ? cacheKeyHits.Value : null;
+            
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace("Cache {HitOrMiss}: type={ElasticType} key={CacheKey}", (result != null ? "hit" : "miss"), ElasticIndex.Name, cacheKey);
 
-        protected IIndex ElasticIndex => ElasticType.Index;
+            return result;
+        }
+        
+        protected async Task<FindHit<T>> GetCachedFindHit(Id id, string cacheKey = null) {
+            var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey ?? id).AnyContext();
+            
+            var result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull
+                ? cacheKeyHits.Value.FirstOrDefault(v => v?.Document != null && String.Equals(v.Id, id))
+                : null;
+            
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace("Cache {HitOrMiss}: type={ElasticType} key={CacheKey}", (result != null ? "hit" : "miss"), ElasticIndex.Name, cacheKey ?? id);
 
-        private IIndexType<T> _elasticType;
+            return result;
+        }
 
-        protected IIndexType<T> ElasticType {
-            get { return _elasticType; }
-            private set {
-                _elasticType = value;
-
-                if (_elasticType is IChildIndexType<T>) {
-                    HasParent = true;
-                    ChildType = _elasticType as IChildIndexType<T>;
-                } else {
-                    HasParent = false;
-                    ChildType = null;
-                }
-
-                if (_elasticType is ITimeSeriesIndexType) {
-                    HasMultipleIndexes = true;
-                    TimeSeriesType = _elasticType as ITimeSeriesIndexType<T>;
-                } else {
-                    HasMultipleIndexes = false;
-                    TimeSeriesType = null;
-                }
+        protected async Task<ICollection<FindHit<T>>> GetCachedFindHit(ICollection<Id> ids, string cacheKey = null) {
+            var idList = ids.Select(id => id.Value).ToList();
+            IEnumerable<FindHit<T>> result;
+            
+            if (String.IsNullOrEmpty(cacheKey)) {
+                var cacheHitsById = await Cache.GetAllAsync<ICollection<FindHit<T>>>(idList).AnyContext();
+                result = cacheHitsById
+                    .Where(kvp => kvp.Value.HasValue && !kvp.Value.IsNull)
+                    .SelectMany(kvp => kvp.Value.Value)
+                    .Where(v => v?.Document != null && idList.Contains(v.Id));
+            } else {
+                var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
+                result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull
+                    ? cacheKeyHits.Value.Where(v => v?.Document != null && idList.Contains(v.Id))
+                    : Enumerable.Empty<FindHit<T>>();
             }
+
+            // Note: the distinct by is an extra safety check just in case we ever get into a weird state.
+            var distinctResults = result.DistinctBy(v => v.Id).ToList();
+            
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace("Cache {HitOrMiss}: type={ElasticType} key={CacheKey}", (distinctResults.Count > 0 ? "hit" : "miss"), ElasticIndex.Name, cacheKey ?? String.Join(", ", idList));
+
+            return distinctResults;
         }
 
-        protected bool HasParent { get; private set; }
-        protected IChildIndexType<T> ChildType { get; private set; }
-        protected bool HasMultipleIndexes { get; private set; }
-        protected ITimeSeriesIndexType<T> TimeSeriesType { get; private set; }
+        protected Task SetCachedFindHit(FindHit<T> findHit, string cacheKey = null, TimeSpan? expiresIn = null) { 
+            return SetCachedFindHit(new List<FindHit<T>> { findHit }, cacheKey ?? findHit?.Id, expiresIn);
+        }
 
-        #endregion
+        protected async Task SetCachedFindHit(ICollection<FindHit<T>> findHits, string cacheKey = null, TimeSpan? expiresIn = null) { 
+            if (!String.IsNullOrEmpty(cacheKey)) {
+                await Cache.SetAsync(cacheKey, findHits, expiresIn).AnyContext();
+            } else {
+                var findHitsById = findHits
+                    .Where(hit => hit != null)
+                    .ToDictionary(hit => hit.Id, hit => (ICollection<FindHit<T>>)findHits.Where(h => h.Id == hit.Id).ToList());
+                
+                if (findHitsById.Keys.Count > 0)
+                    await Cache.SetAllAsync(findHitsById, expiresIn).AnyContext();
+            }
+            
+            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                _logger.LogTrace("Set cache: type={ElasticType} key={CacheKey}", ElasticIndex.Name, cacheKey ?? String.Join(", ", findHits.Select(h => h?.Id)));
+        }
+
+        private IIndex _elasticIndex;
+
+        protected IIndex ElasticIndex {
+            get => _elasticIndex;
+            private set => _elasticIndex = value;
+        }
 
         #region Events
 
@@ -632,12 +708,12 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         private async Task OnBeforeQueryAsync(IRepositoryQuery query, ICommandOptions options, Type resultType) {
             if (SupportsSoftDeletes && IsCacheEnabled && query.GetSoftDeleteMode() == SoftDeleteQueryMode.ActiveOnly) {
-                var deletedIds = await Cache.GetSetAsync<string>("deleted").AnyContext();
+                var deletedIds = await Cache.GetListAsync<string>("deleted").AnyContext();
                 if (deletedIds.HasValue)
                     query.ExcludedId(deletedIds.Value);
             }
 
-            if (BeforeQuery == null)
+            if (BeforeQuery == null || !BeforeQuery.HasHandlers)
                 return;
 
             await BeforeQuery.InvokeAsync(this, new BeforeQueryEventArgs<T>(query, options, this, resultType)).AnyContext();

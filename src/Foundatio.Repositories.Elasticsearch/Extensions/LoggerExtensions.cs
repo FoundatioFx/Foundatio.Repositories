@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Elasticsearch.Net;
-using Foundatio.Parsers.ElasticQueries.Extensions;
 using Microsoft.Extensions.Logging;
 using Nest;
 using Newtonsoft.Json;
@@ -12,39 +11,27 @@ using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class LoggerExtensions {
-        public static void LogTraceRequest(this ILogger logger, IResponse response, bool normalize = false) {
-            LogTraceRequest(logger, response?.ApiCall, normalize);
-        }
-
-        public static void LogTraceRequest(this ILogger logger, IApiCallDetails response, bool normalize = false) {
-            if (response == null || !logger.IsEnabled(LogLevel.Trace))
+        public static void LogTraceRequest(this ILogger logger, IElasticsearchResponse elasticResponse) {
+            if (elasticResponse == null || !logger.IsEnabled(LogLevel.Trace))
                 return;
 
-            if (response.RequestBodyInBytes != null) {
-                string body = Encoding.UTF8.GetString(response.RequestBodyInBytes);
-                if (normalize)
-                    body = JsonUtility.NormalizeJsonString(body);
+            var apiCall = elasticResponse?.ApiCall;
+            if (apiCall?.RequestBodyInBytes != null) {
+                string body = Encoding.UTF8.GetString(apiCall?.RequestBodyInBytes);
+                body = JsonUtility.NormalizeJsonString(body);
 
-                logger.LogTrace("[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}\r\n{HttpBody}", response.HttpStatusCode, response.HttpMethod, response.Uri.PathAndQuery, body);
+                logger.LogTrace("[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}\r\n{HttpBody}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri.PathAndQuery, body);
             } else {
-                logger.LogTrace("[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}", response.HttpStatusCode, response.HttpMethod, response.Uri.PathAndQuery);
+                logger.LogTrace("[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri.PathAndQuery);
             }
         }
 
-        public static void LogErrorRequest(this ILogger logger, IResponse response, string message, params object[] args) {
-            LogErrorRequest(logger, null, response?.ApiCall, message, args);
+        public static void LogErrorRequest(this ILogger logger, IElasticsearchResponse elasticResponse, string message, params object[] args) {
+            LogErrorRequest(logger, null, elasticResponse, message, args);
         }
 
-        public static void LogErrorRequest(this ILogger logger, IApiCallDetails response, string message, params object[] args) {
-            LogErrorRequest(logger, null, response, message, args);
-        }
-
-        public static void LogErrorRequest(this ILogger logger, Exception ex, IResponse response, string message, params object[] args) {
-            LogErrorRequest(logger, ex, response?.ApiCall, message, args);
-        }
-
-        public static void LogErrorRequest(this ILogger logger, Exception ex, IApiCallDetails response, string message, params object[] args) {
-            if (response == null || !logger.IsEnabled(LogLevel.Error))
+        public static void LogErrorRequest(this ILogger logger, Exception ex, IElasticsearchResponse elasticResponse, string message, params object[] args) {
+            if (elasticResponse == null || !logger.IsEnabled(LogLevel.Error))
                 return;
 
             var sb =  new StringBuilder();
@@ -53,47 +40,80 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (!String.IsNullOrEmpty(message))
                 sb.AppendLine(message);
 
-            if (response.OriginalException != null) {
-                sb.AppendLine("Original: [OriginalExceptionType] {OriginalExceptionMessage}");
+            var response = elasticResponse as IResponse;
+            if (response?.OriginalException != null) {
+                sb.AppendLine("Original: [{OriginalExceptionType}] {OriginalExceptionMessage}");
                 messageArguments.Add(response.OriginalException.GetType().Name);
                 messageArguments.Add(response.OriginalException.Message);
             }
 
-            if (response.ServerError?.Error != null) {
-                sb.AppendLine("Server Error (Index={ErrorIndex} Type={ErrorType}): {ErrorReason}");
-                messageArguments.Add(response.ServerError.Error.Index);
-                messageArguments.Add(response.ServerError.Error.Type);
+            if (response?.ServerError?.Error != null) {
+                sb.AppendLine("Server Error (Index={ErrorIndex}): {ErrorReason}");
+                messageArguments.Add(response.ServerError.Error?.Index);
                 messageArguments.Add(response.ServerError.Error.Reason);
             }
 
-            if (response is IBulkResponse bulkResponse) {
+            if (elasticResponse is BulkResponse bulkResponse) {
                 sb.AppendLine("Bulk: {BulkErrors}");
                 messageArguments.Add(String.Join("\r\n", bulkResponse.ItemsWithErrors.Select(i => i.Error)));
             }
 
-            sb.AppendLine("[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}");
-            messageArguments.Add(response.HttpStatusCode);
-            messageArguments.Add(response.HttpMethod);
-            messageArguments.Add(response.Uri.PathAndQuery);
+            if (elasticResponse.ApiCall != null) {
+                sb.AppendLine("[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}");
+                messageArguments.Add(elasticResponse.ApiCall.HttpStatusCode);
+                messageArguments.Add(elasticResponse.ApiCall.HttpMethod);
+                messageArguments.Add(elasticResponse.ApiCall.Uri?.PathAndQuery);
+            }
 
-            if (response.RequestBodyInBytes != null) {
-                string body = Encoding.UTF8.GetString(response.RequestBodyInBytes);
+            if (elasticResponse.ApiCall?.RequestBodyInBytes != null) {
+                string body = Encoding.UTF8.GetString(elasticResponse.ApiCall?.RequestBodyInBytes);
+                body = JsonUtility.NormalizeJsonString(body);
                 sb.AppendLine("{HttpBody}");
                 messageArguments.Add(body);
             }
 
+            if (elasticResponse.ApiCall?.ResponseBodyInBytes != null) {
+                string body = Encoding.UTF8.GetString(elasticResponse.ApiCall?.ResponseBodyInBytes);
+                body = JsonUtility.NormalizeJsonString(body);
+                sb.AppendLine("{HttpResponse}");
+                messageArguments.Add(body);
+            }
+
             AggregateException aggEx = null;
-            if (ex != null && response.OriginalException != null)
+            if (ex != null && response?.OriginalException != null)
                 aggEx = new AggregateException(ex, response.OriginalException);
 
-            logger.LogError(aggEx ?? response.OriginalException, sb.ToString(), messageArguments.ToArray());
+            logger.LogError(aggEx ?? response?.OriginalException, sb.ToString(), messageArguments.ToArray());
         }
     }
 
     internal class JsonUtility {
         public static string NormalizeJsonString(string json) {
-            var parsedObject = JObject.Parse(json);
-            var normalizedObject = SortPropertiesAlphabetically(parsedObject);
+            if (String.IsNullOrEmpty(json))
+                return json;
+
+            JObject parsedObject;
+            JObject normalizedObject;
+            
+            if (json.Contains("\n")) {
+                var sb = new StringBuilder();
+                
+                foreach (string line in json.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries)) {
+                    try {
+                        parsedObject = JObject.Parse(line);
+                        normalizedObject = SortPropertiesAlphabetically(parsedObject);
+                        sb.AppendLine(JsonConvert.SerializeObject(normalizedObject, Formatting.Indented));
+                    } catch {
+                        // just return the original json
+                        sb.AppendLine(line);
+                    }
+                }
+
+                return sb.ToString();
+            }
+            
+            parsedObject = JObject.Parse(json);
+            normalizedObject = SortPropertiesAlphabetically(parsedObject);
             return JsonConvert.SerializeObject(normalizedObject, Formatting.Indented);
         }
 
@@ -104,12 +124,10 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 if (property.Value is JObject value) {
                     value = SortPropertiesAlphabetically(value);
                     result.Add(property.Name, value);
-                }
-                else if (property.Value is JArray array) {
+                } else if (property.Value is JArray array) {
                     array = SortArrayAlphabetically(array);
                     result.Add(property.Name, array);
-                }
-                else {
+                } else {
                     result.Add(property.Name, property.Value);
                 }
             }

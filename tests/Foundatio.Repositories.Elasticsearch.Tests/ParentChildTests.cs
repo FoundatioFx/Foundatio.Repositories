@@ -12,8 +12,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public ParentChildTests(ITestOutputHelper output) : base(output) {
             _parentRepository = new ParentRepository(_configuration);
             _childRepository = new ChildRepository(_configuration);
+        }
 
-            RemoveDataAsync().GetAwaiter().GetResult();
+        public override async Task InitializeAsync() {
+            await base.InitializeAsync();
+            await RemoveDataAsync();
         }
 
         [Fact]
@@ -113,7 +116,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _childRepository.AddAsync(ChildGenerator.Generate(parentId: parent.Id), o => o.ImmediateConsistency());
             Assert.Equal(2, await _childRepository.CountAsync());
 
-            var parentResults = await _parentRepository.QueryAsync(q => q.ChildQuery(typeof(Child), c => c.FilterExpression("id:" + child.Id)));
+            var parentResults = await _parentRepository.QueryAsync(q => q.ChildQuery(new RepositoryQuery<Child>().FilterExpression("id:" + child.Id)));
             Assert.Equal(1, parentResults.Total);
         }
 

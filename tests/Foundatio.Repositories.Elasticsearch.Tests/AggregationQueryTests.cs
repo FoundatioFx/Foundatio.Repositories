@@ -1,4 +1,4 @@
-using Exceptionless.DateTimeExtensions;
+﻿using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
@@ -18,7 +18,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         public AggregationQueryTests(ITestOutputHelper output) : base(output) {
             _employeeRepository = new EmployeeRepository(_configuration);
-            RemoveDataAsync().GetAwaiter().GetResult();
+        }
+
+        public override async Task InitializeAsync() {
+            await base.InitializeAsync();
+            await RemoveDataAsync();
         }
 
         [Fact]
@@ -36,13 +40,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var percentiles = result.Aggregations.Percentiles("percentiles_age");
             Assert.Equal(SystemClock.UtcNow.Date.SubtractYears(10), result.Aggregations.Min<DateTime>("min_createdUtc").Value);
             Assert.Equal(SystemClock.UtcNow.Date.SubtractYears(1), result.Aggregations.Max<DateTime>("max_createdUtc").Value);
-            Assert.Equal(19.27, percentiles.GetPercentile(1).Value);
-            Assert.Equal(20.35, percentiles.GetPercentile(5).Value);
-            Assert.Equal(26d, percentiles.GetPercentile(25).Value);
+            Assert.Equal(19, percentiles.GetPercentile(1).Value);
+            Assert.Equal(19, percentiles.GetPercentile(5).Value);
+            Assert.Equal(25d, percentiles.GetPercentile(25).Value);
             Assert.Equal(30.5, percentiles.GetPercentile(50).Value);
-            Assert.Equal(42.5, percentiles.GetPercentile(75).Value);
-            Assert.Equal(55.94999999999999, percentiles.GetPercentile(95).Value);
-            Assert.Equal(59.19, percentiles.GetPercentile(99).Value);
+            Assert.Equal(45, percentiles.GetPercentile(75).Value);
+            Assert.Equal(60, percentiles.GetPercentile(95).Value);
+            Assert.Equal(60, percentiles.GetPercentile(99).Value);
         }
 
         [Fact]
@@ -506,7 +510,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(8, employees.First().YearsEmployed);
         }
 
-        internal Task CreateDataAsync() {
+        private Task CreateDataAsync() {
             var utcToday = SystemClock.UtcNow.Date;
             return _employeeRepository.AddAsync(new List<Employee> {
                 EmployeeGenerator.Generate(age: 19, yearsEmployed: 1,  location: "10,10", createdUtc: utcToday.SubtractYears(1), updatedUtc: utcToday.SubtractYears(1)),

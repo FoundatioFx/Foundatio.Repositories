@@ -59,24 +59,58 @@ namespace Foundatio.Repositories {
 
 namespace Foundatio.Repositories.Options {
     public static class ReadElasticOptionsExtensions {
-        internal const string ElasticTypeSettingsKey = "@ElasticTypeSettings";
-        public static T ElasticType<T>(this T options, IIndexType indexType) where T: ICommandOptions {
-            options.Values.Set(ElasticTypeSettingsKey, new ElasticTypeSettings(indexType));
+        internal const string ElasticIndexKey = "@ElasticIndex";
+        public static T ElasticIndex<T>(this T options, IIndex index) where T: ICommandOptions {
+            options.Values.Set(ElasticIndexKey, index);
             return options;
         }
 
-        public static ElasticTypeSettings GetElasticTypeSettings(this ICommandOptions options) {
-            return options.SafeGetOption<ElasticTypeSettings>(ElasticTypeSettingsKey);
+        public static IIndex GetElasticIndex(this ICommandOptions options) {
+            return options.SafeGetOption<IIndex>(ElasticIndexKey);
         }
 
-        internal const string RootAliasResolverKey = "@RootAliasResolver";
-        public static T RootAliasResolver<T>(this T options, AliasResolver rootAliasResolver) where T : ICommandOptions {
-            options.Values.Set(RootAliasResolverKey, rootAliasResolver);
+        internal const string SupportsSoftDeletesKey = "@SupportsSoftDeletesKey";
+        public static T SupportsSoftDeletes<T>(this T options, bool supportsSoftDeletes) where T: ICommandOptions {
+            options.Values.Set(SupportsSoftDeletesKey, supportsSoftDeletes);
             return options;
         }
 
-        public static AliasResolver GetRootAliasResolver(this ICommandOptions options) {
-            return options.SafeGetOption<AliasResolver>(RootAliasResolverKey);
+        public static bool SupportsSoftDeletes(this ICommandOptions options) {
+            return options.SafeGetOption<bool>(SupportsSoftDeletesKey);
+        }
+
+        internal const string DocumentTypeKey = "@DocumentType";
+        public static T DocumentType<T>(this T options, Type documentType) where T : ICommandOptions {
+            options.Values.Set(DocumentTypeKey, documentType);
+            return options;
+        }
+
+        public static Type DocumentType(this ICommandOptions options) {
+            return options.SafeGetOption<Type>(DocumentTypeKey);
+        }
+
+        internal const string ParentDocumentTypeKey = "@ParentDocumentType";
+        public static T ParentDocumentType<T>(this T options, Type parentDocumentType) where T : ICommandOptions {
+            if (parentDocumentType != null)
+                return options.BuildOption(ParentDocumentTypeKey, parentDocumentType);
+
+            options.Values?.Remove(ParentDocumentTypeKey);
+
+            return options;
+        }
+
+        public static Type ParentDocumentType(this ICommandOptions options) {
+            return options.SafeGetOption<Type>(ParentDocumentTypeKey, typeof(object));
+        }
+
+        internal const string QueryFieldResolverKey = "@QueryFieldResolver";
+        public static T QueryFieldResolver<T>(this T options, QueryFieldResolver rootAliasResolver) where T : ICommandOptions {
+            options.Values.Set(QueryFieldResolverKey, rootAliasResolver);
+            return options;
+        }
+
+        public static QueryFieldResolver GetQueryFieldResolver(this ICommandOptions options) {
+            return options.SafeGetOption<QueryFieldResolver>(QueryFieldResolverKey);
         }
 
         internal const string IncludeResolverKey = "@IncludeResolver";
@@ -133,30 +167,6 @@ namespace Foundatio.Repositories.Options {
 
             return Refresh.False;
         }
-    }
-
-    public class ElasticTypeSettings {
-        public ElasticTypeSettings(IIndexType indexType) {
-            IndexType = indexType;
-            Index = indexType.Index;
-            ChildType = indexType as IChildIndexType;
-            TimeSeriesType = indexType as ITimeSeriesIndexType;
-            HasParent = ChildType != null;
-            HasMultipleIndexes = TimeSeriesType != null;
-            SupportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(indexType.Type);
-            HasIdentity = typeof(IIdentity).IsAssignableFrom(indexType.Type);
-            ParentSupportsSoftDeletes = ChildType != null && typeof(ISupportSoftDeletes).IsAssignableFrom(ChildType.GetParentIndexType().Type);
-        }
-
-        public IIndexType IndexType { get; }
-        public bool SupportsSoftDeletes { get; }
-        public bool HasIdentity { get; }
-        public IIndex Index { get; }
-        public bool HasParent { get; }
-        public bool ParentSupportsSoftDeletes { get; }
-        public IChildIndexType ChildType { get; }
-        public bool HasMultipleIndexes { get; }
-        public ITimeSeriesIndexType TimeSeriesType { get; }
     }
 }
 

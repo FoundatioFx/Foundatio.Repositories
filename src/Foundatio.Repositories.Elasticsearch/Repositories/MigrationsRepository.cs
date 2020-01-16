@@ -1,12 +1,23 @@
 ﻿using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Migrations;
+using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public class MigrationRepository : ElasticRepositoryBase<Migration>, IMigrationRepository {
-        public MigrationRepository(IIndexType<Migration> indexType) : base(indexType) {}
+        public MigrationRepository(MigrationIndex index) : base(index) {}
     }
 
-    public sealed class MigrationType : DynamicIndexType<Migration> {
-        public MigrationType(IIndex index, string name = "migration") : base(index, name) {}
+    public class MigrationIndex : Index<Migration> {
+        private readonly int _replicas;
+
+        public MigrationIndex(IElasticConfiguration configuration, string name = "migration", int replicas = 1) : base(configuration, name) {
+            _replicas = replicas;
+        }
+
+        public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+            return base.ConfigureIndex(idx).Settings(s => s
+                .NumberOfShards(1)
+                .NumberOfReplicas(_replicas));
+        }
     }
 }

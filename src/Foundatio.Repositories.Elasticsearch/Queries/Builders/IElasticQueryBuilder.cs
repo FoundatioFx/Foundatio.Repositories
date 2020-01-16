@@ -12,15 +12,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new();
     }
 
-    public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitorContext, IQueryVisitorContextWithAliasResolver, IQueryVisitorContextWithIncludeResolver where T : class, new() {
-        public QueryBuilderContext(IRepositoryQuery source, ICommandOptions options, SearchDescriptor<T> search = null, IQueryBuilderContext parentContext = null, string type = null) {
+    public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitorContext, IQueryVisitorContextWithFieldResolver, IQueryVisitorContextWithIncludeResolver where T : class, new() {
+        public QueryBuilderContext(IRepositoryQuery source, ICommandOptions options, SearchDescriptor<T> search = null, IQueryBuilderContext parentContext = null) {
             Source = source;
             Options = options;
             Search = search ?? new SearchDescriptor<T>();
             Parent = parentContext;
-            Type = type ?? ContextType.Default;
-            ((IQueryVisitorContextWithAliasResolver)this).RootAliasResolver = options.GetRootAliasResolver();
             ((IQueryVisitorContextWithIncludeResolver)this).IncludeResolver = options.GetIncludeResolver();
+            ((IQueryVisitorContextWithFieldResolver)this).FieldResolver = options.GetQueryFieldResolver();
 
             var range = GetDateRange();
             if (range != null) {
@@ -29,7 +28,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             }
         }
 
-        public string Type { get; }
         public IQueryBuilderContext Parent { get; }
         public IRepositoryQuery Source { get; }
         public ICommandOptions Options { get; }
@@ -38,12 +36,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         public SearchDescriptor<T> Search { get; }
         public IDictionary<string, object> Data { get; } = new Dictionary<string, object>();
 
-        AliasResolver IQueryVisitorContextWithAliasResolver.RootAliasResolver { get; set; }
+        QueryFieldResolver IQueryVisitorContextWithFieldResolver.FieldResolver { get; set; }
         IncludeResolver IQueryVisitorContextWithIncludeResolver.IncludeResolver { get; set; }
 
         Operator IElasticQueryVisitorContext.DefaultOperator { get; set; }
+        string IElasticQueryVisitorContext.DefaultTimeZone { get; set; }
         bool IElasticQueryVisitorContext.UseScoring { get; set; }
-        string[] IElasticQueryVisitorContext.DefaultFields { get; set; }
+        string[] IQueryVisitorContext.DefaultFields { get; set; }
+        string IQueryVisitorContext.QueryType { get; set; }
         Func<string, IProperty> IElasticQueryVisitorContext.GetPropertyMappingFunc { get; set; }
 
         private DateRange GetDateRange() {
@@ -56,25 +56,27 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
     }
 
-    public class ContextType {
-        public const string Child = "Child";
-        public const string Parent = "Parent";
-        public const string Default = "Default";
-    }
-
     public interface IQueryBuilderContext {
         IQueryBuilderContext Parent { get; }
         IRepositoryQuery Source { get; }
         ICommandOptions Options { get; }
         QueryContainer Query { get; set; }
         QueryContainer Filter { get; set; }
-        string Type { get; }
         IDictionary<string, object> Data { get; }
     }
 
     public static class QueryBuilderContextExtensions {
         public static void SetTimeZone(this IQueryBuilderContext context, string timeZone) {
-            context.Data["timezone"] = timeZone;
+            var elasticContext = context as IElasticQueryVisitorContext;
+            if (elasticContext == null)
+                throw new ArgumentException("Context must be of type IElasticQueryVisitorContext", nameof(context));
+
+            elasticContext.DefaultTimeZone = timeZone;
+        }
+
+        public static string GetTimeZone(this IQueryBuilderContext context) {
+            var elasticContext = context as IElasticQueryVisitorContext;
+            return elasticContext?.DefaultTimeZone;
         }
     }
 
@@ -85,7 +87,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             return new BoolQuery {
                 Must = new[] { ctx.Query },
-                Filter = new[] { ctx.Filter }
+                Filter = new[] { ctx.Filter ?? new MatchAllQuery() }
             };
         }
 

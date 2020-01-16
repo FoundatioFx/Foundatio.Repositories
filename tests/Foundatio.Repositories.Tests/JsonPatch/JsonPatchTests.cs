@@ -381,7 +381,7 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
             
             Assert.False(sample.ToObject<MyConfigClass>().RequiresConfiguration);
         }
-        
+
         public static JToken GetSample2() {
             return JToken.Parse(@"{
     'books': [

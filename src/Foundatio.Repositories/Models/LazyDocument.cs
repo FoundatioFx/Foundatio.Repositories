@@ -1,38 +1,33 @@
 using System;
 using Foundatio.Serializer;
-using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Models {
     public interface ILazyDocument {
-        T As<T>(ITextSerializer serializer = null);
-        object As(Type objectType, ITextSerializer serializer = null);
+        T As<T>() where T : class;
+        object As(Type objectType);
     }
 
     public class LazyDocument : ILazyDocument {
-        internal JToken Token { get; }
+        private readonly byte[] _data;
+        private readonly ITextSerializer _serializer;
 
-        public LazyDocument(JToken token) {
-            Token = token;
+        public LazyDocument(byte[] data, ITextSerializer serializer = null) {
+            _data = data;
+            _serializer = serializer ?? new JsonNetSerializer();
         }
 
-        public T As<T>(ITextSerializer serializer = null) {
-            if (Token == null)
+        public T As<T>() where T : class {
+            if (_data == null || _data.Length == 0)
                 return default;
-
-            if (serializer != null)
-                return serializer.Deserialize<T>(Token.ToString());
-
-            return Token.ToObject<T>();
+            
+            return _serializer.Deserialize<T>(_data);
         }
 
-        public object As(Type objectType, ITextSerializer serializer = null) {
-            if (Token == null)
+        public object As(Type objectType) {
+            if (_data == null || _data.Length == 0)
                 return null;
-
-            if (serializer != null)
-                return serializer.Deserialize(Token.ToString(), objectType);
-
-            return Token.ToObject(objectType);
+            
+            return _serializer.Deserialize(_data, objectType);
         }
     }
 }

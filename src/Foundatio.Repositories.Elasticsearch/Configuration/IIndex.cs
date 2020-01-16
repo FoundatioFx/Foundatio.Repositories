@@ -1,26 +1,24 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
+using Foundatio.Parsers.ElasticQueries;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface IIndex : IDisposable {
         string Name { get; }
+        bool HasMultipleIndexes { get; }
+        IElasticQueryBuilder QueryBuilder { get; }
+        ElasticQueryParser QueryParser { get; }
         IElasticConfiguration Configuration { get; }
-        IReadOnlyCollection<IIndexType> IndexTypes { get; }
+        void ConfigureSettings(ConnectionSettings settings);
         Task ConfigureAsync();
+        Task EnsureIndexAsync(object target);
+        Task MaintainAsync(bool includeOptionalTasks = true);
         Task DeleteAsync();
         Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null);
-        void ConfigureSettings(ConnectionSettings settings);
-    }
-
-    public interface IMaintainableIndex {
-        Task MaintainAsync(bool includeOptionalTasks = true);
-    }
-
-    public interface ITimeSeriesIndex : IIndex, IMaintainableIndex {
-        Task EnsureIndexAsync(DateTime utcDate);
-        string GetIndex(DateTime utcDate);
-        string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd);
+        string CreateDocumentId(object document);
+        string[] GetIndexesByQuery(IRepositoryQuery query);
+        string GetIndex(object target);
     }
 }

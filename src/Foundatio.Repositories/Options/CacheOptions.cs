@@ -74,7 +74,7 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static bool HasCacheKey(this ICommandOptions options) {
-            return options.Values.Contains(SetCacheOptionsExtensions.CacheKeyKey) || options.Values.Contains(SetCacheOptionsExtensions.DefaultCacheKeyKey);
+            return options.SafeHasOption(SetCacheOptionsExtensions.CacheKeyKey) || options.SafeHasOption(SetCacheOptionsExtensions.DefaultCacheKeyKey);
         }
 
         public static string GetCacheKey(this ICommandOptions options, string defaultCacheKey = null) {
@@ -82,7 +82,7 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static string GetDefaultCacheKey(this ICommandOptions options) {
-            return options.SafeGetOption<string>(SetCacheOptionsExtensions.CacheKeyKey, null);
+            return options.SafeGetOption<string>(SetCacheOptionsExtensions.DefaultCacheKeyKey, null);
         }
 
         public static TimeSpan GetExpiresIn(this ICommandOptions options) {

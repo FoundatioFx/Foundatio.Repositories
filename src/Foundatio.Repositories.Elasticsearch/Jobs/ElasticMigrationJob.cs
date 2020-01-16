@@ -33,13 +33,13 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
 
             await _migrationManager.Value.RunMigrationsAsync().AnyContext();
 
-            var tasks = _configuration.Indexes.OfType<VersionedIndex>().Select(ReindexIfNecessary);
+            var tasks = _configuration.Indexes.OfType<IVersionedIndex>().Select(ReindexIfNecessary);
             await Task.WhenAll(tasks).AnyContext();
 
             return JobResult.Success;
         }
 
-        private async Task ReindexIfNecessary(VersionedIndex index) {
+        private async Task ReindexIfNecessary(IVersionedIndex index) {
             if (index.Version != await index.GetCurrentVersionAsync().AnyContext())
                 await index.ReindexAsync().AnyContext();
         }

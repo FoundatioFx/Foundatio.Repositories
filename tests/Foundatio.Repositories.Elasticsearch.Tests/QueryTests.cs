@@ -1,7 +1,9 @@
-﻿using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Exceptionless.DateTimeExtensions;
+using Foundatio.Utility;
 using Xunit;
 using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -14,8 +16,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public QueryTests(ITestOutputHelper output) : base(output) {
             _dailyRepository = new DailyLogEventRepository(_configuration);
             _employeeRepository = new EmployeeRepository(_configuration);
+        }
 
-            RemoveDataAsync().GetAwaiter().GetResult();
+        public override async Task InitializeAsync() {
+            await base.InitializeAsync();
+            await RemoveDataAsync();
         }
 
         [Fact]
@@ -54,7 +59,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, await _employeeRepository.GetCountByCompanyAsync(employee1.CompanyId));
             await _employeeRepository.RemoveAsync(employee1, o => o.Cache().ImmediateConsistency());
 
-           await  _employeeRepository.GetByQueryAsync(q => q.FieldCondition(e => e.Age, ComparisonOperator.Equals, 12));
+            var result = await  _employeeRepository.GetByQueryAsync(q => q.FieldCondition(e => e.Age, ComparisonOperator.Equals, 12));
+            Assert.Empty(result.Documents);
+
+            var query = new RepositoryQuery<Employee>();
+            query.FieldEquals(e => e.Age, 12);
+            result = await  _employeeRepository.SearchAsync(query);
+            Assert.Empty(result.Documents);
+            
             Assert.Equal(1, await _employeeRepository.CountAsync());
             Assert.Equal(0, await _employeeRepository.GetCountByCompanyAsync(employee1.CompanyId));
         }
@@ -92,6 +104,27 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task GetByCreatedDate() {
+            var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", createdUtc: SystemClock.UtcNow), o => o.ImmediateConsistency());
+            Assert.NotNull(log?.Id);
+
+            var results = await _dailyRepository.GetByDateRange(SystemClock.UtcNow.SubtractDays(1), SystemClock.UtcNow.AddDays(1));
+            Assert.Equal(log, results.Documents.Single());
+            
+            results = await _dailyRepository.GetByDateRange(SystemClock.UtcNow.SubtractDays(1), DateTime.MaxValue);
+            Assert.Equal(log, results.Documents.Single());
+            
+            results = await _dailyRepository.GetByDateRange(DateTime.MinValue, SystemClock.UtcNow.AddDays(1));
+            Assert.Equal(log, results.Documents.Single());
+            
+            results = await _dailyRepository.GetByDateRange(DateTime.MinValue, DateTime.MaxValue);
+            Assert.Equal(log, results.Documents.Single());
+            
+            results = await _dailyRepository.GetByDateRange(SystemClock.UtcNow.AddDays(1), DateTime.MaxValue);
+            Assert.Empty(results.Documents);
+        }
+
+        [Fact]
         public async Task GetAgeByFilter() {
             await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId), o => o.ImmediateConsistency());
             await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
@@ -99,6 +132,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var results = await _employeeRepository.GetByFilterAsync("age:19");
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Age == 19));
+            
+            results = await _employeeRepository.GetByFilterAsync("age:>18 AND age:<=19");
+            Assert.Equal(1, results.Total);
+            
+            results = await _employeeRepository.GetByFilterAsync("age:[18..19]");
+            Assert.Equal(1, results.Total);
 
             results = await _employeeRepository.GetByFilterAsync("age:>19");
             Assert.Equal(1, results.Total);
@@ -106,6 +145,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             results = await _employeeRepository.GetByFilterAsync("age:<19");
             Assert.Equal(0, results.Total);
+            
+            results = await _employeeRepository.GetByFilterAsync("_missing_:age");
+            Assert.Equal(0, results.Total);
+
+            results = await _employeeRepository.GetByFilterAsync("_exists_:age");
+            Assert.Equal(2, results.Total);
         }
 
         [Fact]

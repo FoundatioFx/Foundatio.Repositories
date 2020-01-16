@@ -1,22 +1,19 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
-using Elasticsearch.Net;
 using Foundatio.Caching;
 using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Messaging;
-using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Queues;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Extensions;
-using Foundatio.Utility;
+using Nest;
+using System.Threading;
+using Elasticsearch.Net;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Parsers.ElasticQueries;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Nest;
-using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class ElasticConfiguration: IElasticConfiguration {
@@ -33,7 +30,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _workItemQueue = workItemQueue;
             LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
             _logger = LoggerFactory.CreateLogger(GetType());
-            Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { LoggerFactory = loggerFactory });
+            Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { LoggerFactory = loggerFactory, CloneValues = true });
             _lockProvider = new CacheLockProvider(Cache, messageBus, loggerFactory);
             _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15));
             _shouldDisposeCache = cacheClient == null;
@@ -49,29 +46,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 index.ConfigureSettings(settings);
 
             return new ElasticClient(settings);
-        }
-
-        public bool WaitForReady(CancellationToken cancellationToken) {
-            var nodes = Client.ConnectionSettings.ConnectionPool.Nodes.Select(n => n.Uri.ToString());
-            var startTime = SystemClock.UtcNow;
-
-            while (!cancellationToken.IsCancellationRequested) {
-                var pingResponse = Client.Ping();
-                if (pingResponse.IsValid)
-                    return true;
-
-                if (_logger.IsEnabled(LogLevel.Information))
-                    _logger.LogInformation("Waiting for Elasticsearch to be ready {Server} after {Duration:g}...",
-                        nodes, SystemClock.UtcNow.Subtract(startTime));
-
-                Thread.Sleep(1000);
-            }
-
-            if (_logger.IsEnabled(LogLevel.Error))
-                _logger.LogError("Unable to connect to Elasticsearch {Server} after attempting for {Duration:g}",
-                    nodes, SystemClock.UtcNow.Subtract(startTime));
-
-            return false;
         }
 
         public virtual void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder) {}
@@ -92,38 +66,26 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public ILoggerFactory LoggerFactory { get; }
         public IReadOnlyCollection<IIndex> Indexes => _frozenIndexes.Value;
 
-        public IIndexType<T> GetIndexType<T>() where T : class {
-            return GetIndexType(typeof(T)) as IIndexType<T>;
-        }
-
-        public IIndexType GetIndexType(Type type) {
-            foreach (var index in Indexes)
-            foreach (var indexType in index.IndexTypes)
-                if (indexType.Type == type)
-                    return indexType;
-
-            return null;
-        }
-
-        public IIndex GetIndex(string name) {
-            foreach (var index in Indexes)
-                if (index.Name == name)
-                    return index;
-
-            return null;
-        }
-
         public void AddIndex(IIndex index) {
             if (_frozenIndexes.IsValueCreated)
                 throw new InvalidOperationException("Can't add indexes after the list has been frozen.");
 
             _indexes.Add(index);
         }
+        
+        public IIndex GetIndex(string name) {
+            foreach (var index in Indexes)
+                if (index.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                    return index;
 
+            return null;
+        }
+        
         public Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true) {
             if (indexes == null)
                 indexes = Indexes;
-
+            
+            
             var tasks = new List<Task>();
             foreach (var idx in indexes)
                 tasks.Add(ConfigureIndexInternalAsync(idx, beginReindexingOutdated));
@@ -133,8 +95,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         private async Task ConfigureIndexInternalAsync(IIndex idx, bool beginReindexingOutdated) {
             await idx.ConfigureAsync().AnyContext();
-            if (idx is IMaintainableIndex maintainableIndex)
-                await maintainableIndex.MaintainAsync(includeOptionalTasks: false).AnyContext();
+            await idx.MaintainAsync(includeOptionalTasks: false).AnyContext();
 
             if (!beginReindexingOutdated)
                 return;
@@ -142,7 +103,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (_workItemQueue == null || _beginReindexLockProvider == null)
                 throw new InvalidOperationException("Must specify work item queue and lock provider in order to reindex.");
 
-            if (!(idx is VersionedIndex versionedIndex))
+            if (!(idx is IVersionedIndex versionedIndex))
                 return;
 
             int currentVersion = await versionedIndex.GetCurrentVersionAsync().AnyContext();
@@ -165,7 +126,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 indexes = Indexes;
 
             var tasks = new List<Task>();
-            foreach (var idx in indexes.OfType<IMaintainableIndex>())
+            foreach (var idx in indexes)
                 tasks.Add(idx.MaintainAsync());
 
             return Task.WhenAll(tasks);

@@ -9,10 +9,10 @@ using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent> {
-        public DailyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.DailyLogEvents.LogEvent) {
+        public DailyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.DailyLogEvents) {
         }
 
-        public DailyLogEventRepository(IIndexType<LogEvent> indexType) : base(indexType) {
+        public DailyLogEventRepository(IIndex index) : base(index) {
         }
 
         public Task<FindResults<LogEvent>> GetByCompanyAsync(string company) {
@@ -30,7 +30,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public Task<CountResult> GetCountByCompanyAsync(string company) {
             return CountAsync(q => q.Company(company), o => o.CacheKey(company));
         }
-
+        
+        public Task<FindResults<LogEvent>> GetByDateRange(DateTime utcStart, DateTime utcEnd) {
+            return FindAsync(q => q
+                .DateRange(utcStart, utcEnd, InferField(e => e.CreatedUtc))
+                .Index(utcStart, utcEnd)
+            );
+        }
+        
         public async Task<long> IncrementValueAsync(string[] ids, int value = 1) {
             if (ids == null)
                 throw new ArgumentNullException(nameof(ids));
@@ -72,7 +79,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
     }
 
     public class MonthlyLogEventRepository : DailyLogEventRepository {
-        public MonthlyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.MonthlyLogEvents.LogEvent) {
+        public MonthlyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.MonthlyLogEvents) {
         }
     }
 }

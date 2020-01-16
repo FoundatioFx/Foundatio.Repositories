@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
+using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
@@ -11,8 +12,14 @@ using Nest;
 using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
+    public interface IVersionedIndex : IIndex {
+        int Version { get; }
+        string VersionedName { get; }
+        Task<int> GetCurrentVersionAsync();
+        ReindexWorkItem CreateReindexWorkItem(int currentVersion);
+    }
 
-    public class VersionedIndex : IndexBase, IMaintainableIndex {
+    public class VersionedIndex : Index, IVersionedIndex {
         public VersionedIndex(IElasticConfiguration configuration, string name, int version = 1)
             : base(configuration, name) {
             Version = version;
@@ -27,28 +34,26 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         private class ReindexScript {
             public int Version { get; set; }
             public string Script { get; set; }
-            public string Type { get; set; }
         }
 
-        protected virtual void AddReindexScript(int versionNumber, string script, string type = null) {
-            ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script, Type = type });
+        protected virtual void AddReindexScript(int versionNumber, string script) {
+            ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script });
         }
 
-        protected void RenameFieldScript(int versionNumber, string originalName, string currentName, string type = null, bool removeOriginal = true) {
+        protected void RenameFieldScript(int versionNumber, string originalName, string currentName, bool removeOriginal = true) {
             string script = $"if (ctx._source.containsKey(\'{originalName}\')) {{ ctx._source[\'{currentName}\'] = ctx._source.{originalName}; }}";
-            ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script, Type = type });
+            ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script });
 
             if (removeOriginal)
-                RemoveFieldScript(versionNumber, originalName, type);
+                RemoveFieldScript(versionNumber, originalName);
         }
 
-        protected void RemoveFieldScript(int versionNumber, string fieldName, string type = null) {
+        protected void RemoveFieldScript(int versionNumber, string fieldName) {
             string script = $"if (ctx._source.containsKey(\'{fieldName}\')) {{ ctx._source.remove(\'{fieldName}\'); }}";
-            ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script, Type = type });
+            ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script });
         }
 
         public override async Task ConfigureAsync() {
-            await base.ConfigureAsync().AnyContext();
             if (!await IndexExistsAsync(VersionedName).AnyContext()) {
                 if (!await AliasExistsAsync(Name).AnyContext())
                     await CreateIndexAsync(VersionedName, d => ConfigureIndex(d).Aliases(ad => ad.Alias(Name))).AnyContext();
@@ -56,12 +61,18 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                     await CreateIndexAsync(VersionedName, ConfigureIndex).AnyContext();
             }
         }
+        
+        protected override ElasticQueryParser CreateQueryParser() {
+            var parser = base.CreateQueryParser();
+            parser.Configuration.UseMappings(Configuration.Client, VersionedName);
+            return parser;
+        }
 
         protected virtual async Task CreateAliasAsync(string index, string name) {
             if (await AliasExistsAsync(name).AnyContext())
                 return;
 
-            var response = await Configuration.Client.AliasAsync(a => a.Add(s => s.Index(index).Alias(name))).AnyContext();
+            var response = await Configuration.Client.Indices.BulkAliasAsync(a => a.Add(s => s.Index(index).Alias(name))).AnyContext();
             if (response.IsValid)
                 return;
 
@@ -74,8 +85,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected async Task<bool> AliasExistsAsync(string alias) {
-            var response = await Configuration.Client.AliasExistsAsync(a => a.Name(alias)).AnyContext();
-            if (response.IsValid)
+            var response = await Configuration.Client.Indices.AliasExistsAsync(Names.Parse(alias)).AnyContext();
+            if (response.ApiCall.Success)
                 return response.Exists;
 
             _logger.LogErrorRequest(response, "Error checking to see if alias {Name}", alias);
@@ -85,13 +96,15 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public override async Task DeleteAsync() {
             int currentVersion = await GetCurrentVersionAsync();
+            var indexesToDelete = new List<string>();
             if (currentVersion != Version) {
-
-                await DeleteIndexAsync(String.Concat(Name, "-v", currentVersion)).AnyContext();
-                await DeleteIndexAsync(String.Concat(Name, "-v", currentVersion, "-error")).AnyContext();
+                indexesToDelete.Add(String.Concat(Name, "-v", currentVersion));
+                indexesToDelete.Add(String.Concat(Name, "-v", currentVersion, "-error"));
             }
-            await DeleteIndexAsync(VersionedName).AnyContext();
-            await DeleteIndexAsync(String.Concat(VersionedName, "-error")).AnyContext();
+            
+            indexesToDelete.Add(VersionedName);
+            indexesToDelete.Add(String.Concat(VersionedName, "-error"));
+            await DeleteIndexesAsync(indexesToDelete.ToArray()).AnyContext();
         }
 
         public ReindexWorkItem CreateReindexWorkItem(int currentVersion) {
@@ -114,24 +127,17 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return null;
 
             if (scripts.Count == 1)
-                return WrapScriptInTypeCheck(scripts[0].Script, scripts[0].Type);
+                return scripts[0].Script;
 
             string fullScriptWithFunctions = String.Empty;
             string functionCalls = String.Empty;
             for (int i = 0; i < scripts.Count; i++) {
                 var script = scripts[i];
-                fullScriptWithFunctions += $"void f{i:000}(def ctx) {{ {WrapScriptInTypeCheck(script.Script, script.Type)} }}\r\n";
+                fullScriptWithFunctions += $"void f{i:000}(def ctx) {{ {script.Script} }}\r\n";
                 functionCalls += $"f{i:000}(ctx); ";
             }
 
             return fullScriptWithFunctions + functionCalls;
-        }
-
-        private string WrapScriptInTypeCheck(string script, string type) {
-            if (String.IsNullOrWhiteSpace(type))
-                return script;
-
-            return $"if (ctx._type == '{type}') {{ {script} }}";
         }
 
         public override async Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
@@ -144,7 +150,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             await reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync).AnyContext();
         }
 
-        public virtual async Task MaintainAsync(bool includeOptionalTasks = true) {
+        public override async Task MaintainAsync(bool includeOptionalTasks = true) {
             if (await AliasExistsAsync(Name).AnyContext())
                 return;
 
@@ -172,11 +178,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected virtual async Task<int> GetVersionFromAliasAsync(string alias) {
-            var response = await Configuration.Client.GetAliasAsync(a => a.Name(alias)).AnyContext();
-
+            var response = await Configuration.Client.Indices.GetAliasAsync(alias).AnyContext();
+            if (!response.IsValid && response.ServerError?.Status == 404)
+                return -1;
+            
             if (response.IsValid && response.Indices.Count > 0) {
                 _logger.LogTraceRequest(response);
-                return response.Indices.Keys.Select(GetIndexVersion).OrderBy(v => v).First();
+                return response.Indices.Keys.Select(i => GetIndexVersion(i.Name)).OrderBy(v => v).First();
             }
 
             _logger.LogErrorRequest(response, "Error getting index version from alias");
@@ -200,11 +208,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual async Task<IList<IndexInfo>> GetIndexesAsync(int version = -1) {
             string filter = version < 0 ? $"{Name}-v*" : $"{Name}-v{version}";
-            if (this is ITimeSeriesIndex)
+            if (HasMultipleIndexes)
                 filter += "-*";
 
             var sw = Stopwatch.StartNew();
-            var response = await Configuration.Client.CatIndicesAsync(i => i.Pri().H("index").Index(Indices.Index(filter))).AnyContext();
+            var response = await Configuration.Client.Cat.IndicesAsync(i => i.Pri().Index(Indices.Index((IndexName)filter))).AnyContext();
             sw.Stop();
 
             if (!response.IsValid) {
@@ -234,6 +242,33 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             public int Version { get; set; }
             public int CurrentVersion { get; set; } = -1;
             public DateTime DateUtc { get; set; }
+        }
+    }
+
+    public class VersionedIndex<T> : VersionedIndex where T : class {
+        private readonly string _typeName = typeof(T).Name.ToLower();
+
+        public VersionedIndex(IElasticConfiguration configuration, string name = null, int version = 1) : base(configuration, name, version) {
+            Name = name ?? _typeName;
+        }
+        
+        protected override ElasticQueryParser CreateQueryParser() {
+            var parser = base.CreateQueryParser();
+            parser.Configuration.UseMappings<T>(ConfigureIndexMapping, Configuration.Client, VersionedName);
+            return parser;
+        }
+        
+        public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map) {
+            return map.AutoMap<T>().Properties(p => p.SetupDefaults());
+        }
+
+        public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+            idx = base.ConfigureIndex(idx);
+            return idx.Map<T>(ConfigureIndexMapping);
+        }
+
+        public override void ConfigureSettings(ConnectionSettings settings) {
+            settings.DefaultMappingFor<T>(d => d.IndexName(Name));
         }
     }
 }

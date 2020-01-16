@@ -27,11 +27,11 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         }
 
         public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default) {
-            var hasSnapshotRepositoryResponse = await _client.CatSnapshotsAsync(Repository, d => d.IgnoreUnavailable(), cancellationToken);
+            var hasSnapshotRepositoryResponse = await _client.Snapshot.GetRepositoryAsync(r => r.RepositoryName(Repository), cancellationToken);
             if (!hasSnapshotRepositoryResponse.IsValid) {
                 if (hasSnapshotRepositoryResponse.ApiCall.HttpStatusCode == 404)
                     return JobResult.CancelledWithMessage($"Snapshot repository {Repository} has not been configured.");
-                
+
                 return JobResult.FromException(hasSnapshotRepositoryResponse.OriginalException, hasSnapshotRepositoryResponse.GetErrorMessage());
             }
             
@@ -41,7 +41,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             await _lockProvider.TryUsingAsync("es-snapshot", async t => {
                 var sw = Stopwatch.StartNew();
                 var result = await Run.WithRetriesAsync(async () => {
-                        var response = await _client.SnapshotAsync(
+                        var response = await _client.Snapshot.SnapshotAsync(
                             Repository,
                             snapshotName,
                             d => d
@@ -71,7 +71,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 do {
                     await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken).AnyContext();
 
-                    var status = await _client.SnapshotStatusAsync(s => s.Snapshot(snapshotName).RepositoryName(Repository), cancellationToken).AnyContext();
+                    var status = await _client.Snapshot.StatusAsync(s => s.Snapshot(snapshotName).RepositoryName(Repository), cancellationToken).AnyContext();
                     _logger.LogTraceRequest(status);
                     if (status.IsValid && status.Snapshots.Count > 0) {
                         string state = status.Snapshots.First().State;
@@ -106,7 +106,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             return Task.CompletedTask;
         }
 
-        public virtual Task OnFailure(string snapshotName, ISnapshotResponse response, TimeSpan duration) {
+        public virtual Task OnFailure(string snapshotName, SnapshotResponse response, TimeSpan duration) {
             _logger.LogErrorRequest(response, "Failed snapshot {SnapshotName} in {Repository} after {Duration:g}", snapshotName, Repository, duration);
             return Task.CompletedTask;
         }

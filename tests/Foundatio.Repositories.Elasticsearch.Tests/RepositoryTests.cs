@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -12,8 +12,8 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
-using Nest;
 using Foundatio.AsyncEx;
+using Foundatio.Caching;
 using Xunit;
 using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -32,8 +32,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             _employeeRepository = new EmployeeRepository(_configuration);
             _identityRepository = new IdentityRepository(_configuration);
             _identityRepositoryWithNoCaching = new IdentityWithNoCachingRepository(_configuration);
+        }
 
-            RemoveDataAsync().GetAwaiter().GetResult();
+        public override async Task InitializeAsync() {
+            _logger.LogInformation("Starting init");
+            await base.InitializeAsync();
+            await RemoveDataAsync();
+            _logger.LogInformation("Done removing data");
         }
 
         [Fact]
@@ -195,7 +200,87 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
         }
+        
+        [Fact]
+        public async Task AddCollectionWithCacheKeyAsync() {
+            const string cacheKey = "test-cache-key";
+            
+            var identity = IdentityGenerator.Generate();
+            var identity2 = IdentityGenerator.Generate();
+            await _identityRepository.AddAsync(new List<Identity> { identity, identity2 }, o => o.Cache(cacheKey));
+            Assert.NotNull(identity?.Id);
+            Assert.Equal(3, _cache.Count);
+            Assert.Equal(0, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
 
+            Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache(cacheKey)));
+            Assert.Equal(3, _cache.Count);
+            Assert.Equal(1, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            var idsResult = await _identityRepository.GetByIdsAsync(new[] { identity.Id }, o => o.Cache(cacheKey));
+            Assert.Equal(identity, idsResult.Single());
+            Assert.Equal(3, _cache.Count);
+            Assert.Equal(2, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            await _identityRepository.InvalidateCacheAsync(new List<Identity> {identity, identity2}, o => o.Cache(cacheKey));
+            Assert.Equal(0, _cache.Count);
+            Assert.Equal(2, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+            
+            Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache(cacheKey)));
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(2, _cache.Hits);
+            Assert.Equal(2, _cache.Misses);
+
+            idsResult = await _identityRepository.GetByIdsAsync(new[] { identity.Id, identity2.Id }, o => o.Cache(cacheKey));
+            Assert.Equal(2, idsResult.Count);
+            Assert.Equal(3, _cache.Count);
+            Assert.Equal(3, _cache.Hits);
+            Assert.Equal(3, _cache.Misses);
+            
+            idsResult = await _identityRepository.GetByIdsAsync(new[] { identity.Id, identity2.Id }, o => o.Cache(cacheKey));
+            Assert.Equal(2, idsResult.Count);
+            Assert.Equal(3, _cache.Count);
+            Assert.Equal(4, _cache.Hits);
+            Assert.Equal(3, _cache.Misses);
+        }
+
+        [Fact]
+        public async Task AddSaveAndFindOneWillUseSameCacheEntry() {
+            const string cacheKey = "test-cache-key";
+            
+            var identity = IdentityGenerator.Generate();
+            await _identityRepository.AddAsync(new List<Identity> { identity }, o => o.Cache(cacheKey));
+            Assert.NotNull(identity?.Id);
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(0, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+            
+            await _identityRepository.SaveAsync(identity, o => o.Cache(cacheKey));
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(0, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache(cacheKey)));
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(1, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            var idsResult = await _identityRepository.GetByIdsAsync(new[] { identity.Id }, o => o.Cache(cacheKey));
+            Assert.Equal(identity, idsResult.Single());
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(2, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            var findResult = await _identityRepository.FindOneAsync(q => q.FieldEquals(f => f.Id, identity.Id), o => o.Cache(cacheKey));
+            Assert.Equal(identity, findResult.Document);
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(3, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+        }
+        
         [Fact]
         public async Task SaveAsync() {
             var log = await _dailyRepository.AddAsync(LogEventGenerator.Default, o => o.Notifications(false));
@@ -312,17 +397,17 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(0, _cache.Misses);
 
             string cacheKey = _cache.Keys.Single();
-            var cacheValue = await _cache.GetAsync<Identity>(cacheKey);
+            var cacheValue = await _cache.GetAsync<IEnumerable<FindHit<Identity>>>(cacheKey);
             Assert.True(cacheValue.HasValue);
-            Assert.Equal(identity, cacheValue.Value);
+            Assert.Equal(identity, cacheValue.Value.Single().Document);
 
             identity = await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache());
             Assert.NotNull(identity);
             Assert.Equal(2, _cache.Hits);
 
-            cacheValue = await _cache.GetAsync<Identity>(cacheKey);
+            cacheValue = await _cache.GetAsync<IEnumerable<FindHit<Identity>>>(cacheKey);
             Assert.True(cacheValue.HasValue);
-            Assert.Equal(identity, cacheValue.Value);
+            Assert.Equal(identity, cacheValue.Value.Single().Document);
 
             await _identityRepository.InvalidateCacheAsync(identity);
             Assert.Equal(0, _cache.Count);
@@ -335,9 +420,51 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(3, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
 
-            cacheValue = await _cache.GetAsync<Identity>(cacheKey);
+            cacheValue = await _cache.GetAsync<IEnumerable<FindHit<Identity>>>(cacheKey);
             Assert.True(cacheValue.HasValue);
-            Assert.Equal(identity, cacheValue.Value);
+            Assert.Equal(identity, cacheValue.Value.Single().Document);
+        }
+        
+        [Fact]
+        public async Task AddAndSaveWithCacheKeyAsync() {
+            const string cacheKey = "test-cache-key";
+            var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.Cache(cacheKey));
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(0, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            var cache = new ScopedCacheClient(_cache, nameof(Identity));
+            var cacheValue = await cache.GetAsync<IEnumerable<FindHit<Identity>>>(cacheKey);
+            Assert.True(cacheValue.HasValue);
+            Assert.Equal(identity, cacheValue.Value.Single().Document);
+
+            identity = await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache(cacheKey));
+            Assert.NotNull(identity);
+            Assert.Equal(2, _cache.Hits);
+
+            cacheValue = await cache.GetAsync<IEnumerable<FindHit<Identity>>>(cacheKey);
+            Assert.True(cacheValue.HasValue);
+            Assert.Equal(identity, cacheValue.Value.Single().Document);
+
+            await _identityRepository.InvalidateCacheAsync(identity);
+            Assert.Equal(1, _cache.Count);
+            Assert.Equal(3, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+            
+            await _identityRepository.InvalidateCacheAsync(identity, new CommandOptions().CacheKey(cacheKey));
+            Assert.Equal(0, _cache.Count);
+            Assert.Equal(3, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            var result = await _identityRepository.SaveAsync(identity, o => o.Cache(cacheKey));
+            Assert.NotNull(result);
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(3, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            cacheValue = await cache.GetAsync<IEnumerable<FindHit<Identity>>>(cacheKey);
+            Assert.True(cacheValue.HasValue);
+            Assert.Equal(identity, cacheValue.Value.Single().Document);
         }
 
         [Fact]
@@ -526,13 +653,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task JsonPatchAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+            Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
             var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
             await _employeeRepository.PatchAsync(employee.Id, new Models.JsonPatch(patch));
 
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
             Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
             Assert.Equal("Patched", employee.Name);
-            Assert.Equal(2, employee.Version);
+            Assert.Equal("1:1", employee.Version);
         }
 
         [Fact]
@@ -543,7 +671,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
             Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
             Assert.Equal("Patched", employee.Name);
-            Assert.Equal(2, employee.Version);
+            Assert.Equal("1:1", employee.Version);
         }
 
         [Fact]
@@ -554,7 +682,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             employee = await _employeeRepository.GetByIdAsync(employee.Id);
             Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
             Assert.Equal("Patched", employee.Name);
-            Assert.Equal(2, employee.Version);
+            Assert.Equal("1:1", employee.Version);
         }
 
         [Fact]
@@ -625,12 +753,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task PatchAllBulkAsync() {
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Warning);
-            const int COUNT = 1000 * 10;
+            const int COUNT = 1000;
+            const int BATCH_SIZE = 250;
             int added = 0;
             do {
-                await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(1000), o => o.ImmediateConsistency(true));
-                added += 1000;
+                await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(BATCH_SIZE));
+                added += BATCH_SIZE;
             } while (added < COUNT);
+            await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name);
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Trace);
 
             Assert.Equal(COUNT, await _dailyRepository.IncrementValueAsync(new string[0]));
@@ -639,13 +769,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task PatchAllBulkConcurrentlyAsync() {
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Warning);
-            const int COUNT = 1000 * 10;
+            const int COUNT = 1000;
+            const int BATCH_SIZE = 250;
             int added = 0;
             do {
-                await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(1000));
-                added += 1000;
+                await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(BATCH_SIZE));
+                added += BATCH_SIZE;
             } while (added < COUNT);
-            await _client.RefreshAsync(Indices.All);
+            await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name);
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Trace);
 
             var tasks = Enumerable.Range(1, 6).Select(async i => {

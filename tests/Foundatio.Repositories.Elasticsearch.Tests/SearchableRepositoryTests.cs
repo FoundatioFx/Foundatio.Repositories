@@ -18,8 +18,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public SearchableRepositoryTests(ITestOutputHelper output) : base(output) {
             _identityRepository = new IdentityRepository(_configuration);
             _dailyRepository = new DailyLogEventRepository(_configuration);
+        }
 
-            RemoveDataAsync().GetAwaiter().GetResult();
+        public override async Task InitializeAsync() {
+            await base.InitializeAsync();
+            await RemoveDataAsync();
         }
 
         [Fact]
@@ -49,8 +52,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, await _dailyRepository.CountBySearchAsync(null, $"id:{nowLog.Id}"));
             Assert.Equal(1, await _dailyRepository.CountBySearchAsync(new RepositoryQuery().DateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "createdUtc"), $"id:{nowLog.Id}"));
             Assert.Equal(0, await _dailyRepository.CountBySearchAsync(new RepositoryQuery().DateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), (LogEvent l) => l.CreatedUtc), $"id:{nowLog.Id}"));
-            Assert.Equal(1, await _dailyRepository.CountBySearchAsync(new RepositoryQuery().DateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), "CREATEDUTC")));
-            Assert.Equal(1, await _dailyRepository.CountBySearchAsync(new RepositoryQuery().DateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "CreatedUtc")));
+            Assert.Equal(1, await _dailyRepository.CountBySearchAsync(new RepositoryQuery().DateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), "created")));
+            Assert.Equal(1, await _dailyRepository.CountBySearchAsync(new RepositoryQuery().DateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "createdUtc")));
         }
 
         [Fact]
@@ -104,6 +107,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, searchResults.Total);
 
             searchResults = await _dailyRepository.SearchAsync(new RepositoryQuery().Company(yesterdayLog.CompanyId).DateRange(utcNow.Subtract(TimeSpan.FromHours(1)), utcNow, "created"));
+            Assert.Equal(0, searchResults.Total);
+            
+            searchResults = await _dailyRepository.SearchAsync(new RepositoryQuery().Company(yesterdayLog.CompanyId).DateRange(utcNow.Subtract(TimeSpan.FromHours(1)), DateTime.MaxValue, (LogEvent e) => e.CreatedUtc));
             Assert.Equal(0, searchResults.Total);
 
             searchResults = await _dailyRepository.SearchAsync(new RepositoryQuery().Id(yesterdayLog.Id));

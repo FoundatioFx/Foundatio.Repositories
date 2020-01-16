@@ -9,7 +9,6 @@ using Exceptionless.DateTimeExtensions;
 using Foundatio.Jobs;
 using Foundatio.Lock;
 using Microsoft.Extensions.Logging;
-using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
@@ -30,7 +29,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
         }
 
-        protected void AddIndex(TimeSpan maxAge, Func<string, DateTime?> getAge) {
+        protected void AddIndex(TimeSpan maxAge, ExtractDateFunc getAge) {
             _indexes.Add(new IndexMaxAge(maxAge, getAge));
         }
 
@@ -47,7 +46,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             _logger.LogInformation("Starting index cleanup...");
 
             var sw = Stopwatch.StartNew();
-            var result = await _client.CatIndicesAsync(
+            var result = await _client.Cat.IndicesAsync(
                 d => d.RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
             sw.Stop();
 
@@ -92,7 +91,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                     await _lockProvider.TryUsingAsync("es-delete-index", async t => {
                         _logger.LogInformation("Got lock to delete index {OldIndex}", oldIndex.Index);
                         sw.Restart();
-                        var response = await _client.DeleteIndexAsync(oldIndex.Index, d => d, t).AnyContext();
+                        var response = await _client.Indices.DeleteAsync(oldIndex.Index, d => d, t).AnyContext();
                         sw.Stop();
                         _logger.LogTraceRequest(response);
 
@@ -117,7 +116,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             return Task.CompletedTask;
         }
 
-        public virtual Task<bool> OnIndexDeleteFailure(string indexName, TimeSpan duration, IDeleteIndexResponse response, Exception ex) {
+        public virtual Task<bool> OnIndexDeleteFailure(string indexName, TimeSpan duration, DeleteIndexResponse response, Exception ex) {
             _logger.LogErrorRequest(ex, response, "Failed to delete index {IndexName} after {Duration:g}", indexName, duration);
             return Task.FromResult(true);
         }
@@ -145,13 +144,13 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         }
 
         private class IndexMaxAge {
-            public IndexMaxAge(TimeSpan maxAge, Func<string, DateTime?> getAge) {
+            public IndexMaxAge(TimeSpan maxAge, ExtractDateFunc getAge) {
                 MaxAge = maxAge;
                 GetDate = getAge;
             }
 
             public TimeSpan MaxAge { get; }
-            public Func<string, DateTime?> GetDate { get; }
+            public ExtractDateFunc GetDate { get; }
         }
 
         private class IndexDate {

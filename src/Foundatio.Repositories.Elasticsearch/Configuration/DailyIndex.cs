@@ -7,37 +7,59 @@ using System.Threading.Tasks;
 using Nest;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Caching;
+using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
+using Foundatio.Repositories.Utility;
+using Foundatio.Repositories.Options;
+using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
-    public class DailyIndexType<T> : TimeSeriesIndexType<T> where T : class {
-        public DailyIndexType(IIndex index, string name = null, Func<T, DateTime> getDocumentDateUtc = null) : base(index, name, getDocumentDateUtc) {}
-    }
-
-    public class DailyIndex : VersionedIndex, ITimeSeriesIndex {
+    public class DailyIndex : VersionedIndex {
         protected static readonly CultureInfo EnUs = new CultureInfo("en-US");
         private readonly List<IndexAliasAge> _aliases = new List<IndexAliasAge>();
         private readonly Lazy<IReadOnlyCollection<IndexAliasAge>> _frozenAliases;
         private readonly ICacheClient _aliasCache;
         private TimeSpan? _maxIndexAge;
+        protected readonly Func<object, DateTime> _getDocumentDateUtc;
+        protected readonly string[] _defaultIndexes;
 
-        public DailyIndex(IElasticConfiguration configuration, string name, int version = 1)
+        public DailyIndex(IElasticConfiguration configuration, string name, int version = 1, Func<object, DateTime> getDocumentDateUtc = null)
             : base(configuration, name, version) {
             AddAlias(Name);
             _frozenAliases = new Lazy<IReadOnlyCollection<IndexAliasAge>>(() => _aliases.AsReadOnly());
             _aliasCache = new ScopedCacheClient(configuration.Cache, "alias");
+            _getDocumentDateUtc = getDocumentDateUtc;
+            _defaultIndexes = new[] { Name };
+            HasMultipleIndexes = true;
+
+            if (_getDocumentDateUtc != null)
+                return;
+
+            _getDocumentDateUtc = document => {
+                switch (document) {
+                    case null:
+                        throw new ArgumentNullException(nameof(document));
+                    case IHaveCreatedDate createdDoc when createdDoc.CreatedUtc != DateTime.MinValue:
+                        return createdDoc.CreatedUtc;
+                    // This is also called when trying to create the document id.
+                    case IIdentity identityDoc when identityDoc.Id != null && ObjectId.TryParse(identityDoc.Id, out var objectId) && objectId.CreationTime != DateTime.MinValue:
+                        return objectId.CreationTime;
+                    default:
+                        throw new ArgumentException("Unable to get document date.", nameof(document));
+                }
+            };
         }
 
         /// <summary>
         /// This should never be be negative or less than the index time period (day or a month)
         /// </summary>
         public TimeSpan? MaxIndexAge {
-            get { return _maxIndexAge; }
+            get => _maxIndexAge;
             set {
                 if (value.HasValue && value.Value <= TimeSpan.Zero)
                     throw new ArgumentException($"{nameof(MaxIndexAge)} cannot be negative. ");
@@ -54,13 +76,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public IReadOnlyCollection<IndexAliasAge> Aliases => _frozenAliases.Value;
 
-        public override void AddType(IIndexType type) {
-            if (!(type is ITimeSeriesIndexType))
-                throw new ArgumentException($"Type must implement {nameof(ITimeSeriesIndexType)}", nameof(type));
-
-            base.AddType(type);
-        }
-
         public void AddAlias(string name, TimeSpan? maxAge = null) {
             _aliases.Add(new IndexAliasAge {
                 Name = name,
@@ -68,16 +83,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             });
         }
 
-        public override async Task ConfigureAsync() {
-            foreach (var t in IndexTypes)
-                await t.ConfigureAsync().AnyContext();
-        }
+        public override Task ConfigureAsync() => Task.CompletedTask;
 
         protected override async Task CreateAliasAsync(string index, string name) {
             await base.CreateAliasAsync(index, name).AnyContext();
 
             var utcDate = GetIndexDate(index);
-            string alias = GetIndex(utcDate);
+            string alias = GetIndexByDate(utcDate);
             var indexExpirationUtcDate = GetIndexExpirationDate(utcDate);
             var expires = indexExpirationUtcDate < DateTime.MaxValue ? indexExpirationUtcDate : (DateTime?)null;
             await _aliasCache.SetAsync(alias, alias, expires).AnyContext();
@@ -85,11 +97,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected string DateFormat { get; set; } = "yyyy.MM.dd";
 
-        public virtual string GetIndex(DateTime utcDate) {
-            return $"{Name}-{utcDate.ToString(DateFormat)}";
-        }
-
-        public virtual string GetVersionedIndex(DateTime utcDate, int? version = null) {
+        public string GetVersionedIndex(DateTime utcDate, int? version = null) {
             if (version == null || version < 0)
                 version = Version;
 
@@ -107,13 +115,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return DateTime.MaxValue;
         }
 
-        public virtual async Task EnsureIndexAsync(DateTime utcDate) {
+        protected async Task EnsureDateIndexAsync(DateTime utcDate) {
             var indexExpirationUtcDate = GetIndexExpirationDate(utcDate);
             if (SystemClock.UtcNow > indexExpirationUtcDate)
                 throw new ArgumentException($"Index max age exceeded: {indexExpirationUtcDate}", nameof(utcDate));
 
             var expires = indexExpirationUtcDate < DateTime.MaxValue ? indexExpirationUtcDate : (DateTime?)null;
-            string unversionedIndexAlias = GetIndex(utcDate);
+            string unversionedIndexAlias = GetIndexByDate(utcDate);
             if (await _aliasCache.ExistsAsync(unversionedIndexAlias).AnyContext())
                 return;
 
@@ -147,11 +155,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (indexes.Count == 0)
                 return Version;
 
-            return indexes
+            var currentIndexes = indexes
                 .Where(i => SystemClock.UtcNow <= GetIndexExpirationDate(i.DateUtc))
                 .Select(i => i.CurrentVersion >= 0 ? i.CurrentVersion : i.Version)
                 .OrderBy(v => v)
-                .First();
+                .ToList();
+
+            return currentIndexes.Count > 0 ? currentIndexes.First() : Version;
         }
 
         public virtual string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd) {
@@ -170,13 +180,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             // TODO: Look up aliases that fit these ranges.
             var indices = new List<string>();
             for (var current = utcStartOfDay; current <= utcEndOfDay; current = current.AddDays(1))
-                indices.Add(GetIndex(current));
+                indices.Add(GetIndexByDate(current));
 
             return indices.ToArray();
         }
 
         public override Task DeleteAsync() {
-            return DeleteIndexAsync($"{VersionedName}-*");
+            return DeleteIndexAsync($"{Name}-v*");
         }
 
         public override async Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
@@ -237,7 +247,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                     var oldestIndex = indexGroup.First();
                     if (oldestIndex.CurrentVersion < 0) {
                         try {
-                            await CreateAliasAsync(oldestIndex.Index, GetIndex(indexGroup.Key)).AnyContext();
+                            await CreateAliasAsync(oldestIndex.Index, GetIndexByDate(indexGroup.Key)).AnyContext();
                         } catch (Exception ex) {
                             _logger.LogError(ex, "Error setting current index version. Will use oldest index version: {OldestIndexVersion}", oldestIndex.Version);
                         }
@@ -264,7 +274,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 }
             }
 
-            var response = await Configuration.Client.AliasAsync(aliasDescriptor).AnyContext();
+            var response = await Configuration.Client.Indices.BulkAliasAsync(aliasDescriptor).AnyContext();
 
             if (response.IsValid) {
                 _logger.LogTraceRequest(response);
@@ -301,7 +311,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             // TODO: Optimize with cat aliases.
             // TODO: Should this return indexes that fall outside of the max age?
-            foreach (var indexGroup in indexes.GroupBy(i => GetIndex(i.DateUtc))) {
+            foreach (var indexGroup in indexes.GroupBy(i => GetIndexByDate(i.DateUtc))) {
                 int v = await GetVersionFromAliasAsync(indexGroup.Key).AnyContext();
                 foreach (var indexInfo in indexGroup)
                     indexInfo.CurrentVersion = v;
@@ -316,13 +326,140 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (name.EndsWith("*"))
                 await _aliasCache.RemoveAllAsync().AnyContext();
             else
-                await _aliasCache.RemoveAsync(GetIndex(GetIndexDate(name))).AnyContext();
+                await _aliasCache.RemoveAsync(GetIndexByDate(GetIndexDate(name))).AnyContext();
+        }
+
+        public override string[] GetIndexesByQuery(IRepositoryQuery query) {
+            var indexes = GetIndexes(query);
+            return indexes.Count > 0 ? indexes.ToArray() : _defaultIndexes;
+        }
+
+        private HashSet<string> GetIndexes(IRepositoryQuery query) {
+            var indexes = new HashSet<string>();
+
+            var elasticIndexes = query.GetElasticIndexes();
+            if (elasticIndexes.Count > 0)
+                indexes.AddRange(elasticIndexes);
+
+            var utcStart = query.GetElasticIndexesStartUtc();
+            var utcEnd = query.GetElasticIndexesEndUtc();
+            if (utcStart.HasValue || utcEnd.HasValue)
+                indexes.AddRange(GetIndexes(utcStart, utcEnd));
+
+            return indexes;
+        }
+
+        protected virtual string GetIndexByDate(DateTime date) {
+            return $"{Name}-{date.ToString(DateFormat)}";
+        }
+
+        protected ITypeMapping GetLatestIndexMapping() {
+            string filter = $"{Name}-v{Version}-*";
+            var catResponse = Configuration.Client.Cat.Indices(i => i.Pri().Index(Indices.Index((IndexName)filter)));
+            if (!catResponse.IsValid) {
+                _logger.LogErrorRequest(catResponse, "Error getting latest index mapping {Indexes}", filter);
+                string message = $"Error getting latest index mapping {filter}: {catResponse.GetErrorMessage()}";
+                throw new ApplicationException(message, catResponse.OriginalException);
+            }
+
+            var latestIndex = catResponse.Records
+                .Where(i => GetIndexVersion(i.Index) == Version)
+                .Select(i => new IndexInfo { DateUtc = GetIndexDate(i.Index), Index = i.Index, Version = GetIndexVersion(i.Index) })
+                .OrderByDescending(i => i.DateUtc)
+                .FirstOrDefault();
+
+            if (latestIndex == null)
+                return null;
+
+            var mappingResponse = Configuration.Client.Indices.GetMapping(new GetMappingRequest(latestIndex.Index));
+            _logger.LogTrace("GetMapping: {Request}", mappingResponse.GetRequest(false, true));
+
+            // use first returned mapping because index could have been an index alias
+            var mapping = mappingResponse.Indices.Values.FirstOrDefault()?.Mappings;
+            return mapping;
+        }
+
+        public override string GetIndex(object target) {
+            if (target == null)
+                throw new ArgumentNullException(nameof(target));
+
+            if (target is DateTime dt)
+                return GetIndexByDate(dt);
+
+            if (target is Id id) {
+                if (!ObjectId.TryParse(id.Value, out var objectId))
+                    throw new ArgumentException("Unable to parse ObjectId", nameof(id));
+
+                return GetIndexByDate(objectId.CreationTime);
+            }
+
+            if (target is ObjectId oid) {
+                return GetIndexByDate(oid.CreationTime);
+            }
+
+            if (_getDocumentDateUtc == null)
+                throw new ArgumentException("Unable to get document index", nameof(target));
+
+            var date = _getDocumentDateUtc(target);
+            return GetIndexByDate(date);
+        }
+
+        public override Task EnsureIndexAsync(object target) {
+            if (target == null)
+                throw new ArgumentNullException(nameof(target));
+
+            if (target is DateTime dt)
+                return EnsureDateIndexAsync(dt);
+
+            if (target is Id id) {
+                if (!ObjectId.TryParse(id.Value, out var objectId))
+                    throw new ArgumentException("Unable to parse ObjectId", nameof(id));
+
+                return EnsureDateIndexAsync(objectId.CreationTime);
+            }
+
+            if (target is ObjectId oid) {
+                return EnsureDateIndexAsync(oid.CreationTime);
+            }
+
+            if (_getDocumentDateUtc == null)
+                throw new ArgumentException("Unable to get document index", nameof(target));
+
+            var date = _getDocumentDateUtc(target);
+            return EnsureDateIndexAsync(date);
         }
 
         [DebuggerDisplay("Name: {Name} Max Age: {MaxAge}")]
         public class IndexAliasAge {
             public string Name { get; set; }
             public TimeSpan MaxAge { get; set; }
+        }
+    }
+
+    public class DailyIndex<T> : DailyIndex where T : class {
+        private readonly string _typeName = typeof(T).Name.ToLower();
+
+        public DailyIndex(IElasticConfiguration configuration, string name = null, int version = 1, Func<object, DateTime> getDocumentDateUtc = null) : base(configuration, name, version, getDocumentDateUtc) {
+            Name = name ?? _typeName;
+        }
+        
+        protected override ElasticQueryParser CreateQueryParser() {
+            var parser = base.CreateQueryParser();
+            parser.Configuration.UseMappings<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMapping);
+            return parser;
+        }
+        
+        public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map) {
+            return map.AutoMap<T>().Properties(p => p.SetupDefaults());
+        }
+
+        public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+            idx = base.ConfigureIndex(idx);
+            return idx.Map<T>(ConfigureIndexMapping);
+        }
+
+        public override void ConfigureSettings(ConnectionSettings settings) {
+            settings.DefaultMappingFor<T>(d => d.IndexName(Name));
         }
     }
 }
