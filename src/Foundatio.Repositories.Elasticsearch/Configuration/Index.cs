@@ -128,9 +128,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return;
             }
 
-            string message = $"Error creating the index {name}: {response.GetErrorMessage()}";
-            _logger.LogErrorRequest(response.OriginalException, response, message);
-            throw new ApplicationException(message, response.OriginalException);
+            _logger.LogErrorRequest(response.OriginalException, response, "Error creating the index {IndexName}: {ErrorMessage}", name, response.GetErrorMessage());
+            throw new ApplicationException($"Error creating the index {name}: {response.GetErrorMessage()}", response.OriginalException);
         }
 
         protected virtual Task DeleteIndexAsync(string name) {
@@ -151,8 +150,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return;
             }
 
-            string message = $"Error deleting index {names}: {response.GetErrorMessage()}";
-            _logger.LogErrorRequest(response.OriginalException, response, message);
+            _logger.LogErrorRequest(response.OriginalException, response, "Error deleting the index {IndexNames}: {ErrorMessage}", names, response.GetErrorMessage());
+            throw new ApplicationException($"Error deleting the index {names}: {response.GetErrorMessage()}", response.OriginalException);
         }
 
         protected async Task<bool> IndexExistsAsync(string name) {
