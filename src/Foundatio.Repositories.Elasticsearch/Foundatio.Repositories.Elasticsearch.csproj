@@ -4,7 +4,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Foundatio.Jobs.Commands" Version="9.0.0" />
-    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="7.5.0" />
+    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="7.5.1" />
   </ItemGroup>
   <ItemGroup>
     <!-- ProjectReference Include="..\..\..\Foundatio.Parsers\src\Foundatio.Parsers.ElasticQueries\Foundatio.Parsers.ElasticQueries.csproj" /-->
