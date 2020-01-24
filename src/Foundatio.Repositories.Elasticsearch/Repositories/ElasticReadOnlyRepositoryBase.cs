@@ -239,7 +239,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         public virtual Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, ICommandOptions options = null) {
             var search = NewQuery()
-                .MergeFrom(systemFilter?.GetQuery())
+                .SystemFilter(systemFilter)
                 .FilterExpression(filter)
                 .SearchExpression(criteria)
                 .AggregationsExpression(aggregations)
@@ -471,7 +471,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         public virtual Task<CountResult> CountBySearchAsync(ISystemFilter systemFilter, string filter = null, string aggregations = null, ICommandOptions options = null) {
             var search = NewQuery()
-                .MergeFrom(systemFilter?.GetQuery())
+                .SystemFilter(systemFilter)
                 .FilterExpression(filter)
                 .AggregationsExpression(aggregations);
 
@@ -712,6 +712,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (deletedIds.HasValue)
                     query.ExcludedId(deletedIds.Value);
             }
+            
+            var systemFilter = query.GetSystemFilter();
+            if (systemFilter != null)
+                query.MergeFrom(systemFilter.GetQuery());
 
             if (BeforeQuery == null || !BeforeQuery.HasHandlers)
                 return;

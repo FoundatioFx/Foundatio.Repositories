@@ -16,6 +16,15 @@ namespace Foundatio.Repositories {
     }
 
     public static class QueryExpressionsExtensions {
+        internal const string SystemFilterKey = "@SystemFilter";
+
+        /// <summary>
+        /// System filter that will be applied to the repository query to enforce tenancy or system rules
+        /// </summary>
+        public static T SystemFilter<T>(this T query, ISystemFilter filter) where T : IRepositoryQuery {
+            return query.BuildOption(SystemFilterKey, filter);
+        }
+        
         internal const string FilterKey = "@FilterExpression";
 
         /// <summary>
@@ -46,6 +55,10 @@ namespace Foundatio.Repositories {
 
 namespace Foundatio.Repositories.Options {
     public static class ReadQueryExpressionsExtensions {
+        public static ISystemFilter GetSystemFilter(this IRepositoryQuery query) {
+            return query.SafeGetOption<ISystemFilter>(QueryExpressionsExtensions.SystemFilterKey);
+        }
+        
         public static string GetFilterExpression(this IRepositoryQuery query) {
             return query.SafeGetOption<string>(QueryExpressionsExtensions.FilterKey);
         }
