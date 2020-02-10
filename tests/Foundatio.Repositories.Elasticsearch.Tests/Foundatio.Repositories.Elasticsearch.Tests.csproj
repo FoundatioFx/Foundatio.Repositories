@@ -4,6 +4,6 @@
     <ProjectReference Include="..\..\src\Foundatio.Repositories.Elasticsearch\Foundatio.Repositories.Elasticsearch.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Exceptionless.RandomData" Version="1.1.47" />
+    <PackageReference Include="Exceptionless.RandomData" Version="1.2.0" />
   </ItemGroup>
 </Project>
