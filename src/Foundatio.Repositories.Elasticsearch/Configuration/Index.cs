@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
@@ -182,7 +183,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected virtual string GetTimeStampField() {
-            return "updated";
+            throw new NotImplementedException("Please specify a timestamp field.");
         }
 
         public virtual CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
@@ -219,5 +220,14 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public override void ConfigureSettings(ConnectionSettings settings) {
             settings.DefaultMappingFor<T>(d => d.IndexName(Name));
         }
+
+        protected override string GetTimeStampField() {
+            if (typeof(IHaveDates).IsAssignableFrom(typeof(T))) 
+                return InferField(f => ((IHaveDates)f).UpdatedUtc);
+
+            throw new NotImplementedException("Please specify a timestamp field.");
+        }
+        
+        protected string InferField(Expression<Func<T, object>> objectPath) => Configuration.Client.Infer.Field(objectPath);
     }
 }
