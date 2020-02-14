@@ -19,7 +19,7 @@ namespace Foundatio.Repositories.Elasticsearch {
     public class ElasticReindexer {
         private readonly IElasticClient _client;
         private readonly ILogger _logger;
-        private const string ID_FIELD = "_id";
+        private const string ID_FIELD = "id";
         private const int MAX_STATUS_FAILS = 10;
 
         public ElasticReindexer(IElasticClient client, ILogger logger = null) {
@@ -70,12 +70,20 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             await _client.Indices.RefreshAsync(Indices.All).AnyContext();
-            var secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime).AnyContext();
-            if (!secondPassResult.Succeeded) return;
 
-            await progressCallbackAsync(97, $"Total: {secondPassResult.Total:N0} Completed: {secondPassResult.Completed:N0}").AnyContext();
+            ReindexResult secondPassResult = null;
+            if (!String.IsNullOrEmpty(workItem.TimestampField)) {
+                secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime).AnyContext();
+                if (!secondPassResult.Succeeded) return;
 
-            bool hasFailures = (firstPassResult.Failures + secondPassResult.Failures) > 0;
+                await progressCallbackAsync(97, $"Total: {secondPassResult.Total:N0} Completed: {secondPassResult.Completed:N0}").AnyContext();
+            }
+
+            long totalFailures = firstPassResult.Failures;
+            if (secondPassResult != null)
+                totalFailures += secondPassResult.Failures;
+            
+            bool hasFailures = totalFailures > 0;
             if (!hasFailures && workItem.DeleteOld && workItem.OldIndex != workItem.NewIndex) {
                 await _client.Indices.RefreshAsync(Indices.All).AnyContext();
                 long newDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.NewIndex)).AnyContext()).Count;
@@ -290,7 +298,17 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return null;
 
             var doc = newestDocumentResponse.Hits.FirstOrDefault();
-            var value = doc?.Fields[timestampField];
+            if (doc == null)
+                return null;
+            
+            if (timestampField == ID_FIELD) {
+                if (!ObjectId.TryParse(doc.Id, out var objectId))
+                    return null;
+
+                return objectId.CreationTime;
+            }
+            
+            var value = doc.Fields?[timestampField];
             if (value == null)
                 return null;
 

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Nest;
 using Exceptionless.DateTimeExtensions;
@@ -436,7 +437,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
     }
 
-    public class DailyIndex<T> : DailyIndex where T : class {
+    public class DailyIndex<T> : DailyIndex, IIndex<T> where T : class {
         private readonly string _typeName = typeof(T).Name.ToLower();
 
         public DailyIndex(IElasticConfiguration configuration, string name = null, int version = 1, Func<object, DateTime> getDocumentDateUtc = null) : base(configuration, name, version, getDocumentDateUtc) {
@@ -461,5 +462,19 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public override void ConfigureSettings(ConnectionSettings settings) {
             settings.DefaultMappingFor<T>(d => d.IndexName(Name));
         }
+        
+        protected override string GetTimeStampField() {
+            if (typeof(IHaveDates).IsAssignableFrom(typeof(T))) 
+                return InferField(f => ((IHaveDates)f).UpdatedUtc);
+            
+            if (typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T))) 
+                return InferField(f => ((IHaveCreatedDate)f).CreatedUtc);
+
+            return null;
+        }
+        
+        public Inferrer Infer => Configuration.Client.Infer;
+        public string InferField(Expression<Func<T, object>> objectPath) => Infer.Field(objectPath);
+        public string InferPropertyName(Expression<Func<T, object>> objectPath) => Infer.PropertyName(objectPath);
     }
 }

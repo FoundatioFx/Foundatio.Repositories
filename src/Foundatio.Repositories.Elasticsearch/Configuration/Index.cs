@@ -183,7 +183,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected virtual string GetTimeStampField() {
-            throw new NotImplementedException("Please specify a timestamp field.");
+            return null;
         }
 
         public virtual CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
@@ -195,7 +195,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public virtual void Dispose() {}
     }
 
-    public class Index<T> : Index where T : class {
+    public class Index<T> : Index, IIndex<T> where T : class {
         private readonly string _typeName = typeof(T).Name.ToLower();
 
         public Index(IElasticConfiguration configuration, string name = null) : base(configuration, name) {
@@ -224,10 +224,15 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         protected override string GetTimeStampField() {
             if (typeof(IHaveDates).IsAssignableFrom(typeof(T))) 
                 return InferField(f => ((IHaveDates)f).UpdatedUtc);
+            
+            if (typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T))) 
+                return InferField(f => ((IHaveCreatedDate)f).CreatedUtc);
 
-            throw new NotImplementedException("Please specify a timestamp field.");
+            return null;
         }
         
-        protected string InferField(Expression<Func<T, object>> objectPath) => Configuration.Client.Infer.Field(objectPath);
+        public Inferrer Infer => Configuration.Client.Infer;
+        public string InferField(Expression<Func<T, object>> objectPath) => Infer.Field(objectPath);
+        public string InferPropertyName(Expression<Func<T, object>> objectPath) => Infer.PropertyName(objectPath);
     }
 }

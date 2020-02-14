@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
@@ -20,5 +21,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         string CreateDocumentId(object document);
         string[] GetIndexesByQuery(IRepositoryQuery query);
         string GetIndex(object target);
+    }
+
+    public interface IIndex<T> : IIndex where T : class {
+        TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map);
+        Inferrer Infer { get; } 
+        string InferField(Expression<Func<T, object>> objectPath);
+        string InferPropertyName(Expression<Func<T, object>> objectPath);
     }
 }

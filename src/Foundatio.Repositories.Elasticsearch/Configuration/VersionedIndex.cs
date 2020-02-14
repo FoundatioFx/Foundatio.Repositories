@@ -2,12 +2,14 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Models;
 using Nest;
 using Microsoft.Extensions.Logging;
 
@@ -245,7 +247,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
     }
 
-    public class VersionedIndex<T> : VersionedIndex where T : class {
+    public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class {
         private readonly string _typeName = typeof(T).Name.ToLower();
 
         public VersionedIndex(IElasticConfiguration configuration, string name = null, int version = 1) : base(configuration, name, version) {
@@ -270,5 +272,19 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public override void ConfigureSettings(ConnectionSettings settings) {
             settings.DefaultMappingFor<T>(d => d.IndexName(Name));
         }
+        
+        protected override string GetTimeStampField() {
+            if (typeof(IHaveDates).IsAssignableFrom(typeof(T))) 
+                return InferField(f => ((IHaveDates)f).UpdatedUtc);
+            
+            if (typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T))) 
+                return InferField(f => ((IHaveCreatedDate)f).CreatedUtc);
+
+            return null;
+        }
+        
+        public Inferrer Infer => Configuration.Client.Infer;
+        public string InferField(Expression<Func<T, object>> objectPath) => Infer.Field(objectPath);
+        public string InferPropertyName(Expression<Func<T, object>> objectPath) => Infer.PropertyName(objectPath);
     }
 }
