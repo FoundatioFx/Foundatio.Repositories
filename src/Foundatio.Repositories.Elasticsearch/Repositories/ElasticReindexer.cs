@@ -105,12 +105,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                     var response = await _client.ReindexOnServerAsync(d => {
                         d.Source(src => src
                             .Index(workItem.OldIndex)
-                            .Query<object>(q => query)
-                            .Sort<object>(s => s.Ascending(new Field(workItem.TimestampField ?? ID_FIELD))))
+                            .Query<object>(q => query))
                         .Destination(dest => dest.Index(workItem.NewIndex))
                         .Conflicts(Conflicts.Proceed)
                         .WaitForCompletion(false);
-
+ 
                         //NEST client emitting script if null, inline this when that's fixed
                         if (!String.IsNullOrWhiteSpace(workItem.Script))
                             d.Script(workItem.Script);
