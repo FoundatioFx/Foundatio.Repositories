@@ -1,13 +1,14 @@
 <Project>
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFrameworks>netstandard2.0</TargetFrameworks>
     <Product>Foundatio Elasticsearch Repositories</Product>
     <Description>Generic Repository implementations for Elasticsearch.</Description>
     <PackageProjectUrl>https://github.com/FoundatioFx/Foundatio.Repositories</PackageProjectUrl>
     <PackageReleaseNotes>https://github.com/FoundatioFx/Foundatio.Repositories/releases</PackageReleaseNotes>
     <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>
     <MinVerTagPrefix>v</MinVerTagPrefix>
+    <ReferenceFoundatioSource Condition="$(SolutionName.Contains('All'))">true</ReferenceFoundatioSource>
 
     <Copyright>Copyright (c) 2020 Foundatio.  All rights reserved.</Copyright>
     <Authors>FoundatioFx</Authors>
