@@ -34,12 +34,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             _client = _configuration.Client;
         }
 
-        private static bool _elaticsearchReady;
+        private static bool _elasticsearchReady;
         public virtual async Task InitializeAsync() {
-            if (!_elaticsearchReady)
+            if (!_elasticsearchReady)
                 await _client.WaitForReadyAsync(new CancellationTokenSource(TimeSpan.FromMinutes(1)).Token);
             
-            _elaticsearchReady = true;
+            _elasticsearchReady = true;
         }
 
         protected virtual async Task RemoveDataAsync(bool configureIndexes = true) {
@@ -55,6 +55,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 await _configuration.ConfigureIndexesAsync(null, false);
 
             await _cache.RemoveAllAsync();
+            _cache.ResetStats();
             await _client.Indices.RefreshAsync(Indices.All);
             _messageBus.ResetMessagesSent();
             sw.Stop();

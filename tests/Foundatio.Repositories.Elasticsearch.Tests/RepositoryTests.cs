@@ -697,12 +697,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _dailyRepository.AddAsync(logs, o => o.Cache().ImmediateConsistency());
             Assert.Equal(5, _cache.Count);
             Assert.Equal(0, _cache.Hits);
-            Assert.Equal(0, _cache.Misses);
+            Assert.Equal(2, _cache.Misses);
 
             Assert.Equal(3, await _dailyRepository.IncrementValueAsync(logs.Select(l => l.Id).ToArray()));
             Assert.Equal(2, _cache.Count);
             Assert.Equal(0, _cache.Hits);
-            Assert.Equal(0, _cache.Misses);
+            Assert.Equal(2, _cache.Misses);
 
             var results = await _dailyRepository.GetAllByCompanyAsync("1");
             Assert.Equal(2, results.Documents.Count);
