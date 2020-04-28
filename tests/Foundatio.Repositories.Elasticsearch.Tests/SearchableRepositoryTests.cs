@@ -12,8 +12,8 @@ using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class SearchableRepositoryTests : ElasticRepositoryTestBase {
-        private readonly IdentityRepository _identityRepository;
-        private readonly DailyLogEventRepository _dailyRepository;
+        private readonly IIdentityRepository _identityRepository;
+        private readonly ILogEventRepository _dailyRepository;
 
         public SearchableRepositoryTests(ITestOutputHelper output) : base(output) {
             _identityRepository = new IdentityRepository(_configuration);

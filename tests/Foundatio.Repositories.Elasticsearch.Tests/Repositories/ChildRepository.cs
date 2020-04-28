@@ -7,7 +7,11 @@
  using Nest;
 
  namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories {
-     public class ChildRepository : ElasticRepositoryBase<Child> {
+     public interface IChildRepository : IElasticRepository<Child> {
+         Task<FindResults<Child>> QueryAsync(RepositoryQueryDescriptor<Child> query, CommandOptionsDescriptor<Child> options = null);
+     }
+     
+     public class ChildRepository : ElasticRepositoryBase<Child>, IChildRepository {
          public ChildRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.ParentChild) {
              BeforeQuery.AddHandler(OnBeforeQuery);
              DocumentsChanging.AddHandler(OnDocumentsChanging);

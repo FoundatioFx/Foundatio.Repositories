@@ -13,9 +13,9 @@ using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase {
-        private readonly IdentityRepository _identityRepository;
-        private readonly DailyLogEventRepository _dailyRepository;
-        private readonly EmployeeRepository _employeeRepository;
+        private readonly IIdentityRepository _identityRepository;
+        private readonly ILogEventRepository _dailyRepository;
+        private readonly IEmployeeRepository _employeeRepository;
 
         public ReadOnlyRepositoryTests(ITestOutputHelper output) : base(output) {
             _identityRepository = new IdentityRepository(_configuration);

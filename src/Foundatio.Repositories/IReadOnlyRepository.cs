@@ -13,27 +13,33 @@ namespace Foundatio.Repositories {
         Task<bool> ExistsAsync(Id id);
 
         AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; }
-    }
 
-    public static class ReadOnlyRepositoryExtensions {
-        public static Task InvalidateCacheAsync<T>(this IReadOnlyRepository<T> repository, IEnumerable<T> documents, CommandOptionsDescriptor<T> options = null) where T : class, new() {
-            return repository.InvalidateCacheAsync(documents, options.Configure());
+        public Task InvalidateCacheAsync(T document, ICommandOptions options = null) {
+            return InvalidateCacheAsync(new [] { document }, options);
+        }
+        
+        public Task InvalidateCacheAsync(T document, CommandOptionsDescriptor<T> options) {
+            return InvalidateCacheAsync(new [] { document }, options.Configure());
         }
 
-        public static Task<long> CountAsync<T>(this IReadOnlyRepository<T> repository, CommandOptionsDescriptor<T> options = null) where T : class, new() {
-            return repository.CountAsync(options.Configure());
+        public Task InvalidateCacheAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options) {
+            return InvalidateCacheAsync(documents, options.Configure());
         }
 
-        public static Task<T> GetByIdAsync<T>(this IReadOnlyRepository<T> repository, Id id, CommandOptionsDescriptor<T> options = null) where T : class, new() {
-            return repository.GetByIdAsync(id, options.Configure());
+        public Task<long> CountAsync(CommandOptionsDescriptor<T> options) {
+            return CountAsync(options.Configure());
         }
 
-        public static Task<IReadOnlyCollection<T>> GetByIdsAsync<T>(this IReadOnlyRepository<T> repository, Ids ids, CommandOptionsDescriptor<T> options = null) where T : class, new() {
-            return repository.GetByIdsAsync(ids, options.Configure());
+        public Task<T> GetByIdAsync(Id id, CommandOptionsDescriptor<T> options) {
+            return GetByIdAsync(id, options.Configure());
         }
 
-        public static Task<FindResults<T>> GetAllAsync<T>(this IReadOnlyRepository<T> repository, CommandOptionsDescriptor<T> options = null) where T : class, new() {
-            return repository.GetAllAsync(options.Configure());
+        public Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, CommandOptionsDescriptor<T> options) {
+            return GetByIdsAsync(ids, options.Configure());
+        }
+
+        public Task<FindResults<T>> GetAllAsync(CommandOptionsDescriptor<T> options) {
+            return GetAllAsync(options.Configure());
         }
     }
 }

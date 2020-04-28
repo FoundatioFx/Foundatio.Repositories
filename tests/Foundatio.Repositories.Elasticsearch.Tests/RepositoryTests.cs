@@ -20,11 +20,11 @@ using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class RepositoryTests : ElasticRepositoryTestBase {
-        private readonly EmployeeRepository _employeeRepository;
-        private readonly DailyLogEventRepository _dailyRepository;
-        private readonly DailyLogEventRepository _dailyRepositoryWithNoCaching;
-        private readonly IdentityRepository _identityRepository;
-        private readonly IdentityRepository _identityRepositoryWithNoCaching;
+        private readonly IEmployeeRepository _employeeRepository;
+        private readonly ILogEventRepository _dailyRepository;
+        private readonly ILogEventRepository _dailyRepositoryWithNoCaching;
+        private readonly IIdentityRepository _identityRepository;
+        private readonly IIdentityRepository _identityRepositoryWithNoCaching;
 
         public RepositoryTests(ITestOutputHelper output) : base(output) {
             _dailyRepository = new DailyLogEventRepository(_configuration);

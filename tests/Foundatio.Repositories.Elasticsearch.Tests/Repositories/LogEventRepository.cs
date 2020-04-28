@@ -8,7 +8,17 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
-    public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent> {
+    public interface ILogEventRepository : IElasticRepository<LogEvent> {
+        Task<FindResults<LogEvent>> GetByCompanyAsync(string company);
+        Task<FindResults<LogEvent>> GetPartialByCompanyAsync(string company);
+        Task<FindResults<LogEvent>> GetAllByCompanyAsync(string company);
+        Task<CountResult> GetCountByCompanyAsync(string company);
+        Task<FindResults<LogEvent>> GetByDateRange(DateTime utcStart, DateTime utcEnd);
+        Task<long> IncrementValueAsync(string[] ids, int value = 1);
+        Task<long> IncrementValueAsync(RepositoryQueryDescriptor<LogEvent> query, int value = 1);
+    }
+
+    public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent>, ILogEventRepository {
         public DailyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.DailyLogEvents) {
         }
 
@@ -46,7 +56,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             if (ids.Length == 0)
                 return await PatchAllAsync(null, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
 
-            await this.PatchAsync(ids, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
+            await ((IRepository<LogEvent>)this).PatchAsync(ids, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
             return ids.Length;
         }
 

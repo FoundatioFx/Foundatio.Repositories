@@ -15,7 +15,7 @@ using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class VersionedTests : ElasticRepositoryTestBase {
-        private readonly EmployeeRepository _employeeRepository;
+        private readonly IEmployeeRepository _employeeRepository;
 
         public VersionedTests(ITestOutputHelper output) : base(output) {
             _employeeRepository = new EmployeeRepository(_configuration);

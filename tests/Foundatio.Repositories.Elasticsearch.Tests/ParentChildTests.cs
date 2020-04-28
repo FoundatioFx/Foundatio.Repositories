@@ -6,8 +6,8 @@ using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class ParentChildTests : ElasticRepositoryTestBase {
-        private readonly ParentRepository _parentRepository;
-        private readonly ChildRepository _childRepository;
+        private readonly IParentRepository _parentRepository;
+        private readonly IChildRepository _childRepository;
 
         public ParentChildTests(ITestOutputHelper output) : base(output) {
             _parentRepository = new ParentRepository(_configuration);

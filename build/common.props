@@ -1,7 +1,7 @@
 <Project>
 
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0</TargetFrameworks>
+    <TargetFrameworks>netstandard2.1</TargetFrameworks>
     <Product>Foundatio Elasticsearch Repositories</Product>
     <Description>Generic Repository implementations for Elasticsearch.</Description>
     <PackageProjectUrl>https://github.com/FoundatioFx/Foundatio.Repositories</PackageProjectUrl>

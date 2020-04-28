@@ -14,7 +14,7 @@ using Xunit.Abstractions;
 namespace Foundatio.Repositories.Elasticsearch.Tests {
 
     public sealed class AggregationQueryTests : ElasticRepositoryTestBase {
-        private readonly EmployeeRepository _employeeRepository;
+        private readonly IEmployeeRepository _employeeRepository;
 
         public AggregationQueryTests(ITestOutputHelper output) : base(output) {
             _employeeRepository = new EmployeeRepository(_configuration);

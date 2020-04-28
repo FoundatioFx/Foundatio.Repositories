@@ -301,7 +301,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             return findHit?.Document;
         }
-
+        
         public virtual async Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, ICommandOptions options = null) {
             var idList = ids?.Distinct().Where(i => !String.IsNullOrEmpty(i)).ToList();
             if (idList == null || idList.Count == 0)
@@ -537,16 +537,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return Cache.RemoveAllAsync(keysToRemove);
             
             return Task.CompletedTask;
-        }
-
-        public virtual Task InvalidateCacheAsync(T document, ICommandOptions options = null) {
-            if (document == null)
-                throw new ArgumentNullException(nameof(document));
-
-            if (!IsCacheEnabled)
-                return Task.CompletedTask;
-
-            return InvalidateCacheAsync(new[] { document }, options);
         }
 
         public virtual Task InvalidateCacheAsync(IEnumerable<T> documents, ICommandOptions options = null) {

@@ -25,51 +25,49 @@ namespace Foundatio.Repositories {
         AsyncEvent<DocumentsEventArgs<T>> DocumentsRemoved { get; }
         AsyncEvent<DocumentsChangeEventArgs<T>> DocumentsChanging { get; }
         AsyncEvent<DocumentsChangeEventArgs<T>> DocumentsChanged { get; }
-    }
-
-    public static class RepositoryExtensions {
-        public static Task<T> AddAsync<T>(this IRepository<T> repository, T document, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {
-            return repository.AddAsync(document, options.Configure());
+        
+        public Task<T> AddAsync(T document, CommandOptionsDescriptor<T> options) {
+            return AddAsync(document, options.Configure());
         }
 
-        public static Task AddAsync<T>(this IRepository<T> repository, IEnumerable<T> documents, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {
-            return repository.AddAsync(documents, options.Configure());
+        public Task AddAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options) {
+            return AddAsync(documents, options.Configure());
         }
 
-        public static Task<T> SaveAsync<T>(this IRepository<T> repository, T document, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {
-            return repository.SaveAsync(document, options.Configure());
+        public Task<T> SaveAsync(T document, CommandOptionsDescriptor<T> options) {
+            return SaveAsync(document, options.Configure());
         }
 
-        public static Task SaveAsync<T>(this IRepository<T> repository, IEnumerable<T> documents, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {
-            return repository.SaveAsync(documents, options.Configure());
+        public Task SaveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options) {
+            return SaveAsync(documents, options.Configure());
         }
 
-        public static Task PatchAsync<T>(this IRepository<T> repository, Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {
-            return repository.PatchAsync(id, operation, options.Configure());
+        public Task PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options) {
+            return PatchAsync(id, operation, options.Configure());
         }
 
-        public static Task PatchAsync<T>(this IRepository<T> repository, Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {
-            return repository.PatchAsync(ids, operation, options.Configure());
+        public Task PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options) {
+            return PatchAsync(ids, operation, options.Configure());
         }
 
-        public static Task RemoveAsync<T>(this IRepository<T> repository, Id id, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {
-            return repository.RemoveAsync(id, options.Configure());
+        public Task RemoveAsync(Id id, CommandOptionsDescriptor<T> options) {
+            return RemoveAsync(id, options.Configure());
         }
 
-        public static Task RemoveAsync<T>(this IRepository<T> repository, Ids ids, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {
-            return repository.RemoveAsync(ids, options.Configure());
+        public Task RemoveAsync(Ids ids, CommandOptionsDescriptor<T> options) {
+            return RemoveAsync(ids, options.Configure());
         }
 
-        public static Task RemoveAsync<T>(this IRepository<T> repository, T document, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {
-            return repository.RemoveAsync(document, options.Configure());
+        public Task RemoveAsync(T document, CommandOptionsDescriptor<T> options) {
+            return RemoveAsync(document, options.Configure());
         }
 
-        public static Task RemoveAsync<T>(this IRepository<T> repository, IEnumerable<T> documents, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {
-            return repository.RemoveAsync(documents, options.Configure());
+        public Task RemoveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options) {
+            return RemoveAsync(documents, options.Configure());
         }
 
-        public static Task<long> RemoveAllAsync<T>(this IRepository<T> repository, CommandOptionsDescriptor<T> options = null) where T : class, IIdentity, new() {
-            return repository.RemoveAllAsync(options.Configure());
+        public Task<long> RemoveAllAsync(CommandOptionsDescriptor<T> options) {
+            return RemoveAllAsync(options.Configure());
         }
     }
 }

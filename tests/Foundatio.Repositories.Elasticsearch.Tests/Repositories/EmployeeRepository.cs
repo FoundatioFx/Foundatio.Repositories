@@ -10,7 +10,45 @@ using Foundatio.Repositories.Options;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
-    public class EmployeeRepository : ElasticRepositoryBase<Employee> {
+    public interface IEmployeeRepository : IElasticRepository<Employee> {
+        long DocumentsChangedCount { get; }
+        long QueryCount { get; }
+
+        /// <summary>
+        /// This allows us easily test aggregations
+        /// </summary>
+        Task<CountResult> GetCountByQueryAsync(RepositoryQueryDescriptor<Employee> query);
+
+        Task<FindResults<Employee>> GetAllByAgeAsync(int age);
+
+        /// <summary>
+        /// Exposed only for testing purposes.
+        /// </summary>
+        Task<FindResults<Employee>> GetByQueryAsync(RepositoryQueryDescriptor<Employee> query);
+
+        Task<FindResults<Employee>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<Employee> options = null);
+
+        Task<FindResults<Employee>> GetAllByCompaniesWithFieldEqualsAsync(string[] companies);
+        Task<CountResult> GetCountByCompanyAsync(string company);
+        Task<CountResult> GetNumberOfEmployeesWithMissingCompanyName(string company);
+        Task<CountResult> GetNumberOfEmployeesWithMissingName(string company);
+
+        /// <summary>
+        /// Updates company name by company id
+        /// </summary>
+        /// <param name="company">company id</param>
+        /// <param name="name">company name</param>
+        /// <param name="limit">OPTIONAL limit that should be applied to bulk updates. This is here only for tests...</param>
+        /// <returns></returns>
+        Task<long> UpdateCompanyNameByCompanyAsync(string company, string name, int? limit = null);
+
+        Task<long> IncrementYearsEmployeedAsync(string[] ids, int years = 1);
+        Task<long> IncrementYearsEmployeedAsync(RepositoryQueryDescriptor<Employee> query, int years = 1);
+        Task<FindResults<Employee>> GetByFilterAsync(string filter);
+        Task<FindResults<Employee>> GetByCriteriaAsync(string criteria);
+    }
+
+    public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepository {
         public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.Employees) {}
 
         public EmployeeRepository(IIndex employeeIndex) : base(employeeIndex) {
@@ -86,7 +124,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             if (ids.Length == 0)
                 return await PatchAllAsync(null, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
 
-            await this.PatchAsync(ids, new ScriptPatch(script), o => o.ImmediateConsistency(true));
+            await ((IRepository<Employee>)this).PatchAsync(ids, new ScriptPatch(script), o => o.ImmediateConsistency(true));
             return ids.Length;
         }
 

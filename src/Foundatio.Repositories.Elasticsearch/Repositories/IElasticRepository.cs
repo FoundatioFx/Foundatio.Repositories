@@ -4,7 +4,7 @@ using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch
 {
-    public interface IElasticRepository<T> : IRepository<T> where T : class, IIdentity, new() {
+    public interface IElasticRepository<T> : IRepository<T>, IElasticReadOnlyRepository<T> where T : class, IIdentity, new() {
         Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> query, IPatchOperation operation, CommandOptionsDescriptor<T> options = null);
         Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null);
         Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
