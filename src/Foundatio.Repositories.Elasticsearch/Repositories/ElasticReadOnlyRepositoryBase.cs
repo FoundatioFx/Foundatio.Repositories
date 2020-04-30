@@ -684,7 +684,43 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
                 _logger.LogTrace("Set cache: type={ElasticType} key={CacheKey}", ElasticIndex.Name, cacheKey ?? String.Join(", ", findHits.Select(h => h?.Id)));
         }
+        
+        public Task InvalidateCacheAsync(T document, ICommandOptions options = null) {
+            return InvalidateCacheAsync(new [] { document }, options);
+        }
+        
+        public Task InvalidateCacheAsync(T document, CommandOptionsDescriptor<T> options) {
+            return InvalidateCacheAsync(new [] { document }, options.Configure());
+        }
 
+        public Task InvalidateCacheAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options) {
+            return InvalidateCacheAsync(documents, options.Configure());
+        }
+
+        public Task<long> CountAsync(CommandOptionsDescriptor<T> options) {
+            return CountAsync(options.Configure());
+        }
+
+        public Task<T> GetByIdAsync(Id id, CommandOptionsDescriptor<T> options) {
+            return GetByIdAsync(id, options.Configure());
+        }
+
+        public Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, CommandOptionsDescriptor<T> options) {
+            return GetByIdsAsync(ids, options.Configure());
+        }
+
+        public Task<FindResults<T>> GetAllAsync(CommandOptionsDescriptor<T> options) {
+            return GetAllAsync(options.Configure());
+        }
+
+        public Task<CountResult> CountBySearchAsync(ISystemFilter systemFilter, string filter, string aggregations, CommandOptionsDescriptor<T> options) {
+            return CountBySearchAsync(systemFilter, filter, aggregations, options.Configure());
+        }
+        
+        public Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string filter, string criteria, string sort, string aggregations, CommandOptionsDescriptor<T> options) {
+            return SearchAsync(systemFilter, filter, criteria, sort, aggregations, options.Configure());
+        }
+        
         private IIndex _elasticIndex;
 
         protected IIndex ElasticIndex {

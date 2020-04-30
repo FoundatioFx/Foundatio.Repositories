@@ -25,49 +25,17 @@ namespace Foundatio.Repositories {
         AsyncEvent<DocumentsEventArgs<T>> DocumentsRemoved { get; }
         AsyncEvent<DocumentsChangeEventArgs<T>> DocumentsChanging { get; }
         AsyncEvent<DocumentsChangeEventArgs<T>> DocumentsChanged { get; }
-        
-        public Task<T> AddAsync(T document, CommandOptionsDescriptor<T> options) {
-            return AddAsync(document, options.Configure());
-        }
 
-        public Task AddAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options) {
-            return AddAsync(documents, options.Configure());
-        }
-
-        public Task<T> SaveAsync(T document, CommandOptionsDescriptor<T> options) {
-            return SaveAsync(document, options.Configure());
-        }
-
-        public Task SaveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options) {
-            return SaveAsync(documents, options.Configure());
-        }
-
-        public Task PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options) {
-            return PatchAsync(id, operation, options.Configure());
-        }
-
-        public Task PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options) {
-            return PatchAsync(ids, operation, options.Configure());
-        }
-
-        public Task RemoveAsync(Id id, CommandOptionsDescriptor<T> options) {
-            return RemoveAsync(id, options.Configure());
-        }
-
-        public Task RemoveAsync(Ids ids, CommandOptionsDescriptor<T> options) {
-            return RemoveAsync(ids, options.Configure());
-        }
-
-        public Task RemoveAsync(T document, CommandOptionsDescriptor<T> options) {
-            return RemoveAsync(document, options.Configure());
-        }
-
-        public Task RemoveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options) {
-            return RemoveAsync(documents, options.Configure());
-        }
-
-        public Task<long> RemoveAllAsync(CommandOptionsDescriptor<T> options) {
-            return RemoveAllAsync(options.Configure());
-        }
+        Task<T> AddAsync(T document, CommandOptionsDescriptor<T> options);
+        Task AddAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options);
+        Task<T> SaveAsync(T document, CommandOptionsDescriptor<T> options);
+        Task SaveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options);
+        Task PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options);
+        Task PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options);
+        Task RemoveAsync(Id id, CommandOptionsDescriptor<T> options);
+        Task RemoveAsync(Ids ids, CommandOptionsDescriptor<T> options);
+        Task RemoveAsync(T document, CommandOptionsDescriptor<T> options);
+        Task RemoveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options);
+        Task<long> RemoveAllAsync(CommandOptionsDescriptor<T> options);
     }
 }

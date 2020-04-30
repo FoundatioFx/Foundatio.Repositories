@@ -14,32 +14,12 @@ namespace Foundatio.Repositories {
 
         AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; }
 
-        public Task InvalidateCacheAsync(T document, ICommandOptions options = null) {
-            return InvalidateCacheAsync(new [] { document }, options);
-        }
-        
-        public Task InvalidateCacheAsync(T document, CommandOptionsDescriptor<T> options) {
-            return InvalidateCacheAsync(new [] { document }, options.Configure());
-        }
-
-        public Task InvalidateCacheAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options) {
-            return InvalidateCacheAsync(documents, options.Configure());
-        }
-
-        public Task<long> CountAsync(CommandOptionsDescriptor<T> options) {
-            return CountAsync(options.Configure());
-        }
-
-        public Task<T> GetByIdAsync(Id id, CommandOptionsDescriptor<T> options) {
-            return GetByIdAsync(id, options.Configure());
-        }
-
-        public Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, CommandOptionsDescriptor<T> options) {
-            return GetByIdsAsync(ids, options.Configure());
-        }
-
-        public Task<FindResults<T>> GetAllAsync(CommandOptionsDescriptor<T> options) {
-            return GetAllAsync(options.Configure());
-        }
+        Task InvalidateCacheAsync(T document, ICommandOptions options = null);
+        Task InvalidateCacheAsync(T document, CommandOptionsDescriptor<T> options);
+        Task InvalidateCacheAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options);
+        Task<long> CountAsync(CommandOptionsDescriptor<T> options);
+        Task<T> GetByIdAsync(Id id, CommandOptionsDescriptor<T> options);
+        Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, CommandOptionsDescriptor<T> options);
+        Task<FindResults<T>> GetAllAsync(CommandOptionsDescriptor<T> options);
     }
 }

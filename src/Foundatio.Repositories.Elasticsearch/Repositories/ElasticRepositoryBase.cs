@@ -656,6 +656,50 @@ namespace Foundatio.Repositories.Elasticsearch {
             return recordsProcessed;
         }
 
+        public Task<T> AddAsync(T document, CommandOptionsDescriptor<T> options) {
+            return AddAsync(document, options.Configure());
+        }
+
+        public Task AddAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options) {
+            return AddAsync(documents, options.Configure());
+        }
+
+        public Task<T> SaveAsync(T document, CommandOptionsDescriptor<T> options) {
+            return SaveAsync(document, options.Configure());
+        }
+
+        public Task SaveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options) {
+            return SaveAsync(documents, options.Configure());
+        }
+
+        public Task PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options) {
+            return PatchAsync(id, operation, options.Configure());
+        }
+
+        public Task PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options) {
+            return PatchAsync(ids, operation, options.Configure());
+        }
+
+        public Task RemoveAsync(Id id, CommandOptionsDescriptor<T> options) {
+            return RemoveAsync(id, options.Configure());
+        }
+
+        public Task RemoveAsync(Ids ids, CommandOptionsDescriptor<T> options) {
+            return RemoveAsync(ids, options.Configure());
+        }
+
+        public Task RemoveAsync(T document, CommandOptionsDescriptor<T> options) {
+            return RemoveAsync(document, options.Configure());
+        }
+
+        public Task RemoveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options) {
+            return RemoveAsync(documents, options.Configure());
+        }
+
+        public Task<long> RemoveAllAsync(CommandOptionsDescriptor<T> options) {
+            return RemoveAllAsync(options.Configure());
+        }
+        
         #region Events
 
         public AsyncEvent<DocumentsEventArgs<T>> DocumentsAdding { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
