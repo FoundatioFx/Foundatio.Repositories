@@ -38,7 +38,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public Task<CountResult> GetCountByCompanyAsync(string company) {
-            return CountByQueryAsync(q => q.Company(company), o => o.CacheKey(company));
+            return CountAsync(q => q.Company(company), o => o.CacheKey(company));
         }
         
         public Task<QueryResults<LogEvent>> GetByDateRange(DateTime utcStart, DateTime utcEnd) {

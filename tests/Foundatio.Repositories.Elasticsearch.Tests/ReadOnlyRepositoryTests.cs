@@ -697,7 +697,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, results.Total);
 
             var localNow = dateTimeOffset.ToLocalTime().DateTime;
-            results = await _employeeRepository.QueryAsync(o => o.DateRange(localNow.SubtractHours(1), localNow, "next", TimeZoneInfo.Local.Id));
+            results = await _employeeRepository.QueryAsync(o => o.DateRange(localNow.SubtractHours(1), localNow, "next", "America/Chicago"));
 
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);

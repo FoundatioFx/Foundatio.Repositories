@@ -70,15 +70,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public Task<CountResult> GetCountByCompanyAsync(string company) {
-            return CountByQueryAsync(q => q.Company(company), o => o.CacheKey(company));
+            return CountAsync(q => q.Company(company), o => o.CacheKey(company));
         }
 
         public Task<CountResult> GetNumberOfEmployeesWithMissingCompanyName(string company) {
-            return CountByQueryAsync(q => q.Company(company).ElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.CompanyName))));
+            return CountAsync(q => q.Company(company).ElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.CompanyName))));
         }
 
         public Task<CountResult> GetNumberOfEmployeesWithMissingName(string company) {
-            return CountByQueryAsync(q => q.Company(company).ElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.Name))));
+            return CountAsync(q => q.Company(company).ElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.Name))));
         }
 
         /// <summary>

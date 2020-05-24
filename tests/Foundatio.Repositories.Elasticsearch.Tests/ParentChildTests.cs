@@ -80,11 +80,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             parent.IsDeleted = true;
             await _parentRepository.SaveAsync(parent, o => o.ImmediateConsistency());
-            Assert.Equal(0, await _childRepository.CountByQueryAsync(null));
+            Assert.Equal(0, await _childRepository.CountAsync(null));
 
             parent.IsDeleted = false;
             await _parentRepository.SaveAsync(parent, o => o.ImmediateConsistency());
-            Assert.Equal(1, await _childRepository.CountByQueryAsync(null));
+            Assert.Equal(1, await _childRepository.CountAsync(null));
         }
 
         [Fact]
