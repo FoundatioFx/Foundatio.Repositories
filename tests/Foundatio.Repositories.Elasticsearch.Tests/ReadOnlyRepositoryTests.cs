@@ -684,7 +684,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task GetWithDateRangeHonoringTimeZoneAsync() {
             Log.MinimumLevel = Microsoft.Extensions.Logging.LogLevel.Trace;
-            var dateTimeOffset = SystemClock.OffsetUtcNow;
+            var dateTimeOffset = new DateTimeOffset(2020, 5, 24, 10, 0, 0, TimeSpan.FromHours(-6));
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: dateTimeOffset), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);
 
