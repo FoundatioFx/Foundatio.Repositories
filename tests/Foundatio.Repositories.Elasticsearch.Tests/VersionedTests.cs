@@ -207,7 +207,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
-            var results = await _employeeRepository.GetAllAsync(new CommandOptions().PageLimit(PAGE_SIZE));
+            var results = await _employeeRepository.GetAllAsync(o => o.PageLimit(PAGE_SIZE));
             Assert.True(results.HasMore);
 
             var viewedIds = new HashSet<string>();

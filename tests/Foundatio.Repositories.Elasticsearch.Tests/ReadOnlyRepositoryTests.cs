@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -36,7 +36,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, employees.Documents.Count);
 
             string json = JsonConvert.SerializeObject(employees);
-            var results = JsonConvert.DeserializeObject<FindResults<Employee>>(json);
+            var results = JsonConvert.DeserializeObject<QueryResults<Employee>>(json);
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
         }
@@ -606,7 +606,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
             Assert.NotNull(identity2?.Id);
 
-            var results = await _identityRepository.FindAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1).SearchAfterPaging());
+            var results = await _identityRepository.QueryAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1).SearchAfterPaging());
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
@@ -640,7 +640,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
             Assert.NotNull(identity2?.Id);
 
-            var results = await _identityRepository.FindAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1));
+            var results = await _identityRepository.QueryAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1));
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
@@ -648,13 +648,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(identity2.Id, results.Documents.First().Id);
             Assert.Equal(2, results.Total);
 
-            results = await _identityRepository.FindAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1).SearchAfter(results.Documents.First().Id));
+            results = await _identityRepository.QueryAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1).SearchAfter(results.Documents.First().Id));
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(2, results.Total);
             Assert.Equal(identity1.Id, results.Documents.First().Id);
             Assert.False(results.HasMore);
 
-            results = await _identityRepository.FindAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1).SearchAfter(results.Documents.First().Id));
+            results = await _identityRepository.QueryAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1).SearchAfter(results.Documents.First().Id));
             Assert.Equal(0, results.Documents.Count);
             Assert.Equal(1, results.Page);
             Assert.False(results.HasMore);
@@ -666,7 +666,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: DateTimeOffset.Now), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);
 
-            var results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.UtcNow.SubtractHours(1), DateTime.UtcNow, "next").AggregationsExpression("date:next"));
+            var results = await _employeeRepository.QueryAsync(o => o.DateRange(DateTime.UtcNow.SubtractHours(1), DateTime.UtcNow, "next").AggregationsExpression("date:next"));
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
@@ -688,7 +688,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: dateTimeOffset), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);
 
-            var results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(dateTimeOffset.UtcDateTime.SubtractHours(1), dateTimeOffset.UtcDateTime, "next"));
+            var results = await _employeeRepository.QueryAsync(o => o.DateRange(dateTimeOffset.UtcDateTime.SubtractHours(1), dateTimeOffset.UtcDateTime, "next"));
 
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
@@ -697,7 +697,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, results.Total);
 
             var localNow = dateTimeOffset.ToLocalTime().DateTime;
-            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(localNow.SubtractHours(1), localNow, "next", TimeZoneInfo.Local.Id));
+            results = await _employeeRepository.QueryAsync(o => o.DateRange(localNow.SubtractHours(1), localNow, "next", TimeZoneInfo.Local.Id));
 
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
@@ -705,27 +705,27 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.False(results.HasMore);
             Assert.Equal(1, results.Total);
 
-            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(localNow.SubtractHours(1), localNow, "next", "Asia/Shanghai"));
+            results = await _employeeRepository.QueryAsync(o => o.DateRange(localNow.SubtractHours(1), localNow, "next", "Asia/Shanghai"));
             Assert.Empty(results.Documents);
             
-            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(null, localNow, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            results = await _employeeRepository.QueryAsync(o => o.DateRange(null, localNow, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
             Assert.Empty(results.Documents);
             
-            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(null, DateTime.MaxValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            results = await _employeeRepository.QueryAsync(o => o.DateRange(null, DateTime.MaxValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
             Assert.False(results.HasMore);
             Assert.Equal(1, results.Total);
             
-            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(localNow.SubtractHours(1), null, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            results = await _employeeRepository.QueryAsync(o => o.DateRange(localNow.SubtractHours(1), null, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
             Assert.False(results.HasMore);
             Assert.Equal(1, results.Total);
 
-            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.MinValue, DateTime.MaxValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            results = await _employeeRepository.QueryAsync(o => o.DateRange(DateTime.MinValue, DateTime.MaxValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
@@ -733,15 +733,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, results.Total);
             
             // No matching documents will be found.
-            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.MinValue, DateTime.MinValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            results = await _employeeRepository.QueryAsync(o => o.DateRange(DateTime.MinValue, DateTime.MinValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
             Assert.Empty(results.Documents);
             
             // start date won't be used but max value will.
-            results = await _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.MaxValue, DateTime.MaxValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            results = await _employeeRepository.QueryAsync(o => o.DateRange(DateTime.MaxValue, DateTime.MaxValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
             Assert.Empty(results.Documents);
             
-            await Assert.ThrowsAsync<ArgumentNullException>(() => _employeeRepository.GetByQueryAsync(o => o.DateRange(null, null, "next", "Asia/Shanghai").AggregationsExpression("date:next")));
-            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _employeeRepository.GetByQueryAsync(o => o.DateRange(DateTime.MaxValue, DateTime.MinValue, "next", "Asia/Shanghai").AggregationsExpression("date:next")));
+            await Assert.ThrowsAsync<ArgumentNullException>(() => _employeeRepository.QueryAsync(o => o.DateRange(null, null, "next", "Asia/Shanghai").AggregationsExpression("date:next")));
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _employeeRepository.QueryAsync(o => o.DateRange(DateTime.MaxValue, DateTime.MinValue, "next", "Asia/Shanghai").AggregationsExpression("date:next")));
         }
 
         [Fact]
@@ -807,7 +807,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task OnlyIdsShouldNotReturnDocuments() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
 
-            var results = await _employeeRepository.FindAsAsync<Identity>(o => o.OnlyIds());
+            var results = await _employeeRepository.QueryAsAsync<Identity>(o => o.OnlyIds());
             Assert.Empty(results.Documents);
             Assert.Null(results.Hits.First().Document);
             Assert.NotNull(results.Hits.First().Id);

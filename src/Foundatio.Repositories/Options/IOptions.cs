@@ -57,7 +57,7 @@ namespace Foundatio.Repositories.Options {
     }
 
     public abstract class OptionsBase : IOptions {
-        public IOptionsDictionary Values { get; } = new OptionsDictionary();
+        public IOptionsDictionary Values { get; internal set; } = new OptionsDictionary();
     }
 
     public static class OptionsExtensions {
@@ -153,6 +153,10 @@ namespace Foundatio.Repositories.Options {
 
         public static ICommandOptions Clone(this ICommandOptions source) {
             return source.Clone<CommandOptions>();
+        }
+
+        public static ICommandOptions<T> Clone<T>(this ICommandOptions<T> source) where T: class {
+            return source.Clone<CommandOptions<T>>();
         }
 
         public static IRepositoryQuery Clone(this IRepositoryQuery source) {

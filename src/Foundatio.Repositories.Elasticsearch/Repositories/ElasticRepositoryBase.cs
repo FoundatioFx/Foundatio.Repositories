@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -24,7 +24,7 @@ using System.Linq.Expressions;
 using System.Threading;
 
 namespace Foundatio.Repositories.Elasticsearch {
-    public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IElasticRepository<T> where T : class, IIdentity, new() {
+    public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IQueryableRepository<T> where T : class, IIdentity, new() {
         protected readonly IValidator<T> _validator;
         protected readonly IMessagePublisher _messagePublisher;
         private readonly List<Lazy<Field>> _propertiesRequiredForRemove = new List<Lazy<Field>>();
@@ -42,7 +42,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected string DefaultPipeline { get; set; } = null;
         protected Consistency DefaultConsistency { get; set; } = Consistency.Eventual;
 
-        public virtual async Task<T> AddAsync(T document, ICommandOptions options = null) {
+        public virtual async Task<T> AddAsync(T document, CommandOptionsDescriptor<T> options = null) {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
 
@@ -50,7 +50,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             return document;
         }
 
-        public virtual async Task AddAsync(IEnumerable<T> documents, ICommandOptions options = null) {
+        public virtual async Task AddAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> optionsDesc = null) {
+            var options = optionsDesc.Configure();
             var docs = documents?.ToList();
             if (docs == null || docs.Any(d => d == null))
                 throw new ArgumentNullException(nameof(documents));
@@ -71,7 +72,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             await AddToCacheAsync(docs, options).AnyContext();
         }
 
-        public virtual async Task<T> SaveAsync(T document, ICommandOptions options = null) {
+        public virtual async Task<T> SaveAsync(T document, CommandOptionsDescriptor<T> options = null) {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
 
@@ -79,7 +80,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             return document;
         }
 
-        public virtual async Task SaveAsync(IEnumerable<T> documents, ICommandOptions options = null) {
+        public virtual async Task SaveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> optionsDesc = null) {
+            var options = optionsDesc.Configure();
+
             var docs = documents?.ToList();
             if (docs == null || docs.Any(d => d == null))
                 throw new ArgumentNullException(nameof(documents));
@@ -93,7 +96,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             options = ConfigureOptions(options);
 
-            var originalDocuments = await GetOriginalDocumentsAsync(ids, options).AnyContext();
+            var originalDocuments = await GetOriginalDocumentsAsync(ids, o => options).AnyContext();
             await OnDocumentsSavingAsync(docs, originalDocuments, options).AnyContext();
 
             if (_validator != null)
@@ -106,7 +109,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             await AddToCacheAsync(docs, options).AnyContext();
         }
 
-        private async Task<IReadOnlyCollection<T>> GetOriginalDocumentsAsync(Ids ids, ICommandOptions options) {
+        private async Task<IReadOnlyCollection<T>> GetOriginalDocumentsAsync(Ids ids, CommandOptionsDescriptor<T> optionsDesc = null) {
+            var options = optionsDesc.Configure();
+
             if (!options.GetOriginalsEnabled(OriginalsEnabled) || ids.Count == 0)
                 return EmptyList;
 
@@ -114,17 +119,19 @@ namespace Foundatio.Repositories.Elasticsearch {
             foreach (var original in originals)
                 ids.RemoveAll(id => id.Value == original.Id);
 
-            originals.AddRange(await GetByIdsAsync(ids, options.Clone().ReadCache()).AnyContext());
+            originals.AddRange(await GetByIdsAsync(ids, o => options.Clone().ReadCache().As<T>()).AnyContext());
 
             return originals.AsReadOnly();
         }
 
-        public virtual async Task PatchAsync(Id id, IPatchOperation operation, ICommandOptions options = null) {
+        public virtual async Task PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> optionsDesc = null) {
             if (String.IsNullOrEmpty(id.Value))
                 throw new ArgumentNullException(nameof(id));
 
             if (operation == null)
                 throw new ArgumentNullException(nameof(operation));
+
+            var options = optionsDesc.Configure();
 
             options = ConfigureOptions(options);
 
@@ -209,24 +216,26 @@ namespace Foundatio.Repositories.Elasticsearch {
                 await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
         }
 
-        public virtual async Task PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions options = null) {
+        public virtual async Task PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> optionsDesc = null) {
             if (ids == null)
                 throw new ArgumentNullException(nameof(ids));
 
             if (operation == null)
                 throw new ArgumentNullException(nameof(operation));
 
+            var options = optionsDesc.Configure();
+
             if (ids.Count == 0)
                 return;
 
             options = ConfigureOptions(options);
             if (ids.Count == 1) {
-                await PatchAsync(ids[0], operation, options).AnyContext();
+                await PatchAsync(ids[0], operation, optionsDesc).AnyContext();
                 return;
             }
 
             if (operation is Models.JsonPatch) {
-                await PatchAllAsync(NewQuery().Id(ids), operation, options).AnyContext();
+                await PatchAllAsync(q => NewQuery().Id(ids), operation, optionsDesc).AnyContext();
                 return;
             }
 
@@ -291,13 +300,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
         }
 
-        public virtual Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> query, IPatchOperation operation, CommandOptionsDescriptor<T> options = null) {
-            return PatchAllAsync(query.Configure(), operation, options.Configure());
-        }
-
-        public virtual async Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null) {
-            if (query == null)
-                throw new ArgumentNullException(nameof(query));
+        public virtual async Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> queryDesc, IPatchOperation operation, CommandOptionsDescriptor<T> optionsDesc = null) {
+            var query = queryDesc.Configure();
+            var options = optionsDesc.Configure();
 
             if (operation == null)
                 throw new ArgumentNullException(nameof(operation));
@@ -307,7 +312,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             long affectedRecords = 0;
             if (operation is Models.JsonPatch jsonOperation) {
                 var patcher = new JsonPatcher();
-                affectedRecords += await BatchProcessAsAsync<JObject>(query, async results => {
+                affectedRecords += await BatchProcessAsAsync<JObject>(q => query, async results => {
                     var bulkResult = await _client.BulkAsync(b => {
                         b.Refresh(options.GetRefreshMode(DefaultConsistency));
                         foreach (var h in results.Hits) {
@@ -352,7 +357,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     }
 
                     return true;
-                }, options.Clone()).AnyContext();
+                }, o => o.Clone()).AnyContext();
             } else {
                 var scriptOperation = operation as ScriptPatch;
                 var partialOperation = operation as PartialPatch;
@@ -402,7 +407,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     if (!query.GetIncludes().Contains(_idField.Value))
                         query.Include(_idField.Value);
 
-                    affectedRecords += await BatchProcessAsync(query, async results => {
+                    affectedRecords += await BatchProcessAsync(q => query, async results => {
                         var bulkResult = await _client.BulkAsync(b => {
                             b.Pipeline(DefaultPipeline);
                             b.Refresh(options.GetRefreshMode(DefaultConsistency));
@@ -443,7 +448,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                         }
 
                         return true;
-                    }, options).AnyContext();
+                    }, o => options.Clone()).AnyContext();
                 }
             }
 
@@ -456,38 +461,41 @@ namespace Foundatio.Repositories.Elasticsearch {
             return affectedRecords;
         }
 
-        public virtual Task RemoveAsync(Id id, ICommandOptions options = null) {
-            if (String.IsNullOrEmpty(id))
-                throw new ArgumentNullException(nameof(id));
-
-            return RemoveAsync((Ids)id, options);
-        }
-
-        public virtual async Task RemoveAsync(Ids ids, ICommandOptions options = null) {
-            if (ids == null)
-                throw new ArgumentNullException(nameof(ids));
-
-            options = ConfigureOptions(options);
-            if (IsCacheEnabled)
-                options = options.ReadCache();
-
-            // TODO: If not OriginalsEnabled then just delete by id
-            // TODO: Delete by id using GetIndexById and id.Routing if its a child doc
-            var documents = await GetByIdsAsync(ids, options).AnyContext();
-            if (documents == null)
-                return;
-
-            await RemoveAsync(documents, options).AnyContext();
-        }
-
-        public virtual Task RemoveAsync(T document, ICommandOptions options = null) {
+        public virtual Task RemoveAsync(T document, CommandOptionsDescriptor<T> options = null) {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
 
             return RemoveAsync(new[] { document }, options);
         }
 
-        public virtual async Task RemoveAsync(IEnumerable<T> documents, ICommandOptions options = null) {
+        public virtual Task RemoveAsync(Id id, CommandOptionsDescriptor<T> options = null) {
+            if (String.IsNullOrEmpty(id))
+                throw new ArgumentNullException(nameof(id));
+
+            return RemoveAsync((Ids)id, options);
+        }
+
+        public virtual async Task RemoveAsync(Ids ids, CommandOptionsDescriptor<T> optionsDesc = null) {
+            if (ids == null)
+                throw new ArgumentNullException(nameof(ids));
+
+            var options = optionsDesc.Configure();
+            options = ConfigureOptions(options);
+            if (IsCacheEnabled)
+                options = options.ReadCache();
+
+            // TODO: If not OriginalsEnabled then just delete by id
+            // TODO: Delete by id using GetIndexById and id.Routing if its a child doc
+            var documents = await GetByIdsAsync(ids, o => options).AnyContext();
+            if (documents == null)
+                return;
+
+            await RemoveAsync(documents, o => options).AnyContext();
+        }
+
+        public virtual async Task RemoveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> optionsDesc = null) {
+            var options = optionsDesc.Configure();
+
             var docs = documents?.ToList();
             if (docs == null || docs.Any(d => d == null))
                 throw new ArgumentNullException(nameof(documents));
@@ -546,13 +554,6 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             await OnDocumentsRemovedAsync(docs, options).AnyContext();
         }
-
-        public virtual async Task<long> RemoveAllAsync(ICommandOptions options = null) {
-            if (IsCacheEnabled)
-                await Cache.RemoveAllAsync().AnyContext();
-
-            return await RemoveAllAsync(NewQuery(), options).AnyContext();
-        }
         
         protected void AddPropertyRequiredForRemove(string field) {
             _propertiesRequiredForRemove.Add(new Lazy<Field>(() => field));
@@ -570,13 +571,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             _propertiesRequiredForRemove.AddRange(objectPaths.Select(o => new Lazy<Field>(() => Infer.PropertyName(o))));
         }
 
-        public virtual Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
-            return RemoveAllAsync(query.Configure(), options.Configure());
+        public virtual Task<long> RemoveAllAsync(CommandOptionsDescriptor<T> optionsDesc = null) {
+            return RemoveAllAsync(q => NewQuery(), optionsDesc);
         }
 
-        public virtual async Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions options = null) {
-            if (query == null)
-                throw new ArgumentNullException(nameof(query));
+        public virtual async Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> queryDesc, CommandOptionsDescriptor<T> optionsDesc = null) {
+            var query = queryDesc.Configure();
+            var options = optionsDesc.Configure();
 
             options = ConfigureOptions(options);
             if (IsCacheEnabled && options.ShouldUseCache(true)) {
@@ -585,10 +586,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                         query.Include(field);
 
                 // TODO: What if you only want to send one notification?
-                return await BatchProcessAsync(query, async results => {
-                    await RemoveAsync(results.Documents, options).AnyContext();
+                return await BatchProcessAsync(q => query, async results => {
+                    await RemoveAsync(results.Documents, o => options).AnyContext();
                     return true;
-                }, options.Clone()).AnyContext();
+                }, o => options.Clone()).AnyContext();
             }
 
             var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(ElasticIndex.Name) {
@@ -613,18 +614,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             return response.Deleted;
         }
 
-        public virtual Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<FindResults<T>, Task<bool>> processAsync, CommandOptionsDescriptor<T> options = null) {
-            return BatchProcessAsAsync(query.Configure(), processAsync, options.Configure());
-        }
-
-        public virtual Task<long> BatchProcessAsync(IRepositoryQuery query, Func<FindResults<T>, Task<bool>> processAsync, ICommandOptions options = null) {
+        public virtual Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<QueryResults<T>, Task<bool>> processAsync, CommandOptionsDescriptor<T> options = null) {
             return BatchProcessAsAsync(query, processAsync, options);
         }
 
-        public virtual async Task<long> BatchProcessAsAsync<TResult>(IRepositoryQuery query, Func<FindResults<TResult>, Task<bool>> processAsync, ICommandOptions options = null)
+        public virtual async Task<long> BatchProcessAsAsync<TResult>(RepositoryQueryDescriptor<T> query, Func<QueryResults<TResult>, Task<bool>> processAsync, CommandOptionsDescriptor<T> optionsDesc = null)
             where TResult : class, new() {
-            if (query == null)
-                throw new ArgumentNullException(nameof(query));
+            var options = optionsDesc.Configure();
 
             if (processAsync == null)
                 throw new ArgumentNullException(nameof(processAsync));
@@ -637,7 +633,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 options.SnapshotPagingLifetime(TimeSpan.FromMinutes(5));
 
             long recordsProcessed = 0;
-            var results = await FindAsAsync<TResult>(query, options).AnyContext();
+            var results = await QueryAsAsync<TResult>(query, o => options).AnyContext();
             do {
                 if (results.Hits.Count == 0)
                     break;
@@ -654,50 +650,6 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             _logger.LogTrace("{0} records processed", recordsProcessed);
             return recordsProcessed;
-        }
-
-        public Task<T> AddAsync(T document, CommandOptionsDescriptor<T> options) {
-            return AddAsync(document, options.Configure());
-        }
-
-        public Task AddAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options) {
-            return AddAsync(documents, options.Configure());
-        }
-
-        public Task<T> SaveAsync(T document, CommandOptionsDescriptor<T> options) {
-            return SaveAsync(document, options.Configure());
-        }
-
-        public Task SaveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options) {
-            return SaveAsync(documents, options.Configure());
-        }
-
-        public Task PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options) {
-            return PatchAsync(id, operation, options.Configure());
-        }
-
-        public Task PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options) {
-            return PatchAsync(ids, operation, options.Configure());
-        }
-
-        public Task RemoveAsync(Id id, CommandOptionsDescriptor<T> options) {
-            return RemoveAsync(id, options.Configure());
-        }
-
-        public Task RemoveAsync(Ids ids, CommandOptionsDescriptor<T> options) {
-            return RemoveAsync(ids, options.Configure());
-        }
-
-        public Task RemoveAsync(T document, CommandOptionsDescriptor<T> options) {
-            return RemoveAsync(document, options.Configure());
-        }
-
-        public Task RemoveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options) {
-            return RemoveAsync(documents, options.Configure());
-        }
-
-        public Task<long> RemoveAllAsync(CommandOptionsDescriptor<T> options) {
-            return RemoveAllAsync(options.Configure());
         }
         
         #region Events

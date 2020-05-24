@@ -6,8 +6,8 @@
  using Nest;
 
  namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories {
-     public interface IParentRepository : IElasticRepository<Parent> {
-         Task<FindResults<Parent>> QueryAsync(RepositoryQueryDescriptor<Parent> query);
+     public interface IParentRepository : IQueryableRepository<Parent> {
+         Task<QueryResults<Parent>> QueryAsync(RepositoryQueryDescriptor<Parent> query);
      }
 
      public class ParentRepository : ElasticRepositoryBase<Parent>, IParentRepository {
@@ -28,8 +28,8 @@
              return Task.CompletedTask;
          }
 
-         public Task<FindResults<Parent>> QueryAsync(RepositoryQueryDescriptor<Parent> query) {
-             return FindAsync(query);
+         public Task<QueryResults<Parent>> QueryAsync(RepositoryQueryDescriptor<Parent> query) {
+             return QueryAsync(query);
          }
     }
 }

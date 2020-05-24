@@ -10,25 +10,14 @@ using Foundatio.Repositories.Options;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
-    public interface IEmployeeRepository : IElasticRepository<Employee> {
+    public interface IEmployeeRepository : IQueryableRepository<Employee> {
         long DocumentsChangedCount { get; }
         long QueryCount { get; }
 
-        /// <summary>
-        /// This allows us easily test aggregations
-        /// </summary>
-        Task<CountResult> GetCountByQueryAsync(RepositoryQueryDescriptor<Employee> query);
+        Task<QueryResults<Employee>> GetAllByAgeAsync(int age);
+        Task<QueryResults<Employee>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<Employee> options = null);
 
-        Task<FindResults<Employee>> GetAllByAgeAsync(int age);
-
-        /// <summary>
-        /// Exposed only for testing purposes.
-        /// </summary>
-        Task<FindResults<Employee>> GetByQueryAsync(RepositoryQueryDescriptor<Employee> query);
-
-        Task<FindResults<Employee>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<Employee> options = null);
-
-        Task<FindResults<Employee>> GetAllByCompaniesWithFieldEqualsAsync(string[] companies);
+        Task<QueryResults<Employee>> GetAllByCompaniesWithFieldEqualsAsync(string[] companies);
         Task<CountResult> GetCountByCompanyAsync(string company);
         Task<CountResult> GetNumberOfEmployeesWithMissingCompanyName(string company);
         Task<CountResult> GetNumberOfEmployeesWithMissingName(string company);
@@ -44,8 +33,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         Task<long> IncrementYearsEmployeedAsync(string[] ids, int years = 1);
         Task<long> IncrementYearsEmployeedAsync(RepositoryQueryDescriptor<Employee> query, int years = 1);
-        Task<FindResults<Employee>> GetByFilterAsync(string filter);
-        Task<FindResults<Employee>> GetByCriteriaAsync(string criteria);
     }
 
     public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepository {
@@ -66,46 +53,32 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public long DocumentsChangedCount { get; private set; }
         public long QueryCount { get; private set; }
 
-        /// <summary>
-        /// This allows us easily test aggregations
-        /// </summary>
-        public Task<CountResult> GetCountByQueryAsync(RepositoryQueryDescriptor<Employee> query) {
-            return CountAsync(query);
+        public Task<QueryResults<Employee>> GetAllByAgeAsync(int age) {
+            return QueryAsync(q => q.Age(age));
         }
 
-        public Task<FindResults<Employee>> GetAllByAgeAsync(int age) {
-            return FindAsync(q => q.Age(age));
-        }
-
-        /// <summary>
-        /// Exposed only for testing purposes.
-        /// </summary>
-        public Task<FindResults<Employee>> GetByQueryAsync(RepositoryQueryDescriptor<Employee> query) {
-            return FindAsync(query);
-        }
-
-        public Task<FindResults<Employee>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<Employee> options = null) {
+        public Task<QueryResults<Employee>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<Employee> options = null) {
             var commandOptions = options.Configure();
             if (commandOptions.ShouldUseCache())
                 commandOptions.CacheKey(company);
 
-            return FindAsync(q => q.Company(company), o => commandOptions);
+            return QueryAsync(q => q.Company(company), o => commandOptions);
         }
 
-        public Task<FindResults<Employee>> GetAllByCompaniesWithFieldEqualsAsync(string[] companies) {
-            return FindAsync(q => q.FieldCondition(c => c.CompanyId, ComparisonOperator.Equals, companies));
+        public Task<QueryResults<Employee>> GetAllByCompaniesWithFieldEqualsAsync(string[] companies) {
+            return QueryAsync(q => q.FieldCondition(c => c.CompanyId, ComparisonOperator.Equals, companies));
         }
 
         public Task<CountResult> GetCountByCompanyAsync(string company) {
-            return CountAsync(q => q.Company(company), o => o.CacheKey(company));
+            return CountByQueryAsync(q => q.Company(company), o => o.CacheKey(company));
         }
 
         public Task<CountResult> GetNumberOfEmployeesWithMissingCompanyName(string company) {
-            return CountAsync(q => q.Company(company).ElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.CompanyName))));
+            return CountByQueryAsync(q => q.Company(company).ElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.CompanyName))));
         }
 
         public Task<CountResult> GetNumberOfEmployeesWithMissingName(string company) {
-            return CountAsync(q => q.Company(company).ElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.Name))));
+            return CountByQueryAsync(q => q.Company(company).ElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.Name))));
         }
 
         /// <summary>
@@ -134,14 +107,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             string script = $"ctx._source.yearsEmployed += {years};";
             return PatchAllAsync(query, new ScriptPatch(script), o => o.ImmediateConsistency(true));
-        }
-
-        public Task<FindResults<Employee>> GetByFilterAsync(string filter) {
-            return SearchAsync(null, filter);
-        }
-
-        public Task<FindResults<Employee>> GetByCriteriaAsync(string criteria) {
-            return SearchAsync(null, null, criteria);
         }
 
         protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<Employee>> documents, ICommandOptions options = null) {

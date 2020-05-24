@@ -7,9 +7,7 @@
  using Nest;
 
  namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories {
-     public interface IChildRepository : IElasticRepository<Child> {
-         Task<FindResults<Child>> QueryAsync(RepositoryQueryDescriptor<Child> query, CommandOptionsDescriptor<Child> options = null);
-     }
+     public interface IChildRepository : IQueryableRepository<Child> {}
      
      public class ChildRepository : ElasticRepositoryBase<Child>, IChildRepository {
          public ChildRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.ParentChild) {
@@ -30,12 +28,8 @@
              return Task.CompletedTask;
          }
 
-         protected override ICommandOptions ConfigureOptions(ICommandOptions options) {
+         protected override ICommandOptions<Child> ConfigureOptions(ICommandOptions<Child> options) {
              return base.ConfigureOptions(options).ParentDocumentType(typeof(Parent));
-         }
-
-         public Task<FindResults<Child>> QueryAsync(RepositoryQueryDescriptor<Child> query, CommandOptionsDescriptor<Child> options = null) {
-             return FindAsync(query, options);
          }
      }
  }

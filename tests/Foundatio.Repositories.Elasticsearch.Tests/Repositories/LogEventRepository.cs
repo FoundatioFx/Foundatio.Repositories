@@ -8,12 +8,12 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
-    public interface ILogEventRepository : IElasticRepository<LogEvent> {
-        Task<FindResults<LogEvent>> GetByCompanyAsync(string company);
-        Task<FindResults<LogEvent>> GetPartialByCompanyAsync(string company);
-        Task<FindResults<LogEvent>> GetAllByCompanyAsync(string company);
+    public interface ILogEventRepository : IQueryableRepository<LogEvent> {
+        Task<QueryResults<LogEvent>> GetByCompanyAsync(string company);
+        Task<QueryResults<LogEvent>> GetPartialByCompanyAsync(string company);
+        Task<QueryResults<LogEvent>> GetAllByCompanyAsync(string company);
         Task<CountResult> GetCountByCompanyAsync(string company);
-        Task<FindResults<LogEvent>> GetByDateRange(DateTime utcStart, DateTime utcEnd);
+        Task<QueryResults<LogEvent>> GetByDateRange(DateTime utcStart, DateTime utcEnd);
         Task<long> IncrementValueAsync(string[] ids, int value = 1);
         Task<long> IncrementValueAsync(RepositoryQueryDescriptor<LogEvent> query, int value = 1);
     }
@@ -25,24 +25,24 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public DailyLogEventRepository(IIndex index) : base(index) {
         }
 
-        public Task<FindResults<LogEvent>> GetByCompanyAsync(string company) {
-            return FindAsync(q => q.Company(company));
+        public Task<QueryResults<LogEvent>> GetByCompanyAsync(string company) {
+            return QueryAsync(q => q.Company(company));
         }
 
-        public Task<FindResults<LogEvent>> GetPartialByCompanyAsync(string company) {
-            return FindAsync(q => q.Company(company).Include(e => e.Id).Include(l => l.CreatedUtc));
+        public Task<QueryResults<LogEvent>> GetPartialByCompanyAsync(string company) {
+            return QueryAsync(q => q.Company(company).Include(e => e.Id).Include(l => l.CreatedUtc));
         }
 
-        public Task<FindResults<LogEvent>> GetAllByCompanyAsync(string company) {
-            return FindAsync(q => q.Company(company));
+        public Task<QueryResults<LogEvent>> GetAllByCompanyAsync(string company) {
+            return QueryAsync(q => q.Company(company));
         }
 
         public Task<CountResult> GetCountByCompanyAsync(string company) {
-            return CountAsync(q => q.Company(company), o => o.CacheKey(company));
+            return CountByQueryAsync(q => q.Company(company), o => o.CacheKey(company));
         }
         
-        public Task<FindResults<LogEvent>> GetByDateRange(DateTime utcStart, DateTime utcEnd) {
-            return FindAsync(q => q
+        public Task<QueryResults<LogEvent>> GetByDateRange(DateTime utcStart, DateTime utcEnd) {
+            return QueryAsync(q => q
                 .DateRange(utcStart, utcEnd, InferField(e => e.CreatedUtc))
                 .Index(utcStart, utcEnd)
             );
