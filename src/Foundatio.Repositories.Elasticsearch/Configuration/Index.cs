@@ -108,7 +108,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public ElasticQueryParser QueryParser => _queryParser.Value;
         public QueryFieldResolver FieldResolver => _fieldResolver.Value;
 
-        public int DefaultCacheExpirationSeconds { get; set; } = RepositoryConstants.DEFAULT_CACHE_EXPIRATION_SECONDS;
         public int BulkBatchSize { get; set; } = 1000;
 
         public virtual Task DeleteAsync() {
