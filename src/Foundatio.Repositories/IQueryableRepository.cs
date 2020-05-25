@@ -11,7 +11,7 @@ namespace Foundatio.Repositories {
         /// <param name="operation"></param>
         /// <param name="options">Command options used to control things like paging, caching, etc</param>
         /// <returns></returns>
-        Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> query, IPatchOperation operation, CommandOptionsDescriptor<T> options = null);
+        Task<long> PatchByQueryAsync(RepositoryQueryDescriptor<T> query, IPatchOperation operation, CommandOptionsDescriptor<T> options = null);
 
         /// <summary>
         /// Remove all documents that match the query.
@@ -19,7 +19,7 @@ namespace Foundatio.Repositories {
         /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
         /// <param name="options">Command options used to control things like paging, caching, etc</param>
         /// <returns></returns>
-        Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
+        Task<long> RemoveByQueryAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
 
         /// <summary>
         /// Batch process all documents that match the query using the specified process function.

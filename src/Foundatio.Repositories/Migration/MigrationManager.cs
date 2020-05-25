@@ -88,7 +88,7 @@ namespace Foundatio.Repositories.Migrations {
         }
 
         private async Task MarkMigrationCompleteAsync(int version) {
-            var m = await _migrationRepository.GetByIdAsync("migration-" + version).AnyContext();
+            var m = await _migrationRepository.GetAsync("migration-" + version).AnyContext();
             if (m == null)
                 m = new Migration { Version = version };
 

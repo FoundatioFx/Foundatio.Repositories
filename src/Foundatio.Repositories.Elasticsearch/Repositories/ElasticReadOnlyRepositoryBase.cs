@@ -225,7 +225,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return result.FirstOrDefault();
         }       
 
-        public virtual async Task<T> GetByIdAsync(Id id, CommandOptionsDescriptor<T> optionsDesc = null) {
+        public virtual async Task<T> GetAsync(Id id, CommandOptionsDescriptor<T> optionsDesc = null) {
             if (String.IsNullOrEmpty(id.Value))
                 return null;
 
@@ -280,7 +280,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return findHit?.Document;
         }
         
-        public virtual async Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, CommandOptionsDescriptor<T> optionsDesc = null) {
+        public virtual async Task<IReadOnlyCollection<T>> GetAsync(Ids ids, CommandOptionsDescriptor<T> optionsDesc = null) {
             var idList = ids?.Distinct().Where(i => !String.IsNullOrEmpty(i)).ToList();
             if (idList == null || idList.Count == 0)
                 return EmptyList;
@@ -397,7 +397,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return response.HitsMetadata.Total.Value > 0;
         }
 
-        public virtual async Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> queryDesc, CommandOptionsDescriptor<T> optionsDesc = null) {
+        public virtual async Task<CountResult> CountByQueryAsync(RepositoryQueryDescriptor<T> queryDesc, CommandOptionsDescriptor<T> optionsDesc = null) {
             var query = queryDesc.Configure();
             var options = optionsDesc.Configure();
 
@@ -435,7 +435,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public virtual async Task<long> CountAsync(CommandOptionsDescriptor<T> options = null) {
-            var result = await CountAsync(q => NewQuery(), options).AnyContext();
+            var result = await CountByQueryAsync(q => NewQuery(), options).AnyContext();
             return result.Total;
         }
 

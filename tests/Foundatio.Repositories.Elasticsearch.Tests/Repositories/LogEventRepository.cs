@@ -38,7 +38,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public Task<CountResult> GetCountByCompanyAsync(string company) {
-            return CountAsync(q => q.Company(company), o => o.CacheKey(company));
+            return CountByQueryAsync(q => q.Company(company), o => o.CacheKey(company));
         }
         
         public Task<QueryResults<LogEvent>> GetByDateRange(DateTime utcStart, DateTime utcEnd) {
@@ -54,7 +54,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             string script = $"ctx._source.value += {value};";
             if (ids.Length == 0)
-                return await PatchAllAsync(null, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
+                return await PatchByQueryAsync(null, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
 
             await ((IRepository<LogEvent>)this).PatchAsync(ids, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
             return ids.Length;
@@ -65,7 +65,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 throw new ArgumentNullException(nameof(query));
 
             string script = $"ctx._source.value += {value};";
-            return PatchAllAsync(query, new ScriptPatch(script), o => o.ImmediateConsistency(true));
+            return PatchByQueryAsync(query, new ScriptPatch(script), o => o.ImmediateConsistency(true));
         }
 
         protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents, ICommandOptions options = null) {

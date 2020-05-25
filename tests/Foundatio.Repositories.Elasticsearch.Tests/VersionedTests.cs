@@ -35,7 +35,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(employee?.Id);
             Assert.Equal("1:0", employee.Version);
 
-            var employee2 = await _employeeRepository.GetByIdAsync(employee.Id);
+            var employee2 = await _employeeRepository.GetAsync(employee.Id);
             Assert.Equal(employee, employee2);
         }
 
@@ -48,7 +48,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(employee?.Id);
             Assert.Equal("1:0", employee.Version);
 
-            Assert.Equal(employee, await _employeeRepository.GetByIdAsync(employee.Id));
+            Assert.Equal(employee, await _employeeRepository.GetAsync(employee.Id));
         }
 
         [Fact]
@@ -60,7 +60,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _employeeRepository.AddAsync(employees);
             Assert.Equal("1:0", employee.Version);
 
-            var result = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToList());
+            var result = await _employeeRepository.GetAsync(employees.Select(e => e.Id).ToList());
             Assert.Equal(2, result.Count);
             Assert.Equal(employees[0], result.First());
             Assert.Equal(employees[1], result.Last());
@@ -74,8 +74,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _employeeRepository.AddAsync(new List<Employee> { employee });
             Assert.Equal("1:0", employee.Version);
 
-            employee = await _employeeRepository.GetByIdAsync(employee.Id);
-            var employeeCopy = await _employeeRepository.GetByIdAsync(employee.Id);
+            employee = await _employeeRepository.GetAsync(employee.Id);
+            var employeeCopy = await _employeeRepository.GetAsync(employee.Id);
             Assert.Equal(employee, employeeCopy);
             Assert.Equal("1:0", employee.Version);
 
@@ -91,7 +91,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(employeeCopy));
             Assert.Equal(version, employeeCopy.Version);
 
-            Assert.Equal(employee, await _employeeRepository.GetByIdAsync(employee.Id));
+            Assert.Equal(employee, await _employeeRepository.GetAsync(employee.Id));
 
             var request = new UpdateRequest<Employee, Employee>(_configuration.Employees.Name, employee.Id) {
                 Script = new InlineScript("ctx._source.version = 112:2"),
@@ -100,7 +100,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             var response = await _client.UpdateAsync(request);
 
-            employee = await _employeeRepository.GetByIdAsync(employee.Id);
+            employee = await _employeeRepository.GetAsync(employee.Id);
             Assert.Equal("1:1", employee.Version);
 
             employee.CompanyName = "updated again";
@@ -130,7 +130,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal("1:0", employee1.Version);
             Assert.Equal("1:1", employee2.Version);
 
-            var employee1Version1Copy = await _employeeRepository.GetByIdAsync(employee1.Id);
+            var employee1Version1Copy = await _employeeRepository.GetAsync(employee1.Id);
             Assert.Equal("1:0", employee1Version1Copy.Version);
             Assert.Equal(employee1, employee1Version1Copy);
 
@@ -149,7 +149,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal("1:2", employee1.Version);
             Assert.Equal("1:5", employee2.Version);
 
-            Assert.Equal(employee2, await _employeeRepository.GetByIdAsync(employee2.Id));
+            Assert.Equal(employee2, await _employeeRepository.GetAsync(employee2.Id));
         }
 
         [Fact]

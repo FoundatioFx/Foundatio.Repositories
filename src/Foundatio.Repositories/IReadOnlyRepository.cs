@@ -5,8 +5,8 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories {
     public interface IReadOnlyRepository<T> where T : class, new() {
-        Task<T> GetByIdAsync(Id id, CommandOptionsDescriptor<T> options = null);
-        Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, CommandOptionsDescriptor<T> options = null);
+        Task<T> GetAsync(Id id, CommandOptionsDescriptor<T> options = null);
+        Task<IReadOnlyCollection<T>> GetAsync(Ids ids, CommandOptionsDescriptor<T> options = null);
         Task<QueryResults<T>> GetAllAsync(CommandOptionsDescriptor<T> options = null);
         Task<bool> ExistsAsync(Id id);
         Task<long> CountAsync(CommandOptionsDescriptor<T> options = null);

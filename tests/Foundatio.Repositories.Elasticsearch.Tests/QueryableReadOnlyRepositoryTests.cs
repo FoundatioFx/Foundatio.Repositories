@@ -6,10 +6,10 @@ using Xunit;
 using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
-    public sealed class SearchableReadOnlyRepositoryTests : ElasticRepositoryTestBase {
+    public sealed class QueryableReadOnlyRepositoryTests : ElasticRepositoryTestBase {
         private readonly IEmployeeRepository _employeeRepository;
 
-        public SearchableReadOnlyRepositoryTests(ITestOutputHelper output) : base(output) {
+        public QueryableReadOnlyRepositoryTests(ITestOutputHelper output) : base(output) {
             _employeeRepository = new EmployeeRepository(_configuration);
         }
 

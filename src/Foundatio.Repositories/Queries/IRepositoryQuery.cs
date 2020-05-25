@@ -54,5 +54,16 @@ namespace Foundatio.Repositories {
 
             return query;
         }
+
+        public static IRepositoryQuery<T> As<T>(this IRepositoryQuery query) where T : class {
+            if (query is IRepositoryQuery<T> typedQuery)
+                return typedQuery;
+
+            var o = new RepositoryQuery<T> {
+                Values = query.Values
+            };
+
+            return o;
+        }
     }
 }

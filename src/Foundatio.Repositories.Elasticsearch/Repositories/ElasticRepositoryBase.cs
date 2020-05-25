@@ -119,7 +119,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             foreach (var original in originals)
                 ids.RemoveAll(id => id.Value == original.Id);
 
-            originals.AddRange(await GetByIdsAsync(ids, o => options.Clone().ReadCache().As<T>()).AnyContext());
+            originals.AddRange(await GetAsync(ids, o => options.Clone().ReadCache().As<T>()).AnyContext());
 
             return originals.AsReadOnly();
         }
@@ -235,7 +235,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             if (operation is Models.JsonPatch) {
-                await PatchAllAsync(q => NewQuery().Id(ids), operation, optionsDesc).AnyContext();
+                await PatchByQueryAsync(q => NewQuery().Id(ids), operation, optionsDesc).AnyContext();
                 return;
             }
 
@@ -300,7 +300,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
         }
 
-        public virtual async Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> queryDesc, IPatchOperation operation, CommandOptionsDescriptor<T> optionsDesc = null) {
+        public virtual async Task<long> PatchByQueryAsync(RepositoryQueryDescriptor<T> queryDesc, IPatchOperation operation, CommandOptionsDescriptor<T> optionsDesc = null) {
             var query = queryDesc.Configure();
             var options = optionsDesc.Configure();
 
@@ -486,7 +486,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             // TODO: If not OriginalsEnabled then just delete by id
             // TODO: Delete by id using GetIndexById and id.Routing if its a child doc
-            var documents = await GetByIdsAsync(ids, o => options).AnyContext();
+            var documents = await GetAsync(ids, o => options).AnyContext();
             if (documents == null)
                 return;
 
@@ -572,10 +572,10 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public virtual Task<long> RemoveAllAsync(CommandOptionsDescriptor<T> optionsDesc = null) {
-            return RemoveAllAsync(q => NewQuery(), optionsDesc);
+            return RemoveByQueryAsync(q => NewQuery(), optionsDesc);
         }
 
-        public virtual async Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> queryDesc, CommandOptionsDescriptor<T> optionsDesc = null) {
+        public virtual async Task<long> RemoveByQueryAsync(RepositoryQueryDescriptor<T> queryDesc, CommandOptionsDescriptor<T> optionsDesc = null) {
             var query = queryDesc.Configure();
             var options = optionsDesc.Configure();
 

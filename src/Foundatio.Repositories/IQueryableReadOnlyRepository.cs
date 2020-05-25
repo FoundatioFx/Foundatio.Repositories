@@ -22,7 +22,7 @@ namespace Foundatio.Repositories {
         /// </summary>
         /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
         /// <param name="options">Command options used to control things like paging, caching, etc</param>
-        Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
+        Task<CountResult> CountByQueryAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
 
         /// <summary>
         /// Find a single document using a query
