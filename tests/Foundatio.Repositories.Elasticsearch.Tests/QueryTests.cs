@@ -1,4 +1,4 @@
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+﻿using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -10,8 +10,8 @@ using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class QueryTests : ElasticRepositoryTestBase {
-        private readonly DailyLogEventRepository _dailyRepository;
-        private readonly EmployeeRepository _employeeRepository;
+        private readonly ILogEventRepository _dailyRepository;
+        private readonly IEmployeeRepository _employeeRepository;
 
         public QueryTests(ITestOutputHelper output) : base(output) {
             _dailyRepository = new DailyLogEventRepository(_configuration);
@@ -59,12 +59,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, await _employeeRepository.GetCountByCompanyAsync(employee1.CompanyId));
             await _employeeRepository.RemoveAsync(employee1, o => o.Cache().ImmediateConsistency());
 
-            var result = await  _employeeRepository.GetByQueryAsync(q => q.FieldCondition(e => e.Age, ComparisonOperator.Equals, 12));
+            var result = await  _employeeRepository.QueryAsync(q => q.FieldCondition(e => e.Age, ComparisonOperator.Equals, 12));
             Assert.Empty(result.Documents);
 
             var query = new RepositoryQuery<Employee>();
             query.FieldEquals(e => e.Age, 12);
-            result = await  _employeeRepository.SearchAsync(query);
+            result = await  _employeeRepository.QueryAsync(q => query);
             Assert.Empty(result.Documents);
             
             Assert.Equal(1, await _employeeRepository.CountAsync());
@@ -129,27 +129,27 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId), o => o.ImmediateConsistency());
             await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
 
-            var results = await _employeeRepository.GetByFilterAsync("age:19");
+            var results = await _employeeRepository.QueryAsync(q => q.FilterExpression("age:19"));
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Age == 19));
             
-            results = await _employeeRepository.GetByFilterAsync("age:>18 AND age:<=19");
+            results = await _employeeRepository.QueryAsync(q => q.FilterExpression("age:>18 AND age:<=19"));
             Assert.Equal(1, results.Total);
             
-            results = await _employeeRepository.GetByFilterAsync("age:[18..19]");
+            results = await _employeeRepository.QueryAsync(q => q.FilterExpression("age:[18..19]"));
             Assert.Equal(1, results.Total);
 
-            results = await _employeeRepository.GetByFilterAsync("age:>19");
+            results = await _employeeRepository.QueryAsync(q => q.FilterExpression("age:>19"));
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Age > 19));
 
-            results = await _employeeRepository.GetByFilterAsync("age:<19");
+            results = await _employeeRepository.QueryAsync(q => q.FilterExpression("age:<19"));
             Assert.Equal(0, results.Total);
             
-            results = await _employeeRepository.GetByFilterAsync("_missing_:age");
+            results = await _employeeRepository.QueryAsync(q => q.FilterExpression("_missing_:age"));
             Assert.Equal(0, results.Total);
 
-            results = await _employeeRepository.GetByFilterAsync("_exists_:age");
+            results = await _employeeRepository.QueryAsync(q => q.FilterExpression("_exists_:age"));
             Assert.Equal(2, results.Total);
         }
 
@@ -157,7 +157,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         public async Task GetWithNoField() {
             await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId, name: "Blake Niemyjski"), o => o.ImmediateConsistency());
 
-            var results = await _employeeRepository.GetByFilterAsync("blake");
+            var results = await _employeeRepository.QueryAsync(q => q.FilterExpression("blake"));
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == "Blake Niemyjski"));
         }
@@ -170,31 +170,31 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var employeeEric = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith"), o => o.ImmediateConsistency());
             var employeeBlake = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake Niemyjski"), o => o.ImmediateConsistency());
 
-            var results = await _employeeRepository.GetByCriteriaAsync("name:blake");
+            var results = await _employeeRepository.QueryAsync(q => q.SearchExpression("name:blake"));
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
 
-            results = await _employeeRepository.GetByCriteriaAsync("name:\"Blake Niemyjski\"");
+            results = await _employeeRepository.QueryAsync(q => q.SearchExpression("name:\"Blake Niemyjski\""));
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
 
-            results = await _employeeRepository.GetByCriteriaAsync("name:Niemy* name:eric");
+            results = await _employeeRepository.QueryAsync(q => q.SearchExpression("name:Niemy* name:eric"));
             Assert.Equal(2, results.Total);
 
-            results = await _employeeRepository.GetByCriteriaAsync("name:J*");
+            results = await _employeeRepository.QueryAsync(q => q.SearchExpression("name:J*"));
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeEric.Name));
 
-            results = await _employeeRepository.GetByCriteriaAsync("name:*");
+            results = await _employeeRepository.QueryAsync(q => q.SearchExpression("name:*"));
             Assert.Equal(2, results.Total);
             Assert.Equal(2, results.Hits.Sum(h => h.Score));
 
             await Assert.ThrowsAsync<FormatException>(async () => {
-                await _employeeRepository.GetByCriteriaAsync( "name:");
+                await _employeeRepository.QueryAsync(q => q.SearchExpression("name:"));
             });
 
             // In this example we want to search a quoted string (E.G., GET /url).
-            results = await _employeeRepository.GetByCriteriaAsync("name:\"Blake /profile.url\"");
+            results = await _employeeRepository.QueryAsync(q => q.SearchExpression("name:\"Blake /profile.url\""));
             Assert.Equal(0, results.Total);
         }
 
@@ -208,19 +208,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             Log.SetLogLevel<EmployeeRepository>(LogLevel.Trace);
 
-            var results = await _employeeRepository.GetByFilterAsync("companyName:Exceptionless");
+            var results = await _employeeRepository.QueryAsync(q => q.FilterExpression("companyName:Exceptionless"));
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
 
-            results = await _employeeRepository.GetByFilterAsync("companyName:\"Exceptionless\"");
+            results = await _employeeRepository.QueryAsync(q => q.FilterExpression("companyName:\"Exceptionless\""));
             Assert.Equal(1, results.Total);
             Assert.True(results.Documents.All(d => d.Name == employeeBlake.Name));
 
-            results = await _employeeRepository.GetByCriteriaAsync("companyName:e*");
+            results = await _employeeRepository.QueryAsync(q => q.SearchExpression("companyName:e*"));
             Assert.Equal(0, results.Total);
 
             await Assert.ThrowsAsync<FormatException>(async () => {
-                await _employeeRepository.GetByCriteriaAsync("companyName:");
+                await _employeeRepository.QueryAsync(q => q.SearchExpression("companyName:"));
             });
         }
     }

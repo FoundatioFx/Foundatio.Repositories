@@ -14,7 +14,7 @@
 
 // namespace Foundatio.Repositories.Elasticsearch.Tests {
 //     public sealed class PipelineTests : ElasticRepositoryTestBase {
-//         private readonly EmployeeRepository _employeeRepository;
+//         private readonly IEmployeeRepository _employeeRepository;
 
 //         public PipelineTests(ITestOutputHelper output) : base(output) {
 //             // configure type so pipeline is created.

@@ -8,31 +8,41 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
-    public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent> {
+    public interface ILogEventRepository : IQueryableRepository<LogEvent> {
+        Task<QueryResults<LogEvent>> GetByCompanyAsync(string company);
+        Task<QueryResults<LogEvent>> GetPartialByCompanyAsync(string company);
+        Task<QueryResults<LogEvent>> GetAllByCompanyAsync(string company);
+        Task<CountResult> GetCountByCompanyAsync(string company);
+        Task<QueryResults<LogEvent>> GetByDateRange(DateTime utcStart, DateTime utcEnd);
+        Task<long> IncrementValueAsync(string[] ids, int value = 1);
+        Task<long> IncrementValueAsync(RepositoryQueryDescriptor<LogEvent> query, int value = 1);
+    }
+
+    public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent>, ILogEventRepository {
         public DailyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.DailyLogEvents) {
         }
 
         public DailyLogEventRepository(IIndex index) : base(index) {
         }
 
-        public Task<FindResults<LogEvent>> GetByCompanyAsync(string company) {
-            return FindAsync(q => q.Company(company));
+        public Task<QueryResults<LogEvent>> GetByCompanyAsync(string company) {
+            return QueryAsync(q => q.Company(company));
         }
 
-        public Task<FindResults<LogEvent>> GetPartialByCompanyAsync(string company) {
-            return FindAsync(q => q.Company(company).Include(e => e.Id).Include(l => l.CreatedUtc));
+        public Task<QueryResults<LogEvent>> GetPartialByCompanyAsync(string company) {
+            return QueryAsync(q => q.Company(company).Include(e => e.Id).Include(l => l.CreatedUtc));
         }
 
-        public Task<FindResults<LogEvent>> GetAllByCompanyAsync(string company) {
-            return FindAsync(q => q.Company(company));
+        public Task<QueryResults<LogEvent>> GetAllByCompanyAsync(string company) {
+            return QueryAsync(q => q.Company(company));
         }
 
         public Task<CountResult> GetCountByCompanyAsync(string company) {
-            return CountAsync(q => q.Company(company), o => o.CacheKey(company));
+            return CountByQueryAsync(q => q.Company(company), o => o.CacheKey(company));
         }
         
-        public Task<FindResults<LogEvent>> GetByDateRange(DateTime utcStart, DateTime utcEnd) {
-            return FindAsync(q => q
+        public Task<QueryResults<LogEvent>> GetByDateRange(DateTime utcStart, DateTime utcEnd) {
+            return QueryAsync(q => q
                 .DateRange(utcStart, utcEnd, InferField(e => e.CreatedUtc))
                 .Index(utcStart, utcEnd)
             );
@@ -44,9 +54,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             string script = $"ctx._source.value += {value};";
             if (ids.Length == 0)
-                return await PatchAllAsync(null, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
+                return await PatchByQueryAsync(null, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
 
-            await this.PatchAsync(ids, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
+            await ((IRepository<LogEvent>)this).PatchAsync(ids, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
             return ids.Length;
         }
 
@@ -55,7 +65,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 throw new ArgumentNullException(nameof(query));
 
             string script = $"ctx._source.value += {value};";
-            return PatchAllAsync(query, new ScriptPatch(script), o => o.ImmediateConsistency(true));
+            return PatchByQueryAsync(query, new ScriptPatch(script), o => o.ImmediateConsistency(true));
         }
 
         protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents, ICommandOptions options = null) {

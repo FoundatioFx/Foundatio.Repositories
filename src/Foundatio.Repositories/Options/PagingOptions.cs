@@ -26,10 +26,10 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static int GetLimit(this ICommandOptions options) {
-            int limit = options.SafeGetOption(SetPagingOptionsExtensions.PageLimitKey, RepositoryConstants.DEFAULT_LIMIT);
+            int limit = options.SafeGetOption(SetPagingOptionsExtensions.PageLimitKey, RepositorySettings.DefaultLimit);
 
-            if (limit > RepositoryConstants.MAX_LIMIT)
-                return RepositoryConstants.MAX_LIMIT;
+            if (limit > RepositorySettings.MaxLimit)
+                return RepositorySettings.MaxLimit;
 
             return limit;
         }

@@ -37,7 +37,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 await index.ConfigureAsync();
                 Assert.True((await _client.Indices.ExistsAsync(index.Name)).Exists);
 
-                var repository = new EmployeeRepository(_configuration);
+                IEmployeeRepository repository = new EmployeeRepository(_configuration);
                 var employee = await repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
                 Assert.NotNull(employee?.Id);
 
@@ -82,7 +82,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 await version1Index.ConfigureAsync();
                 Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
 
-                var version1Repository = new EmployeeRepository(_configuration);
+                IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
                 await version1Repository.AddAsync(EmployeeGenerator.GenerateEmployees(numberOfEmployeesToCreate), o => o.ImmediateConsistency());
 
                 var countResponse = await _client.CountAsync<Employee>(d => d.Index(version1Index.Name));
@@ -140,7 +140,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 await version1Index.ConfigureAsync();
                 Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
 
-                var version1Repository = new EmployeeRepository(_configuration);
+                IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
                 await version1Repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
 
                 var countResponse = await _client.CountAsync<Employee>(d => d.Index(version1Index.Name));
@@ -216,7 +216,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.Equal(1, aliasResponse.Indices.Count);
                 Assert.Equal(version1Index.VersionedName, aliasResponse.Indices.First().Key);
 
-                var version1Repository = new EmployeeRepository(_configuration);
+                IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
                 var employee = await version1Repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
                 Assert.NotNull(employee?.Id);
 
@@ -232,7 +232,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName)).Exists);
 
                     // Make sure we can write to the index still. Should go to the old index until after the reindex is complete.
-                    var version2Repository = new EmployeeRepository(_configuration);
+                    IEmployeeRepository version2Repository = new EmployeeRepository(_configuration);
                     await version2Repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
 
                     countResponse = await _client.CountAsync<Employee>(d => d.Index(version1Index.VersionedName));
@@ -291,7 +291,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
-                var version1Repository = new EmployeeRepository(_configuration);
+                IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
 
                 var utcNow = SystemClock.UtcNow;
                 var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
@@ -343,7 +343,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
-                var version1Repository = new EmployeeRepository(version1Index);
+                IEmployeeRepository version1Repository = new EmployeeRepository(version1Index);
 
                 var utcNow = SystemClock.UtcNow;
                 var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
@@ -353,16 +353,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     await version20Index.ConfigureAsync();
                     await version20Index.ReindexAsync();
 
-                    var version20Repository = new EmployeeRepository(version20Index);
-                    var result = await version20Repository.GetByIdAsync(employee.Id);
+                    IEmployeeRepository version20Repository = new EmployeeRepository(version20Index);
+                    var result = await version20Repository.GetAsync(employee.Id);
                     Assert.Equal("scripted", result.CompanyName);
 
                     using (new DisposableAction(() => version21Index.DeleteAsync().GetAwaiter().GetResult())) {
                         await version21Index.ConfigureAsync();
                         await version21Index.ReindexAsync();
 
-                        var version21Repository = new EmployeeRepository(version21Index);
-                        result = await version21Repository.GetByIdAsync(employee.Id);
+                        IEmployeeRepository version21Repository = new EmployeeRepository(version21Index);
+                        result = await version21Repository.GetAsync(employee.Id);
                         Assert.Equal("typed script", result.CompanyName);
                     }
                 }
@@ -370,7 +370,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
-                var version1Repository = new EmployeeRepository(version1Index);
+                IEmployeeRepository version1Repository = new EmployeeRepository(version1Index);
 
                 var utcNow = SystemClock.UtcNow;
                 var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
@@ -380,8 +380,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     await version21Index.ConfigureAsync();
                     await version21Index.ReindexAsync();
 
-                    var version21Repository = new EmployeeRepository(version21Index);
-                    var result = await version21Repository.GetByIdAsync(employee.Id);
+                    IEmployeeRepository version21Repository = new EmployeeRepository(version21Index);
+                    var result = await version21Repository.GetAsync(employee.Id);
                     Assert.Equal("typed script", result.CompanyName);
                 }
             }
@@ -398,7 +398,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
-                var version1Repository = new EmployeeRepository(_configuration);
+                IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
 
                 var utcNow = SystemClock.UtcNow;
                 var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
@@ -428,7 +428,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 await version1Index.ConfigureAsync();
                 Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
 
-                var version1Repository = new EmployeeRepository(_configuration);
+                IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
                 var employee = await version1Repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
                 Assert.NotNull(employee?.Id);
 
@@ -441,7 +441,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                         .Remove(a => a.Alias(version1Index.Name).Index(version1Index.VersionedName))
                         .Add(a => a.Alias(version2Index.Name).Index(version2Index.VersionedName)));
 
-                    var version2Repository = new EmployeeRepository(_configuration);
+                    IEmployeeRepository version2Repository = new EmployeeRepository(_configuration);
                     await version2Repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
 
                     var countResponse = await _client.CountAsync<Employee>(d => d.Index(version1Index.VersionedName));
@@ -500,7 +500,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 await version1Index.ConfigureAsync();
                 Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
 
-                var repository = new EmployeeRepository(_configuration);
+                IEmployeeRepository repository = new EmployeeRepository(_configuration);
                 var employee = await repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
                 Assert.NotNull(employee?.Id);
 
@@ -548,7 +548,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.True(countResponse.IsValid);
                     Assert.Equal(2, countResponse.Count);
 
-                    var result = await repository.GetByIdAsync(employee.Id);
+                    var result = await repository.GetAsync(employee.Id);
                     Assert.Equal(ToJson(employee), ToJson(result));
                     Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
                 }
@@ -567,7 +567,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 await version1Index.ConfigureAsync();
                 Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
 
-                var repository = new EmployeeRepository(_configuration);
+                IEmployeeRepository repository = new EmployeeRepository(_configuration);
                 var employee = await repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
                 Assert.NotNull(employee?.Id);
 
@@ -618,7 +618,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.True(countResponse.IsValid, countResponse.GetErrorMessage());
                     Assert.Equal(1, countResponse.Count);
 
-                    Assert.Equal(employee, await repository.GetByIdAsync(employee.Id));
+                    Assert.Equal(employee, await repository.GetAsync(employee.Id));
                     Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
                 }
             }
@@ -634,7 +634,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
-                var version1Repository = new EmployeeRepository(version1Index);
+                IEmployeeRepository version1Repository = new EmployeeRepository(version1Index);
 
                 var utcNow = SystemClock.UtcNow;
                 var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
@@ -660,7 +660,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult())) {
                     await version2Index.ConfigureAsync();
                     Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
-                    var version2Repository = new EmployeeRepository(version2Index);
+                    IEmployeeRepository version2Repository = new EmployeeRepository(version2Index);
 
                     // Make sure we write to the old index.
                     await version2Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
@@ -727,7 +727,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
                 await version1Index.ConfigureAsync();
-                var version1Repository = new EmployeeRepository(version1Index);
+                IEmployeeRepository version1Repository = new EmployeeRepository(version1Index);
 
                 var utcNow = SystemClock.UtcNow;
                 var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());

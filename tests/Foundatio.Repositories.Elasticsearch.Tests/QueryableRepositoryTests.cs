@@ -11,11 +11,11 @@ using Xunit.Abstractions;
 using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
-    public sealed class SearchableRepositoryTests : ElasticRepositoryTestBase {
-        private readonly IdentityRepository _identityRepository;
-        private readonly DailyLogEventRepository _dailyRepository;
+    public sealed class QueryableRepositoryTests : ElasticRepositoryTestBase {
+        private readonly IIdentityRepository _identityRepository;
+        private readonly ILogEventRepository _dailyRepository;
 
-        public SearchableRepositoryTests(ITestOutputHelper output) : base(output) {
+        public QueryableRepositoryTests(ITestOutputHelper output) : base(output) {
             _identityRepository = new IdentityRepository(_configuration);
             _dailyRepository = new DailyLogEventRepository(_configuration);
         }
@@ -32,9 +32,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var identity = IdentityGenerator.Default;
             var result = await _identityRepository.AddAsync(identity, o => o.ImmediateConsistency());
             Assert.Equal(identity, result);
-
-            Assert.Equal(0, await _identityRepository.CountBySearchAsync(null, "id:test"));
-            Assert.Equal(1, await _identityRepository.CountBySearchAsync(null, $"id:{identity.Id}"));
+            
+            Assert.Equal(0, await _identityRepository.CountByQueryAsync(q => q.FilterExpression("id:test")));
+            Assert.Equal(1, await _identityRepository.CountByQueryAsync(q => q.FilterExpression($"id:{identity.Id}")));
         }
 
         [Fact]
@@ -48,12 +48,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var nowLog = await _dailyRepository.AddAsync(LogEventGenerator.Default, o => o.ImmediateConsistency());
             Assert.NotNull(nowLog?.Id);
 
-            Assert.Equal(0, await _dailyRepository.CountBySearchAsync(null, "id:test"));
-            Assert.Equal(1, await _dailyRepository.CountBySearchAsync(null, $"id:{nowLog.Id}"));
-            Assert.Equal(1, await _dailyRepository.CountBySearchAsync(new RepositoryQuery().DateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "createdUtc"), $"id:{nowLog.Id}"));
-            Assert.Equal(0, await _dailyRepository.CountBySearchAsync(new RepositoryQuery().DateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), (LogEvent l) => l.CreatedUtc), $"id:{nowLog.Id}"));
-            Assert.Equal(1, await _dailyRepository.CountBySearchAsync(new RepositoryQuery().DateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), "created")));
-            Assert.Equal(1, await _dailyRepository.CountBySearchAsync(new RepositoryQuery().DateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "createdUtc")));
+            Assert.Equal(0, await _dailyRepository.CountByQueryAsync(q => q.FilterExpression("id:test")));
+            Assert.Equal(1, await _dailyRepository.CountByQueryAsync(q => q.FilterExpression($"id:{nowLog.Id}")));
+            Assert.Equal(1, await _dailyRepository.CountByQueryAsync(q => q.DateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "createdUtc").FilterExpression($"id:{nowLog.Id}")));
+            Assert.Equal(0, await _dailyRepository.CountByQueryAsync(q => q.DateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), (LogEvent l) => l.CreatedUtc).FilterExpression($"id:{nowLog.Id}")));
+            Assert.Equal(1, await _dailyRepository.CountByQueryAsync(q => q.DateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), "created")));
+            Assert.Equal(1, await _dailyRepository.CountByQueryAsync(q => q.DateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "createdUtc")));
         }
 
         [Fact]
@@ -62,7 +62,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var result = await _identityRepository.AddAsync(identity, o => o.ImmediateConsistency());
             Assert.Equal(identity, result);
 
-            var results = await _identityRepository.SearchAsync(null, "id:test");
+            var results = await _identityRepository.QueryAsync(q => q.FilterExpression("id:test"));
             Assert.Equal(0, results.Documents.Count);
 
             var disposables = new List<IDisposable>(1);
@@ -75,7 +75,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     countdownEvent.Signal();
                 }));
 
-                results = await _identityRepository.SearchAsync(null, filter);
+                results = await _identityRepository.QueryAsync(q => q.FilterExpression(filter));
                 Assert.Equal(1, results.Documents.Count);
                 await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
                 Assert.Equal(0, countdownEvent.CurrentCount);
@@ -96,23 +96,23 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var nowLog = await _dailyRepository.AddAsync(LogEventGenerator.Default, o => o.ImmediateConsistency());
             Assert.NotNull(nowLog?.Id);
 
-            var results = await _dailyRepository.GetByIdsAsync(new[] { yesterdayLog.Id, nowLog.Id });
+            var results = await _dailyRepository.GetAsync(new[] { yesterdayLog.Id, nowLog.Id });
             Assert.NotNull(results);
             Assert.Equal(2, results.Count);
 
-            var searchResults = await _dailyRepository.SearchAsync(new RepositoryQuery().Company("test"));
+            var searchResults = await _dailyRepository.QueryAsync(q => q.Company("test"));
             Assert.Equal(0, searchResults.Total);
 
-            searchResults = await _dailyRepository.SearchAsync(new RepositoryQuery().Company(yesterdayLog.CompanyId));
+            searchResults = await _dailyRepository.QueryAsync(q => q.Company(yesterdayLog.CompanyId));
             Assert.Equal(1, searchResults.Total);
 
-            searchResults = await _dailyRepository.SearchAsync(new RepositoryQuery().Company(yesterdayLog.CompanyId).DateRange(utcNow.Subtract(TimeSpan.FromHours(1)), utcNow, "created"));
+            searchResults = await _dailyRepository.QueryAsync(q => q.Company(yesterdayLog.CompanyId).DateRange(utcNow.Subtract(TimeSpan.FromHours(1)), utcNow, "created"));
             Assert.Equal(0, searchResults.Total);
             
-            searchResults = await _dailyRepository.SearchAsync(new RepositoryQuery().Company(yesterdayLog.CompanyId).DateRange(utcNow.Subtract(TimeSpan.FromHours(1)), DateTime.MaxValue, (LogEvent e) => e.CreatedUtc));
+            searchResults = await _dailyRepository.QueryAsync(q => q.Company(yesterdayLog.CompanyId).DateRange(utcNow.Subtract(TimeSpan.FromHours(1)), DateTime.MaxValue, (LogEvent e) => e.CreatedUtc));
             Assert.Equal(0, searchResults.Total);
 
-            searchResults = await _dailyRepository.SearchAsync(new RepositoryQuery().Id(yesterdayLog.Id));
+            searchResults = await _dailyRepository.QueryAsync(q => q.Id(yesterdayLog.Id));
             Assert.Equal(1, searchResults.Total);
         }
 

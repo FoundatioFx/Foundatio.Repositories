@@ -2,7 +2,9 @@
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
-    public class IdentityRepository : ElasticRepositoryBase<Identity> {
+    public interface IIdentityRepository : IQueryableRepository<Identity> { }
+
+    public class IdentityRepository : ElasticRepositoryBase<Identity>, IIdentityRepository {
         public IdentityRepository(MyAppElasticConfiguration configuration) : base(configuration.Identities) {}
     }
 

@@ -6,7 +6,9 @@
  using Nest;
 
  namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories {
-     public class ParentRepository : ElasticRepositoryBase<Parent> {
+     public interface IParentRepository : IQueryableRepository<Parent> {}
+
+     public class ParentRepository : ElasticRepositoryBase<Parent>, IParentRepository {
          public ParentRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.ParentChild) {
              BeforeQuery.AddHandler(OnBeforeQuery);
              DocumentsChanging.AddHandler(OnDocumentsChanging);
@@ -22,10 +24,6 @@
          protected Task OnBeforeQuery(object sender, BeforeQueryEventArgs<Parent> args) {
              args.Query.Discriminator("parent");
              return Task.CompletedTask;
-         }
-
-         public Task<FindResults<Parent>> QueryAsync(RepositoryQueryDescriptor<Parent> query) {
-             return FindAsync(query);
          }
     }
 }

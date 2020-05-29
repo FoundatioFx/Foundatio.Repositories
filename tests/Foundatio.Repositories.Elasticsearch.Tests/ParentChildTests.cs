@@ -6,8 +6,8 @@ using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests {
     public sealed class ParentChildTests : ElasticRepositoryTestBase {
-        private readonly ParentRepository _parentRepository;
-        private readonly ChildRepository _childRepository;
+        private readonly IParentRepository _parentRepository;
+        private readonly IChildRepository _childRepository;
 
         public ParentChildTests(ITestOutputHelper output) : base(output) {
             _parentRepository = new ParentRepository(_configuration);
@@ -29,10 +29,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             child = await _childRepository.AddAsync(child, o => o.ImmediateConsistency());
             Assert.NotNull(child?.Id);
 
-            child = await _childRepository.GetByIdAsync(new Id(child.Id, parent.Id));
+            child = await _childRepository.GetAsync(new Id(child.Id, parent.Id));
             Assert.NotNull(child?.Id);
 
-            child = await _childRepository.GetByIdAsync(child.Id);
+            child = await _childRepository.GetAsync(child.Id);
             Assert.NotNull(child?.Id);
         }
 
@@ -56,13 +56,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             var ids = new Ids(child1.Id, child2.Id);
 
-            var results = await _childRepository.GetByIdsAsync(ids);
+            var results = await _childRepository.GetAsync(ids);
             Assert.NotNull(results);
             Assert.Equal(2, results.Count);
 
             var idsWithRouting = new Ids(new Id(child1.Id, parent1.Id), new Id(child2.Id, parent2.Id));
 
-            var resultsWithRouting = await _childRepository.GetByIdsAsync(idsWithRouting);
+            var resultsWithRouting = await _childRepository.GetAsync(idsWithRouting);
             Assert.NotNull(resultsWithRouting);
             Assert.Equal(2, resultsWithRouting.Count);
 
@@ -80,11 +80,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             parent.IsDeleted = true;
             await _parentRepository.SaveAsync(parent, o => o.ImmediateConsistency());
-            Assert.Equal(0, await _childRepository.CountBySearchAsync(null));
+            Assert.Equal(0, await _childRepository.CountByQueryAsync(null));
 
             parent.IsDeleted = false;
             await _parentRepository.SaveAsync(parent, o => o.ImmediateConsistency());
-            Assert.Equal(1, await _childRepository.CountBySearchAsync(null));
+            Assert.Equal(1, await _childRepository.CountByQueryAsync(null));
         }
 
         [Fact]
@@ -131,7 +131,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(child?.Id);
 
             await _childRepository.RemoveAsync(child.Id, o => o.ImmediateConsistency());
-            var result = await _childRepository.GetByIdAsync(child.Id);
+            var result = await _childRepository.GetAsync(child.Id);
             Assert.Null(result);
         }
     }

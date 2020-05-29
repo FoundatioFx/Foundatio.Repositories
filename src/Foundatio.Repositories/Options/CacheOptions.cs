@@ -86,7 +86,7 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static TimeSpan GetExpiresIn(this ICommandOptions options) {
-            return options.SafeGetOption(SetCacheOptionsExtensions.CacheExpiresInKey, RepositoryConstants.DEFAULT_CACHE_EXPIRATION_TIMESPAN);
+            return options.SafeGetOption(SetCacheOptionsExtensions.CacheExpiresInKey, RepositorySettings.DefaultCacheExpiration);
         }
     }
 }

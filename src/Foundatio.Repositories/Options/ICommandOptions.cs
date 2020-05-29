@@ -10,3 +10,18 @@ namespace Foundatio.Repositories {
     public class CommandOptions : OptionsBase, ICommandOptions {}
     public class CommandOptions<T> : CommandOptions, ICommandOptions<T> where T: class { }
 }
+
+namespace Foundatio.Repositories.Options {
+    public static class CommandOptionsExtensions {
+        public static ICommandOptions<T> As<T>(this ICommandOptions options) where T : class {
+            if (options is ICommandOptions<T> typedOptions)
+                return typedOptions;
+
+            var o = new CommandOptions<T> {
+                Values = options.Values
+            };
+
+            return o;
+        }
+    }
+}
