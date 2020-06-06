@@ -2,7 +2,7 @@
 
 [![Build status](https://github.com/FoundatioFx/Foundatio.Repositories/workflows/Build/badge.svg)](https://github.com/FoundatioFx/Foundatio.Repositories/actions)
 [![NuGet Version](http://img.shields.io/nuget/v/Foundatio.Repositories.svg?style=flat)](https://www.nuget.org/packages/Foundatio.Repositories/)
-[![Discord](https://img.shields.io/discord/715744504891703319)](https://discord.gg/2Bn8Dm)
+[![Discord](https://img.shields.io/discord/715744504891703319)](https://discord.gg/6HxgFCx)
 
 Generic repository contract and implementations. Currently only implemented for Elasticsearch, but there are plans for other implementations.
 
