@@ -74,7 +74,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 string scrollId = previousResults.GetScrollId();
                 if (!String.IsNullOrEmpty(scrollId)) {
                     var scrollResponse = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), scrollId).AnyContext();
-                    _logger.LogTraceRequest(scrollResponse);
+                    _logger.LogTraceRequest(scrollResponse, QueryLogLevel);
 
                     var results = scrollResponse.ToFindResults();
                     results.Page = previousResults.Page + 1;
@@ -154,7 +154,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             if (response.IsValid) {
-                _logger.LogTraceRequest(response);
+                _logger.LogTraceRequest(response, QueryLogLevel);
             } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return new QueryResults<TResult>();
@@ -209,7 +209,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
 
             if (response.IsValid) {
-                _logger.LogTraceRequest(response);
+                _logger.LogTraceRequest(response, QueryLogLevel);
             } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return FindHit<T>.Empty;
@@ -260,7 +260,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     request.Routing = id.Routing;
                 var response = await _client.GetAsync<T>(request).AnyContext();
                 if (isTraceLogLevelEnabled)
-                    _logger.LogTraceRequest(response);
+                    _logger.LogTraceRequest(response, QueryLogLevel);
 
                 findHit = response.Found ? response.ToFindHit() : null;
             } else {
@@ -323,7 +323,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
-            _logger.LogTraceRequest(multiGetResults);
+            _logger.LogTraceRequest(multiGetResults, QueryLogLevel);
 
             foreach (var doc in multiGetResults.Hits) {
                 hits.Add(((IMultiGetHit<T>)doc).ToFindHit());
@@ -366,7 +366,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     return d;
                 }).AnyContext();
-                _logger.LogTraceRequest(response);
+                _logger.LogTraceRequest(response, QueryLogLevel);
 
                 return response.Exists;
             }
@@ -385,7 +385,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
 
             if (response.IsValid) {
-                _logger.LogTraceRequest(response);
+                _logger.LogTraceRequest(response, QueryLogLevel);
             } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return false;
@@ -418,7 +418,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
 
             if (response.IsValid) {
-                _logger.LogTraceRequest(response);
+                _logger.LogTraceRequest(response, QueryLogLevel);
             } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return new CountResult();
@@ -538,6 +538,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             return search;
         }
 
+        public TimeSpan DefaultCacheExpiration { get; set; } = TimeSpan.FromSeconds(60 * 5);
+        public int DefaultPageLimit { get; set; } = 10;
+        public int MaxPageLimit { get; set; } = 9999;
+        public Microsoft.Extensions.Logging.LogLevel QueryLogLevel { get; set; } = Microsoft.Extensions.Logging.LogLevel.Trace;
+
         protected virtual ICommandOptions<T> ConfigureOptions(ICommandOptions<T> options) {
             if (options == null)
                 options = new CommandOptions<T>();
@@ -545,6 +550,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             options.ElasticIndex(ElasticIndex);
             options.SupportsSoftDeletes(SupportsSoftDeletes);
             options.DocumentType(typeof(T));
+            options.DefaultCacheExpiresIn(DefaultCacheExpiration);
+            options.DefaultPageLimit(DefaultPageLimit);
+            options.MaxPageLimit(MaxPageLimit);
 
             return options;
         }

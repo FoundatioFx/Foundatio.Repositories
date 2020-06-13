@@ -11,8 +11,8 @@ using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class LoggerExtensions {
-        public static void LogTraceRequest(this ILogger logger, IElasticsearchResponse elasticResponse) {
-            if (elasticResponse == null || !logger.IsEnabled(LogLevel.Trace))
+        public static void LogTraceRequest(this ILogger logger, IElasticsearchResponse elasticResponse, LogLevel logLevel = LogLevel.Trace) {
+            if (elasticResponse == null || !logger.IsEnabled(logLevel))
                 return;
 
             var apiCall = elasticResponse?.ApiCall;
@@ -20,9 +20,9 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 string body = Encoding.UTF8.GetString(apiCall?.RequestBodyInBytes);
                 body = JsonUtility.NormalizeJsonString(body);
 
-                logger.LogTrace("[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}\r\n{HttpBody}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri.PathAndQuery, body);
+                logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}\r\n{HttpBody}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri.PathAndQuery, body);
             } else {
-                logger.LogTrace("[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri.PathAndQuery);
+                logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri.PathAndQuery);
             }
         }
 

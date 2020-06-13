@@ -60,6 +60,11 @@ namespace Foundatio.Repositories {
 
             return options;
         }
+
+        internal const string DefaultCacheExpiresInKey = "@DefaultCacheExpiresIn";
+        public static T DefaultCacheExpiresIn<T>(this T options, TimeSpan expiresIn) where T : ICommandOptions {
+            return options.BuildOption(DefaultCacheExpiresInKey, expiresIn);
+        }
     }
 }
 
@@ -85,8 +90,9 @@ namespace Foundatio.Repositories.Options {
             return options.SafeGetOption<string>(SetCacheOptionsExtensions.DefaultCacheKeyKey, null);
         }
 
+        private static TimeSpan DefaultCacheExpiration { get; set; } = TimeSpan.FromSeconds(60 * 5);
         public static TimeSpan GetExpiresIn(this ICommandOptions options) {
-            return options.SafeGetOption(SetCacheOptionsExtensions.CacheExpiresInKey, RepositorySettings.DefaultCacheExpiration);
+            return options.SafeGetOption(SetCacheOptionsExtensions.CacheExpiresInKey, options.SafeGetOption(SetCacheOptionsExtensions.DefaultCacheExpiresInKey, DefaultCacheExpiration));
         }
     }
 }

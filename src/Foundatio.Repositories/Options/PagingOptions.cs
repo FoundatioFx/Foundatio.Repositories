@@ -16,6 +16,20 @@
 
             return options;
         }
+
+        internal const string DefaultPageLimitKey = "@DefaultPageLimit";
+        public static T DefaultPageLimit<T>(this T options, int limit) where T : ICommandOptions {
+            options.Values.Set(DefaultPageLimitKey, limit);
+
+            return options;
+        }
+
+        internal const string MaxPageLimitKey = "@MaxPageLimit";
+        public static T MaxPageLimit<T>(this T options, int limit) where T : ICommandOptions {
+            options.Values.Set(MaxPageLimitKey, limit);
+
+            return options;
+        }
     }
 }
 
@@ -26,10 +40,11 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static int GetLimit(this ICommandOptions options) {
-            int limit = options.SafeGetOption(SetPagingOptionsExtensions.PageLimitKey, RepositorySettings.DefaultLimit);
+            int limit = options.SafeGetOption(SetPagingOptionsExtensions.PageLimitKey, options.SafeGetOption(SetPagingOptionsExtensions.DefaultPageLimitKey, 10));
 
-            if (limit > RepositorySettings.MaxLimit)
-                return RepositorySettings.MaxLimit;
+            int maxLimit = options.SafeGetOption(SetPagingOptionsExtensions.MaxPageLimitKey, 9999);
+            if (limit > maxLimit)
+                return maxLimit;
 
             return limit;
         }
