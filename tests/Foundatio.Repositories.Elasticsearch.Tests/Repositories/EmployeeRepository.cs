@@ -70,15 +70,15 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         public Task<CountResult> GetCountByCompanyAsync(string company) {
-            return CountBySearchAsync(q => q.Company(company), o => o.CacheKey(company));
+            return CountAsync(q => q.Company(company), o => o.CacheKey(company));
         }
 
         public Task<CountResult> GetNumberOfEmployeesWithMissingCompanyName(string company) {
-            return CountBySearchAsync(q => q.Company(company).ElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.CompanyName))));
+            return CountAsync(q => q.Company(company).ElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.CompanyName))));
         }
 
         public Task<CountResult> GetNumberOfEmployeesWithMissingName(string company) {
-            return CountBySearchAsync(q => q.Company(company).ElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.Name))));
+            return CountAsync(q => q.Company(company).ElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.Name))));
         }
 
         /// <summary>
@@ -89,13 +89,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         /// <param name="limit">OPTIONAL limit that should be applied to bulk updates. This is here only for tests...</param>
         /// <returns></returns>
         public Task<long> UpdateCompanyNameByCompanyAsync(string company, string name, int? limit = null) {
-            return PatchByQueryAsync(q => q.Company(company), new PartialPatch(new { CompanyName = name }), o => o.PageLimit(limit).ImmediateConsistency(true));
+            return PatchAllAsync(q => q.Company(company), new PartialPatch(new { CompanyName = name }), o => o.PageLimit(limit).ImmediateConsistency(true));
         }
 
         public async Task<long> IncrementYearsEmployeedAsync(string[] ids, int years = 1) {
             string script = $"ctx._source.yearsEmployed += {years};";
             if (ids.Length == 0)
-                return await PatchByQueryAsync(null, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
+                return await PatchAllAsync(null, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
 
             await ((IRepository<Employee>)this).PatchAsync(ids, new ScriptPatch(script), o => o.ImmediateConsistency(true));
             return ids.Length;
@@ -106,7 +106,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 throw new ArgumentNullException(nameof(query));
 
             string script = $"ctx._source.yearsEmployed += {years};";
-            return PatchByQueryAsync(query, new ScriptPatch(script), o => o.ImmediateConsistency(true));
+            return PatchAllAsync(query, new ScriptPatch(script), o => o.ImmediateConsistency(true));
         }
 
         protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<Employee>> documents, ICommandOptions options = null) {
