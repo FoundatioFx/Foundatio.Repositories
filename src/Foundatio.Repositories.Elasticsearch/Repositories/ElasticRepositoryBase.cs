@@ -24,7 +24,7 @@ using System.Linq.Expressions;
 using System.Threading;
 
 namespace Foundatio.Repositories.Elasticsearch {
-    public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IQueryableRepository<T> where T : class, IIdentity, new() {
+    public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, ISearchableRepository<T> where T : class, IIdentity, new() {
         protected readonly IValidator<T> _validator;
         protected readonly IMessagePublisher _messagePublisher;
         private readonly List<Lazy<Field>> _propertiesRequiredForRemove = new List<Lazy<Field>>();
@@ -119,7 +119,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             foreach (var original in originals)
                 ids.RemoveAll(id => id.Value == original.Id);
 
-            originals.AddRange(await GetAsync(ids, o => options.Clone().ReadCache().As<T>()).AnyContext());
+            originals.AddRange(await GetByIdsAsync(ids, o => options.Clone().ReadCache().As<T>()).AnyContext());
 
             return originals.AsReadOnly();
         }
@@ -235,7 +235,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             if (operation is Models.JsonPatch) {
-                await PatchByQueryAsync(q => NewQuery().Id(ids), operation, optionsDesc).AnyContext();
+                await PatchAllAsync(q => NewQuery().Id(ids), operation, optionsDesc).AnyContext();
                 return;
             }
 
@@ -300,7 +300,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
         }
 
-        public virtual async Task<long> PatchByQueryAsync(RepositoryQueryDescriptor<T> queryDesc, IPatchOperation operation, CommandOptionsDescriptor<T> optionsDesc = null) {
+        public virtual async Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> queryDesc, IPatchOperation operation, CommandOptionsDescriptor<T> optionsDesc = null) {
             var query = queryDesc.Configure();
             var options = optionsDesc.Configure();
 
@@ -486,7 +486,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             // TODO: If not OriginalsEnabled then just delete by id
             // TODO: Delete by id using GetIndexById and id.Routing if its a child doc
-            var documents = await GetAsync(ids, o => options).AnyContext();
+            var documents = await GetByIdsAsync(ids, o => options).AnyContext();
             if (documents == null)
                 return;
 
@@ -572,10 +572,10 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public virtual Task<long> RemoveAllAsync(CommandOptionsDescriptor<T> optionsDesc = null) {
-            return RemoveByQueryAsync(q => NewQuery(), optionsDesc);
+            return RemoveAllAsync(q => NewQuery(), optionsDesc);
         }
 
-        public virtual async Task<long> RemoveByQueryAsync(RepositoryQueryDescriptor<T> queryDesc, CommandOptionsDescriptor<T> optionsDesc = null) {
+        public virtual async Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> queryDesc, CommandOptionsDescriptor<T> optionsDesc = null) {
             var query = queryDesc.Configure();
             var options = optionsDesc.Configure();
 
@@ -614,11 +614,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             return response.Deleted;
         }
 
-        public virtual Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<QueryResults<T>, Task<bool>> processAsync, CommandOptionsDescriptor<T> options = null) {
+        public virtual Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<FindResults<T>, Task<bool>> processAsync, CommandOptionsDescriptor<T> options = null) {
             return BatchProcessAsAsync(query, processAsync, options);
         }
 
-        public virtual async Task<long> BatchProcessAsAsync<TResult>(RepositoryQueryDescriptor<T> query, Func<QueryResults<TResult>, Task<bool>> processAsync, CommandOptionsDescriptor<T> optionsDesc = null)
+        public virtual async Task<long> BatchProcessAsAsync<TResult>(RepositoryQueryDescriptor<T> query, Func<FindResults<TResult>, Task<bool>> processAsync, CommandOptionsDescriptor<T> optionsDesc = null)
             where TResult : class, new() {
             var options = optionsDesc.Configure();
 
@@ -633,7 +633,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 options.SnapshotPagingLifetime(TimeSpan.FromMinutes(5));
 
             long recordsProcessed = 0;
-            var results = await QueryAsAsync<TResult>(query, o => options).AnyContext();
+            var results = await FindAsAsync<TResult>(query, o => options).AnyContext();
             do {
                 if (results.Hits.Count == 0)
                     break;

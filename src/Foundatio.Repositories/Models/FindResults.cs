@@ -9,8 +9,8 @@ using Foundatio.Utility;
 using Newtonsoft.Json;
 
 namespace Foundatio.Repositories.Models {
-    public class QueryResults<T> : CountResult, IGetNextPage<T> where T : class {
-        public QueryResults(IEnumerable<FindHit<T>> hits = null, long total = 0, IDictionary<string, IAggregate> aggregations = null, Func<QueryResults<T>, Task<QueryResults<T>>> getNextPage = null, DataDictionary data = null)
+    public class FindResults<T> : CountResult, IGetNextPage<T> where T : class {
+        public FindResults(IEnumerable<FindHit<T>> hits = null, long total = 0, IDictionary<string, IAggregate> aggregations = null, Func<FindResults<T>, Task<FindResults<T>>> getNextPage = null, DataDictionary data = null)
             : base(total, aggregations, data) {
             ((IGetNextPage<T>)this).GetNextPageFunc = getNextPage;
             if (hits != null) {
@@ -24,7 +24,7 @@ namespace Foundatio.Repositories.Models {
         public IReadOnlyCollection<FindHit<T>> Hits { get; protected set; } = EmptyReadOnly<FindHit<T>>.Collection;
         public int Page { get; set; } = 1;
         public bool HasMore { get; set; }
-        Func<QueryResults<T>, Task<QueryResults<T>>> IGetNextPage<T>.GetNextPageFunc { get; set; }
+        Func<FindResults<T>, Task<FindResults<T>>> IGetNextPage<T>.GetNextPageFunc { get; set; }
 
         public virtual async Task<bool> NextPageAsync() {
             if (!HasMore) {
@@ -70,7 +70,7 @@ namespace Foundatio.Repositories.Models {
     }
 
     public interface IGetNextPage<T> where T : class {
-        Func<QueryResults<T>, Task<QueryResults<T>>> GetNextPageFunc { get; set; }
+        Func<FindResults<T>, Task<FindResults<T>>> GetNextPageFunc { get; set; }
     }
 
     public class CountResult : IHaveData {
