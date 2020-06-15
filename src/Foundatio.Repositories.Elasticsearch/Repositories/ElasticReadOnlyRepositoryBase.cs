@@ -542,7 +542,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             search.IgnoreUnavailable();
             search.TrackTotalHits();
 
-            await ElasticIndex.QueryBuilder.ConfigureQueryAsync(query, options, search).AnyContext();
+            await ElasticIndex.QueryBuilder.ConfigureSearchAsync(query, options, search).AnyContext();
 
             return search;
         }

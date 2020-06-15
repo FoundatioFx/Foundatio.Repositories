@@ -91,7 +91,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             };
         }
 
-        public static async Task ConfigureQueryAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, ICommandOptions options, SearchDescriptor<T> search) where T : class, new() {
+        public static async Task ConfigureSearchAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, ICommandOptions options, SearchDescriptor<T> search) where T : class, new() {
             if (search == null)
                 throw new ArgumentNullException(nameof(search));
 
