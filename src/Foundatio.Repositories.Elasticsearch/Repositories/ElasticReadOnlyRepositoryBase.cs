@@ -284,7 +284,6 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             return findHit?.Document;
         }
-        
         public virtual async Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, CommandOptionsDescriptor<T> optionsDesc = null) {
             var idList = ids?.Distinct().Where(i => !String.IsNullOrEmpty(i)).ToList();
             if (idList == null || idList.Count == 0)
@@ -401,7 +400,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             return response.HitsMetadata.Total.Value > 0;
-        } 
+        }
 
         public virtual async Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> queryDesc, CommandOptionsDescriptor<T> optionsDesc = null) {
             var query = queryDesc.Configure();
@@ -698,5 +697,49 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         #endregion
+
+        public Task<T> GetByIdAsync(Id id, ICommandOptions options) {
+            return GetByIdAsync(id, o => options.As<T>());
+        }
+
+        public Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, ICommandOptions options) {
+            return GetByIdsAsync(ids, o => options.As<T>());
+        }
+
+        public Task<FindResults<T>> GetAllAsync(ICommandOptions options) {
+            return GetAllAsync(o => options.As<T>());
+        }
+
+        public Task<long> CountAsync(ICommandOptions options) {
+            return CountAsync(o => options.As<T>());
+        }
+
+        public Task InvalidateCacheAsync(T document, ICommandOptions options) {
+            return InvalidateCacheAsync(document, o => options.As<T>());
+        }
+
+        public Task InvalidateCacheAsync(IEnumerable<T> documents, ICommandOptions options) {
+            return InvalidateCacheAsync(documents, o => options.As<T>());
+        }
+
+        public Task<FindResults<T>> FindAsync(IRepositoryQuery query, ICommandOptions options = null) {
+            return FindAsync(q => query.As<T>(), o => options.As<T>());
+        }
+
+        public Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions options = null) where TResult : class, new() {
+            return FindAsAsync<TResult>(q => query.As<T>(), o => options.As<T>());
+        }
+
+        public Task<CountResult> CountAsync(IRepositoryQuery query, ICommandOptions options = null) {
+            return CountAsync(q => query.As<T>(), o => options.As<T>());
+        }
+
+        public Task<FindHit<T>> FindOneAsync(IRepositoryQuery query, ICommandOptions options = null) {
+            return FindOneAsync(q => query.As<T>(), o => options.As<T>());
+        }
+
+        public Task<bool> ExistsAsync(IRepositoryQuery query) {
+            return ExistsAsync(q => query.As<T>());
+        }
     }
 }

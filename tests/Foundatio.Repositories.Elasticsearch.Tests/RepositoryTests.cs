@@ -111,7 +111,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, onlyDeleted.Total);
             Assert.Equal(employee1.Id, onlyDeleted.Documents.First().Id);
 
-            var nonDeletedEmployees = await _employeeRepository.FindAsync(null);
+            var nonDeletedEmployees = await _employeeRepository.GetAllAsync();
             Assert.Equal(1, nonDeletedEmployees.Total);
             Assert.NotEqual(employee1.Id, nonDeletedEmployees.Documents.First().Id);
         }

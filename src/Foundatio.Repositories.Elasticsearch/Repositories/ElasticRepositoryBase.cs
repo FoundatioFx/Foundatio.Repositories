@@ -1031,5 +1031,65 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public AsyncEvent<BeforePublishEntityChangedEventArgs<T>> BeforePublishEntityChanged { get; } = new AsyncEvent<BeforePublishEntityChangedEventArgs<T>>();
+
+        public Task<T> AddAsync(T document, ICommandOptions options) {
+            return AddAsync(document, o => options.As<T>());
+        }
+
+        public Task AddAsync(IEnumerable<T> documents, ICommandOptions options) {
+            return AddAsync(documents, o => options.As<T>());
+        }
+
+        public Task<T> SaveAsync(T document, ICommandOptions options) {
+            return SaveAsync(document, o => options.As<T>());
+        }
+
+        public Task SaveAsync(IEnumerable<T> documents, ICommandOptions options) {
+            return SaveAsync(documents, o => options.As<T>());
+        }
+
+        public Task PatchAsync(Id id, IPatchOperation operation, ICommandOptions options) {
+            return PatchAsync(id, operation, o => options.As<T>());
+        }
+
+        public Task PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions options) {
+            return PatchAsync(ids, operation, o => options.As<T>());
+        }
+
+        public Task RemoveAsync(Id id, ICommandOptions options) {
+            return RemoveAsync(id, o => options.As<T>());
+        }
+
+        public Task RemoveAsync(Ids ids, ICommandOptions options) {
+            return RemoveAsync(ids, o => options.As<T>());
+        }
+
+        public Task RemoveAsync(T document, ICommandOptions options) {
+            return RemoveAsync(document, o => options.As<T>());
+        }
+
+        public Task RemoveAsync(IEnumerable<T> documents, ICommandOptions options) {
+            return RemoveAsync(documents, o => options.As<T>());
+        }
+
+        public Task<long> RemoveAllAsync(ICommandOptions options) {
+            return RemoveAllAsync(o => options.As<T>());
+        }
+
+        public Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null) {
+            return PatchAllAsync(q => query.As<T>(), operation, o => options.As<T>());
+        }
+
+        public Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions options = null) {
+            return RemoveAllAsync(q => query.As<T>(), o => options.As<T>());
+        }
+
+        public Task<long> BatchProcessAsync(IRepositoryQuery query, Func<FindResults<T>, Task<bool>> processFunc, ICommandOptions options = null) {
+            return BatchProcessAsync(q => query.As<T>(), processFunc, o => options.As<T>());
+        }
+
+        public Task<long> BatchProcessAsAsync<TResult>(IRepositoryQuery query, Func<FindResults<TResult>, Task<bool>> processFunc, ICommandOptions options = null) where TResult : class, new() {
+            return BatchProcessAsAsync<TResult>(q => query.As<T>(), processFunc, o => options.As<T>());
+        }
     }
 }
