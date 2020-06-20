@@ -45,11 +45,11 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 switch (document) {
                     case null:
                         throw new ArgumentNullException(nameof(document));
-                    case IHaveCreatedDate createdDoc when createdDoc.CreatedUtc != DateTime.MinValue:
-                        return createdDoc.CreatedUtc;
                     // This is also called when trying to create the document id.
                     case IIdentity identityDoc when identityDoc.Id != null && ObjectId.TryParse(identityDoc.Id, out var objectId) && objectId.CreationTime != DateTime.MinValue:
                         return objectId.CreationTime;
+                    case IHaveCreatedDate createdDoc when createdDoc.CreatedUtc != DateTime.MinValue:
+                        return createdDoc.CreatedUtc;
                     default:
                         throw new ArgumentException("Unable to get document date.", nameof(document));
                 }
@@ -403,6 +403,16 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             var date = _getDocumentDateUtc(target);
             return GetIndexByDate(date);
+        }
+
+        public override string CreateDocumentId(object document) {
+            if (_getDocumentDateUtc != null) {
+                var date = _getDocumentDateUtc(document);
+                if (date != DateTime.MinValue)
+                    return ObjectId.GenerateNewId(date).ToString();
+            }
+            
+            return base.CreateDocumentId(document);
         }
 
         public override Task EnsureIndexAsync(object target) {

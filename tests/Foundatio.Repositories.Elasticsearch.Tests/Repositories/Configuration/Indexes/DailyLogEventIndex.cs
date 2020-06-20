@@ -7,7 +7,7 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes {
     public sealed class DailyLogEventIndex : DailyIndex<LogEvent> {
-        public DailyLogEventIndex(IElasticConfiguration configuration) : base(configuration, "daily-logevents", 1) {
+        public DailyLogEventIndex(IElasticConfiguration configuration) : base(configuration, "daily-logevents", 1, doc => ((LogEvent)doc).Date.UtcDateTime) {
             AddAlias($"{Name}-today", TimeSpan.FromDays(1));
             AddAlias($"{Name}-last7days", TimeSpan.FromDays(7));
             AddAlias($"{Name}-last30days", TimeSpan.FromDays(30));
@@ -19,6 +19,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                 .Properties(p => p
                     .Keyword(f => f.Name(e => e.Id))
                     .Keyword(f => f.Name(e => e.CompanyId))
+                    .Date(f => f.Name(e => e.Date))
                     .Date(f => f.Name(e => e.CreatedUtc))
                 );
         }

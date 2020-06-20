@@ -15,6 +15,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
                 String.Equals(CompanyId, other.CompanyId, StringComparison.InvariantCultureIgnoreCase) && 
                 String.Equals(Message, other.Message, StringComparison.InvariantCultureIgnoreCase) &&
                 Value == other.Value &&
+                Date.Equals(other.Date) &&
                 CreatedUtc.Equals(other.CreatedUtc);
         }
         
@@ -34,6 +35,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
                 hashCode = (hashCode * 397) ^ (CompanyId != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(CompanyId) : 0);
                 hashCode = (hashCode * 397) ^ (Message != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Message) : 0);
                 hashCode = (hashCode * 397) ^ Value;
+                hashCode = (hashCode * 397) ^ Date.GetHashCode();
                 hashCode = (hashCode * 397) ^ CreatedUtc.GetHashCode();
                 return hashCode;
             }
@@ -50,24 +52,27 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
         public string CompanyId { get; set; }
         public string Message { get; set; }
         public int Value { get; set; }
+        public DateTimeOffset Date { get; set; }
         public DateTime CreatedUtc { get; set; }
     }
 
     public static class LogEventGenerator {
         public static readonly string DefaultCompanyId = ObjectId.GenerateNewId().ToString();
-
+ 
         public static LogEvent Default => new LogEvent {
             Message = "Hello world",
             CompanyId = DefaultCompanyId,
             CreatedUtc = SystemClock.UtcNow
         };
 
-        public static LogEvent Generate(string id = null, string companyId = null, string message = null, DateTime? createdUtc = null) {
+        public static LogEvent Generate(string id = null, string companyId = null, string message = null, DateTime? createdUtc = null, DateTimeOffset? date = null) {
+            var created = createdUtc ?? RandomData.GetDateTime(SystemClock.UtcNow.StartOfMonth(), SystemClock.UtcNow);
             return new LogEvent {
                 Id = id,
                 Message = message ?? RandomData.GetAlphaString(),
                 CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
-                CreatedUtc = createdUtc ?? RandomData.GetDateTime(SystemClock.UtcNow.StartOfMonth(), SystemClock.UtcNow)
+                CreatedUtc = created,
+                Date = date ?? created
             };
         }
         public static List<LogEvent> GenerateLogs(int count = 10) {
