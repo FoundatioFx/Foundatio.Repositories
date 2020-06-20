@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Xunit;
 using Xunit.Abstractions;
@@ -54,6 +55,23 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(0, await _dailyRepository.CountAsync(q => q.DateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), (LogEvent l) => l.CreatedUtc).FilterExpression($"id:{nowLog.Id}")));
             Assert.Equal(1, await _dailyRepository.CountAsync(q => q.DateRange(utcNow.AddDays(-1), utcNow.AddHours(-12), "created")));
             Assert.Equal(1, await _dailyRepository.CountAsync(q => q.DateRange(utcNow.AddHours(-1), utcNow.AddHours(1), "createdUtc")));
+        }
+
+        [Fact]
+        public async Task CanRoundTripById() {
+            using var _ = TestSystemClock.Install();
+            TestSystemClock.SetFrozenTime(new DateTime(2020, 6, 16, 20, 0, 0, DateTimeKind.Local));
+            
+            Assert.Equal(0, await _dailyRepository.CountAsync());
+
+            var utcNow = SystemClock.UtcNow;
+            var logEvent = await _dailyRepository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow, date: utcNow.SubtractDays(1)), o => o.ImmediateConsistency());
+            Assert.NotNull(logEvent?.Id);
+            
+            var ev = await _dailyRepository.GetByIdAsync(logEvent.Id);
+            Assert.NotNull(ev);
+            Assert.Equal(ev.Date, ObjectId.Parse(ev.Id).CreationTime);
+            Assert.NotEqual(ev.Date, ev.CreatedUtc);
         }
 
         [Fact]
