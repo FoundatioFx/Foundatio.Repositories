@@ -39,22 +39,24 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             HasMultipleIndexes = true;
 
             if (_getDocumentDateUtc != null)
-                return;
-
-            _getDocumentDateUtc = document => {
-                switch (document) {
-                    case null:
-                        throw new ArgumentNullException(nameof(document));
-                    // This is also called when trying to create the document id.
-                    case IIdentity identityDoc when identityDoc.Id != null && ObjectId.TryParse(identityDoc.Id, out var objectId) && objectId.CreationTime != DateTime.MinValue:
-                        return objectId.CreationTime;
-                    case IHaveCreatedDate createdDoc when createdDoc.CreatedUtc != DateTime.MinValue:
-                        return createdDoc.CreatedUtc;
-                    default:
-                        throw new ArgumentException("Unable to get document date.", nameof(document));
-                }
-            };
+                _getDocumentDateUtc = (document) => {
+                    var date = getDocumentDateUtc(document);
+                    return date != DateTime.MinValue ? date : DefaultDocumentDateFunc(document);
+                };
+            else
+                _getDocumentDateUtc = DefaultDocumentDateFunc;
         }
+        
+        private readonly Func<object, DateTime> DefaultDocumentDateFunc = (document) => {
+            return document switch
+            {
+                null => throw new ArgumentNullException(nameof(document)),
+                // This is also called when trying to create the document id.
+                IIdentity identityDoc when identityDoc.Id != null && ObjectId.TryParse(identityDoc.Id, out var objectId) && objectId.CreationTime != DateTime.MinValue => objectId.CreationTime,
+                IHaveCreatedDate createdDoc when createdDoc.CreatedUtc != DateTime.MinValue => createdDoc.CreatedUtc,
+                _ => throw new ArgumentException("Unable to get document date.", nameof(document)),
+            };
+        };
 
         /// <summary>
         /// This should never be be negative or less than the index time period (day or a month)

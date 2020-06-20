@@ -3,13 +3,17 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Extensions {
     public static class EnumerableExtensions {
-        public static void EnsureIds<T>(this IEnumerable<T> values, Func<T, string> generateIdFunc) where T : class, IIdentity {
-            if (values == null || generateIdFunc == null)
+        public static void EnsureIds<T>(this IEnumerable<T> values, Func<T, string> generateIdFunc = null) where T : class, IIdentity {
+            if (values == null)
                 return;
+
+            if (generateIdFunc == null)
+                generateIdFunc = (T) => ObjectId.GenerateNewId().ToString();
 
             foreach (var value in values) {
                 if (String.IsNullOrEmpty(value.Id))

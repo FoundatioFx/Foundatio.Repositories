@@ -75,6 +75,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
                 Date = date ?? created
             };
         }
+        
         public static List<LogEvent> GenerateLogs(int count = 10) {
             var results = new List<LogEvent>(count);
             for (int index = 0; index < count; index++)
