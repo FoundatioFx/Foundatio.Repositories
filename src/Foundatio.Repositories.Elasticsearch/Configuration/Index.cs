@@ -81,7 +81,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         private string[] _indexes;
         public virtual string[] GetIndexesByQuery(IRepositoryQuery query) {
-            return _indexes ?? (_indexes = new[] { Name });
+            return _indexes ??= new[] { Name };
         }
 
         public virtual string GetIndex(object target) {

@@ -39,22 +39,24 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             HasMultipleIndexes = true;
 
             if (_getDocumentDateUtc != null)
-                return;
-
-            _getDocumentDateUtc = document => {
-                switch (document) {
-                    case null:
-                        throw new ArgumentNullException(nameof(document));
-                    case IHaveCreatedDate createdDoc when createdDoc.CreatedUtc != DateTime.MinValue:
-                        return createdDoc.CreatedUtc;
-                    // This is also called when trying to create the document id.
-                    case IIdentity identityDoc when identityDoc.Id != null && ObjectId.TryParse(identityDoc.Id, out var objectId) && objectId.CreationTime != DateTime.MinValue:
-                        return objectId.CreationTime;
-                    default:
-                        throw new ArgumentException("Unable to get document date.", nameof(document));
-                }
-            };
+                _getDocumentDateUtc = (document) => {
+                    var date = getDocumentDateUtc(document);
+                    return date != DateTime.MinValue ? date : DefaultDocumentDateFunc(document);
+                };
+            else
+                _getDocumentDateUtc = DefaultDocumentDateFunc;
         }
+        
+        private readonly Func<object, DateTime> DefaultDocumentDateFunc = (document) => {
+            return document switch
+            {
+                null => throw new ArgumentNullException(nameof(document)),
+                // This is also called when trying to create the document id.
+                IIdentity identityDoc when identityDoc.Id != null && ObjectId.TryParse(identityDoc.Id, out var objectId) && objectId.CreationTime != DateTime.MinValue => objectId.CreationTime,
+                IHaveCreatedDate createdDoc when createdDoc.CreatedUtc != DateTime.MinValue => createdDoc.CreatedUtc,
+                _ => throw new ArgumentException("Unable to get document date.", nameof(document)),
+            };
+        };
 
         /// <summary>
         /// This should never be be negative or less than the index time period (day or a month)
@@ -403,6 +405,16 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             var date = _getDocumentDateUtc(target);
             return GetIndexByDate(date);
+        }
+
+        public override string CreateDocumentId(object document) {
+            if (_getDocumentDateUtc != null) {
+                var date = _getDocumentDateUtc(document);
+                if (date != DateTime.MinValue)
+                    return ObjectId.GenerateNewId(date).ToString();
+            }
+            
+            return base.CreateDocumentId(document);
         }
 
         public override Task EnsureIndexAsync(object target) {

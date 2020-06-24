@@ -24,7 +24,7 @@ using System.Linq.Expressions;
 using System.Threading;
 
 namespace Foundatio.Repositories.Elasticsearch {
-    public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, IQueryableRepository<T> where T : class, IIdentity, new() {
+    public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, ISearchableRepository<T> where T : class, IIdentity, new() {
         protected readonly IValidator<T> _validator;
         protected readonly IMessagePublisher _messagePublisher;
         private readonly List<Lazy<Field>> _propertiesRequiredForRemove = new List<Lazy<Field>>();
@@ -119,7 +119,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             foreach (var original in originals)
                 ids.RemoveAll(id => id.Value == original.Id);
 
-            originals.AddRange(await GetAsync(ids, o => options.Clone().ReadCache().As<T>()).AnyContext());
+            originals.AddRange(await GetByIdsAsync(ids, o => options.Clone().ReadCache().As<T>()).AnyContext());
 
             return originals.AsReadOnly();
         }
@@ -148,7 +148,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var response = await _client.UpdateAsync(request).AnyContext();
 
                 if (response.IsValid) {
-                    _logger.LogTraceRequest(response, QueryLogLevel);
+                    _logger.LogTraceRequest(response, options.GetQueryLogLevel());
                 } else {
                     _logger.LogErrorRequest(response, "Error patching document {Index}/{Id}", ElasticIndex.GetIndex(id), id.Value);
                     throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
@@ -161,7 +161,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var response = await _client.LowLevel.GetAsync<GetResponse<IDictionary<string, object>>>(ElasticIndex.GetIndex(id), id.Value).AnyContext();
                 var jobject = JObject.FromObject(response.Source);
                 if (response.IsValid) {
-                    _logger.LogTraceRequest(response, QueryLogLevel);
+                    _logger.LogTraceRequest(response, options.GetQueryLogLevel());
                 } else {
                     _logger.LogErrorRequest(response, "Error patching document {Index}/{Id}", ElasticIndex.GetIndex(id), id.Value);
                     throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
@@ -180,7 +180,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var updateResponse = await _client.LowLevel.IndexAsync<VoidResponse>(ElasticIndex.GetIndex(id), id.Value, PostData.String(target.ToString()), indexParameters, default(CancellationToken)).AnyContext();
 
                 if (updateResponse.Success) {
-                    _logger.LogTraceRequest(updateResponse, QueryLogLevel);
+                    _logger.LogTraceRequest(updateResponse, options.GetQueryLogLevel());
                 } else {
                     _logger.LogErrorRequest(updateResponse, "Error patching document {Index}/{Id} with {Pipeline}", ElasticIndex.GetIndex(id), id.Value, DefaultPipeline);
                     throw new ApplicationException(updateResponse.GetErrorMessage(), updateResponse.OriginalException);
@@ -198,7 +198,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var response = await _client.UpdateAsync(request).AnyContext();
 
                 if (response.IsValid) {
-                    _logger.LogTraceRequest(response, QueryLogLevel);
+                    _logger.LogTraceRequest(response, options.GetQueryLogLevel());
                 } else {
                     _logger.LogErrorRequest(response, "Error patching document {Index}/{Id}", ElasticIndex.GetIndex(id), id.Value);
                     throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
@@ -235,7 +235,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             if (operation is Models.JsonPatch) {
-                await PatchByQueryAsync(q => NewQuery().Id(ids), operation, optionsDesc).AnyContext();
+                await PatchAllAsync(q => NewQuery().Id(ids), operation, optionsDesc).AnyContext();
                 return;
             }
 
@@ -280,7 +280,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             // TODO: Is there a better way to handle failures?
             if (bulkResponse.IsValid) {
-                _logger.LogTraceRequest(bulkResponse, QueryLogLevel);
+                _logger.LogTraceRequest(bulkResponse, options.GetQueryLogLevel());
             } else {
                 _logger.LogErrorRequest(bulkResponse, "Error bulk patching documents");
                 throw new ApplicationException(bulkResponse.GetErrorMessage(), bulkResponse.OriginalException);
@@ -300,7 +300,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
         }
 
-        public virtual async Task<long> PatchByQueryAsync(RepositoryQueryDescriptor<T> queryDesc, IPatchOperation operation, CommandOptionsDescriptor<T> optionsDesc = null) {
+        public virtual async Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> queryDesc, IPatchOperation operation, CommandOptionsDescriptor<T> optionsDesc = null) {
             var query = queryDesc.Configure();
             var options = optionsDesc.Configure();
 
@@ -340,7 +340,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     }).AnyContext();
 
                     if (bulkResult.IsValid) {
-                        _logger.LogTraceRequest(bulkResult, QueryLogLevel);
+                        _logger.LogTraceRequest(bulkResult, options.GetQueryLogLevel());
                     } else {
                         _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
                         return false;
@@ -378,7 +378,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     var response = await _client.UpdateByQueryAsync(request).AnyContext();
                     if (response.IsValid) {
-                        _logger.LogTraceRequest(response, QueryLogLevel);
+                        _logger.LogTraceRequest(response, options.GetQueryLogLevel());
                     } else {
                         _logger.LogErrorRequest(response, "Error occurred while patching by query");
                         throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
@@ -431,7 +431,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                         }).AnyContext();
 
                         if (bulkResult.IsValid) {
-                            _logger.LogTraceRequest(bulkResult, QueryLogLevel);
+                            _logger.LogTraceRequest(bulkResult, options.GetQueryLogLevel());
                         } else {
                             _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
                             return false;
@@ -486,7 +486,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             // TODO: If not OriginalsEnabled then just delete by id
             // TODO: Delete by id using GetIndexById and id.Routing if its a child doc
-            var documents = await GetAsync(ids, o => options).AnyContext();
+            var documents = await GetByIdsAsync(ids, o => options).AnyContext();
             if (documents == null)
                 return;
 
@@ -523,7 +523,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 var response = await _client.DeleteAsync(request).AnyContext();
 
                 if (response.IsValid || response.ApiCall.HttpStatusCode == 404) {
-                    _logger.LogTraceRequest(response, QueryLogLevel);
+                    _logger.LogTraceRequest(response, options.GetQueryLogLevel());
                 } else {
                     _logger.LogErrorRequest(response, "Error removing document {Index}/{Id}", ElasticIndex.GetIndex(document), document.Id);
                     throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
@@ -545,7 +545,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }).AnyContext();
 
                 if (response.IsValid) {
-                    _logger.LogTraceRequest(response, QueryLogLevel);
+                    _logger.LogTraceRequest(response, options.GetQueryLogLevel());
                 } else {
                     _logger.LogErrorRequest(response, "Error bulk removing documents");
                     throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
@@ -572,10 +572,10 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public virtual Task<long> RemoveAllAsync(CommandOptionsDescriptor<T> optionsDesc = null) {
-            return RemoveByQueryAsync(q => NewQuery(), optionsDesc);
+            return RemoveAllAsync(q => NewQuery(), optionsDesc);
         }
 
-        public virtual async Task<long> RemoveByQueryAsync(RepositoryQueryDescriptor<T> queryDesc, CommandOptionsDescriptor<T> optionsDesc = null) {
+        public virtual async Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> queryDesc, CommandOptionsDescriptor<T> optionsDesc = null) {
             var query = queryDesc.Configure();
             var options = optionsDesc.Configure();
 
@@ -599,7 +599,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }).AnyContext();
 
             if (response.IsValid) {
-                _logger.LogTraceRequest(response, QueryLogLevel);
+                _logger.LogTraceRequest(response, options.GetQueryLogLevel());
             } else {
                 _logger.LogErrorRequest(response, "Error removing documents");
                 throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
@@ -614,11 +614,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             return response.Deleted;
         }
 
-        public virtual Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<QueryResults<T>, Task<bool>> processAsync, CommandOptionsDescriptor<T> options = null) {
+        public virtual Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<FindResults<T>, Task<bool>> processAsync, CommandOptionsDescriptor<T> options = null) {
             return BatchProcessAsAsync(query, processAsync, options);
         }
 
-        public virtual async Task<long> BatchProcessAsAsync<TResult>(RepositoryQueryDescriptor<T> query, Func<QueryResults<TResult>, Task<bool>> processAsync, CommandOptionsDescriptor<T> optionsDesc = null)
+        public virtual async Task<long> BatchProcessAsAsync<TResult>(RepositoryQueryDescriptor<T> query, Func<FindResults<TResult>, Task<bool>> processAsync, CommandOptionsDescriptor<T> optionsDesc = null)
             where TResult : class, new() {
             var options = optionsDesc.Configure();
 
@@ -633,7 +633,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 options.SnapshotPagingLifetime(TimeSpan.FromMinutes(5));
 
             long recordsProcessed = 0;
-            var results = await QueryAsAsync<TResult>(query, o => options).AnyContext();
+            var results = await FindAsAsync<TResult>(query, o => options).AnyContext();
             do {
                 if (results.Hits.Count == 0)
                     break;
@@ -808,7 +808,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }).AnyContext();
 
                 if (response.IsValid) {
-                    _logger.LogTraceRequest(response, QueryLogLevel);
+                    _logger.LogTraceRequest(response, options.GetQueryLogLevel());
                 } else {
                     _logger.LogErrorRequest(response, $"Error {(isCreateOperation ? "adding" : "saving")} document");
                     if (isCreateOperation && response.ServerError?.Status == 409)
@@ -876,7 +876,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
 
                 if (response.IsValid) {
-                    _logger.LogTraceRequest(response, QueryLogLevel);
+                    _logger.LogTraceRequest(response, options.GetQueryLogLevel());
                 } else {
                     _logger.LogErrorRequest(response, $"Error {(isCreateOperation ? "adding" : "saving")} documents");
                     if (isCreateOperation && allErrors.Any(e => e.Status == 409))
@@ -1031,5 +1031,65 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         public AsyncEvent<BeforePublishEntityChangedEventArgs<T>> BeforePublishEntityChanged { get; } = new AsyncEvent<BeforePublishEntityChangedEventArgs<T>>();
+
+        public Task<T> AddAsync(T document, ICommandOptions options) {
+            return AddAsync(document, o => options.As<T>());
+        }
+
+        public Task AddAsync(IEnumerable<T> documents, ICommandOptions options) {
+            return AddAsync(documents, o => options.As<T>());
+        }
+
+        public Task<T> SaveAsync(T document, ICommandOptions options) {
+            return SaveAsync(document, o => options.As<T>());
+        }
+
+        public Task SaveAsync(IEnumerable<T> documents, ICommandOptions options) {
+            return SaveAsync(documents, o => options.As<T>());
+        }
+
+        public Task PatchAsync(Id id, IPatchOperation operation, ICommandOptions options) {
+            return PatchAsync(id, operation, o => options.As<T>());
+        }
+
+        public Task PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions options) {
+            return PatchAsync(ids, operation, o => options.As<T>());
+        }
+
+        public Task RemoveAsync(Id id, ICommandOptions options) {
+            return RemoveAsync(id, o => options.As<T>());
+        }
+
+        public Task RemoveAsync(Ids ids, ICommandOptions options) {
+            return RemoveAsync(ids, o => options.As<T>());
+        }
+
+        public Task RemoveAsync(T document, ICommandOptions options) {
+            return RemoveAsync(document, o => options.As<T>());
+        }
+
+        public Task RemoveAsync(IEnumerable<T> documents, ICommandOptions options) {
+            return RemoveAsync(documents, o => options.As<T>());
+        }
+
+        public Task<long> RemoveAllAsync(ICommandOptions options) {
+            return RemoveAllAsync(o => options.As<T>());
+        }
+
+        public Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null) {
+            return PatchAllAsync(q => query.As<T>(), operation, o => options.As<T>());
+        }
+
+        public Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions options = null) {
+            return RemoveAllAsync(q => query.As<T>(), o => options.As<T>());
+        }
+
+        public Task<long> BatchProcessAsync(IRepositoryQuery query, Func<FindResults<T>, Task<bool>> processFunc, ICommandOptions options = null) {
+            return BatchProcessAsync(q => query.As<T>(), processFunc, o => options.As<T>());
+        }
+
+        public Task<long> BatchProcessAsAsync<TResult>(IRepositoryQuery query, Func<FindResults<TResult>, Task<bool>> processFunc, ICommandOptions options = null) where TResult : class, new() {
+            return BatchProcessAsAsync<TResult>(q => query.As<T>(), processFunc, o => options.As<T>());
+        }
     }
 }

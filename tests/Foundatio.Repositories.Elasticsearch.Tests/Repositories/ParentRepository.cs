@@ -6,7 +6,7 @@
  using Nest;
 
  namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories {
-     public interface IParentRepository : IQueryableRepository<Parent> {}
+     public interface IParentRepository : ISearchableRepository<Parent> {}
 
      public class ParentRepository : ElasticRepositoryBase<Parent>, IParentRepository {
          public ParentRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.ParentChild) {

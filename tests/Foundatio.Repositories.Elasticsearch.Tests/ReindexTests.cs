@@ -354,7 +354,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     await version20Index.ReindexAsync();
 
                     IEmployeeRepository version20Repository = new EmployeeRepository(version20Index);
-                    var result = await version20Repository.GetAsync(employee.Id);
+                    var result = await version20Repository.GetByIdAsync(employee.Id);
                     Assert.Equal("scripted", result.CompanyName);
 
                     using (new DisposableAction(() => version21Index.DeleteAsync().GetAwaiter().GetResult())) {
@@ -362,7 +362,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                         await version21Index.ReindexAsync();
 
                         IEmployeeRepository version21Repository = new EmployeeRepository(version21Index);
-                        result = await version21Repository.GetAsync(employee.Id);
+                        result = await version21Repository.GetByIdAsync(employee.Id);
                         Assert.Equal("typed script", result.CompanyName);
                     }
                 }
@@ -381,7 +381,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     await version21Index.ReindexAsync();
 
                     IEmployeeRepository version21Repository = new EmployeeRepository(version21Index);
-                    var result = await version21Repository.GetAsync(employee.Id);
+                    var result = await version21Repository.GetByIdAsync(employee.Id);
                     Assert.Equal("typed script", result.CompanyName);
                 }
             }
@@ -548,7 +548,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.True(countResponse.IsValid);
                     Assert.Equal(2, countResponse.Count);
 
-                    var result = await repository.GetAsync(employee.Id);
+                    var result = await repository.GetByIdAsync(employee.Id);
                     Assert.Equal(ToJson(employee), ToJson(result));
                     Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
                 }
@@ -618,7 +618,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.True(countResponse.IsValid, countResponse.GetErrorMessage());
                     Assert.Equal(1, countResponse.Count);
 
-                    Assert.Equal(employee, await repository.GetAsync(employee.Id));
+                    Assert.Equal(employee, await repository.GetByIdAsync(employee.Id));
                     Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
                 }
             }
