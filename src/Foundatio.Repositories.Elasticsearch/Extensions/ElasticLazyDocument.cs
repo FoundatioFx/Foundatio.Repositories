@@ -12,7 +12,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         
         public T As<T>() where T : class {
             var hit = _inner.As<IHit<T>>();
-            return hit.Source;
+            return hit?.Source;
         }
 
         public object As(Type objectType) {
