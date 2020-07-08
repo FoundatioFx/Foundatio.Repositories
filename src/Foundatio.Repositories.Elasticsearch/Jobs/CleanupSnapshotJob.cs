@@ -74,7 +74,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 return;
 
             // log that we are seeing snapshots that should have been deleted already
-            var oldSnapshots = snapshots.Where(s => s.Date < oldestValidSnapshot.AddDays(-1)).ToList();
+            var oldSnapshots = snapshots.Where(s => s.Date < oldestValidSnapshot.AddDays(-1)).Select(s => s.Name).ToList();
             if (oldSnapshots.Count > 0)
                 _logger.LogError("Found old snapshots that should have been deleted: {SnapShots}", String.Join(", ", oldSnapshots));
 
