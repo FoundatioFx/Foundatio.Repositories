@@ -9,14 +9,68 @@ namespace Foundatio.Repositories {
         /// </summary>
         /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
         /// <param name="options">Command options used to control things like paging, caching, etc</param>
-        Task<FindResults<T>> FindAsync(IRepositoryQuery query, ICommandOptions options = null);
+        Task<FindResults<T>> FindAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
 
         /// <summary>
         /// Find documents using a query
         /// </summary>
         /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
         /// <param name="options">Command options used to control things like paging, caching, etc</param>
-        Task<FindResults<T>> FindAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
+        Task<FindResults<T>> FindAsync(IRepositoryQuery query, ICommandOptions options = null);
+
+        /// <summary>
+        /// Find documents using a query and map the result to the specified model type
+        /// </summary>
+        /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
+        /// <param name="options">Command options used to control things like paging, caching, etc</param>
+        Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) where TResult : class, new();
+
+        /// <summary>
+        /// Find documents using a query and map the result to the specified model type
+        /// </summary>
+        /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
+        /// <param name="options">Command options used to control things like paging, caching, etc</param>
+        Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions options = null) where TResult : class, new();
+
+        /// <summary>
+        /// Find a single document using a query
+        /// </summary>
+        /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
+        /// <param name="options">Command options used to control things like paging, caching, etc</param>
+        Task<FindHit<T>> FindOneAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
+
+        /// <summary>
+        /// Find a single document using a query
+        /// </summary>
+        /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
+        /// <param name="options">Command options used to control things like paging, caching, etc</param>
+        Task<FindHit<T>> FindOneAsync(IRepositoryQuery query, ICommandOptions options = null);
+
+        /// <summary>
+        /// Gets a document count and optional aggregation data using a query
+        /// </summary>
+        /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
+        /// <param name="options">Command options used to control things like paging, caching, etc</param>
+        Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
+
+        /// <summary>
+        /// Gets a document count and optional aggregation data using a query
+        /// </summary>
+        /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
+        /// <param name="options">Command options used to control things like paging, caching, etc</param>
+        Task<CountResult> CountAsync(IRepositoryQuery query, ICommandOptions options = null);
+
+        /// <summary>
+        /// Checks to see if any document exists that matches the specified query
+        /// </summary>
+        /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
+        Task<bool> ExistsAsync(RepositoryQueryDescriptor<T> query);
+
+        /// <summary>
+        /// Checks to see if any document exists that matches the specified query
+        /// </summary>
+        /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
+        Task<bool> ExistsAsync(IRepositoryQuery query);
 
         /// <summary>
         /// Find documents using search criteria
@@ -29,36 +83,8 @@ namespace Foundatio.Repositories {
         /// <param name="options">Command options used to control things like paging, caching, etc</param>
         /// <returns></returns>
         [Obsolete("Use FindAsync")]
-        Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, CommandOptionsDescriptor<T> options = null);
+        Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, ICommandOptions options = null);
 
-        /// <summary>
-        /// Find documents using a query and map the result to the specified model type
-        /// </summary>
-        /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
-        /// <param name="options">Command options used to control things like paging, caching, etc</param>
-        Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions options = null) where TResult : class, new();
-
-        /// <summary>
-        /// Find documents using a query and map the result to the specified model type
-        /// </summary>
-        /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
-        /// <param name="options">Command options used to control things like paging, caching, etc</param>
-        Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) where TResult : class, new();
-
-        /// <summary>
-        /// Gets a document count and optional aggregation data using a query
-        /// </summary>
-        /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
-        /// <param name="options">Command options used to control things like paging, caching, etc</param>
-        Task<CountResult> CountAsync(IRepositoryQuery query, ICommandOptions options = null);
-
-        /// <summary>
-        /// Gets a document count and optional aggregation data using a query
-        /// </summary>
-        /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
-        /// <param name="options">Command options used to control things like paging, caching, etc</param>
-        Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
-        
         /// <summary>
         /// Gets a document count and optional aggregation data using search criteria
         /// </summary>
@@ -68,32 +94,6 @@ namespace Foundatio.Repositories {
         /// <param name="options">Command options used to control things like paging, caching, etc</param>
         /// <returns></returns>
         [Obsolete("Use CountAsync")]
-        Task<CountResult> CountBySearchAsync(ISystemFilter systemFilter, string filter = null, string aggregations = null, CommandOptionsDescriptor<T> options = null);
-
-        /// <summary>
-        /// Find a single document using a query
-        /// </summary>
-        /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
-        /// <param name="options">Command options used to control things like paging, caching, etc</param>
-        Task<FindHit<T>> FindOneAsync(IRepositoryQuery query, ICommandOptions options = null);
-
-        /// <summary>
-        /// Find a single document using a query
-        /// </summary>
-        /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
-        /// <param name="options">Command options used to control things like paging, caching, etc</param>
-        Task<FindHit<T>> FindOneAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
-
-        /// <summary>
-        /// Checks to see if any document exists that matches the specified query
-        /// </summary>
-        /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
-        Task<bool> ExistsAsync(IRepositoryQuery query);
-
-        /// <summary>
-        /// Checks to see if any document exists that matches the specified query
-        /// </summary>
-        /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
-        Task<bool> ExistsAsync(RepositoryQueryDescriptor<T> query);
+        Task<CountResult> CountBySearchAsync(ISystemFilter systemFilter, string filter = null, string aggregations = null, ICommandOptions options = null);
     }
 }

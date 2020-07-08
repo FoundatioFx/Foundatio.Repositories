@@ -45,26 +45,252 @@ namespace Foundatio.Repositories.Elasticsearch {
             _logger = index.Configuration.LoggerFactory.CreateLogger(GetType());
         }
 
-        protected Inferrer Infer => _elasticIndex.Configuration.Client.Infer;
+        protected IIndex ElasticIndex { get; private set; }
+        protected Func<T, string> GetParentIdFunc { get; set; }
+
+        protected Inferrer Infer => ElasticIndex.Configuration.Client.Infer;
         protected string InferField(Expression<Func<T, object>> objectPath) => Infer.Field(objectPath);
         protected string InferPropertyName(Expression<Func<T, object>> objectPath) => Infer.PropertyName(objectPath);
+        protected bool HasParent { get; set; } = false;
+
+        protected ICollection<Field> DefaultExcludes { get; } = new List<Field>();
+
+        protected TimeSpan DefaultCacheExpiration { get; set; } = TimeSpan.FromSeconds(60 * 5);
+        protected int DefaultPageLimit { get; set; } = 10;
+        protected int MaxPageLimit { get; set; } = 9999;
+        protected Microsoft.Extensions.Logging.LogLevel DefaultQueryLogLevel { get; set; } = Microsoft.Extensions.Logging.LogLevel.Trace;
+
+        #region IReadOnlyRepository
+
+        public Task<T> GetByIdAsync(Id id, CommandOptionsDescriptor<T> options) {
+            return GetByIdAsync(id, options.Configure());
+        }
+
+        public virtual async Task<T> GetByIdAsync(Id id, ICommandOptions options = null) {
+            if (String.IsNullOrEmpty(id.Value))
+                return null;
+
+            options = ConfigureOptions(options.As<T>());
+
+            CacheValue<T> hit = null;
+            if (IsCacheEnabled && options.ShouldReadCache()) {
+                if (options.HasCacheKey() && HasIdentity) {
+                    var value = await GetCachedFindHit(id, options.GetCacheKey()).AnyContext();
+                    if (value?.Document != null)
+                        hit = new CacheValue<T>(value.Document, true);
+                }
+
+                if (hit == null) {
+                    var value = await GetCachedFindHit(id).AnyContext();
+                    hit = new CacheValue<T>(value?.Document, value?.Document != null);
+                }
+            }
+
+            bool isTraceLogLevelEnabled = _logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace);
+            if (hit != null && hit.HasValue) {
+                if (isTraceLogLevelEnabled)
+                    _logger.LogTrace("Cache hit: type={ElasticType} key={Id}", ElasticIndex.Name, id);
+                return hit.Value;
+            }
+
+            FindHit<T> findHit;
+            if (!HasParent || id.Routing != null) {
+                var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
+                if (id.Routing != null)
+                    request.Routing = id.Routing;
+                var response = await _client.GetAsync<T>(request).AnyContext();
+                if (isTraceLogLevelEnabled)
+                    _logger.LogTraceRequest(response, options.GetQueryLogLevel());
+
+                findHit = response.Found ? response.ToFindHit() : null;
+            } else {
+                // we don't have the parent id so we have to do a query
+                // TODO: Ensure this is find one query is not cached.
+                findHit = await FindOneAsync(q => NewQuery().Id(id)).AnyContext();
+            }
+
+            if (IsCacheEnabled && options.ShouldUseCache()) {
+                var expiresIn = options.GetExpiresIn();
+                if (options.HasCacheKey())
+                    await SetCachedFindHit(findHit, options.GetCacheKey(), expiresIn).AnyContext();
+
+                await SetCachedFindHit(findHit, id, expiresIn).AnyContext();
+            }
+
+            return findHit?.Document;
+        }
+
+        public Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, CommandOptionsDescriptor<T> options) {
+            return GetByIdsAsync(ids, options.Configure());
+        }
+
+        public virtual async Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, ICommandOptions options = null) {
+            var idList = ids?.Distinct().Where(i => !String.IsNullOrEmpty(i)).ToList();
+            if (idList == null || idList.Count == 0)
+                return EmptyList;
+
+            if (!HasIdentity)
+                throw new NotSupportedException("Model type must implement IIdentity.");
+
+            options = ConfigureOptions(options.As<T>());
+
+            var hits = new List<FindHit<T>>();
+            if (IsCacheEnabled && options.ShouldReadCache()) {
+                var idsToLookupFromCache = idList.ToList();
+
+                if (options.HasCacheKey() && HasIdentity) {
+                    var values = await GetCachedFindHit(idList, options.GetCacheKey()).AnyContext();
+                    foreach (var value in values) {
+                        hits.Add(value);
+                        idsToLookupFromCache.Remove(value.Id);
+                    }
+                }
+
+                if (idsToLookupFromCache.Count > 0)
+                    hits.AddRange(await GetCachedFindHit(idsToLookupFromCache).AnyContext());
+            }
+
+            var itemsToFind = idList.Except(hits.Select(i => (Id)i.Id)).ToList();
+            if (itemsToFind.Count == 0)
+                return hits.Where(h => h.Document != null).Select(h => h.Document).ToList().AsReadOnly();
+
+            var multiGet = new MultiGetDescriptor();
+            foreach (var id in itemsToFind.Where(i => i.Routing != null || !HasParent)) {
+                multiGet.Get<T>(f => {
+                    f.Id(id.Value).Index(ElasticIndex.GetIndex(id));
+                    if (id.Routing != null)
+                        f.Routing(id.Routing);
+
+                    return f;
+                });
+            }
+
+            var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
+            _logger.LogTraceRequest(multiGetResults, options.GetQueryLogLevel());
+
+            foreach (var doc in multiGetResults.Hits) {
+                hits.Add(((IMultiGetHit<T>)doc).ToFindHit());
+                itemsToFind.Remove(new Id(doc.Id, doc.Routing));
+            }
+
+            // fallback to doing a find
+            if (itemsToFind.Count > 0 && (HasParent || ElasticIndex.HasMultipleIndexes)) {
+                var response = await FindAsync(q => q.Id(itemsToFind.Select(id => id.Value)), o => o.PageLimit(1000)).AnyContext();
+                do {
+                    if (response.Hits.Count > 0)
+                        hits.AddRange(response.Hits.Where(h => h.Document != null));
+                } while (await response.NextPageAsync().AnyContext());
+            }
+
+            if (IsCacheEnabled && options.ShouldUseCache()) {
+                var expiresIn = options.GetExpiresIn();
+                if (options.HasCacheKey())
+                    await SetCachedFindHit(hits, options.GetCacheKey(), expiresIn).AnyContext();
+
+                await SetCachedFindHit(hits, null, expiresIn).AnyContext();
+            }
+
+            return hits.Where(h => h.Document != null).Select(h => h.Document).ToList().AsReadOnly();
+        }
+
+        public Task<FindResults<T>> GetAllAsync(CommandOptionsDescriptor<T> options) {
+            return GetAllAsync(options.Configure());
+        }
+
+        public virtual Task<FindResults<T>> GetAllAsync(ICommandOptions options = null) {
+            return FindAsync(NewQuery(), options);
+        }
+
+        public virtual async Task<bool> ExistsAsync(Id id) {
+            if (String.IsNullOrEmpty(id.Value))
+                return false;
+
+            if (HasParent || id.Routing != null) {
+                var options = ConfigureOptions(null);
+                var response = await _client.DocumentExistsAsync(new DocumentPath<T>(id.Value), d => {
+                    d.Index(ElasticIndex.GetIndex(d));
+                    if (id.Routing != null)
+                        d.Routing(id.Routing);
+
+                    return d;
+                }).AnyContext();
+                _logger.LogTraceRequest(response, options.GetQueryLogLevel());
+
+                return response.Exists;
+            }
+
+            return await ExistsAsync(q => q.Id(id)).AnyContext();
+        }
+
+        public Task<long> CountAsync(CommandOptionsDescriptor<T> options) {
+            return CountAsync(options.Configure());
+        }
+
+        public virtual async Task<long> CountAsync(ICommandOptions options = null) {
+            var result = await CountAsync(NewQuery(), options).AnyContext();
+            return result.Total;
+        }
+
+        public Task InvalidateCacheAsync(T document, CommandOptionsDescriptor<T> options) {
+            return InvalidateCacheAsync(document, options.Configure());
+        }
+
+        public Task InvalidateCacheAsync(T document, ICommandOptions options = null) {
+            return InvalidateCacheAsync(new[] { document }, options);
+        }
+
+        public Task InvalidateCacheAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options) {
+            return InvalidateCacheAsync(documents, options.Configure());
+        }
+
+        public virtual Task InvalidateCacheAsync(IEnumerable<T> documents, ICommandOptions options = null) {
+            var docs = documents?.ToList();
+            if (docs == null || docs.Any(d => d == null))
+                throw new ArgumentNullException(nameof(documents));
+
+            if (!IsCacheEnabled)
+                return Task.CompletedTask;
+
+            return InvalidateCacheAsync(docs.Select(d => new ModifiedDocument<T>(d, null)).ToList(), options);
+        }
+
+        public AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; } = new AsyncEvent<BeforeQueryEventArgs<T>>();
+
+        private async Task OnBeforeQueryAsync(IRepositoryQuery query, ICommandOptions options, Type resultType) {
+            if (SupportsSoftDeletes && IsCacheEnabled && query.GetSoftDeleteMode() == SoftDeleteQueryMode.ActiveOnly) {
+                var deletedIds = await Cache.GetListAsync<string>("deleted").AnyContext();
+                if (deletedIds.HasValue)
+                    query.ExcludedId(deletedIds.Value);
+            }
+
+            var systemFilter = query.GetSystemFilter();
+            if (systemFilter != null)
+                query.MergeFrom(systemFilter.GetQuery());
+
+            if (BeforeQuery == null || !BeforeQuery.HasHandlers)
+                return;
+
+            await BeforeQuery.InvokeAsync(this, new BeforeQueryEventArgs<T>(query, options, this, resultType)).AnyContext();
+        }
+
+        #endregion
+
+        #region ISearchableReadOnlyRepository
 
         public virtual Task<FindResults<T>> FindAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
+            return FindAsync(query.Configure(), options.Configure());
+        }
+
+        public Task<FindResults<T>> FindAsync(IRepositoryQuery query, ICommandOptions options = null) {
             return FindAsAsync<T>(query, options);
         }
 
-        public virtual Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, CommandOptionsDescriptor<T> options = null) {
-            return FindAsAsync<T>(q => q.SystemFilter(systemFilter).FilterExpression(filter).SearchExpression(criteria).SortExpression(sort).AggregationsExpression(aggregations), options);
+        public Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) where TResult : class, new() {
+            return FindAsAsync<TResult>(query.Configure(), options.Configure());
         }
 
-        protected ICollection<Field> DefaultExcludes { get; } = new List<Field>();
-        protected bool HasParent { get; set; } = false;
-
-        public virtual async Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> queryDesc, CommandOptionsDescriptor<T> optionsDesc = null) where TResult : class, new() {
-            var query = queryDesc.Configure();
-            var options = optionsDesc.Configure();
-
-            options = ConfigureOptions(options);
+        public virtual async Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions options = null) where TResult : class, new() {
+            options = ConfigureOptions(options.As<T>());
             bool useSnapshotPaging = options.ShouldUseSnapshotPaging();
             // don't use caching with snapshot paging.
             bool allowCaching = IsCacheEnabled && useSnapshotPaging == false;
@@ -130,7 +356,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     return new FindResults<TResult>();
 
                 options?.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
-                return await FindAsAsync<TResult>(q => query, o => options).AnyContext();
+                return await FindAsAsync<TResult>(query, options).AnyContext();
             }
 
             string cacheSuffix = options?.HasPageLimit() == true ? String.Concat(options.GetPage().ToString(), ":", options.GetLimit().ToString()) : null;
@@ -199,11 +425,12 @@ namespace Foundatio.Repositories.Elasticsearch {
             return result;
         }
 
-        public virtual async Task<FindHit<T>> FindOneAsync(RepositoryQueryDescriptor<T> queryDesc, CommandOptionsDescriptor<T> optionsDesc = null) {
-            var query = queryDesc.Configure();
-            var options = optionsDesc.Configure();
+        public Task<FindHit<T>> FindOneAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
+            return FindOneAsync(query.Configure(), options.Configure());
+        }
 
-            options = ConfigureOptions(options);
+        public virtual async Task<FindHit<T>> FindOneAsync(IRepositoryQuery query, ICommandOptions options = null) {
+            options = ConfigureOptions(options.As<T>());
             var result = IsCacheEnabled && options.ShouldReadCache() && options.HasCacheKey() ? await GetCachedFindHit(options).AnyContext() : null;
             if (result != null && result.Count == 1)
                 return result.FirstOrDefault();
@@ -228,185 +455,14 @@ namespace Foundatio.Repositories.Elasticsearch {
                 await SetCachedFindHit(result, options.GetCacheKey(), options.GetExpiresIn()).AnyContext();
 
             return result.FirstOrDefault();
-        }       
-
-        public virtual async Task<T> GetByIdAsync(Id id, CommandOptionsDescriptor<T> optionsDesc = null) {
-            if (String.IsNullOrEmpty(id.Value))
-                return null;
-
-            var options = optionsDesc.Configure();
-            options = ConfigureOptions(options);
-
-            CacheValue<T> hit = null;
-            if (IsCacheEnabled && options.ShouldReadCache()) {
-                if (options.HasCacheKey() && HasIdentity) {
-                    var value = await GetCachedFindHit(id, options.GetCacheKey()).AnyContext();
-                    if (value?.Document != null)
-                       hit = new CacheValue<T>(value.Document, true);
-                }
-
-                if (hit == null) {
-                    var value = await GetCachedFindHit(id).AnyContext();
-                    hit = new CacheValue<T>(value?.Document, value?.Document != null);
-                }
-            }
-
-            bool isTraceLogLevelEnabled = _logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace);
-            if (hit != null && hit.HasValue) {
-                if (isTraceLogLevelEnabled)
-                    _logger.LogTrace("Cache hit: type={ElasticType} key={Id}", ElasticIndex.Name, id);
-                return hit.Value;
-            }
-
-            FindHit<T> findHit;
-            if (!HasParent || id.Routing != null) {
-                var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
-                if (id.Routing != null)
-                    request.Routing = id.Routing;
-                var response = await _client.GetAsync<T>(request).AnyContext();
-                if (isTraceLogLevelEnabled)
-                    _logger.LogTraceRequest(response, options.GetQueryLogLevel());
-
-                findHit = response.Found ? response.ToFindHit() : null;
-            } else {
-                // we don't have the parent id so we have to do a query
-                // TODO: Ensure this is find one query is not cached.
-                findHit = await FindOneAsync(q => NewQuery().Id(id)).AnyContext();
-            }
-
-            if (IsCacheEnabled && options.ShouldUseCache()) {
-                var expiresIn = options.GetExpiresIn();
-                if (options.HasCacheKey())
-                    await SetCachedFindHit(findHit, options.GetCacheKey(), expiresIn).AnyContext();
-                
-                await SetCachedFindHit(findHit, id, expiresIn).AnyContext();
-            }
-
-            return findHit?.Document;
-        }
-        public virtual async Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, CommandOptionsDescriptor<T> optionsDesc = null) {
-            var idList = ids?.Distinct().Where(i => !String.IsNullOrEmpty(i)).ToList();
-            if (idList == null || idList.Count == 0)
-                return EmptyList;
-
-            if (!HasIdentity)
-                throw new NotSupportedException("Model type must implement IIdentity.");
-
-            var options = optionsDesc.Configure();
-            options = ConfigureOptions(options);
-            
-            var hits = new List<FindHit<T>>();
-            if (IsCacheEnabled && options.ShouldReadCache()) {
-                var idsToLookupFromCache = idList.ToList();
-                
-                if (options.HasCacheKey() && HasIdentity) {
-                    var values = await GetCachedFindHit(idList, options.GetCacheKey()).AnyContext();
-                    foreach (var value in values) {
-                        hits.Add(value);
-                        idsToLookupFromCache.Remove(value.Id);
-                    }
-                }
-
-                if (idsToLookupFromCache.Count > 0)
-                    hits.AddRange(await GetCachedFindHit(idsToLookupFromCache).AnyContext());
-            }
-
-            var itemsToFind = idList.Except(hits.Select(i => (Id)i.Id)).ToList();
-            if (itemsToFind.Count == 0)
-                return hits.Where(h => h.Document != null).Select(h => h.Document).ToList().AsReadOnly();
-
-            var multiGet = new MultiGetDescriptor();
-            foreach (var id in itemsToFind.Where(i => i.Routing != null || !HasParent)) {
-                multiGet.Get<T>(f => {
-                    f.Id(id.Value).Index(ElasticIndex.GetIndex(id));
-                    if (id.Routing != null)
-                        f.Routing(id.Routing);
-
-                    return f;
-                });
-            }
-
-            var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
-            _logger.LogTraceRequest(multiGetResults, options.GetQueryLogLevel());
-
-            foreach (var doc in multiGetResults.Hits) {
-                hits.Add(((IMultiGetHit<T>)doc).ToFindHit());
-                itemsToFind.Remove(new Id(doc.Id, doc.Routing));
-            }
-
-            // fallback to doing a find
-            if (itemsToFind.Count > 0 && (HasParent || ElasticIndex.HasMultipleIndexes)) {
-                var response = await FindAsync(q => q.Id(itemsToFind.Select(id => id.Value)), o => o.PageLimit(1000)).AnyContext();
-                do {
-                    if (response.Hits.Count > 0)
-                        hits.AddRange(response.Hits.Where(h => h.Document != null));
-                } while (await response.NextPageAsync().AnyContext());
-            }
-
-            if (IsCacheEnabled && options.ShouldUseCache()) {
-                var expiresIn = options.GetExpiresIn();
-                if (options.HasCacheKey())
-                    await SetCachedFindHit(hits, options.GetCacheKey(), expiresIn).AnyContext();
-
-                await SetCachedFindHit(hits, null, expiresIn).AnyContext();
-            }
-
-            return hits.Where(h => h.Document != null).Select(h => h.Document).ToList().AsReadOnly();
-        }
-        
-        public virtual Task<FindResults<T>> GetAllAsync(CommandOptionsDescriptor<T> options = null) {
-            return FindAsync(null, options);
         }
 
-        public virtual async Task<bool> ExistsAsync(Id id) {
-            if (String.IsNullOrEmpty(id.Value))
-                return false;
-
-            if (HasParent || id.Routing != null) {
-                var options = ConfigureOptions(null);
-                var response = await _client.DocumentExistsAsync(new DocumentPath<T>(id.Value), d => {
-                    d.Index(ElasticIndex.GetIndex(d));
-                    if (id.Routing != null)
-                        d.Routing(id.Routing);
-
-                    return d;
-                }).AnyContext();
-                _logger.LogTraceRequest(response, options.GetQueryLogLevel());
-
-                return response.Exists;
-            }
-
-            return await ExistsAsync(q => q.Id(id)).AnyContext();
+        public Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
+            return CountAsync(query.Configure(), options.Configure());
         }
 
-        public virtual async Task<bool> ExistsAsync(RepositoryQueryDescriptor<T> queryDesc) {
-            var query = queryDesc.Configure();
-
-            var options = ConfigureOptions(null);
-            await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
-
-            var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(0);
-            searchDescriptor.DocValueFields(_idField.Value);
-            var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
-
-            if (response.IsValid) {
-                _logger.LogTraceRequest(response, options.GetQueryLogLevel());
-            } else {
-                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
-                    return false;
-
-                _logger.LogErrorRequest(response, "Error checking if document exists");
-                throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
-            }
-
-            return response.HitsMetadata.Total.Value > 0;
-        }
-
-        public virtual async Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> queryDesc, CommandOptionsDescriptor<T> optionsDesc = null) {
-            var query = queryDesc.Configure();
-            var options = optionsDesc.Configure();
-
-            options = ConfigureOptions(options);
+        public virtual async Task<CountResult> CountAsync(IRepositoryQuery query, ICommandOptions options = null) {
+            options = ConfigureOptions(options.As<T>());
 
             CountResult result;
             if (IsCacheEnabled && options.ShouldReadCache()) {
@@ -431,22 +487,48 @@ namespace Foundatio.Repositories.Elasticsearch {
                 _logger.LogErrorRequest(response, "Error getting document count");
                 throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
             }
-            
+
             result = new CountResult(response.Total, response.ToAggregations());
-            if (IsCacheEnabled && options.ShouldUseCache()) 
+            if (IsCacheEnabled && options.ShouldUseCache())
                 await SetCachedQueryResultAsync(options, result, "count").AnyContext();
 
             return result;
         }
 
-        public virtual Task<CountResult> CountBySearchAsync(ISystemFilter systemFilter, string filter = null, string aggregations = null, CommandOptionsDescriptor<T> options = null) {
-            return CountAsync(q => q.SystemFilter(systemFilter).FilterExpression(filter).AggregationsExpression(aggregations), options);
+        public Task<bool> ExistsAsync(RepositoryQueryDescriptor<T> query) {
+            return ExistsAsync(query.Configure());
         }
-        
-        public virtual async Task<long> CountAsync(CommandOptionsDescriptor<T> options = null) {
-            var result = await CountAsync(q => q, options).AnyContext();
-            return result.Total;
+
+        public virtual async Task<bool> ExistsAsync(IRepositoryQuery query) {
+            var options = ConfigureOptions(null);
+            await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
+
+            var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(0);
+            searchDescriptor.DocValueFields(_idField.Value);
+            var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
+
+            if (response.IsValid) {
+                _logger.LogTraceRequest(response, options.GetQueryLogLevel());
+            } else {
+                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+                    return false;
+
+                _logger.LogErrorRequest(response, "Error checking if document exists");
+                throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+            }
+
+            return response.HitsMetadata.Total.Value > 0;
         }
+
+        public virtual Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, ICommandOptions options = null) {
+            return FindAsAsync<T>(q => q.SystemFilter(systemFilter).FilterExpression(filter).SearchExpression(criteria).SortExpression(sort).AggregationsExpression(aggregations), o => options.As<T>());
+        }
+
+        public virtual Task<CountResult> CountBySearchAsync(ISystemFilter systemFilter, string filter = null, string aggregations = null, ICommandOptions options = null) {
+            return CountAsync(q => q.SystemFilter(systemFilter).FilterExpression(filter).AggregationsExpression(aggregations), o => options.As<T>());
+        }
+
+        #endregion
 
         protected virtual IRepositoryQuery<T> NewQuery() {
             return new RepositoryQuery<T>();
@@ -509,21 +591,6 @@ namespace Foundatio.Repositories.Elasticsearch {
             return Task.CompletedTask;
         }
 
-        public Task InvalidateCacheAsync(T document, CommandOptionsDescriptor<T> options = null) {
-            return InvalidateCacheAsync(new[] { document }, options);
-        }
-
-        public virtual Task InvalidateCacheAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> optionsDesc = null) {
-            var docs = documents?.ToList();
-            if (docs == null || docs.Any(d => d == null))
-                throw new ArgumentNullException(nameof(documents));
-
-            if (!IsCacheEnabled)
-                return Task.CompletedTask;
-
-            return InvalidateCacheAsync(docs.Select(d => new ModifiedDocument<T>(d, null)).ToList(), optionsDesc.Configure());
-        }
-
         protected virtual Task<SearchDescriptor<T>> CreateSearchDescriptorAsync(IRepositoryQuery query, ICommandOptions options) {
             return ConfigureSearchDescriptorAsync(null, query, options);
         }
@@ -547,11 +614,6 @@ namespace Foundatio.Repositories.Elasticsearch {
             return search;
         }
 
-        public TimeSpan DefaultCacheExpiration { get; set; } = TimeSpan.FromSeconds(60 * 5);
-        public int DefaultPageLimit { get; set; } = 10;
-        public int MaxPageLimit { get; set; } = 9999;
-        public Microsoft.Extensions.Logging.LogLevel DefaultQueryLogLevel { get; set; } = Microsoft.Extensions.Logging.LogLevel.Trace;
-
         protected virtual ICommandOptions<T> ConfigureOptions(ICommandOptions<T> options) {
             if (options == null)
                 options = new CommandOptions<T>();
@@ -566,8 +628,6 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             return options;
         }
-
-        protected Func<T, string> GetParentIdFunc { get; set; }
 
         protected async Task<TResult> GetCachedQueryResultAsync<TResult>(ICommandOptions options, string cachePrefix = null, string cacheSuffix = null) {
             if (!IsCacheEnabled || !options.ShouldReadCache() || !options.HasCacheKey())
@@ -666,80 +726,6 @@ namespace Foundatio.Repositories.Elasticsearch {
             
             if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
                 _logger.LogTrace("Set cache: type={ElasticType} key={CacheKey}", ElasticIndex.Name, cacheKey ?? String.Join(", ", findHits.Select(h => h?.Id)));
-        }
-        
-        private IIndex _elasticIndex;
-
-        protected IIndex ElasticIndex {
-            get => _elasticIndex;
-            private set => _elasticIndex = value;
-        }
-
-        #region Events
-
-        public AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; } = new AsyncEvent<BeforeQueryEventArgs<T>>();
-
-        private async Task OnBeforeQueryAsync(IRepositoryQuery query, ICommandOptions options, Type resultType) {
-            if (SupportsSoftDeletes && IsCacheEnabled && query.GetSoftDeleteMode() == SoftDeleteQueryMode.ActiveOnly) {
-                var deletedIds = await Cache.GetListAsync<string>("deleted").AnyContext();
-                if (deletedIds.HasValue)
-                    query.ExcludedId(deletedIds.Value);
-            }
-            
-            var systemFilter = query.GetSystemFilter();
-            if (systemFilter != null)
-                query.MergeFrom(systemFilter.GetQuery());
-
-            if (BeforeQuery == null || !BeforeQuery.HasHandlers)
-                return;
-
-            await BeforeQuery.InvokeAsync(this, new BeforeQueryEventArgs<T>(query, options, this, resultType)).AnyContext();
-        }
-
-        #endregion
-
-        public Task<T> GetByIdAsync(Id id, ICommandOptions options) {
-            return GetByIdAsync(id, o => options.As<T>());
-        }
-
-        public Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, ICommandOptions options) {
-            return GetByIdsAsync(ids, o => options.As<T>());
-        }
-
-        public Task<FindResults<T>> GetAllAsync(ICommandOptions options) {
-            return GetAllAsync(o => options.As<T>());
-        }
-
-        public Task<long> CountAsync(ICommandOptions options) {
-            return CountAsync(o => options.As<T>());
-        }
-
-        public Task InvalidateCacheAsync(T document, ICommandOptions options) {
-            return InvalidateCacheAsync(document, o => options.As<T>());
-        }
-
-        public Task InvalidateCacheAsync(IEnumerable<T> documents, ICommandOptions options) {
-            return InvalidateCacheAsync(documents, o => options.As<T>());
-        }
-
-        public Task<FindResults<T>> FindAsync(IRepositoryQuery query, ICommandOptions options = null) {
-            return FindAsync(q => query.As<T>(), o => options.As<T>());
-        }
-
-        public Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions options = null) where TResult : class, new() {
-            return FindAsAsync<TResult>(q => query.As<T>(), o => options.As<T>());
-        }
-
-        public Task<CountResult> CountAsync(IRepositoryQuery query, ICommandOptions options = null) {
-            return CountAsync(q => query.As<T>(), o => options.As<T>());
-        }
-
-        public Task<FindHit<T>> FindOneAsync(IRepositoryQuery query, ICommandOptions options = null) {
-            return FindOneAsync(q => query.As<T>(), o => options.As<T>());
-        }
-
-        public Task<bool> ExistsAsync(IRepositoryQuery query) {
-            return ExistsAsync(q => query.As<T>());
         }
     }
 }

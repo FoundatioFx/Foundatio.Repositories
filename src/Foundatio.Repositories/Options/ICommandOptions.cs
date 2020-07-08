@@ -14,6 +14,9 @@ namespace Foundatio.Repositories {
 namespace Foundatio.Repositories.Options {
     public static class CommandOptionsExtensions {
         public static ICommandOptions<T> As<T>(this ICommandOptions options) where T : class {
+            if (options == null)
+                return new CommandOptions<T>();
+
             if (options is ICommandOptions<T> typedOptions)
                 return typedOptions;
 
