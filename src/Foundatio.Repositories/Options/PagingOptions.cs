@@ -42,11 +42,15 @@ namespace Foundatio.Repositories.Options {
         public static int GetLimit(this ICommandOptions options) {
             int limit = options.SafeGetOption(SetPagingOptionsExtensions.PageLimitKey, options.SafeGetOption(SetPagingOptionsExtensions.DefaultPageLimitKey, 10));
 
-            int maxLimit = options.SafeGetOption(SetPagingOptionsExtensions.MaxPageLimitKey, 9999);
+            int maxLimit = options.SafeGetOption(SetPagingOptionsExtensions.MaxPageLimitKey, 10000);
             if (limit > maxLimit)
                 return maxLimit;
 
             return limit;
+        }
+
+        public static int GetMaxLimit(this ICommandOptions options) {
+            return options.SafeGetOption(SetPagingOptionsExtensions.MaxPageLimitKey, 10000);
         }
 
         public static bool HasPageNumber(this ICommandOptions options) {

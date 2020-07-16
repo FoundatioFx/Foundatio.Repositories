@@ -64,13 +64,15 @@ namespace Foundatio.Repositories {
         /// Checks to see if any document exists that matches the specified query
         /// </summary>
         /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
-        Task<bool> ExistsAsync(RepositoryQueryDescriptor<T> query);
+        /// <param name="options">Command options used to control things like paging, caching, etc</param>
+        Task<bool> ExistsAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
 
         /// <summary>
         /// Checks to see if any document exists that matches the specified query
         /// </summary>
         /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
-        Task<bool> ExistsAsync(IRepositoryQuery query);
+        /// <param name="options">Command options used to control things like paging, caching, etc</param>
+        Task<bool> ExistsAsync(IRepositoryQuery query, ICommandOptions options = null);
 
         /// <summary>
         /// Find documents using search criteria

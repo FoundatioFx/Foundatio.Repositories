@@ -16,7 +16,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return Task.CompletedTask;
 
             // get soft delete mode, use parent query as default if it exists
-            var mode = ctx.Source.GetSoftDeleteMode(ctx.Parent?.Source?.GetSoftDeleteMode() ?? SoftDeleteQueryMode.ActiveOnly);
+            var mode = ctx.Options.GetSoftDeleteMode(ctx.Parent?.Options?.GetSoftDeleteMode() ?? SoftDeleteQueryMode.ActiveOnly);
 
             // no filter needed if we want all
             if (mode == SoftDeleteQueryMode.All)

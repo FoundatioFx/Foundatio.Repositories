@@ -83,14 +83,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _employeeRepository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
 
-            var allEmployees = await _employeeRepository.FindAsync(q => q.SoftDeleteMode(SoftDeleteQueryMode.All));
+            var allEmployees = await _employeeRepository.FindAsync(null, o => o.IncludeSoftDeletes());
             Assert.Equal(2, allEmployees.Total);
 
-            var onlyDeleted = await _employeeRepository.FindAsync(q => q.SoftDeleteMode(SoftDeleteQueryMode.DeletedOnly));
+            var onlyDeleted = await _employeeRepository.FindAsync(null, o => o.SoftDeleteMode(SoftDeleteQueryMode.DeletedOnly));
             Assert.Equal(1, onlyDeleted.Total);
             Assert.Equal(employee1.Id, onlyDeleted.Documents.First().Id);
 
-            var nonDeletedEmployees = await _employeeRepository.FindAsync(q => q.SoftDeleteMode(SoftDeleteQueryMode.ActiveOnly));
+            var nonDeletedEmployees = await _employeeRepository.FindAsync(null, o => o.SoftDeleteMode(SoftDeleteQueryMode.ActiveOnly));
             Assert.Equal(1, nonDeletedEmployees.Total);
             Assert.NotEqual(employee1.Id, nonDeletedEmployees.Documents.First().Id);
         }
@@ -104,10 +104,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _employeeRepository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
 
-            var allEmployees = await _employeeRepository.FindAsync(q => q.SoftDeleteMode(SoftDeleteQueryMode.All));
+            var allEmployees = await _employeeRepository.FindAsync(null, o => o.IncludeSoftDeletes());
             Assert.Equal(2, allEmployees.Total);
 
-            var onlyDeleted = await _employeeRepository.FindAsync(q => q.SoftDeleteMode(SoftDeleteQueryMode.All).FilterExpression("isDeleted:true"));
+            var onlyDeleted = await _employeeRepository.FindAsync(q => q.FilterExpression("isDeleted:true"), o => o.IncludeSoftDeletes());
             Assert.Equal(1, onlyDeleted.Total);
             Assert.Equal(employee1.Id, onlyDeleted.Documents.First().Id);
 

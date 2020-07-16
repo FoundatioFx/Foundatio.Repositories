@@ -15,7 +15,8 @@ namespace Foundatio.Repositories {
         Task<FindResults<T>> GetAllAsync(CommandOptionsDescriptor<T> options);
         Task<FindResults<T>> GetAllAsync(ICommandOptions options = null);
 
-        Task<bool> ExistsAsync(Id id);
+        Task<bool> ExistsAsync(Id id, CommandOptionsDescriptor<T> options);
+        Task<bool> ExistsAsync(Id id, ICommandOptions options = null);
 
         Task<long> CountAsync(CommandOptionsDescriptor<T> options);
         Task<long> CountAsync(ICommandOptions options = null);

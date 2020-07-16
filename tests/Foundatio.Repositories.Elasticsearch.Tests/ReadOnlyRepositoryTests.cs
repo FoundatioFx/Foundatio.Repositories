@@ -797,10 +797,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             employees = await _employeeRepository.GetAllByAgeAsync(20);
             Assert.Equal(0, employees.Total);
 
-            var employeeById = await _employeeRepository.GetByIdAsync(employee.Id);
-
+            Assert.Null(await _employeeRepository.GetByIdAsync(employee.Id));
+            var employeeById = await _employeeRepository.GetByIdAsync(employee.Id, o => o.IncludeSoftDeletes());
             Assert.NotNull(employeeById);
             Assert.True(employeeById.IsDeleted);
+
+            Assert.Empty(await _employeeRepository.GetByIdsAsync(new[] { employee.Id }));
+            Assert.Single(await _employeeRepository.GetByIdsAsync(new[] { employee.Id }, o => o.IncludeSoftDeletes()));
+
+            Assert.False(await _employeeRepository.ExistsAsync(employee.Id));
+            Assert.True(await _employeeRepository.ExistsAsync(employee.Id, o => o.IncludeSoftDeletes()));
         }
 
         [Fact]
