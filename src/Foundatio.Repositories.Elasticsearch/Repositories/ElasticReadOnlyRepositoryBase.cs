@@ -209,7 +209,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (String.IsNullOrEmpty(id.Value))
                 return false;
 
-            // documents that use soft deletes or has a parent without a routing id need to use search for exists
+            // documents that use soft deletes or have parents without a routing id need to use search for exists
             if (!SupportsSoftDeletes && (!HasParent || id.Routing != null)) {
                 var response = await _client.DocumentExistsAsync(new DocumentPath<T>(id.Value), d => {
                     d.Index(ElasticIndex.GetIndex(id));

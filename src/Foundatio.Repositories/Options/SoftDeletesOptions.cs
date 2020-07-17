@@ -8,8 +8,8 @@ namespace Foundatio.Repositories {
             return query.BuildOption(SoftDeleteModeKey, mode);
         }
 
-        public static T IncludeSoftDeletes<T>(this T query) where T : ICommandOptions {
-            return query.BuildOption(SoftDeleteModeKey, SoftDeleteQueryMode.All);
+        public static T IncludeSoftDeletes<T>(this T query, bool includeDeleted = true) where T : ICommandOptions {
+            return query.BuildOption(SoftDeleteModeKey, includeDeleted ? SoftDeleteQueryMode.All : SoftDeleteQueryMode.ActiveOnly);
         }
     }
 
