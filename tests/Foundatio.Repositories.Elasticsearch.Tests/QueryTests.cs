@@ -223,5 +223,62 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 await _employeeRepository.FindAsync(q => q.SearchExpression("companyName:"));
             });
         }
+
+
+        [Fact]
+        public async Task GetByEmailAddressFilter() {
+            var findResult = await _employeeRepository.GetByEmailAddressAsync(EmployeeGenerator.Default.EmailAddress);
+            Assert.Null(findResult);
+            Assert.Equal(1, _cache.Count);
+            Assert.Equal(0, _cache.Hits);
+            Assert.Equal(2, _cache.Misses); // one for soft deleted ids
+
+            // missing value should be cached
+            findResult = await _employeeRepository.GetByEmailAddressAsync(EmployeeGenerator.Default.EmailAddress);
+            Assert.Null(findResult);
+            Assert.Equal(1, _cache.Count);
+            Assert.Equal(1, _cache.Hits);
+            Assert.Equal(3, _cache.Misses);
+
+            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache());
+            Assert.NotNull(employee?.Id);
+            Assert.NotNull(employee.EmailAddress);
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(1, _cache.Hits);
+            Assert.Equal(3, _cache.Misses);
+
+            await _employeeRepository.SaveAsync(employee, o => o.Cache());
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(1, _cache.Hits);
+            Assert.Equal(3, _cache.Misses);
+
+            Assert.Equal(employee, await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache()));
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(2, _cache.Hits);
+            Assert.Equal(3, _cache.Misses);
+
+            var idsResult = await _employeeRepository.GetByIdsAsync(new[] { employee.Id }, o => o.Cache());
+            Assert.Equal(employee, idsResult.Single());
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(3, _cache.Hits);
+            Assert.Equal(3, _cache.Misses);
+
+            findResult = await _employeeRepository.GetByEmailAddressAsync(employee.EmailAddress);
+            Assert.Equal(employee, findResult.Document);
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(4, _cache.Hits);
+            Assert.Equal(3, _cache.Misses);
+
+            await _employeeRepository.InvalidateCacheAsync(employee);
+            Assert.Equal(0, _cache.Count);
+            Assert.Equal(4, _cache.Hits);
+            Assert.Equal(3, _cache.Misses);
+
+            findResult = await _employeeRepository.GetByEmailAddressAsync(employee.EmailAddress);
+            Assert.Null(findResult);
+            Assert.Equal(1, _cache.Count);
+            Assert.Equal(4, _cache.Hits);
+            Assert.Equal(5, _cache.Misses);
+        }
     }
 }

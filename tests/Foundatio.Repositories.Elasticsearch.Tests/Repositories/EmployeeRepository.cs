@@ -14,6 +14,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         long DocumentsChangedCount { get; }
         long QueryCount { get; }
 
+        Task<FindHit<Employee>> GetByEmailAddressAsync(string emailAddress);
         Task<FindResults<Employee>> GetAllByAgeAsync(int age);
         Task<FindResults<Employee>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<Employee> options = null);
 
@@ -57,6 +58,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return FindAsync(q => q.Age(age));
         }
 
+        public Task<FindHit<Employee>> GetByEmailAddressAsync(string emailAddress) {
+            return FindOneAsync(q => q.EmailAddress(emailAddress), o => o.Cache($"email:{emailAddress.ToLowerInvariant()}"));
+        }
+
         public Task<FindResults<Employee>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<Employee> options = null) {
             var commandOptions = options.Configure();
             if (commandOptions.ShouldUseCache())
@@ -69,8 +74,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return FindAsync(q => q.FieldCondition(c => c.CompanyId, ComparisonOperator.Equals, companies));
         }
 
-        public Task<CountResult> GetCountByCompanyAsync(string company) {
-            return CountAsync(q => q.Company(company), o => o.CacheKey(company));
+        public Task<CountResult> GetCountByCompanyAsync(string companyId) {
+            return CountAsync(q => q.Company(companyId), o => o.CacheKey(companyId));
         }
 
         public Task<CountResult> GetNumberOfEmployeesWithMissingCompanyName(string company) {
@@ -109,18 +114,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return PatchAllAsync(query, new ScriptPatch(script), o => o.ImmediateConsistency(true));
         }
 
-        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<Employee>> documents, ICommandOptions options = null) {
-            if (!IsCacheEnabled)
-                return;
+        protected override async Task AddDocumentsToCacheAsync(ICollection<FindHit<Employee>> findHits, ICommandOptions options) {
+            await base.AddDocumentsToCacheAsync(findHits, options);
 
-            if (documents != null && documents.Count > 0 && HasIdentity) {
-                var keys = documents.Select(d => $"count:{d.Value.CompanyId}").Distinct().ToList();
+            var cacheEntries = new Dictionary<string, FindHit<Employee>>();
+            foreach (var hit in findHits.Where(d => !String.IsNullOrEmpty(d.Document.EmailAddress)))
+                cacheEntries.Add($"email:{hit.Document.EmailAddress.ToLowerInvariant()}", hit);
 
-                if (keys.Count > 0)
-                    await Cache.RemoveAllAsync(keys);
-            }
+            await AddDocumentToCacheAsync(cacheEntries, options.GetExpiresIn());
+        }
 
-            await base.InvalidateCacheAsync(documents, options);
+        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<Employee>> documents, ChangeType? changeType = null) {
+            await base.InvalidateCacheAsync(documents, changeType);
+            await Cache.RemoveAllAsync(documents.Where(d => !String.IsNullOrEmpty(d.Value.EmailAddress)).Select(d => $"email:{d.Value.EmailAddress.ToLowerInvariant()}"));
         }
     }
 }

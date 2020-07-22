@@ -48,7 +48,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return AddAsync(document, options.Configure());
         }
 
-        public virtual async Task<T> AddAsync(T document, ICommandOptions options = null) {
+        public async Task<T> AddAsync(T document, ICommandOptions options = null) {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
 
@@ -69,6 +69,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return;
 
             options = ConfigureOptions(options.As<T>());
+            if (IsCacheEnabled && options.HasCacheKey())
+                throw new ArgumentException("Cache key can't be set when calling AddAsync");
+
             await OnDocumentsAddingAsync(docs, options).AnyContext();
 
             if (_validator != null)
@@ -78,14 +81,15 @@ namespace Foundatio.Repositories.Elasticsearch {
             await IndexDocumentsAsync(docs, true, options).AnyContext();
 
             await OnDocumentsAddedAsync(docs, options).AnyContext();
-            await AddToCacheAsync(docs, options).AnyContext();
+            if (IsCacheEnabled && options.ShouldUseCache())
+                await AddDocumentsToCacheAsync(docs, options).AnyContext();
         }
 
         public Task<T> SaveAsync(T document, CommandOptionsDescriptor<T> options) {
             return SaveAsync(document, options.Configure());
         }
 
-        public virtual async Task<T> SaveAsync(T document, ICommandOptions options = null) {
+        public async Task<T> SaveAsync(T document, ICommandOptions options = null) {
             if (document == null)
                 throw new ArgumentNullException(nameof(document));
 
@@ -110,6 +114,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ApplicationException("Id must be set when calling Save.");
 
             options = ConfigureOptions(options.As<T>());
+            if (IsCacheEnabled && options.HasCacheKey())
+                throw new ArgumentException("Cache key can't be set when calling SaveAsync");
 
             var originalDocuments = await GetOriginalDocumentsAsync(ids, options).AnyContext();
             await OnDocumentsSavingAsync(docs, originalDocuments, options).AnyContext();
@@ -121,7 +127,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             await IndexDocumentsAsync(docs, false, options).AnyContext();
 
             await OnDocumentsSavedAsync(docs, originalDocuments, options).AnyContext();
-            await AddToCacheAsync(docs, options).AnyContext();
+            if (IsCacheEnabled && options.ShouldUseCache())
+                await AddDocumentsToCacheAsync(docs, options).AnyContext();
         }
 
         public Task PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options) {
@@ -212,7 +219,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             // TODO: Find a good way to invalidate cache and send changed notification
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
             if (IsCacheEnabled)
-                await Cache.RemoveAsync(id).AnyContext();
+                await InvalidateCacheAsync(id).AnyContext();
 
             if (options.ShouldNotify())
                 await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
@@ -293,7 +300,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             // TODO: Find a good way to invalidate cache and send changed notification
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
             if (IsCacheEnabled)
-                await Cache.RemoveAllAsync(ids.Select(id => id.Value)).AnyContext();
+                await InvalidateCacheAsync(ids.Select(id => id.Value)).AnyContext();
 
             if (options.ShouldNotify()) {
                 var tasks = new List<Task>(ids.Count);
@@ -308,7 +315,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return RemoveAsync(id, options.Configure());
         }
 
-        public virtual Task RemoveAsync(Id id, ICommandOptions options = null) {
+        public Task RemoveAsync(Id id, ICommandOptions options = null) {
             if (String.IsNullOrEmpty(id))
                 throw new ArgumentNullException(nameof(id));
 
@@ -319,7 +326,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return RemoveAsync(ids, options.Configure());
         }
 
-        public virtual async Task RemoveAsync(Ids ids, ICommandOptions options = null) {
+        public async Task RemoveAsync(Ids ids, ICommandOptions options = null) {
             if (ids == null)
                 throw new ArgumentNullException(nameof(ids));
 
@@ -365,6 +372,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             options = ConfigureOptions(options.As<T>());
+            if (IsCacheEnabled && options.HasCacheKey())
+                throw new ArgumentException("Cache key can't be set when calling RemoveAsync");
+
             await OnDocumentsRemovingAsync(docs, options).AnyContext();
 
             if (docs.Count == 1) {
@@ -563,7 +573,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                         var updatedIds = results.Hits.Select(h => h.Id).ToList();
                         if (IsCacheEnabled)
-                            await Cache.RemoveAllAsync(updatedIds).AnyContext();
+                            await InvalidateCacheAsync(updatedIds).AnyContext();
 
                         try {
                             options.GetUpdatedIdsCallback()?.Invoke(updatedIds);
@@ -629,7 +639,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return BatchProcessAsync(query.Configure(), processFunc, options.Configure());
         }
 
-        public virtual Task<long> BatchProcessAsync(IRepositoryQuery query, Func<FindResults<T>, Task<bool>> processFunc, ICommandOptions options = null) {
+        public Task<long> BatchProcessAsync(IRepositoryQuery query, Func<FindResults<T>, Task<bool>> processFunc, ICommandOptions options = null) {
             return BatchProcessAsAsync(query, processFunc, options);
         }
 
@@ -804,8 +814,8 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         private async Task OnDocumentsChangedAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
-            if (changeType != ChangeType.Added)
-                await InvalidateCacheAsync(documents, options).AnyContext();
+            if (IsCacheEnabled)
+                await InvalidateCacheAsync(documents, changeType).AnyContext();
             
             if (DocumentsChanged == null || !DocumentsChanged.HasHandlers)
                 return;
@@ -935,30 +945,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
             }
             // 429 // 503
-        }
-
-        protected virtual Task AddToCacheAsync(ICollection<T> documents, ICommandOptions options) {
-            if (!IsCacheEnabled || Cache == null || !options.ShouldUseCache())
-                return Task.CompletedTask;
-
-            var expiresIn = options.GetExpiresIn();
-            var findHits = documents.Select(ToFindHit).ToList();
-
-            var saveDocumentsToCacheWithKeyTask = options.HasCacheKey()
-                ? SetCachedFindHit(findHits, options.GetCacheKey(), expiresIn)
-                : Task.CompletedTask;
-            
-            return Task.WhenAll(saveDocumentsToCacheWithKeyTask, SetCachedFindHit(findHits, null, expiresIn));
-        }
-        
-        protected Task SetCachedFindHit(T document, string cacheKey = null, TimeSpan? expiresIn = null) {
-            return SetCachedFindHit(new List<FindHit<T>> { ToFindHit(document) }, cacheKey ?? document.Id, expiresIn);
-        }
-
-        protected FindHit<T> ToFindHit(T document) {
-            string version = HasVersion ? ((IVersioned)document)?.Version : null;
-            string routing = GetParentIdFunc?.Invoke(document);
-            return new FindHit<T>(document?.Id, document, 0, version, routing);
         }
 
         protected bool NotificationsEnabled { get; set; }

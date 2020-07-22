@@ -203,82 +203,46 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         
         [Fact]
         public async Task AddCollectionWithCacheKeyAsync() {
-            const string cacheKey = "test-cache-key";
-            
             var identity = IdentityGenerator.Generate();
             var identity2 = IdentityGenerator.Generate();
-            await _identityRepository.AddAsync(new List<Identity> { identity, identity2 }, o => o.Cache(cacheKey));
+            await _identityRepository.AddAsync(new List<Identity> { identity, identity2 }, o => o.Cache());
             Assert.NotNull(identity?.Id);
-            Assert.Equal(3, _cache.Count);
+            Assert.Equal(2, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
 
-            Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache(cacheKey)));
-            Assert.Equal(3, _cache.Count);
+            Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache()));
+            Assert.Equal(2, _cache.Count);
             Assert.Equal(1, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
 
-            var idsResult = await _identityRepository.GetByIdsAsync(new[] { identity.Id }, o => o.Cache(cacheKey));
+            var idsResult = await _identityRepository.GetByIdsAsync(new[] { identity.Id }, o => o.Cache());
             Assert.Equal(identity, idsResult.Single());
-            Assert.Equal(3, _cache.Count);
+            Assert.Equal(2, _cache.Count);
             Assert.Equal(2, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
 
-            await _identityRepository.InvalidateCacheAsync(new List<Identity> {identity, identity2}, o => o.Cache(cacheKey));
+            await _identityRepository.InvalidateCacheAsync(new List<Identity> {identity, identity2});
             Assert.Equal(0, _cache.Count);
             Assert.Equal(2, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
             
-            Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache(cacheKey)));
-            Assert.Equal(2, _cache.Count);
+            Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache()));
+            Assert.Equal(1, _cache.Count);
             Assert.Equal(2, _cache.Hits);
+            Assert.Equal(1, _cache.Misses);
+
+            idsResult = await _identityRepository.GetByIdsAsync(new[] { identity.Id, identity2.Id }, o => o.Cache());
+            Assert.Equal(2, idsResult.Count);
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(3, _cache.Hits);
             Assert.Equal(2, _cache.Misses);
-
-            idsResult = await _identityRepository.GetByIdsAsync(new[] { identity.Id, identity2.Id }, o => o.Cache(cacheKey));
+            
+            idsResult = await _identityRepository.GetByIdsAsync(new[] { identity.Id, identity2.Id }, o => o.Cache());
             Assert.Equal(2, idsResult.Count);
-            Assert.Equal(3, _cache.Count);
-            Assert.Equal(3, _cache.Hits);
-            Assert.Equal(3, _cache.Misses);
-            
-            idsResult = await _identityRepository.GetByIdsAsync(new[] { identity.Id, identity2.Id }, o => o.Cache(cacheKey));
-            Assert.Equal(2, idsResult.Count);
-            Assert.Equal(3, _cache.Count);
-            Assert.Equal(4, _cache.Hits);
-            Assert.Equal(3, _cache.Misses);
-        }
-
-        [Fact]
-        public async Task AddSaveAndFindOneWillUseSameCacheEntry() {
-            const string cacheKey = "test-cache-key";
-            
-            var identity = IdentityGenerator.Generate();
-            await _identityRepository.AddAsync(new List<Identity> { identity }, o => o.Cache(cacheKey));
-            Assert.NotNull(identity?.Id);
             Assert.Equal(2, _cache.Count);
-            Assert.Equal(0, _cache.Hits);
-            Assert.Equal(0, _cache.Misses);
-            
-            await _identityRepository.SaveAsync(identity, o => o.Cache(cacheKey));
-            Assert.Equal(2, _cache.Count);
-            Assert.Equal(0, _cache.Hits);
-            Assert.Equal(0, _cache.Misses);
-
-            Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache(cacheKey)));
-            Assert.Equal(2, _cache.Count);
-            Assert.Equal(1, _cache.Hits);
-            Assert.Equal(0, _cache.Misses);
-
-            var idsResult = await _identityRepository.GetByIdsAsync(new[] { identity.Id }, o => o.Cache(cacheKey));
-            Assert.Equal(identity, idsResult.Single());
-            Assert.Equal(2, _cache.Count);
-            Assert.Equal(2, _cache.Hits);
-            Assert.Equal(0, _cache.Misses);
-
-            var findResult = await _identityRepository.FindOneAsync(q => q.FieldEquals(f => f.Id, identity.Id), o => o.Cache(cacheKey));
-            Assert.Equal(identity, findResult.Document);
-            Assert.Equal(2, _cache.Count);
-            Assert.Equal(3, _cache.Hits);
-            Assert.Equal(0, _cache.Misses);
+            Assert.Equal(5, _cache.Hits);
+            Assert.Equal(2, _cache.Misses);
         }
         
         [Fact]
@@ -427,42 +391,33 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         
         [Fact]
         public async Task AddAndSaveWithCacheKeyAsync() {
-            const string cacheKey = "test-cache-key";
-            var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.Cache(cacheKey));
-            Assert.Equal(2, _cache.Count);
+            var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.Cache());
+            Assert.Equal(1, _cache.Count);
             Assert.Equal(0, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
 
             var cache = new ScopedCacheClient(_cache, nameof(Identity));
-            var cacheValue = await cache.GetAsync<IEnumerable<FindHit<Identity>>>(cacheKey);
+            var cacheValue = await cache.GetAsync<IEnumerable<FindHit<Identity>>>(identity.Id);
+            Assert.Equal(1, _cache.Hits);
             Assert.True(cacheValue.HasValue);
             Assert.Equal(identity, cacheValue.Value.Single().Document);
 
-            identity = await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache(cacheKey));
+            identity = await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache());
             Assert.NotNull(identity);
             Assert.Equal(2, _cache.Hits);
-
-            cacheValue = await cache.GetAsync<IEnumerable<FindHit<Identity>>>(cacheKey);
-            Assert.True(cacheValue.HasValue);
-            Assert.Equal(identity, cacheValue.Value.Single().Document);
-
-            await _identityRepository.InvalidateCacheAsync(identity);
-            Assert.Equal(1, _cache.Count);
-            Assert.Equal(3, _cache.Hits);
-            Assert.Equal(0, _cache.Misses);
             
-            await _identityRepository.InvalidateCacheAsync(identity, o => o.CacheKey(cacheKey));
+            await _identityRepository.InvalidateCacheAsync(identity);
             Assert.Equal(0, _cache.Count);
-            Assert.Equal(3, _cache.Hits);
+            Assert.Equal(2, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
 
-            var result = await _identityRepository.SaveAsync(identity, o => o.Cache(cacheKey));
+            var result = await _identityRepository.SaveAsync(identity, o => o.Cache());
             Assert.NotNull(result);
-            Assert.Equal(2, _cache.Count);
-            Assert.Equal(3, _cache.Hits);
+            Assert.Equal(1, _cache.Count);
+            Assert.Equal(2, _cache.Hits);
             Assert.Equal(0, _cache.Misses);
 
-            cacheValue = await cache.GetAsync<IEnumerable<FindHit<Identity>>>(cacheKey);
+            cacheValue = await cache.GetAsync<IEnumerable<FindHit<Identity>>>(identity.Id);
             Assert.True(cacheValue.HasValue);
             Assert.Equal(identity, cacheValue.Value.Single().Document);
         }

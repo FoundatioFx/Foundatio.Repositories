@@ -68,17 +68,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return PatchAllAsync(query, new ScriptPatch(script), o => o.ImmediateConsistency(true));
         }
 
-        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents, ICommandOptions options = null) {
-            if (!IsCacheEnabled)
-                return;
-
-            if (documents != null && documents.Count > 0 && HasIdentity) {
-                var keys = documents.Select(d => $"count:{d.Value.CompanyId}").Distinct().ToList();
-                if (keys.Count > 0)
-                    await Cache.RemoveAllAsync(keys);
-            }
-
-            await base.InvalidateCacheAsync(documents, options);
+        protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents, ChangeType? changeType = null) {
+            await base.InvalidateCacheAsync(documents, changeType);
+            await Cache.RemoveAllAsync(documents.Select(d => $"count:{d.Value.CompanyId}"));
         }
     }
 

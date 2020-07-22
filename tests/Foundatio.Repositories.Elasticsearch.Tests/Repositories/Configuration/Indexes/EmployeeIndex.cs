@@ -25,6 +25,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .SetupDefaults()
                     .Text(f => f.Name("_all"))
                     .Keyword(f => f.Name(e => e.Id))
+                    .Keyword(f => f.Name(e => e.EmailAddress))
                     .Keyword(f => f.Name(e => e.CompanyId))
                     .Keyword(f => f.Name(e => e.CompanyName))
                     .Text(f => f.Name(e => e.Name).AddKeywordField().CopyTo(c => c.Field("_all")))
@@ -53,6 +54,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
         protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
             builder.Register<AgeQueryBuilder>();
             builder.Register<CompanyQueryBuilder>();
+            builder.Register<EmailAddressQueryBuilder>();
         }
 
         protected override void ConfigureQueryParser(ElasticQueryParserConfiguration config) {

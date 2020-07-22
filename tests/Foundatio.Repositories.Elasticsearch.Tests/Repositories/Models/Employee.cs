@@ -21,6 +21,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
         public string CompanyId { get; set; }
         public string CompanyName { get; set; }
         public string Name { get; set; }
+        public string EmailAddress { get; set; }
         public int Age { get; set; }
         public string Location { get; set; }
         public int YearsEmployed { get; set; }
@@ -36,6 +37,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
 
         protected bool Equals(Employee other) {
             return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase) &&
+                String.Equals(EmailAddress, other.EmailAddress, StringComparison.InvariantCultureIgnoreCase) &&
                 String.Equals(CompanyId, other.CompanyId, StringComparison.InvariantCultureIgnoreCase) &&
                 String.Equals(CompanyName, other.CompanyName, StringComparison.InvariantCultureIgnoreCase) &&
                 String.Equals(Name, other.Name, StringComparison.InvariantCultureIgnoreCase) &&
@@ -60,6 +62,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
         public override int GetHashCode() {
             unchecked {
                 var hashCode = (Id != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Id) : 0);
+                hashCode = (hashCode * 397) ^ (EmailAddress != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(EmailAddress) : 0);
                 hashCode = (hashCode * 397) ^ (CompanyId != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(CompanyId) : 0);
                 hashCode = (hashCode * 397) ^ (CompanyName != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(CompanyName) : 0);
                 hashCode = (hashCode * 397) ^ (Name != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Name) : 0);
@@ -87,6 +90,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
 
         public static Employee Default => new Employee {
             Name = "Blake",
+            EmailAddress = "blake@exceptionless.com",
             Age = 29,
             YearsEmployed = 9,
             CompanyName = "Exceptionless",

@@ -21,11 +21,11 @@ namespace Foundatio.Repositories {
         Task<long> CountAsync(CommandOptionsDescriptor<T> options);
         Task<long> CountAsync(ICommandOptions options = null);
 
-        Task InvalidateCacheAsync(T document, CommandOptionsDescriptor<T> options);
-        Task InvalidateCacheAsync(T document, ICommandOptions options = null);
+        Task InvalidateCacheAsync(T document);
+        Task InvalidateCacheAsync(IEnumerable<T> documents);
 
-        Task InvalidateCacheAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options);
-        Task InvalidateCacheAsync(IEnumerable<T> documents, ICommandOptions options = null);
+        Task InvalidateCacheAsync(string cacheKey);
+        Task InvalidateCacheAsync(IEnumerable<string> cacheKeys);
 
         AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; }
     }
