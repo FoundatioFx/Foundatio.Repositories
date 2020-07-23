@@ -121,7 +121,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             foreach (var hit in findHits.Where(d => !String.IsNullOrEmpty(d.Document.EmailAddress)))
                 cacheEntries.Add($"email:{hit.Document.EmailAddress.ToLowerInvariant()}", hit);
 
-            await AddDocumentToCacheAsync(cacheEntries, options.GetExpiresIn());
+            await AddDocumentsToCacheWithKeyAsync(cacheEntries, options.GetExpiresIn());
         }
 
         protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<Employee>> documents, ChangeType? changeType = null) {

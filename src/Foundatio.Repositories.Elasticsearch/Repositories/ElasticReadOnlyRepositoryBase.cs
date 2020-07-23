@@ -72,8 +72,6 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (IsCacheEnabled && options.HasCacheKey())
                 throw new ArgumentException("Cache key can't be set when calling GetById");
 
-            options.DefaultCacheKey(id);
-
             bool isTraceLogLevelEnabled = _logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace);
 
             if (IsCacheEnabled && options.ShouldReadCache()) {
@@ -100,7 +98,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             } else {
                 // we don't have the parent id so we have to do a query
                 // TODO: Ensure this find one query is not cached.
-                findHit = await FindOneAsync(NewQuery().Id(id), options).AnyContext();
+                findHit = await FindOneAsync(NewQuery().Id(id), options.Clone().DefaultCacheKey(id)).AnyContext();
             }
 
             if (IsCacheEnabled && options.ShouldUseCache())
@@ -732,9 +730,12 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected virtual async Task AddDocumentsToCacheAsync(ICollection<FindHit<T>> findHits, ICommandOptions options) {
-            if (options.HasCacheKey())
+            if (options.HasCacheKey()) {
+                // when caching by key, don't add documents by id as they may be out of sync due to eventual consistency
                 await Cache.SetAsync(options.GetCacheKey(), findHits, options.GetExpiresIn()).AnyContext();
-            
+                return;
+            }
+
             var findHitsById = findHits
                 .Where(hit => hit?.Id != null)
                 .ToDictionary(hit => hit.Id, hit => (ICollection<FindHit<T>>)findHits.Where(h => h.Id == hit.Id).ToList());
@@ -748,20 +749,20 @@ namespace Foundatio.Repositories.Elasticsearch {
                 _logger.LogTrace("Add documents to cache: type={EntityType} ids={Ids}", EntityTypeName, String.Join(", ", findHits.Select(h => h?.Id)));
         }
 
-        protected Task AddDocumentToCacheAsync(IDictionary<string, T> documents, TimeSpan expiresIn) {
+        protected Task AddDocumentsToCacheWithKeyAsync(IDictionary<string, T> documents, TimeSpan expiresIn) {
             return Cache.SetAllAsync(documents.ToDictionary(kvp => kvp.Key, kvp => (ICollection<FindHit<T>>)new List<FindHit<T>> { ToFindHit(kvp.Value) }), expiresIn);
         }
 
-        protected Task AddDocumentToCacheAsync(IDictionary<string, FindHit<T>> findHits, TimeSpan expiresIn) {
+        protected Task AddDocumentsToCacheWithKeyAsync(IDictionary<string, FindHit<T>> findHits, TimeSpan expiresIn) {
             return Cache.SetAllAsync(findHits.ToDictionary(kvp => kvp.Key, kvp => (ICollection<FindHit<T>>)new List<FindHit<T>> { kvp.Value }), expiresIn);
         }
 
-        protected Task AddDocumentToCacheAsync(string cacheKey, T document, TimeSpan expiresIn) {
+        protected Task AddDocumentsToCacheWithKeyAsync(string cacheKey, T document, TimeSpan expiresIn) {
 
-            return AddDocumentToCacheAsync(cacheKey, ToFindHit(document), expiresIn);
+            return AddDocumentsToCacheWithKeyAsync(cacheKey, ToFindHit(document), expiresIn);
         }
 
-        protected Task AddDocumentToCacheAsync(string cacheKey, FindHit<T> findHit, TimeSpan expiresIn) {
+        protected Task AddDocumentsToCacheWithKeyAsync(string cacheKey, FindHit<T> findHit, TimeSpan expiresIn) {
             return Cache.SetAsync<ICollection<FindHit<T>>>(cacheKey, new[] { findHit }, expiresIn);
         }
     }
