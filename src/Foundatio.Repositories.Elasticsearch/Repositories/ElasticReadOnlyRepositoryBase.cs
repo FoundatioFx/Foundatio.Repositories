@@ -732,12 +732,12 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected virtual async Task AddDocumentsToCacheAsync(ICollection<FindHit<T>> findHits, ICommandOptions options) {
+            if (options.HasCacheKey())
+                await Cache.SetAsync(options.GetCacheKey(), findHits, options.GetExpiresIn()).AnyContext();
+            
             var findHitsById = findHits
                 .Where(hit => hit?.Id != null)
                 .ToDictionary(hit => hit.Id, hit => (ICollection<FindHit<T>>)findHits.Where(h => h.Id == hit.Id).ToList());
-
-            if (options.HasCacheKey())
-                await Cache.SetAsync(options.GetCacheKey(), findHitsById, options.GetExpiresIn()).AnyContext();
 
             if (findHitsById.Count == 0)
                 return;
