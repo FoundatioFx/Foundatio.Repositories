@@ -521,7 +521,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             return new RepositoryQuery<T>();
         }
 
-        protected virtual IRepositoryQuery ConfigureQuery(IRepositoryQuery query) {
+        protected virtual IRepositoryQuery ConfigureQuery(IRepositoryQuery<T> query) {
             if (query == null)
                 query = new RepositoryQuery<T>();
 
@@ -530,7 +530,11 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             return query;
         }
-        
+
+        protected virtual Task InvalidateCacheByQueryAsync(IRepositoryQuery<T> query) {
+            return InvalidateCacheAsync(query.GetIds());
+        }
+
         protected void AddDefaultExclude(string field) {
             _defaultExcludes.Add(new Lazy<Field>(() => field));
         }
@@ -584,7 +588,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected virtual async Task<SearchDescriptor<T>> ConfigureSearchDescriptorAsync(SearchDescriptor<T> search, IRepositoryQuery query, ICommandOptions options) {
             search ??= new SearchDescriptor<T>();
 
-            query = ConfigureQuery(query);
+            query = ConfigureQuery(query.As<T>());
             var indices = ElasticIndex.GetIndexesByQuery(query);
             if (indices?.Length > 0)
                 search.Index(String.Join(",", indices));

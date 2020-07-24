@@ -425,8 +425,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             return RemoveAllAsync(options.Configure());
         }
 
-        public virtual Task<long> RemoveAllAsync(ICommandOptions options = null) {
-            return RemoveAllAsync(NewQuery(), options);
+        public virtual async Task<long> RemoveAllAsync(ICommandOptions options = null) {
+            long count = await RemoveAllAsync(NewQuery(), options);
+            
+            if (IsCacheEnabled && count > 0)
+                await Cache.RemoveAllAsync();
+
+            return count;
         }
 
         #endregion
@@ -587,7 +592,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             if (affectedRecords > 0) {
-                // TODO: Find a good way to invalidate cache and send changed notification
+                if (IsCacheEnabled)
+                    await InvalidateCacheByQueryAsync(query.As<T>());
                 await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
                 await SendQueryNotificationsAsync(ChangeType.Saved, query, options).AnyContext();
             }
@@ -606,7 +612,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                     if (field != null && !query.GetIncludes().Contains(field))
                         query.Include(field);
 
-                // TODO: What if you only want to send one notification?
                 return await BatchProcessAsync(query, async results => {
                     await RemoveAsync(results.Documents, options).AnyContext();
                     return true;
@@ -627,6 +632,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             if (response.Deleted > 0) {
+                if (IsCacheEnabled)
+                    await InvalidateCacheByQueryAsync(query.As<T>());
                 await OnDocumentsRemovedAsync(EmptyList, options).AnyContext();
                 await SendQueryNotificationsAsync(ChangeType.Removed, query, options).AnyContext();
             }
@@ -666,7 +673,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (results.Hits.Count == 0)
                     break;
 
-                // TODO: We need a generic way to do bulk operations and do exponential backoffs when we encounter on 429's (bulk queue is full). https://github.com/elastic/elasticsearch-net/pull/2162
                 if (await processFunc(results).AnyContext()) {
                     recordsProcessed += results.Documents.Count;
                     continue;
