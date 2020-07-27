@@ -41,7 +41,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 _idField = new Lazy<string>(() => InferField(d => ((IIdentity)d).Id) ?? "id");
             _lazyClient = new Lazy<IElasticClient>(() => index.Configuration.Client);
 
-            SetCache(index.Configuration.Cache);
+            SetCacheClient(index.Configuration.Cache);
             _logger = index.Configuration.LoggerFactory.CreateLogger(GetType());
         }
 
@@ -554,7 +554,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public bool IsCacheEnabled { get; private set; } = false;
         protected ScopedCacheClient Cache => _scopedCacheClient ?? new ScopedCacheClient(new NullCacheClient());
 
-        private void SetCache(ICacheClient cache) {
+        private void SetCacheClient(ICacheClient cache) {
             IsCacheEnabled = cache != null && !(cache is NullCacheClient);
             _scopedCacheClient = new ScopedCacheClient(cache ?? new NullCacheClient(), EntityTypeName);
         }
