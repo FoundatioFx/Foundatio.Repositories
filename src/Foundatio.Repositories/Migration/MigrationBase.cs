@@ -1,4 +1,4 @@
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -10,7 +10,10 @@ namespace Foundatio.Repositories.Migrations {
             _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
         }
 
+        public virtual MigrationType MigrationType => MigrationType.Versioned;
+
         public virtual int? Version { get; } = null;
+
         public abstract Task RunAsync();
 
         protected int CalculateProgress(long total, long completed, int startProgress = 0, int endProgress = 100) {

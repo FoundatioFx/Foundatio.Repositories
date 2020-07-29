@@ -3,22 +3,27 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
+using Foundatio.Lock;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Models;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Foundatio.Repositories.Migrations {
     public class MigrationManager {
-        private readonly IServiceProvider _container;
-        private readonly IMigrationRepository _migrationRepository;
+        private readonly IServiceProvider _serviceProvider;
+        private readonly IMigrationStateRepository _migrationStatusRepository;
+        private readonly ILockProvider _lockProvider;
         protected readonly ILogger<MigrationManager> _logger;
         private readonly List<IMigration> _migrations = new List<IMigration>();
 
-        public MigrationManager(IServiceProvider container, IMigrationRepository migrationRepository, ILogger<MigrationManager> logger = null) {
-            _container = container;
-            _migrationRepository = migrationRepository;
+        public MigrationManager(IServiceProvider serviceProvider, IMigrationStateRepository migrationStatusRepository, ILockProvider lockProvider, ILogger<MigrationManager> logger = null) {
+            _serviceProvider = serviceProvider;
+            _migrationStatusRepository = migrationStatusRepository;
+            _lockProvider = lockProvider;
             _logger = logger ?? NullLogger<MigrationManager>.Instance;
         }
 
@@ -44,14 +49,15 @@ namespace Foundatio.Repositories.Migrations {
             if (migrationType == null)
                 throw new ArgumentNullException(nameof(migrationType));
 
-            object migrationInstance = _container.GetService(migrationType);
+            object migrationInstance = _serviceProvider.GetService(migrationType);
             if (migrationInstance == null)
                 throw new ArgumentException($"Unable to get instance of type '{migrationType.Name}'. Please ensure it's registered in Dependency Injection.", nameof(migrationType));
 
             if (!(migrationInstance is IMigration migration))
                 throw new ArgumentException($"Type '{migrationType.Name}' must implement interface '{nameof(IMigration)}'.", nameof(migrationType));
 
-            if (migration.Version.HasValue && _migrations.Any(m => m.Version.HasValue && m.Version.Value == migration.Version))
+            var versionedMigrations = _migrations.Where(m => m.MigrationType != MigrationType.Repeatable && m.Version.HasValue);
+            if (migration.Version.HasValue && versionedMigrations.Any(m => m.Version.Value == migration.Version))
                 throw new ArgumentException($"Duplicate migration version detected for '{migrationType.Name}'", nameof(migrationType));
             
             _migrations.Add(migration);
@@ -64,56 +70,135 @@ namespace Foundatio.Repositories.Migrations {
 
         public ICollection<IMigration> Migrations => _migrations;
 
-        public bool ShouldRunUnversionedMigrations { get; set; } = false;
-
-        public async Task RunMigrationsAsync() {
+        public async Task<MigrationResult> RunMigrationsAsync() {
             if (Migrations.Count == 0)
                 AddMigrationsFromLoadedAssemblies();
 
-            var migrations = await GetPendingMigrationsAsync();
-            foreach (var migration in migrations) {
-                if (migration.Version.HasValue)
-                    await MarkMigrationStartedAsync(migration.Version.Value).AnyContext();
+            var migrationsLock = await _lockProvider.AcquireAsync("migration-manager", TimeSpan.FromMinutes(30), TimeSpan.Zero);
+            if (migrationsLock == null)
+                return MigrationResult.UnableToAcquireLock;
 
-                await migration.RunAsync().AnyContext();
+            try {
+                var migrationStatus = await GetMigrationStatus();
+                if (!migrationStatus.NeedsMigration)
+                    return MigrationResult.Success;
 
-                if (migration.Version.HasValue)
-                    await MarkMigrationCompleteAsync(migration.Version.Value).AnyContext();
+                foreach (var migrationInfo in migrationStatus.PendingMigrations) {
+                    // stuck on non-resumable versioned migration, must be manually fixed
+                    if (migrationInfo.Migration.MigrationType == MigrationType.Versioned && migrationInfo.State != null && migrationInfo.State.StartedUtc > DateTime.MinValue)
+                        return MigrationResult.Failed;
+
+                    await MarkMigrationStartedAsync(migrationInfo).AnyContext();
+
+                    try {
+                        if (migrationInfo.Migration.MigrationType != MigrationType.Versioned)
+                            await Run.WithRetriesAsync<object>(async () => {
+                                await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30));
+                                await migrationInfo.Migration.RunAsync().AnyContext();
+                                return null;
+                            }, 3, retryInterval: TimeSpan.Zero, cancellationToken: CancellationToken.None, _logger).AnyContext();
+                        else
+                            await migrationInfo.Migration.RunAsync().AnyContext();
+                    } catch (Exception ex) {
+                        _logger.LogError(ex, "Failed running migration {Id}", migrationInfo.Migration.GetId());
+
+                        migrationInfo.State.ErrorMessage = ex.Message;
+                        await _migrationStatusRepository.SaveAsync(migrationInfo.State).AnyContext();
+
+                        return MigrationResult.Failed;
+                    }
+
+                    await MarkMigrationCompleteAsync(migrationInfo).AnyContext();
+
+                    // renew migration lock
+                    await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30));
+                }
+            } finally {
+                await migrationsLock.ReleaseAsync();
+            }
+
+            return MigrationResult.Success;
+        }
+
+        private async Task MarkMigrationStartedAsync(MigrationInfo info) {
+            _logger.LogInformation("Starting migration {Id}...", info.Migration.GetId());
+            if (info.State == null) {
+                info.State = new MigrationState {
+                    Id = info.Migration.GetId(),
+                    MigrationType = info.Migration.MigrationType,
+                    Version = info.Migration.Version ?? 0
+                };
+                info.State.StartedUtc = SystemClock.UtcNow;
+                await _migrationStatusRepository.AddAsync(info.State);
+            } else {
+                info.State.StartedUtc = SystemClock.UtcNow;
+                info.State.Version = info.Migration.Version ?? 0;
+                await _migrationStatusRepository.SaveAsync(info.State);
             }
         }
 
-        private Task MarkMigrationStartedAsync(int version) {
-            _logger.LogInformation("Starting migration for version {Version}...", version);
-            return _migrationRepository.AddAsync(new Migration { Version = version, StartedUtc = SystemClock.UtcNow });
+        private async Task MarkMigrationCompleteAsync(MigrationInfo info) {
+            info.State.CompletedUtc = SystemClock.UtcNow;
+            info.State.ErrorMessage = null;
+            await _migrationStatusRepository.SaveAsync(info.State).AnyContext();
+            _logger.LogInformation("Completed migration {Id}.", info.State.Id);
         }
 
-        private async Task MarkMigrationCompleteAsync(int version) {
-            var m = await _migrationRepository.GetByIdAsync("migration-" + version).AnyContext();
-            if (m == null)
-                m = new Migration { Version = version };
-
-            m.CompletedUtc = SystemClock.UtcNow;
-            await _migrationRepository.SaveAsync(m).AnyContext();
-            _logger.LogInformation("Completed migration for version {Version}.", version);
-        }
-
-        public async Task<ICollection<IMigration>> GetPendingMigrationsAsync() {
+        public async Task<MigrationStatus> GetMigrationStatus() {
             var migrations = Migrations.OrderBy(m => m.Version).ToList();
-            var completedMigrations = await _migrationRepository.GetAllAsync(o => o.PageLimit(1000)).AnyContext();
+            var migrationIds = migrations.Select(m => m.GetId()).ToArray();
+
+            // get by id to ensure latest document versions
+            var migrationStatesByIds = await _migrationStatusRepository.GetByIdsAsync(migrationIds).AnyContext();
+            var migrationStates = migrationStatesByIds.ToList();
+
+            // get all to add any additional migrations that are not configured
+            var otherMigrationStates = await _migrationStatusRepository.GetAllAsync(o => o.PageLimit(1000)).AnyContext();
+            migrationStates.AddRange(otherMigrationStates.Documents.Where(m => !migrationStates.Any(s => s.Id == m.Id)));
+
+            var migrationInfos = migrations.Select(m => new MigrationInfo {
+                Migration = m,
+                State = migrationStates.FirstOrDefault(s => s.Id.Equals(m.GetId()))
+            }).ToList();
 
             int max = 0;
+            var versioned = migrationInfos.Where(i => i.Migration.MigrationType != MigrationType.Repeatable && i.Migration.Version.HasValue).ToArray();
+
             // if migrations have never run before, mark highest version as completed
-            if (completedMigrations.Documents.Count == 0) {
-                if (migrations.Count > 0)
-                    max = migrations.Where(m => m.Version.HasValue).Max(m => m.Version.Value);
+            if (migrationStates.Count == 0) {
+                if (migrationInfos.Count > 0) {
+                    if (versioned.Length > 0) {
+                        var now = SystemClock.UtcNow;
+                        max = versioned.Max(v => v.Migration.Version.Value);
 
-                await MarkMigrationCompleteAsync(max);
+                        // marking highest version as completed
+                        await _migrationStatusRepository.SaveAsync(new MigrationState {
+                            Id = max.ToString(),
+                            Version = max,
+                            MigrationType = MigrationType.Versioned,
+                            StartedUtc = now,
+                            CompletedUtc = now
+                        }).AnyContext();
 
-                return new List<IMigration>();
+                        return new MigrationStatus(null, max);
+                    }
+                }
+
+                return new MigrationStatus(null, -1);
             }
 
-            int currentVersion = completedMigrations.Documents.Max(m => m.Version);
-            return migrations.Where(m => (m.Version.HasValue == false && ShouldRunUnversionedMigrations) || (m.Version.HasValue && m.Version > currentVersion)).ToList();
+            var completedVersionedMigrations = migrationStates.Where(i => i.MigrationType != MigrationType.Repeatable && i.CompletedUtc.HasValue).ToList();
+            int currentVersion = -1;
+            if (completedVersionedMigrations.Count > 0)
+                currentVersion = completedVersionedMigrations.Max(m => m.Version);
+
+            var pendingMigrations = new List<MigrationInfo>();
+            pendingMigrations.AddRange(versioned.Where(m => m.Migration.Version.Value > currentVersion).OrderBy(m => m.Migration.Version.Value));
+
+            // repeatable migrations that haven't run or have a newer version
+            pendingMigrations.AddRange(migrationInfos.Where(i => i.Migration.MigrationType == MigrationType.Repeatable && (i.State == null || i.State.Version < i.Migration.Version)));
+
+            return new MigrationStatus(pendingMigrations, currentVersion);
         }
 
         private static IEnumerable<Type> GetDerivedTypes<TAction>(IList<Assembly> assemblies = null) {
@@ -132,5 +217,27 @@ namespace Foundatio.Repositories.Migrations {
 
             return types;
         }
+    }
+
+    public enum MigrationResult {
+        Success,
+        Failed,
+        UnableToAcquireLock
+    }
+
+    public class MigrationInfo {
+        public IMigration Migration { get; set; }
+        public MigrationState State { get; set; }
+    }
+
+    public class MigrationStatus {
+        public MigrationStatus(IReadOnlyCollection<MigrationInfo> pendingMigrations, int currentVersion) {
+            PendingMigrations = pendingMigrations ?? EmptyReadOnly<MigrationInfo>.Collection;
+            CurrentVersion = currentVersion;
+        }
+
+        public IReadOnlyCollection<MigrationInfo> PendingMigrations { get; }
+        public int CurrentVersion { get; }
+        public bool NeedsMigration => PendingMigrations.Count > 0;
     }
 }

@@ -3,11 +3,14 @@ using Foundatio.Repositories.Migrations;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch {
-    public class MigrationRepository : ElasticRepositoryBase<Migration>, IMigrationRepository {
-        public MigrationRepository(MigrationIndex index) : base(index) {}
+    public class MigrationStateRepository : ElasticRepositoryBase<MigrationState>, IMigrationStateRepository {
+        public MigrationStateRepository(MigrationIndex index) : base(index) {
+            DisableCache();
+            DefaultConsistency = Consistency.Immediate;
+        }
     }
 
-    public class MigrationIndex : Index<Migration> {
+    public class MigrationIndex : Index<MigrationState> {
         private readonly int _replicas;
 
         public MigrationIndex(IElasticConfiguration configuration, string name = "migration", int replicas = 1) : base(configuration, name) {
