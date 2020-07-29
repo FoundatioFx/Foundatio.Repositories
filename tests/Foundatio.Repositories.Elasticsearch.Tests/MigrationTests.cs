@@ -7,7 +7,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Foundatio.Lock;
 using Foundatio.Caching;
 using Foundatio.Messaging;
-using Microsoft.Extensions.Logging;
 using System.Linq;
 using System;
 using Foundatio.Utility;
@@ -44,7 +43,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             serviceCollection.AddSingleton<FailingResumableMigration>();
             serviceCollection.AddSingleton<RepeatableMigration>();
             _serviceProvider = serviceCollection.BuildServiceProvider();
-            _migrationManager = new MigrationManager(_serviceProvider, _migrationStateRepository, _lockProvider, Log.CreateLogger<MigrationManager>());
+            _migrationManager = new MigrationManager(_serviceProvider, _migrationStateRepository, _lockProvider, Log);
         }
 
         [Fact]
@@ -258,55 +257,67 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
     }
 
     public class VersionedWithoutVersionMigration : MigrationBase {
-        public override Task RunAsync() {
+        public override Task RunAsync(MigrationContext context) {
             throw new System.NotImplementedException();
         }
     }
 
     public class Version1Migration : MigrationBase {
-        public override MigrationType MigrationType => MigrationType.Versioned;
-        public override int? Version => 1;
+        public Version1Migration() {
+            MigrationType = MigrationType.Versioned;
+            Version = 1;
+        }
 
-        public override Task RunAsync() {
+        public override Task RunAsync(MigrationContext context) {
             return Task.Delay(100);
         }
     }
 
     public class Version2Migration : MigrationBase {
-        public override MigrationType MigrationType => MigrationType.Versioned;
-        public override int? Version => 2;
+        public Version2Migration() {
+            MigrationType = MigrationType.Versioned;
+            Version = 2;
+        }
 
-        public override Task RunAsync() {
+        public override Task RunAsync(MigrationContext context) {
             return Task.Delay(100);
         }
     }
 
     public class Version3Migration : MigrationBase {
-        public override MigrationType MigrationType => MigrationType.Versioned;
-        public override int? Version => 3;
+        public Version3Migration() {
+            MigrationType = MigrationType.Versioned;
+            Version = 3;
+        }
 
-        public override Task RunAsync() {
+        public override Task RunAsync(MigrationContext context) {
             return Task.Delay(100);
         }
     }
 
     public class FailingMigration : MigrationBase {
-        public override MigrationType MigrationType => MigrationType.Versioned;
-        public override int? Version => 3;
+        public FailingMigration() {
+            MigrationType = MigrationType.Versioned;
+            Version = 3;
+        }
+
         public int Attempts { get; set; }
 
-        public override async Task RunAsync() {
+        public override async Task RunAsync(MigrationContext context) {
             Attempts++;
             throw new ApplicationException("Boom");
         }
     }
 
     public class FailingResumableMigration : MigrationBase {
-        public override MigrationType MigrationType => MigrationType.VersionedAndResumable;
-        public override int? Version => 3;
+        public FailingResumableMigration() {
+            MigrationType = MigrationType.VersionedAndResumable;
+            Version = 3;
+        }
+
         public int Attempts { get; set; }
 
-        public override async Task RunAsync() {
+        public override async Task RunAsync(MigrationContext context) {
             Attempts++;
             if (Attempts <= 3)
                 throw new ApplicationException("Boom");
@@ -314,16 +325,17 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
     }
 
     public class RepeatableMigration : MigrationBase {
-        private int? _version = null;
-        public void SetVersion(int? version) {
-            _version = version;
+        public RepeatableMigration() {
+            MigrationType = MigrationType.Repeatable;
         }
 
-        public override int? Version => _version;
-        public override MigrationType MigrationType => MigrationType.Repeatable;
+        public void SetVersion(int? version) {
+            Version = version;
+        }
+
         public int Runs { get; set; }
 
-        public override Task RunAsync() {
+        public override Task RunAsync(MigrationContext context) {
             Runs++;
             return Task.CompletedTask;
         }

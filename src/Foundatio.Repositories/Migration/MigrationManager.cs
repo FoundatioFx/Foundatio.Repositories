@@ -14,17 +14,19 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Foundatio.Repositories.Migrations {
     public class MigrationManager {
-        private readonly IServiceProvider _serviceProvider;
-        private readonly IMigrationStateRepository _migrationStatusRepository;
-        private readonly ILockProvider _lockProvider;
-        protected readonly ILogger<MigrationManager> _logger;
-        private readonly List<IMigration> _migrations = new List<IMigration>();
+        protected readonly IServiceProvider _serviceProvider;
+        protected readonly IMigrationStateRepository _migrationStatusRepository;
+        protected readonly ILockProvider _lockProvider;
+        protected readonly ILoggerFactory _loggerFactory;
+        protected readonly ILogger _logger;
+        protected readonly List<IMigration> _migrations = new List<IMigration>();
 
-        public MigrationManager(IServiceProvider serviceProvider, IMigrationStateRepository migrationStatusRepository, ILockProvider lockProvider, ILogger<MigrationManager> logger = null) {
+        public MigrationManager(IServiceProvider serviceProvider, IMigrationStateRepository migrationStatusRepository, ILockProvider lockProvider, ILoggerFactory loggerFactory) {
             _serviceProvider = serviceProvider;
             _migrationStatusRepository = migrationStatusRepository;
             _lockProvider = lockProvider;
-            _logger = logger ?? NullLogger<MigrationManager>.Instance;
+            _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
+            _logger = _loggerFactory.CreateLogger<MigrationManager>();
         }
 
         public void AddMigrationsFromLoadedAssemblies() {
@@ -70,7 +72,7 @@ namespace Foundatio.Repositories.Migrations {
 
         public ICollection<IMigration> Migrations => _migrations;
 
-        public async Task<MigrationResult> RunMigrationsAsync() {
+        public async Task<MigrationResult> RunMigrationsAsync(CancellationToken cancellationToken = default) {
             if (Migrations.Count == 0)
                 AddMigrationsFromLoadedAssemblies();
 
@@ -84,6 +86,9 @@ namespace Foundatio.Repositories.Migrations {
                     return MigrationResult.Success;
 
                 foreach (var migrationInfo in migrationStatus.PendingMigrations) {
+                    if (cancellationToken.IsCancellationRequested)
+                        return MigrationResult.Cancelled;
+
                     // stuck on non-resumable versioned migration, must be manually fixed
                     if (migrationInfo.Migration.MigrationType == MigrationType.Versioned && migrationInfo.State != null && migrationInfo.State.StartedUtc > DateTime.MinValue)
                         return MigrationResult.Failed;
@@ -91,14 +96,17 @@ namespace Foundatio.Repositories.Migrations {
                     await MarkMigrationStartedAsync(migrationInfo).AnyContext();
 
                     try {
+                        var context = new MigrationContext(migrationsLock, _loggerFactory.CreateLogger(migrationInfo.Migration.GetType()), cancellationToken);
                         if (migrationInfo.Migration.MigrationType != MigrationType.Versioned)
                             await Run.WithRetriesAsync<object>(async () => {
                                 await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30));
-                                await migrationInfo.Migration.RunAsync().AnyContext();
+                                if (cancellationToken.IsCancellationRequested)
+                                    return MigrationResult.Cancelled;
+                                await migrationInfo.Migration.RunAsync(context).AnyContext();
                                 return null;
                             }, 3, retryInterval: TimeSpan.Zero, cancellationToken: CancellationToken.None, _logger).AnyContext();
                         else
-                            await migrationInfo.Migration.RunAsync().AnyContext();
+                            await migrationInfo.Migration.RunAsync(context).AnyContext();
                     } catch (Exception ex) {
                         _logger.LogError(ex, "Failed running migration {Id}", migrationInfo.Migration.GetId());
 
@@ -222,9 +230,11 @@ namespace Foundatio.Repositories.Migrations {
     public enum MigrationResult {
         Success,
         Failed,
-        UnableToAcquireLock
+        UnableToAcquireLock,
+        Cancelled
     }
 
+    [DebuggerDisplay("Type: {Migration.MigrationType} Version {Migration.Version}")]
     public class MigrationInfo {
         public IMigration Migration { get; set; }
         public MigrationState State { get; set; }
@@ -239,5 +249,6 @@ namespace Foundatio.Repositories.Migrations {
         public IReadOnlyCollection<MigrationInfo> PendingMigrations { get; }
         public int CurrentVersion { get; }
         public bool NeedsMigration => PendingMigrations.Count > 0;
+        public bool RequiresOffline => PendingMigrations.Any(m => m.Migration.RequiresOffline);
     }
 }
