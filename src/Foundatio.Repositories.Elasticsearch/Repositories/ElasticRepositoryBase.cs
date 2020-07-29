@@ -40,7 +40,6 @@ namespace Foundatio.Repositories.Elasticsearch {
         }
 
         protected string DefaultPipeline { get; set; } = null;
-        protected Consistency DefaultConsistency { get; set; } = Consistency.Eventual;
 
         #region IRepository
 

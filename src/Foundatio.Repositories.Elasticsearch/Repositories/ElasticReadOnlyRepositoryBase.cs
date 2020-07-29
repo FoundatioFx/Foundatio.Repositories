@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -53,6 +53,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected string InferPropertyName(Expression<Func<T, object>> objectPath) => Infer.PropertyName(objectPath);
         protected bool HasParent { get; set; } = false;
 
+        protected Consistency DefaultConsistency { get; set; } = Consistency.Eventual;
         protected TimeSpan DefaultCacheExpiration { get; set; } = TimeSpan.FromSeconds(60 * 5);
         protected int DefaultPageLimit { get; set; } = 10;
         protected int MaxPageLimit { get; set; } = 10000;
@@ -280,6 +281,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             await OnBeforeQueryAsync(query, options, typeof(TResult)).AnyContext();
 
+            await RefreshForConsistency(query, options).AnyContext();
+
             async Task<FindResults<TResult>> GetNextPageFunc(FindResults<TResult> r) {
                 var previousResults = r;
                 if (previousResults == null)
@@ -423,6 +426,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
+            await RefreshForConsistency(query, options).AnyContext();
+
             var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
 
@@ -460,6 +465,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
+            await RefreshForConsistency(query, options).AnyContext();
+
             var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
             searchDescriptor.Size(0);
 
@@ -489,6 +496,8 @@ namespace Foundatio.Repositories.Elasticsearch {
         public virtual async Task<bool> ExistsAsync(IRepositoryQuery query, ICommandOptions options = null) {
             options = ConfigureOptions(options.As<T>());
             await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
+
+            await RefreshForConsistency(query, options).AnyContext();
 
             var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(0);
             searchDescriptor.DocValueFields(_idField.Value);
@@ -627,6 +636,20 @@ namespace Foundatio.Repositories.Elasticsearch {
             var mode = options.GetSoftDeleteMode();
             bool returnSoftDeletes = mode == SoftDeleteQueryMode.All || mode == SoftDeleteQueryMode.DeletedOnly;
             return returnSoftDeletes || !((ISupportSoftDeletes)document).IsDeleted;
+        }
+
+        private Task RefreshForConsistency(IRepositoryQuery query, ICommandOptions options) {
+            // all docs are saved with immediate or wait consistency, no need to force a refresh
+            if (DefaultConsistency != Consistency.Eventual)
+                return Task.CompletedTask;
+
+            // if using immediate consistency, force a refresh before query
+            if (options.GetConsistency() == Consistency.Immediate) {
+                var indices = ElasticIndex.GetIndexesByQuery(query);
+                return _client.Indices.RefreshAsync(indices);
+            }
+
+            return Task.CompletedTask;
         }
 
         protected async Task<TResult> GetCachedQueryResultAsync<TResult>(ICommandOptions options, string cachePrefix = null, string cacheSuffix = null) {
