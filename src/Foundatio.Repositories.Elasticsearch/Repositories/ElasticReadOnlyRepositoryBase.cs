@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -305,37 +305,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
 
                 if (options.ShouldUseSearchAfterPaging()) {
-                    var lastDocument = previousResults.Documents.LastOrDefault();
-                    if (lastDocument != null) {
-                        var searchAfterValues = new List<object>();
-                        var sorts = query.GetSorts();
-                        if (sorts.Count > 0) {
-                            foreach (var sort in query.GetSorts()) {
-                                if (sort.SortKey.Property?.DeclaringType == lastDocument.GetType()) {
-                                    searchAfterValues.Add(sort.SortKey.Property.GetValue(lastDocument));
-                                } else if (typeof(TResult) == typeof(T) && sort.SortKey.Expression is Expression<Func<T, object>> valueGetterExpression) {
-                                    var valueGetter = valueGetterExpression.Compile();
-                                    if (lastDocument is T typedLastDocument) {
-                                        object value = valueGetter.Invoke(typedLastDocument);
-                                        searchAfterValues.Add(value);
-                                    }
-                                } else if (sort.SortKey.Name != null) {
-                                    var propertyInfo = lastDocument.GetType().GetProperty(sort.SortKey.Name);
-                                    if (propertyInfo != null)
-                                        searchAfterValues.Add(propertyInfo.GetValue(lastDocument));
-                                } else {
-                                    // TODO: going to to need to take the Expression and pull the string name from it
-                                }
-                            }
-                        } else if (lastDocument is IIdentity lastDocumentId) {
-                            searchAfterValues.Add(lastDocumentId.Id);
-                        }
-
-                        if (searchAfterValues.Count > 0)
-                            options.SearchAfter(searchAfterValues.ToArray());
-                        else
-                            throw new ArgumentException("Unable to automatically calculate values for SearchAfterPaging.");
-                    }
+                    var lastHit = previousResults.Hits.LastOrDefault();
+                    if (lastHit != null)
+                        options.SearchAfter(lastHit.GetSorts());
                 }
 
                 if (options == null)

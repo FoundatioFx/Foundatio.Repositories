@@ -49,7 +49,7 @@ namespace Foundatio.Repositories {
         }
 
         public static T SearchAfter<T>(this T options, params object[] values) where T : ICommandOptions {
-            if (values.Length > 0)
+            if (values != null && values.Length > 0)
                 options.Values.Set(SearchAfterKey, values);
 
             return options;

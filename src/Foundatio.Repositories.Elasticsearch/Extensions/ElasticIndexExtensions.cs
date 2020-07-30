@@ -82,7 +82,10 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (versionedDoc != null && hit.PrimaryTerm.HasValue)
                 versionedDoc.Version = hit.GetElasticVersion();
 
-            var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
+            var data = new DataDictionary {
+                { ElasticDataKeys.Index, hit.Index },
+                { ElasticDataKeys.Sorts, hit.Sorts }
+            };
             return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), versionedDoc?.Version ?? null, hit.Routing, data);
         }
 
