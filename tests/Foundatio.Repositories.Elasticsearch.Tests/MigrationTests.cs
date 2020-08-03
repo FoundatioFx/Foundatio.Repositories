@@ -303,7 +303,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         public int Attempts { get; set; }
 
+#pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
         public override async Task RunAsync(MigrationContext context) {
+#pragma warning restore CS1998 // Async method lacks 'await' operators and will run synchronously
             Attempts++;
             throw new ApplicationException("Boom");
         }
@@ -317,7 +319,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         public int Attempts { get; set; }
 
+#pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
         public override async Task RunAsync(MigrationContext context) {
+#pragma warning restore CS1998 // Async method lacks 'await' operators and will run synchronously
             Attempts++;
             if (Attempts <= 3)
                 throw new ApplicationException("Boom");
