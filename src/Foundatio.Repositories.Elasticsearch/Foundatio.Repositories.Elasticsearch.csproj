@@ -3,8 +3,8 @@
     <Compile Include="..\Foundatio.Repositories\Extensions\TaskExtensions.cs" Link="Extensions\TaskExtensions.cs" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Foundatio.Jobs.Commands" Version="10.0.0-beta7" Condition="'$(ReferenceFoundatioSource)' == '' OR '$(ReferenceFoundatioSource)' == 'false'" />
-    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="7.8.0-beta8" />
+    <PackageReference Include="Foundatio.Jobs.Commands" Version="10.0.0-beta8" Condition="'$(ReferenceFoundatioSource)' == '' OR '$(ReferenceFoundatioSource)' == 'false'" />
+    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="7.8.0-beta9" />
 
     <ProjectReference Include="..\..\..\Foundatio\src\Foundatio.Jobs.Commands\Foundatio.Jobs.Commands.csproj" Condition="'$(ReferenceFoundatioSource)' == 'true'" />
     <ProjectReference Include="..\..\..\Foundatio.Parsers\src\Foundatio.Parsers.ElasticQueries\Foundatio.Parsers.ElasticQueries.csproj" Condition="'$(ReferenceFoundatioSource)' == 'true'" />
