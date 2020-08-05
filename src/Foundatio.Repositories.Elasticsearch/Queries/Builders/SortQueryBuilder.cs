@@ -52,24 +52,40 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var sortFields = ctx.Source.GetSorts();
-            
-            if (sortFields.Count <= 0) {
-                // always use the default sort if using search after paging
-                if (ctx.Options.ShouldUseSearchAfterPaging()) {
-                    var index = ctx.Options.GetElasticIndex();
-                    var docType = ctx.Options.DocumentType();
-                    var idProperty = docType?.GetProperty(Id);
-                    string fieldName = index?.Configuration.Client.Infer.Field(idProperty) ?? "_id";
-                    ctx.Search.Sort(s => s.Field(fieldName, SortOrder.Ascending));
-                }
-                
-                return Task.CompletedTask;
+            var index = ctx.Options.GetElasticIndex();
+
+            if (ctx.Options.ShouldUseSearchAfterPaging()) {
+                var docType = ctx.Options.DocumentType();
+                var idProperty = docType?.GetProperty(Id);
+                string fieldName = index?.Configuration.Client.Infer.Field(idProperty) ?? "_id";
+
+                // ensure id field is always added to the end of the sort fields list
+                if (!sortFields.Any(s => s.SortKey.Equals(fieldName)))
+                    sortFields.Add(new FieldSort { Field = fieldName });
             }
 
-            //var opt = ctx.GetOptionsAs<IElasticQueryOptions>();
-            //foreach (var sort in sortableQuery.SortFields.Where(s => CanSortByField(opt?.AllowedSortFields, s.Field)))
-            //    ctx.Search.Sort(s => s.Field(sort.Field, sort.Order == Foundatio.Repositories.Models.SortOrder.Ascending ? SortOrder.Ascending : SortOrder.Descending));
-            ctx.Search.Sort(sortFields);
+            if (sortFields.Count <= 0)
+                return Task.CompletedTask;
+
+            var resolver = ctx.GetMappingResolver();
+            var resolvedSorts = new List<IFieldSort>();
+            foreach (var sort in sortFields) {
+                if (sort is FieldSort fieldSort)
+                    resolvedSorts.Add(new FieldSort {
+                        Field = resolver.GetSortFieldName(fieldSort.Field),
+                        IgnoreUnmappedFields = fieldSort.IgnoreUnmappedFields,
+                        Missing = fieldSort.Missing,
+                        Mode = fieldSort.Mode,
+                        Nested = fieldSort.Nested,
+                        NumericType = fieldSort.NumericType,
+                        Order = fieldSort.Order,
+                        UnmappedType = fieldSort.UnmappedType
+                    });
+                else
+                    resolvedSorts.Add(sort);
+            }
+
+            ctx.Search.Sort(resolvedSorts);
 
             return Task.CompletedTask;
         }

@@ -63,11 +63,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                     await CreateIndexAsync(VersionedName, ConfigureIndex).AnyContext();
             }
         }
-        
-        protected override ElasticQueryParser CreateQueryParser() {
-            var parser = base.CreateQueryParser();
-            parser.Configuration.UseMappings(Configuration.Client, VersionedName);
-            return parser;
+
+        protected override ElasticMappingResolver CreateMappingResolver() {
+            return ElasticMappingResolver.Create(Configuration.Client, VersionedName);
         }
 
         protected virtual async Task CreateAliasAsync(string index, string name) {
@@ -253,11 +251,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public VersionedIndex(IElasticConfiguration configuration, string name = null, int version = 1) : base(configuration, name, version) {
             Name = name ?? _typeName;
         }
-        
-        protected override ElasticQueryParser CreateQueryParser() {
-            var parser = base.CreateQueryParser();
-            parser.Configuration.UseMappings<T>(ConfigureIndexMapping, Configuration.Client, VersionedName);
-            return parser;
+
+        protected override ElasticMappingResolver CreateMappingResolver() {
+            return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client, VersionedName);
         }
         
         public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map) {

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using Exceptionless;
+using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 
@@ -113,10 +114,29 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
             };
         }
 
+        public static Employee GenerateRandom(string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, string location = null, DateTime? lastReview = null, DateTimeOffset? nextReview = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
+            var employee = new Employee {
+                Id = id,
+                Name = name ?? RandomData.GetAlphaString(),
+                Age = age ?? RandomData.GetInt(18, 100),
+                YearsEmployed = yearsEmployed ?? RandomData.GetInt(0, 40),
+                CompanyName = companyName ?? RandomData.GetAlphaString(),
+                CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
+                LastReview = lastReview ?? RandomData.GetDateTime(DateTime.Now.SubtractDays(365), DateTime.Now),
+                CreatedUtc = createdUtc ?? RandomData.GetDateTime(DateTime.Now.SubtractDays(365), DateTime.Now),
+                Location = location ?? RandomData.GetCoordinate()
+            };
+
+            employee.NextReview = nextReview ?? RandomData.GetDateTimeOffset(employee.NextReview, DateTime.Now);
+            employee.UpdatedUtc = updatedUtc ?? RandomData.GetDateTime(employee.CreatedUtc, DateTime.Now);
+
+            return employee;
+        }
+
         public static List<Employee> GenerateEmployees(int count = 10, string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, string location = null, DateTime? lastReview = null, DateTimeOffset? nextReview = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
             var results = new List<Employee>(count);
             for (int index = 0; index < count; index++)
-                results.Add(Generate(id, name, age, yearsEmployed, companyName, companyId, location, lastReview, nextReview, createdUtc, updatedUtc));
+                results.Add(GenerateRandom(id, name, age, yearsEmployed, companyName, companyId, location, lastReview, nextReview, createdUtc, updatedUtc));
 
             return results;
         }

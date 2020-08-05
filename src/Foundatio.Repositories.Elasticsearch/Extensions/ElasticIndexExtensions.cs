@@ -303,23 +303,5 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
             return pd;
         }
-
-        /// <summary>
-        /// Not chainable with AddSortField. Use AddKeywordAndSortFields to add both.
-        /// </summary>
-        public static Nest.TextPropertyDescriptor<T> AddKeywordField<T>(this Nest.TextPropertyDescriptor<T> descriptor) where T : class {
-            return descriptor.Fields(f => f.Keyword(s => s.Name("keyword").IgnoreAbove(256)));
-        }
-
-        /// <summary>
-        /// Not chainable with AddKeywordField. Use AddKeywordAndSortFields to add both.
-        /// </summary>
-        public static Nest.TextPropertyDescriptor<T> AddSortField<T>(this Nest.TextPropertyDescriptor<T> descriptor, string normalizer) where T : class {
-            return descriptor.Fields(f => f.Keyword(s => s.Name("sort").Normalizer(normalizer).IgnoreAbove(256)));
-        }
-
-        public static Nest.TextPropertyDescriptor<T> AddKeywordAndSortFields<T>(this Nest.TextPropertyDescriptor<T> descriptor, string sortNormalizer) where T : class {
-            return descriptor.Fields(f => f.Keyword(s => s.Name("keyword").IgnoreAbove(256)).Keyword(s => s.Name("sort").Normalizer(sortNormalizer).IgnoreAbove(256)));
-        }
     }
 }

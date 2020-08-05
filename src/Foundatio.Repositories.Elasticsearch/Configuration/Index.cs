@@ -19,6 +19,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class Index : IIndex {
         private readonly Lazy<IElasticQueryBuilder> _queryBuilder;
         private readonly Lazy<ElasticQueryParser> _queryParser;
+        private readonly Lazy<ElasticMappingResolver> _mappingResolver;
         private readonly Lazy<QueryFieldResolver> _fieldResolver;
         protected readonly ILogger _logger;
 
@@ -27,6 +28,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             Configuration = configuration;
             _queryBuilder = new Lazy<IElasticQueryBuilder>(CreateQueryBuilder);
             _queryParser = new Lazy<ElasticQueryParser>(CreateQueryParser);
+            _mappingResolver = new Lazy<ElasticMappingResolver>(CreateMappingResolver);
             _fieldResolver = new Lazy<QueryFieldResolver>(CreateQueryFieldResolver);
             _logger = configuration.LoggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
         }
@@ -42,12 +44,16 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual void ConfigureQueryBuilder(ElasticQueryBuilder builder) {}
 
+        protected virtual ElasticMappingResolver CreateMappingResolver() {
+            return ElasticMappingResolver.Create(Configuration.Client, Name);
+        }
+
         protected virtual ElasticQueryParser CreateQueryParser() {
             var parser = new ElasticQueryParser(config => {
                 config.SetLoggerFactory(Configuration.LoggerFactory);
-                config.UseFieldResolver(CreateQueryFieldResolver());
+                config.UseFieldResolver(_fieldResolver.Value);
                 config.UseNested();
-                config.UseMappings(Configuration.Client, Name);
+                config.UseMappings(_mappingResolver.Value);
                 Configuration.ConfigureGlobalQueryParsers(config);
                 ConfigureQueryParser(config);
             });
@@ -106,6 +112,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         public IElasticQueryBuilder QueryBuilder => _queryBuilder.Value;
         public ElasticQueryParser QueryParser => _queryParser.Value;
+        public ElasticMappingResolver MappingResolver => _mappingResolver.Value;
         public QueryFieldResolver FieldResolver => _fieldResolver.Value;
 
         public int BulkBatchSize { get; set; } = 1000;
@@ -201,10 +208,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             Name = name ?? _typeName;
         }
 
-        protected override ElasticQueryParser CreateQueryParser() {
-            var parser = base.CreateQueryParser();
-            parser.Configuration.UseMappings<T>(ConfigureIndexMapping, Configuration.Client, Name);
-            return parser;
+        protected override ElasticMappingResolver CreateMappingResolver() {
+            return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client, Name);
         }
 
         public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map) {

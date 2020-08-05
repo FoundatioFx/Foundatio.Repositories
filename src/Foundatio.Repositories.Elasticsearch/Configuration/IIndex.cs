@@ -10,6 +10,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         string Name { get; }
         bool HasMultipleIndexes { get; }
         IElasticQueryBuilder QueryBuilder { get; }
+        ElasticMappingResolver MappingResolver { get; }
         ElasticQueryParser QueryParser { get; }
         IElasticConfiguration Configuration { get; }
         void ConfigureSettings(ConnectionSettings settings);

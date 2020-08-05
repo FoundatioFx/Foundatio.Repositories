@@ -1,12 +1,15 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using Xunit;
 using Xunit.Abstractions;
@@ -648,13 +651,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(identity2.Id, results.Documents.First().Id);
             Assert.Equal(2, results.Total);
 
-            results = await _identityRepository.FindAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1).SearchAfter(results.Documents.First().Id));
+            results = await _identityRepository.FindAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1).SearchAfter(results.Hits.First().GetSorts()));
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(2, results.Total);
             Assert.Equal(identity1.Id, results.Documents.First().Id);
             Assert.False(results.HasMore);
 
-            results = await _identityRepository.FindAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1).SearchAfter(results.Documents.First().Id));
+            results = await _identityRepository.FindAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1).SearchAfter(results.Hits.First().GetSorts()));
             Assert.Equal(0, results.Documents.Count);
             Assert.Equal(1, results.Page);
             Assert.False(results.HasMore);
@@ -785,6 +788,20 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task CanUseSearchAfterWithMultipleSorts() {
+            await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(count: 100), o => o.ImmediateConsistency());
+
+            var employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(e => e.Age), o => o.SearchAfterPaging().PageLimit(10).QueryLogLevel(LogLevel.Information));
+            
+            var sorts = employees.Hits.LastOrDefault().GetSorts();
+            string searchAfter = Encode(JsonConvert.SerializeObject(sorts));
+
+            var newSorts = JsonConvert.DeserializeObject<object[]>(Decode(searchAfter));
+
+            employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(e => e.Age), o => o.SearchAfter(newSorts).PageLimit(10).QueryLogLevel(LogLevel.Information));
+        }
+
+        [Fact]
         public async Task SearchShouldNotReturnDeletedDocumentsAsync() {
             var employee = EmployeeGenerator.Generate(age: 20, name: "Deleted");
             employee = await _employeeRepository.AddAsync(employee, o => o.ImmediateConsistency());
@@ -817,6 +834,24 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Empty(results.Documents);
             Assert.Null(results.Hits.First().Document);
             Assert.NotNull(results.Hits.First().Id);
+        }
+
+        public static string Encode(string text) {
+            return Convert.ToBase64String(Encoding.UTF8.GetBytes(text)).TrimEnd('=').Replace('+', '-')
+                .Replace('/', '_');
+        }
+
+        public static string Decode(string text) {
+            text = text.Replace('_', '/').Replace('-', '+');
+            switch (text.Length % 4) {
+                case 2:
+                    text += "==";
+                    break;
+                case 3:
+                    text += "=";
+                    break;
+            }
+            return Encoding.UTF8.GetString(Convert.FromBase64String(text));
         }
     }
 }

@@ -15,7 +15,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
         public EmployeeIndex(IElasticConfiguration configuration): base(configuration, "employees") {}
 
         public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
-            return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+            return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1).Analysis(a => a.AddSortNormalizer())));
         }
 
         public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map) {
@@ -28,7 +28,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Keyword(f => f.Name(e => e.EmailAddress))
                     .Keyword(f => f.Name(e => e.CompanyId))
                     .Keyword(f => f.Name(e => e.CompanyName))
-                    .Text(f => f.Name(e => e.Name).AddKeywordField().CopyTo(c => c.Field("_all")))
+                    .Text(f => f.Name(e => e.Name).AddKeywordAndSortFields().CopyTo(c => c.Field("_all")))
                     .Scalar(f => f.Age, f => f.Name(e => e.Age))
                     .FieldAlias(a => a.Name("aliasedage").Path(f => f.Age))
                     .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
@@ -58,6 +58,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
         }
 
         protected override void ConfigureQueryParser(ElasticQueryParserConfiguration config) {
+            base.ConfigureQueryParser(config);
             config.UseIncludes(i => ResolveIncludeAsync(i));
         }
 

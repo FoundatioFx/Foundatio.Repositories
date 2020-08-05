@@ -73,14 +73,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (IsCacheEnabled && options.HasCacheKey())
                 throw new ArgumentException("Cache key can't be set when calling GetById");
 
-            bool isTraceLogLevelEnabled = _logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace);
-
             if (IsCacheEnabled && options.ShouldReadCache()) {
                 var value = await GetCachedFindHit(id).AnyContext();
 
                 if (value?.Document != null) {
-                    if (isTraceLogLevelEnabled)
-                        _logger.LogTrace("Cache hit: type={EntityType} key={Id}", EntityTypeName, id);
+                    _logger.LogTrace("Cache hit: type={EntityType} key={Id}", EntityTypeName, id);
 
                     return ShouldReturnDocument(value.Document, options) ? value.Document : null;
                 }
@@ -92,8 +89,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (id.Routing != null)
                     request.Routing = id.Routing;
                 var response = await _client.GetAsync<T>(request).AnyContext();
-                if (isTraceLogLevelEnabled)
-                    _logger.LogTraceRequest(response, options.GetQueryLogLevel());
+                _logger.LogTraceRequest(response, options.GetQueryLogLevel());
 
                 findHit = response.Found ? response.ToFindHit() : null;
             } else {
@@ -593,7 +589,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             options.DefaultCacheExpiresIn(DefaultCacheExpiration);
             options.DefaultPageLimit(DefaultPageLimit);
             options.MaxPageLimit(MaxPageLimit);
-            options.QueryLogLevel(DefaultQueryLogLevel);
+            options.DefaultQueryLogLevel(DefaultQueryLogLevel);
 
             return options;
         }

@@ -1,5 +1,6 @@
 ﻿using System;
 using Elasticsearch.Net;
+using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -49,8 +50,10 @@ namespace Foundatio.Repositories {
         }
 
         public static T SearchAfter<T>(this T options, params object[] values) where T : ICommandOptions {
-            if (values != null && values.Length > 0)
+            if (values != null && values.Length > 0) {
+                options.SearchAfterPaging();
                 options.Values.Set(SearchAfterKey, values);
+            }
 
             return options;
         }
@@ -67,6 +70,10 @@ namespace Foundatio.Repositories.Options {
 
         public static IIndex GetElasticIndex(this ICommandOptions options) {
             return options.SafeGetOption<IIndex>(ElasticIndexKey);
+        }
+
+        public static ElasticMappingResolver GetMappingResolver(this ICommandOptions options) {
+            return options.GetElasticIndex()?.MappingResolver;
         }
 
         internal const string SupportsSoftDeletesKey = "@SupportsSoftDeletesKey";

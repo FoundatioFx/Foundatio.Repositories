@@ -6,6 +6,8 @@ using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Extensions;
 using Nest;
 using Foundatio.Repositories.Options;
+using Foundatio.Parsers.ElasticQueries;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IElasticQueryBuilder {
@@ -20,6 +22,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             Parent = parentContext;
             ((IQueryVisitorContextWithIncludeResolver)this).IncludeResolver = options.GetIncludeResolver();
             ((IQueryVisitorContextWithFieldResolver)this).FieldResolver = options.GetQueryFieldResolver();
+            ((IElasticQueryVisitorContext)this).MappingResolver = options.GetMappingResolver();
 
             var range = GetDateRange();
             if (range != null) {
@@ -38,13 +41,13 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
         QueryFieldResolver IQueryVisitorContextWithFieldResolver.FieldResolver { get; set; }
         IncludeResolver IQueryVisitorContextWithIncludeResolver.IncludeResolver { get; set; }
+        ElasticMappingResolver IElasticQueryVisitorContext.MappingResolver { get; set; }
 
         Operator IElasticQueryVisitorContext.DefaultOperator { get; set; }
         string IElasticQueryVisitorContext.DefaultTimeZone { get; set; }
         bool IElasticQueryVisitorContext.UseScoring { get; set; }
         string[] IQueryVisitorContext.DefaultFields { get; set; }
         string IQueryVisitorContext.QueryType { get; set; }
-        Func<string, IProperty> IElasticQueryVisitorContext.GetPropertyMappingFunc { get; set; }
 
         private DateRange GetDateRange() {
             foreach (var dateRange in Source.GetDateRanges()) {

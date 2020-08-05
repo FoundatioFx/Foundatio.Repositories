@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Parsers.ElasticQueries;
@@ -53,11 +53,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public MonthlyIndex(IElasticConfiguration configuration, string name = null, int version = 1, Func<object, DateTime> getDocumentDateUtc = null) : base(configuration, name, version, getDocumentDateUtc) {
             Name = name ?? _typeName;
         }
-        
-        protected override ElasticQueryParser CreateQueryParser() {
-            var parser = base.CreateQueryParser();
-            parser.Configuration.UseMappings<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMapping);
-            return parser;
+
+        protected override ElasticMappingResolver CreateMappingResolver() {
+            return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMapping);
         }
         
         public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map) {
