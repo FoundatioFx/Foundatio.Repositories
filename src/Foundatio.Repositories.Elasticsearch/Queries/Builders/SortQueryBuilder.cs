@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Nest;
@@ -53,21 +54,19 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var sortFields = ctx.Source.GetSorts();
             var index = ctx.Options.GetElasticIndex();
+            var resolver = ctx.GetMappingResolver();
 
             if (ctx.Options.ShouldUseSearchAfterPaging()) {
-                var docType = ctx.Options.DocumentType();
-                var idProperty = docType?.GetProperty(Id);
-                string fieldName = index?.Configuration.Client.Infer.Field(idProperty) ?? "_id";
+                string idField = resolver.GetResolvedField(Id) ?? "id";
 
                 // ensure id field is always added to the end of the sort fields list
-                if (!sortFields.Any(s => s.SortKey.Equals(fieldName)))
-                    sortFields.Add(new FieldSort { Field = fieldName });
+                if (!sortFields.Any(s => resolver.GetResolvedField(s.SortKey).Equals(idField)))
+                    sortFields.Add(new FieldSort { Field = idField });
             }
 
             if (sortFields.Count <= 0)
                 return Task.CompletedTask;
 
-            var resolver = ctx.GetMappingResolver();
             var resolvedSorts = new List<IFieldSort>();
             foreach (var sort in sortFields) {
                 if (sort is FieldSort fieldSort)
@@ -84,6 +83,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 else
                     resolvedSorts.Add(sort);
             }
+
+            if (ctx.Options.HasSearchBefore())
+                resolvedSorts.ReverseOrder();
 
             ctx.Search.Sort(resolvedSorts);
 

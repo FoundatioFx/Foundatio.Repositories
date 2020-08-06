@@ -17,6 +17,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             // can only use search_after or skip
             if (ctx.Options.HasSearchAfter())
                 ctx.Search.SearchAfter(ctx.Options.GetSearchAfter());
+            else if (ctx.Options.HasSearchBefore())
+                ctx.Search.SearchAfter(ctx.Options.GetSearchBefore());
             else if (ctx.Options.ShouldUseSkip())
                 ctx.Search.Skip(ctx.Options.GetSkip());
 

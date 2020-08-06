@@ -788,17 +788,44 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task CanUseSearchAfterWithMultipleSorts() {
+        public async Task CanSearchAfterAndBeforeWithMultipleSorts() {
             await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(count: 100), o => o.ImmediateConsistency());
+            int pageSize = 10;
 
-            var employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(e => e.Age), o => o.SearchAfterPaging().PageLimit(10).QueryLogLevel(LogLevel.Information));
-            
-            var sorts = employees.Hits.LastOrDefault().GetSorts();
-            string searchAfter = Encode(JsonConvert.SerializeObject(sorts));
+            var employeePages = new List<FindResults<Employee>>();
+            string searchAfterToken = null;
+            int page = 0;
+            do {
+                page++;
+                var employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(e => e.Age), o => o.SearchAfterToken(searchAfterToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
+                searchAfterToken = employees.GetSearchAfterToken();
 
-            var newSorts = JsonConvert.DeserializeObject<object[]>(Decode(searchAfter));
+                foreach (var employeePage in employeePages) {
+                    foreach (var employee in employees.Documents) {
+                        bool documentExists = employeePage.Documents.Any(d => d.Id == employee.Id);
+                        if (documentExists)
+                            Assert.False(documentExists);
+                    }
+                }
 
-            employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(e => e.Age), o => o.SearchAfter(newSorts).PageLimit(10).QueryLogLevel(LogLevel.Information));
+                employeePages.Add(employees);
+                if (!employees.HasMore)
+                    break;
+            } while (page < 20);
+
+            Assert.Equal(10, page);
+            Assert.Equal(10, employeePages.Count);
+
+            string searchBeforeToken = employeePages.Last().GetSearchBeforeToken();
+            do {
+                page--;
+                var employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(e => e.Age), o => o.SearchBeforeToken(searchBeforeToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
+                searchBeforeToken = employees.GetSearchBeforeToken();
+
+                var matchingPage = employeePages[page - 1];
+                for (int i = 0; i < pageSize; i++)
+                    Assert.Equal(matchingPage.Documents.ToArray()[i].Id, employees.Documents.ToArray()[i].Id);
+            } while (page > 1);
         }
 
         [Fact]
@@ -834,24 +861,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Empty(results.Documents);
             Assert.Null(results.Hits.First().Document);
             Assert.NotNull(results.Hits.First().Id);
-        }
-
-        public static string Encode(string text) {
-            return Convert.ToBase64String(Encoding.UTF8.GetBytes(text)).TrimEnd('=').Replace('+', '-')
-                .Replace('/', '_');
-        }
-
-        public static string Decode(string text) {
-            text = text.Replace('_', '/').Replace('-', '+');
-            switch (text.Length % 4) {
-                case 2:
-                    text += "==";
-                    break;
-                case 3:
-                    text += "=";
-                    break;
-            }
-            return Encoding.UTF8.GetString(Convert.FromBase64String(text));
         }
     }
 }

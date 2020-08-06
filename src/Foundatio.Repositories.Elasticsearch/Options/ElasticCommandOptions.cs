@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using Elasticsearch.Net;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
@@ -13,13 +14,14 @@ namespace Foundatio.Repositories {
         internal const string SearchAfterPagingKey = "@SearchAfterPaging";
         internal const string SnapshotPagingScrollIdKey = "@SnapshotPagingScrollId";
         internal const string SearchAfterKey = "@SearchAfter";
+        internal const string SearchBeforeKey = "@SearchBefore";
 
         public static T SnapshotPaging<T>(this T options) where T : ICommandOptions {
             return options.BuildOption(SnapshotPagingKey, true);
         }
 
-        public static T SearchAfterPaging<T>(this T options) where T : ICommandOptions {
-            return options.BuildOption(SearchAfterPagingKey, true);
+        public static T SearchAfterPaging<T>(this T options, bool enabled = true) where T : ICommandOptions {
+            return options.BuildOption(SearchAfterPagingKey, enabled);
         }
 
         internal const string SnapshotPagingLifetimeKey = "@SnapshotPagingLifetime";
@@ -50,9 +52,46 @@ namespace Foundatio.Repositories {
         }
 
         public static T SearchAfter<T>(this T options, params object[] values) where T : ICommandOptions {
-            if (values != null && values.Length > 0) {
-                options.SearchAfterPaging();
+            options.SearchAfterPaging();
+            if (values != null && values.Count(v => v != null) > 0) {
                 options.Values.Set(SearchAfterKey, values);
+            } else {
+                options.Values.Remove(SearchAfterKey);
+            }
+
+            return options;
+        }
+
+        public static T SearchAfterToken<T>(this T options, string searchAfterToken) where T : ICommandOptions {
+            options.SearchAfterPaging();
+            if (!String.IsNullOrEmpty(searchAfterToken)) {
+                var values = FindHitExtensions.DecodeSortToken(searchAfterToken);
+                options.Values.Set(SearchAfterKey, values);
+            } else {
+                options.Values.Remove(SearchAfterKey);
+            }
+
+            return options;
+        }
+
+        public static T SearchBefore<T>(this T options, params object[] values) where T : ICommandOptions {
+            options.SearchAfterPaging();
+            if (values != null && values.Count(v => v != null) > 0) {
+                options.Values.Set(SearchBeforeKey, values);
+            } else {
+                options.Values.Remove(SearchBeforeKey);
+            }
+
+            return options;
+        }
+
+        public static T SearchBeforeToken<T>(this T options, string searchBeforeToken) where T : ICommandOptions {
+            options.SearchAfterPaging();
+            if (!String.IsNullOrEmpty(searchBeforeToken)) {
+                var values = FindHitExtensions.DecodeSortToken(searchBeforeToken);
+                options.Values.Set(SearchBeforeKey, values);
+            } else {
+                options.Values.Remove(SearchBeforeKey);
             }
 
             return options;
@@ -159,7 +198,17 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static bool HasSearchAfter(this ICommandOptions options) {
-            return options.SafeHasOption(SetElasticOptionsExtensions.SearchAfterKey);
+            var sorts = options.SafeGetOption<object[]>(SetElasticOptionsExtensions.SearchAfterKey);
+            return sorts != null && sorts.Length > 0;
+        }
+
+        public static object[] GetSearchBefore(this ICommandOptions options) {
+            return options.SafeGetOption<object[]>(SetElasticOptionsExtensions.SearchBeforeKey);
+        }
+
+        public static bool HasSearchBefore(this ICommandOptions options) {
+            var sorts = options.SafeGetOption<object[]>(SetElasticOptionsExtensions.SearchBeforeKey);
+            return sorts != null && sorts.Length > 0;
         }
 
         public static Refresh GetRefreshMode(this ICommandOptions options, Consistency defaultMode = Consistency.Eventual) {

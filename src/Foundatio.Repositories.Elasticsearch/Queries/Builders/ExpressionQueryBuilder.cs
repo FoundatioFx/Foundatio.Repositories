@@ -1,10 +1,12 @@
 ﻿using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Options;
 using Nest;
@@ -120,8 +122,12 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 var fields = GetReferencedFieldsQueryVisitor.Run(result);
                 // TODO: Check referenced fields against opt.AllowedSortFields
 
-                var fieldSort = GetSortFieldsVisitor.Run(result, ctx);
-                ctx.Search.Sort(fieldSort);
+                var sortFields = GetSortFieldsVisitor.Run(result, ctx).ToList();
+
+                if (ctx.Options.HasSearchBefore())
+                    sortFields.ReverseOrder();
+
+                ctx.Search.Sort(sortFields);
             }
 
             return Task.CompletedTask;
@@ -156,8 +162,12 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 var fields = GetReferencedFieldsQueryVisitor.Run(result);
                 // TODO: Check referenced fields against opt.AllowedSortFields
 
-                var sortField = GetSortFieldsVisitor.Run(result, ctx);
-                ctx.Search.Sort(sortField);
+                var sortFields = GetSortFieldsVisitor.Run(result, ctx).ToList();
+
+                if (ctx.Options.HasSearchBefore())
+                    sortFields.ReverseOrder();
+
+                ctx.Search.Sort(sortFields);
             }
 
             return Task.CompletedTask;
@@ -183,8 +193,13 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (!String.IsNullOrEmpty(search))
                 ctx.Query &= await _parser.BuildQueryAsync(search, ctx.SetDefaultOperator(Operator.Or).UseScoring()).AnyContext();
 
-            if (!String.IsNullOrEmpty(sort))
-                ctx.Search.Sort(await _parser.BuildSortAsync(sort, ctx).AnyContext());
+            if (!String.IsNullOrEmpty(sort)) {
+                var sortFields = (await _parser.BuildSortAsync(sort, ctx).AnyContext()).ToList();
+                if (ctx.Options.HasSearchBefore())
+                    sortFields.ReverseOrder();
+
+                ctx.Search.Sort(sortFields);
+            }
         }
     }
 }

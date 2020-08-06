@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading.Tasks;
@@ -9,8 +10,9 @@ using Foundatio.Utility;
 using Newtonsoft.Json;
 
 namespace Foundatio.Repositories.Models {
+    [DebuggerDisplay("Total: {Total} Documents: {Documents.Count} Hits: {Hits.Count} Aggs: {Aggregations.Count} Page: {Page} HasMore: {HasMore}")]
     public class FindResults<T> : CountResult, IGetNextPage<T> where T : class {
-        public FindResults(IEnumerable<FindHit<T>> hits = null, long total = 0, IDictionary<string, IAggregate> aggregations = null, Func<FindResults<T>, Task<FindResults<T>>> getNextPage = null, DataDictionary data = null)
+        public FindResults(IEnumerable<FindHit<T>> hits = null, long total = 0, IDictionary<string, IAggregate> aggregations = null, Func<FindResults<T>, Task<FindResults<T>>> getNextPage = null, IDictionary<string, object> data = null)
             : base(total, aggregations, data) {
             ((IGetNextPage<T>)this).GetNextPageFunc = getNextPage;
             if (hits != null) {

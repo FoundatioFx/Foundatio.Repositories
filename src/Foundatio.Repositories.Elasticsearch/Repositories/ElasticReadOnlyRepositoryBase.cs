@@ -366,6 +366,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 result = response.ToFindResults();
             }
 
+            if (options.HasSearchBefore())
+                result = new FindResults<TResult>(result.Hits.Reverse(), result.Total, result.Aggregations.ToDictionary(k => k.Key, v => v.Value), GetNextPageFunc, result.Data.ToDictionary(k => k.Key, v => v.Value));
+
             result.Page = options.GetPage();
 
             if (!allowCaching)
