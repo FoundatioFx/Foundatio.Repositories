@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Foundatio.Repositories.Migrations {
     public abstract class MigrationBase : IMigration {
-        protected readonly ILogger _logger;
+        protected ILogger _logger;
 
         public MigrationBase() {}
 
