@@ -65,7 +65,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected override ElasticMappingResolver CreateMappingResolver() {
-            return ElasticMappingResolver.Create(Configuration.Client, VersionedName);
+            return ElasticMappingResolver.Create(Configuration.Client, VersionedName, _logger);
         }
 
         protected virtual async Task CreateAliasAsync(string index, string name) {
@@ -253,7 +253,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected override ElasticMappingResolver CreateMappingResolver() {
-            return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client, VersionedName);
+            return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client, VersionedName, _logger);
         }
         
         public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map) {

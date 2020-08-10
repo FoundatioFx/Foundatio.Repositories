@@ -55,7 +55,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected override ElasticMappingResolver CreateMappingResolver() {
-            return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMapping);
+            return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMapping, _logger);
         }
         
         public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map) {

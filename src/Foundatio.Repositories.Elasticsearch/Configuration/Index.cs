@@ -45,7 +45,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         protected virtual void ConfigureQueryBuilder(ElasticQueryBuilder builder) {}
 
         protected virtual ElasticMappingResolver CreateMappingResolver() {
-            return ElasticMappingResolver.Create(Configuration.Client, Name);
+            return ElasticMappingResolver.Create(Configuration.Client, Name, _logger);
         }
 
         protected virtual ElasticQueryParser CreateQueryParser() {
@@ -209,7 +209,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         }
 
         protected override ElasticMappingResolver CreateMappingResolver() {
-            return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client, Name);
+            return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client, Name, _logger);
         }
 
         public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map) {

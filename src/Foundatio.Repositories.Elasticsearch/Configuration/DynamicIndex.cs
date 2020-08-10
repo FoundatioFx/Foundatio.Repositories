@@ -7,7 +7,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public DynamicIndex(IElasticConfiguration configuration, string name = null): base(configuration, name) {}
 
         protected override ElasticMappingResolver CreateMappingResolver() {
-            return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client, Name);
+            return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client, Name, _logger);
         }
 
         public override TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map) {
