@@ -568,7 +568,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected virtual async Task<SearchDescriptor<T>> ConfigureSearchDescriptorAsync(SearchDescriptor<T> search, IRepositoryQuery query, ICommandOptions options) {
             search ??= new SearchDescriptor<T>();
 
-            query = ConfigureQuery(query.As<T>());
+            query = ConfigureQuery(query.As<T>()).Unwrap();
             var indices = ElasticIndex.GetIndexesByQuery(query);
             if (indices?.Length > 0)
                 search.Index(String.Join(",", indices));

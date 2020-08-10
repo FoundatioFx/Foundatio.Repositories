@@ -20,11 +20,17 @@ namespace Foundatio.Repositories.Options {
             if (options is ICommandOptions<T> typedOptions)
                 return typedOptions;
 
-            var o = new CommandOptions<T> {
-                Values = options.Values
-            };
-
-            return o;
+            return new WrappedCommandOptions<T>(options);
         }
+    }
+
+    internal class WrappedCommandOptions<T> : ICommandOptions<T> where T : class {
+        public WrappedCommandOptions(ICommandOptions innerOptions) {
+            InnerOptions = innerOptions;
+        }
+
+        public IOptionsDictionary Values => InnerOptions.Values;
+
+        public ICommandOptions InnerOptions { get; }
     }
 }

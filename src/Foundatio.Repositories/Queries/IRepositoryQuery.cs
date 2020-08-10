@@ -62,11 +62,35 @@ namespace Foundatio.Repositories {
             if (query is IRepositoryQuery<T> typedQuery)
                 return typedQuery;
 
-            var o = new RepositoryQuery<T> {
-                Values = query.Values
-            };
+            return new WrappedRepositoryQuery<T>(query);
+        }
 
-            return o;
+        public static IRepositoryQuery Unwrap(this IRepositoryQuery query) {
+            if (query == null)
+                return new RepositoryQuery();
+
+            if (query is WrappedRepositoryQuery wrappedQuery)
+                return wrappedQuery.InnerQuery;
+
+            return query;
+        }
+    }
+
+    internal class WrappedRepositoryQuery<T> : WrappedRepositoryQuery, IRepositoryQuery<T> where T: class {
+        public WrappedRepositoryQuery(IRepositoryQuery innerQuery) : base(innerQuery) {}
+    }
+
+    internal class WrappedRepositoryQuery : IRepositoryQuery {
+        public WrappedRepositoryQuery(IRepositoryQuery innerQuery) {
+            InnerQuery = innerQuery;
+        }
+
+        public IOptionsDictionary Values => InnerQuery.Values;
+
+        public IRepositoryQuery InnerQuery { get; }
+
+        public Type GetDocumentType() {
+            return InnerQuery.GetDocumentType();
         }
     }
 }
