@@ -113,18 +113,18 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     if (type == "date" && valueAggregate.Value.HasValue) {
                         return new ValueAggregate<DateTime> {
                             Value = GetDate(valueAggregate),
-                            Data = valueAggregate.Meta.ToData<ValueAggregate<DateTime>>()
+                            Data = valueAggregate.Meta.ToReadOnlyData<ValueAggregate<DateTime>>()
                         };
                     }
                 }
 
-                return new ValueAggregate { Value = valueAggregate.Value, Data = valueAggregate.Meta.ToData<ValueAggregate>() };
+                return new ValueAggregate { Value = valueAggregate.Value, Data = valueAggregate.Meta.ToReadOnlyData<ValueAggregate>() };
             }
 
             if (aggregate is Nest.ScriptedMetricAggregate scriptedAggregate)
                 return new ObjectValueAggregate {
                     Value = scriptedAggregate.Value<object>(),
-                    Data = scriptedAggregate.Meta.ToData<ObjectValueAggregate>()
+                    Data = scriptedAggregate.Meta.ToReadOnlyData<ObjectValueAggregate>()
                 };
 
             if (aggregate is Nest.ExtendedStatsAggregate extendedStatsAggregate)
@@ -141,7 +141,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     },
                     SumOfSquares = extendedStatsAggregate.SumOfSquares,
                     Variance = extendedStatsAggregate.Variance,
-                    Data = extendedStatsAggregate.Meta.ToData<ExtendedStatsAggregate>()
+                    Data = extendedStatsAggregate.Meta.ToReadOnlyData<ExtendedStatsAggregate>()
                 };
             
             if (aggregate is Nest.StatsAggregate statsAggregate)
@@ -151,7 +151,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                     Max = statsAggregate.Max,
                     Average = statsAggregate.Average,
                     Sum = statsAggregate.Sum,
-                    Data = statsAggregate.Meta.ToData<StatsAggregate>()
+                    Data = statsAggregate.Meta.ToReadOnlyData<StatsAggregate>()
                 };
 
             if (aggregate is Nest.TopHitsAggregate topHitsAggregate) {
@@ -161,18 +161,18 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
                 return new TopHitsAggregate(docs) {
                     Total = topHitsAggregate.Total.Value,
                     MaxScore = topHitsAggregate.MaxScore,
-                    Data = topHitsAggregate.Meta.ToData<TopHitsAggregate>()
+                    Data = topHitsAggregate.Meta.ToReadOnlyData<TopHitsAggregate>()
                 };
             }
 
             if (aggregate is Nest.PercentilesAggregate percentilesAggregate)
                 return new PercentilesAggregate(percentilesAggregate.Items.Select(i => new PercentileItem { Percentile = i.Percentile, Value = i.Value })) {
-                    Data = percentilesAggregate.Meta.ToData<PercentilesAggregate>()
+                    Data = percentilesAggregate.Meta.ToReadOnlyData<PercentilesAggregate>()
                 };
 
             if (aggregate is Nest.SingleBucketAggregate singleBucketAggregate)
                 return new SingleBucketAggregate(singleBucketAggregate.ToAggregations()) {
-                    Data = singleBucketAggregate.Meta.ToData<SingleBucketAggregate>(),
+                    Data = singleBucketAggregate.Meta.ToReadOnlyData<SingleBucketAggregate>(),
                     Total = singleBucketAggregate.DocCount
                 };
 
@@ -185,7 +185,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
                 return new BucketAggregate {
                     Items = bucketAggregation.Items.Select(i => i.ToBucket(data)).ToList(),
-                    Data = new ReadOnlyDictionary<string, object>(data).ToData<BucketAggregate>(),
+                    Data = new ReadOnlyDictionary<string, object>(data).ToReadOnlyData<BucketAggregate>(),
                     Total = bucketAggregation.DocCount
                 };
             }

@@ -1,13 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
-using Newtonsoft.Json;
 
 namespace Foundatio.Repositories.Models {
     [DebuggerDisplay("Total: {Total} Documents: {Documents.Count} Hits: {Hits.Count} Aggs: {Aggregations.Count} Page: {Page} HasMore: {HasMore}")]
@@ -82,14 +80,14 @@ namespace Foundatio.Repositories.Models {
         public CountResult(long total = 0, IDictionary<string, IAggregate> aggregations = null, IDictionary<string, object> data = null) {
             Aggregations = aggregations == null ? EmptyReadOnly<string, IAggregate>.Dictionary : new Dictionary<string, IAggregate>(aggregations);
             Total = total;
-            Data = data == null ? new Dictionary<string, object>() : data;
+            Data = data ?? new Dictionary<string, object>();
         }
 
         public long Total { get; protected set; }
         public IReadOnlyDictionary<string, IAggregate> Aggregations { get; protected set; }
         public IDictionary<string, object> Data { get; protected set; }
 
-        [JsonIgnore]
+        [IgnoreDataMember]
         public AggregationsHelper Aggs => _agg ?? (_agg = new AggregationsHelper(Aggregations));
 
         public static implicit operator long(CountResult result) {
@@ -110,7 +108,7 @@ namespace Foundatio.Repositories.Models {
             Score = score;
             Version = version;
             Routing = routing;
-            Data = data != null ? data : new Dictionary<string, object>();
+            Data = data ?? new Dictionary<string, object>();
         }
 
         public T Document { get; }
