@@ -25,14 +25,28 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (results == null || results.Hits.Count == 0)
                 return null;
 
-            return results.Hits.First().GetSortToken();
+            return results.Data.GetString("SearchBeforeToken", null);
         }
 
         public static string GetSearchAfterToken<T>(this FindResults<T> results) where T : class {
             if (results == null || results.Hits.Count == 0)
                 return null;
 
-            return results.Hits.Last().GetSortToken();
+            return results.Data.GetString("SearchAfterToken", null);
+        }
+
+        internal static void SetSearchBeforeToken<T>(this FindResults<T> results) where T : class {
+            if (results == null || results.Hits.Count == 0)
+                return;
+
+            results.Data["SearchBeforeToken"] = results.Hits.First().GetSortToken();
+        }
+
+        internal static void SetSearchAfterToken<T>(this FindResults<T> results) where T : class {
+            if (results == null || results.Hits.Count == 0)
+                return;
+
+            results.Data["SearchAfterToken"] = results.Hits.Last().GetSortToken();
         }
 
         public static string GetSortToken<T>(this FindHit<T> hit) {

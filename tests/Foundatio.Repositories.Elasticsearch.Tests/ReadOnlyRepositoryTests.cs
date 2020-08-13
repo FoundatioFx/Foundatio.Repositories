@@ -794,11 +794,23 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             var employeePages = new List<FindResults<Employee>>();
             string searchAfterToken = null;
+            string searchBeforeToken = null;
             int page = 0;
             do {
                 page++;
                 var employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(e => e.Age), o => o.SearchAfterToken(searchAfterToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
+                searchBeforeToken = employees.GetSearchBeforeToken();
                 searchAfterToken = employees.GetSearchAfterToken();
+                if (page == 1) {
+                    Assert.Null(searchBeforeToken);
+                    Assert.NotNull(searchAfterToken);
+                } else if (page == 10) {
+                    Assert.NotNull(searchBeforeToken);
+                    Assert.Null(searchAfterToken);
+                } else {
+                    Assert.NotNull(searchBeforeToken);
+                    Assert.NotNull(searchAfterToken);
+                }
 
                 foreach (var employeePage in employeePages) {
                     foreach (var employee in employees.Documents) {
@@ -816,11 +828,21 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(10, page);
             Assert.Equal(10, employeePages.Count);
 
-            string searchBeforeToken = employeePages.Last().GetSearchBeforeToken();
             do {
                 page--;
                 var employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(e => e.Age), o => o.SearchBeforeToken(searchBeforeToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
                 searchBeforeToken = employees.GetSearchBeforeToken();
+                searchAfterToken = employees.GetSearchAfterToken();
+                if (page == 1) {
+                    Assert.Null(searchBeforeToken);
+                    Assert.NotNull(searchAfterToken);
+                } else if (page == 10) {
+                    Assert.NotNull(searchBeforeToken);
+                    Assert.Null(searchAfterToken);
+                } else {
+                    Assert.NotNull(searchBeforeToken);
+                    Assert.NotNull(searchAfterToken);
+                }
 
                 var matchingPage = employeePages[page - 1];
                 for (int i = 0; i < pageSize; i++)
@@ -835,11 +857,23 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             var employeePages = new List<FindResults<Employee>>();
             string searchAfterToken = null;
+            string searchBeforeToken = null;
             int page = 0;
             do {
                 page++;
                 var employees = await _employeeRepository.FindAsync(q => q.SortExpression("name companyname -age"), o => o.SearchAfterToken(searchAfterToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
+                searchBeforeToken = employees.GetSearchBeforeToken();
                 searchAfterToken = employees.GetSearchAfterToken();
+                if (page == 1) {
+                    Assert.Null(searchBeforeToken);
+                    Assert.NotNull(searchAfterToken);
+                } else if (page == 10) {
+                    Assert.NotNull(searchBeforeToken);
+                    Assert.Null(searchAfterToken);
+                } else {
+                    Assert.NotNull(searchBeforeToken);
+                    Assert.NotNull(searchAfterToken);
+                }
 
                 foreach (var employeePage in employeePages) {
                     foreach (var employee in employees.Documents) {
@@ -857,11 +891,21 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(10, page);
             Assert.Equal(10, employeePages.Count);
 
-            string searchBeforeToken = employeePages.Last().GetSearchBeforeToken();
             do {
                 page--;
                 var employees = await _employeeRepository.FindAsync(q => q.SortExpression("name companyname -age"), o => o.SearchBeforeToken(searchBeforeToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
                 searchBeforeToken = employees.GetSearchBeforeToken();
+                searchAfterToken = employees.GetSearchAfterToken();
+                if (page == 1) {
+                    Assert.Null(searchBeforeToken);
+                    Assert.NotNull(searchAfterToken);
+                } else if (page == 10) {
+                    Assert.NotNull(searchBeforeToken);
+                    Assert.Null(searchAfterToken);
+                } else {
+                    Assert.NotNull(searchBeforeToken);
+                    Assert.NotNull(searchAfterToken);
+                }
 
                 var matchingPage = employeePages[page - 1];
                 for (int i = 0; i < pageSize; i++)

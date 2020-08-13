@@ -1,12 +1,26 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Extensions {
     public static class DictionaryExtensions {
+        public static string GetString(this IDictionary<string, object> data, string name) {
+            return data.GetString(name, String.Empty);
+        }
+
         public static string GetString(this IReadOnlyDictionary<string, object> data, string name) {
             return data.GetString(name, String.Empty);
+        }
+
+        public static string GetString(this IDictionary<string, object> data, string name, string @default) {
+            if (!data.TryGetValue(name, out var value))
+                return @default;
+
+            if (value is string s)
+                return s;
+
+            return String.Empty;
         }
 
         public static string GetString(this IReadOnlyDictionary<string, object> data, string name, string @default) {

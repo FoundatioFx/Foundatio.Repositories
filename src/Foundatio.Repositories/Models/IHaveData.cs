@@ -2,6 +2,6 @@
 
 namespace Foundatio.Repositories.Models {
     public interface IHaveData {
-        IReadOnlyDictionary<string, object> Data { get; }
+        IDictionary<string, object> Data { get; }
     }
 }

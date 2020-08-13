@@ -366,8 +366,22 @@ namespace Foundatio.Repositories.Elasticsearch {
                 result = response.ToFindResults();
             }
 
-            if (options.HasSearchBefore())
+            if (options.HasSearchAfter()) {
+                result.SetSearchBeforeToken();
+                if (result.HasMore)
+                    result.SetSearchAfterToken();
+            } else if (options.HasSearchBefore()) {
+                // reverse results
+                bool hasMore = result.HasMore;
                 result = new FindResults<TResult>(result.Hits.Reverse(), result.Total, result.Aggregations.ToDictionary(k => k.Key, v => v.Value), GetNextPageFunc, result.Data.ToDictionary(k => k.Key, v => v.Value));
+                result.HasMore = hasMore;
+
+                result.SetSearchAfterToken();
+                if (result.HasMore)
+                    result.SetSearchBeforeToken();
+            } else if (result.HasMore) {
+                result.SetSearchAfterToken();
+            }
 
             result.Page = options.GetPage();
 

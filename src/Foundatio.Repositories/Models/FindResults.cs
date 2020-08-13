@@ -33,7 +33,7 @@ namespace Foundatio.Repositories.Models {
                 Aggregations = EmptyReadOnly<string, IAggregate>.Dictionary;
                 Hits = EmptyReadOnly<FindHit<T>>.Collection;
                 Documents = EmptyReadOnly<T>.Collection;
-                Data = EmptyReadOnly<string, object>.Dictionary;
+                Data = new Dictionary<string, object>();
 
                 return false;
             }
@@ -43,7 +43,7 @@ namespace Foundatio.Repositories.Models {
                 Aggregations = EmptyReadOnly<string, IAggregate>.Dictionary;
                 Hits = EmptyReadOnly<FindHit<T>>.Collection;
                 Documents = EmptyReadOnly<T>.Collection;
-                Data = EmptyReadOnly<string, object>.Dictionary;
+                Data = new Dictionary<string, object>();
 
                 return false;
             }
@@ -54,7 +54,7 @@ namespace Foundatio.Repositories.Models {
                 Hits = EmptyReadOnly<FindHit<T>>.Collection;
                 Documents = EmptyReadOnly<T>.Collection;
                 HasMore = false;
-                Data = EmptyReadOnly<string, object>.Dictionary;
+                Data = new Dictionary<string, object>();
 
                 return false;
             }
@@ -82,12 +82,12 @@ namespace Foundatio.Repositories.Models {
         public CountResult(long total = 0, IDictionary<string, IAggregate> aggregations = null, IDictionary<string, object> data = null) {
             Aggregations = aggregations == null ? EmptyReadOnly<string, IAggregate>.Dictionary : new Dictionary<string, IAggregate>(aggregations);
             Total = total;
-            Data = data == null ? EmptyReadOnly<string, object>.Dictionary : new ReadOnlyDictionary<string, object>(data);
+            Data = data == null ? new Dictionary<string, object>() : data;
         }
 
         public long Total { get; protected set; }
         public IReadOnlyDictionary<string, IAggregate> Aggregations { get; protected set; }
-        public IReadOnlyDictionary<string, object> Data { get; protected set; }
+        public IDictionary<string, object> Data { get; protected set; }
 
         [JsonIgnore]
         public AggregationsHelper Aggs => _agg ?? (_agg = new AggregationsHelper(Aggregations));
@@ -110,7 +110,7 @@ namespace Foundatio.Repositories.Models {
             Score = score;
             Version = version;
             Routing = routing;
-            Data = data != null ? new ReadOnlyDictionary<string, object>(data) : EmptyReadOnly<string, object>.Dictionary;
+            Data = data != null ? data : new Dictionary<string, object>();
         }
 
         public T Document { get; }
@@ -118,7 +118,7 @@ namespace Foundatio.Repositories.Models {
         public string Version { get; }
         public string Id { get; }
         public string Routing { get; }
-        public IReadOnlyDictionary<string, object> Data { get; }
+        public IDictionary<string, object> Data { get; }
     }
 }
 
