@@ -120,6 +120,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             Register(new ExpressionQueryBuilder());
             Register<ElasticFilterQueryBuilder>();
             Register<FieldConditionsQueryBuilder>();
+            Register<SearchBeforeQueryBuilder>(Int32.MaxValue);
         }
 
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {

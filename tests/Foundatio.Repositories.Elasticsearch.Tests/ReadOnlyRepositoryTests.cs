@@ -829,6 +829,47 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task CanSearchAfterAndBeforeWithSortExpression() {
+            await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(count: 100), o => o.ImmediateConsistency());
+            int pageSize = 10;
+
+            var employeePages = new List<FindResults<Employee>>();
+            string searchAfterToken = null;
+            int page = 0;
+            do {
+                page++;
+                var employees = await _employeeRepository.FindAsync(q => q.SortExpression("name companyname -age"), o => o.SearchAfterToken(searchAfterToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
+                searchAfterToken = employees.GetSearchAfterToken();
+
+                foreach (var employeePage in employeePages) {
+                    foreach (var employee in employees.Documents) {
+                        bool documentExists = employeePage.Documents.Any(d => d.Id == employee.Id);
+                        if (documentExists)
+                            Assert.False(documentExists);
+                    }
+                }
+
+                employeePages.Add(employees);
+                if (!employees.HasMore)
+                    break;
+            } while (page < 20);
+
+            Assert.Equal(10, page);
+            Assert.Equal(10, employeePages.Count);
+
+            string searchBeforeToken = employeePages.Last().GetSearchBeforeToken();
+            do {
+                page--;
+                var employees = await _employeeRepository.FindAsync(q => q.SortExpression("name companyname -age"), o => o.SearchBeforeToken(searchBeforeToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
+                searchBeforeToken = employees.GetSearchBeforeToken();
+
+                var matchingPage = employeePages[page - 1];
+                for (int i = 0; i < pageSize; i++)
+                    Assert.Equal(matchingPage.Documents.ToArray()[i].Id, employees.Documents.ToArray()[i].Id);
+            } while (page > 1);
+        }
+
+        [Fact]
         public async Task SearchShouldNotReturnDeletedDocumentsAsync() {
             var employee = EmployeeGenerator.Generate(age: 20, name: "Deleted");
             employee = await _employeeRepository.AddAsync(employee, o => o.ImmediateConsistency());

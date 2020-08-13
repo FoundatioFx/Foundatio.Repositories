@@ -46,7 +46,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return Encode(JsonConvert.SerializeObject(sorts));
         }
 
-        public static ISort ReverseOrder(this IFieldSort sort) {
+        public static ISort ReverseOrder(this ISort sort) {
             if (sort == null)
                 return null;
 
@@ -54,7 +54,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return sort;
         }
 
-        public static IEnumerable<ISort> ReverseOrder(this IEnumerable<IFieldSort> sorts) {
+        public static IEnumerable<ISort> ReverseOrder(this IEnumerable<ISort> sorts) {
             if (sorts == null)
                 return null;
 

@@ -124,9 +124,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
                 var sortFields = GetSortFieldsVisitor.Run(result, ctx).ToList();
 
-                if (ctx.Options.HasSearchBefore())
-                    sortFields.ReverseOrder();
-
                 ctx.Search.Sort(sortFields);
             }
 
@@ -164,9 +161,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
                 var sortFields = GetSortFieldsVisitor.Run(result, ctx).ToList();
 
-                if (ctx.Options.HasSearchBefore())
-                    sortFields.ReverseOrder();
-
                 ctx.Search.Sort(sortFields);
             }
 
@@ -195,8 +189,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             if (!String.IsNullOrEmpty(sort)) {
                 var sortFields = (await _parser.BuildSortAsync(sort, ctx).AnyContext()).ToList();
-                if (ctx.Options.HasSearchBefore())
-                    sortFields.ReverseOrder();
 
                 ctx.Search.Sort(sortFields);
             }
