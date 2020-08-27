@@ -8,6 +8,7 @@ using Nest;
 using Foundatio.Repositories.Options;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Parsers.LuceneQueries.Nodes;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IElasticQueryBuilder {
@@ -43,7 +44,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         IncludeResolver IQueryVisitorContextWithIncludeResolver.IncludeResolver { get; set; }
         ElasticMappingResolver IElasticQueryVisitorContext.MappingResolver { get; set; }
 
-        Operator IElasticQueryVisitorContext.DefaultOperator { get; set; }
+        GroupOperator IQueryVisitorContext.DefaultOperator { get; set; }
         string IElasticQueryVisitorContext.DefaultTimeZone { get; set; }
         bool IElasticQueryVisitorContext.UseScoring { get; set; }
         string[] IQueryVisitorContext.DefaultFields { get; set; }
