@@ -185,7 +185,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 ctx.Filter &= await _parser.BuildQueryAsync(filter, ctx.SetDefaultOperator(Operator.And).UseScoring()).AnyContext();
 
             if (!String.IsNullOrEmpty(search))
-                ctx.Query &= await _parser.BuildQueryAsync(search, ctx.SetDefaultOperator(Operator.Or).UseScoring()).AnyContext();
+                ctx.Query &= await _parser.BuildQueryAsync(search, ctx.UseSearchMode()).AnyContext();
 
             if (!String.IsNullOrEmpty(sort)) {
                 var sortFields = (await _parser.BuildSortAsync(sort, ctx).AnyContext()).ToList();

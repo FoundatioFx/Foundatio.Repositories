@@ -4,10 +4,10 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Foundatio.Jobs.Commands" Version="10.0.0-beta9" Condition="'$(ReferenceFoundatioSource)' == '' OR '$(ReferenceFoundatioSource)' == 'false'" />
-    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="7.9.0-beta2" />
+    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="7.9.0-beta3" Condition="'$(ReferenceFoundatioRepositoriesSource)' == '' OR '$(ReferenceFoundatioRepositoriesSource)' == 'false'" />
 
     <ProjectReference Include="..\..\..\Foundatio\src\Foundatio.Jobs.Commands\Foundatio.Jobs.Commands.csproj" Condition="'$(ReferenceFoundatioSource)' == 'true'" />
-    <ProjectReference Include="..\..\..\Foundatio.Parsers\src\Foundatio.Parsers.ElasticQueries\Foundatio.Parsers.ElasticQueries.csproj" Condition="'$(ReferenceFoundatioSource)' == 'true'" />
+    <ProjectReference Include="..\..\..\Foundatio.Parsers\src\Foundatio.Parsers.ElasticQueries\Foundatio.Parsers.ElasticQueries.csproj" Condition="'$(ReferenceFoundatioRepositoriesSource)' == 'true'" />
     <ProjectReference Include="..\Foundatio.Repositories\Foundatio.Repositories.csproj" />
   </ItemGroup>
 </Project>
