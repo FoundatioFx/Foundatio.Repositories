@@ -11,7 +11,12 @@ using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class LoggerExtensions {
+        [Obsolete("Use LogRequest instead")]
         public static void LogTraceRequest(this ILogger logger, IElasticsearchResponse elasticResponse, LogLevel logLevel = LogLevel.Trace) {
+            LogRequest(logger, elasticResponse, logLevel);
+        }
+
+        public static void LogRequest(this ILogger logger, IElasticsearchResponse elasticResponse, LogLevel logLevel = LogLevel.Trace) {
             if (elasticResponse == null || !logger.IsEnabled(logLevel))
                 return;
 

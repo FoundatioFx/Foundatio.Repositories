@@ -89,7 +89,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (id.Routing != null)
                     request.Routing = id.Routing;
                 var response = await _client.GetAsync<T>(request).AnyContext();
-                _logger.LogTraceRequest(response, options.GetQueryLogLevel());
+                _logger.LogRequest(response, options.GetQueryLogLevel());
 
                 findHit = response.Found ? response.ToFindHit() : null;
             } else {
@@ -140,7 +140,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
-            _logger.LogTraceRequest(multiGetResults, options.GetQueryLogLevel());
+            _logger.LogRequest(multiGetResults, options.GetQueryLogLevel());
 
             foreach (var doc in multiGetResults.Hits) {
                 hits.Add(((IMultiGetHit<T>)doc).ToFindHit());
@@ -187,7 +187,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
                     return d;
                 }).AnyContext();
-                _logger.LogTraceRequest(response, options.GetQueryLogLevel());
+                _logger.LogRequest(response, options.GetQueryLogLevel());
 
                 return response.Exists;
             }
@@ -287,7 +287,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 string scrollId = previousResults.GetScrollId();
                 if (!String.IsNullOrEmpty(scrollId)) {
                     var scrollResponse = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), scrollId).AnyContext();
-                    _logger.LogTraceRequest(scrollResponse, options.GetQueryLogLevel());
+                    _logger.LogRequest(scrollResponse, options.GetQueryLogLevel());
 
                     var results = scrollResponse.ToFindResults();
                     results.Page = previousResults.Page + 1;
@@ -339,7 +339,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             if (response.IsValid) {
-                _logger.LogTraceRequest(response, options.GetQueryLogLevel());
+                _logger.LogRequest(response, options.GetQueryLogLevel());
             } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return new FindResults<TResult>();
@@ -417,7 +417,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
 
             if (response.IsValid) {
-                _logger.LogTraceRequest(response, options.GetQueryLogLevel());
+                _logger.LogRequest(response, options.GetQueryLogLevel());
             } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return FindHit<T>.Empty;
@@ -458,7 +458,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
 
             if (response.IsValid) {
-                _logger.LogTraceRequest(response, options.GetQueryLogLevel());
+                _logger.LogRequest(response, options.GetQueryLogLevel());
             } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return new CountResult();
@@ -489,7 +489,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
 
             if (response.IsValid) {
-                _logger.LogTraceRequest(response, options.GetQueryLogLevel());
+                _logger.LogRequest(response, options.GetQueryLogLevel());
             } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return false;

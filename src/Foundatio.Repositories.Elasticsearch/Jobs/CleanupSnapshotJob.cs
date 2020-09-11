@@ -54,7 +54,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 d => d.RequestConfiguration(r =>
                     r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
             sw.Stop();
-            _logger.LogTraceRequest(result);
+            _logger.LogRequest(result);
 
             var snapshots = new List<SnapshotDate>();
             if (result.IsValid && result.Snapshots != null)
@@ -94,7 +94,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                         sw.Restart();
                         var response = await _client.Snapshot.DeleteAsync(repo, snapshot.Name, r => r.RequestConfiguration(c => c.RequestTimeout(TimeSpan.FromMinutes(15))), ct: t).AnyContext();
                         sw.Stop();
-                        _logger.LogTraceRequest(response);
+                        _logger.LogRequest(response);
 
                         if (response.IsValid)
                             await OnSnapshotDeleted(snapshot.Name, sw.Elapsed).AnyContext();

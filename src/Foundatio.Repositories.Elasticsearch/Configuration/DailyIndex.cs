@@ -280,7 +280,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var response = await Configuration.Client.Indices.BulkAliasAsync(aliasDescriptor).AnyContext();
 
             if (response.IsValid) {
-                _logger.LogTraceRequest(response);
+                _logger.LogRequest(response);
             } else {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return;
@@ -305,22 +305,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
                 sw.Stop();
             }
-        }
-
-        protected override async Task<IList<IndexInfo>> GetIndexesAsync(int version = -1) {
-            var indexes = await base.GetIndexesAsync(version).AnyContext();
-            if (indexes.Count == 0)
-                return indexes;
-
-            // TODO: Optimize with cat aliases.
-            // TODO: Should this return indexes that fall outside of the max age?
-            foreach (var indexGroup in indexes.GroupBy(i => GetIndexByDate(i.DateUtc))) {
-                int v = await GetVersionFromAliasAsync(indexGroup.Key).AnyContext();
-                foreach (var indexInfo in indexGroup)
-                    indexInfo.CurrentVersion = v;
-            }
-
-            return indexes;
         }
 
         protected override async Task DeleteIndexAsync(string name) {
@@ -352,7 +336,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return indexes;
         }
 
-        protected virtual string GetIndexByDate(DateTime date) {
+        protected override string GetIndexByDate(DateTime date) {
             return $"{Name}-{date.ToString(DateFormat)}";
         }
 

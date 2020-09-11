@@ -51,7 +51,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             sw.Stop();
 
             if (result.IsValid) {
-                _logger.LogTraceRequest(result);
+                _logger.LogRequest(result);
                 _logger.LogInformation("Retrieved list of {IndexCount} indexes in {Duration:g}", result.Records?.Count, sw.Elapsed.ToWords(true));
             } else {
                 _logger.LogErrorRequest(result, "Failed to retrieve list of indexes");
@@ -93,7 +93,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                         sw.Restart();
                         var response = await _client.Indices.DeleteAsync(oldIndex.Index, d => d, t).AnyContext();
                         sw.Stop();
-                        _logger.LogTraceRequest(response);
+                        _logger.LogRequest(response);
 
                         if (response.IsValid)
                             await OnIndexDeleted(oldIndex.Index, sw.Elapsed).AnyContext();

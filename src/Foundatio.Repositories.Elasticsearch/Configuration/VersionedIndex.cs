@@ -183,7 +183,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return -1;
             
             if (response.IsValid && response.Indices.Count > 0) {
-                _logger.LogTraceRequest(response);
+                _logger.LogRequest(response);
                 return response.Indices.Keys.Select(i => GetIndexVersion(i.Name)).OrderBy(v => v).First();
             }
 
@@ -221,10 +221,31 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ApplicationException(message, response.OriginalException);
             }
 
-            _logger.LogTraceRequest(response);
+            if (response.Records.Count == 0)
+                return new List<IndexInfo>();
+
+            var nonAliasedIndexNames = String.Join(",", response.Records.Select(r => GetIndexByDate(GetIndexDate(r.Index))));
+            var aliasResponse = await Configuration.Client.Cat.AliasesAsync(i => i.Name(nonAliasedIndexNames)).AnyContext();
+
+            if (!aliasResponse.IsValid) {
+                _logger.LogErrorRequest(response, "Error getting idnex aliases for {Indexes}", filter);
+                string message = $"Error getting index aliases: {response.GetErrorMessage()}";
+                throw new ApplicationException(message, response.OriginalException);
+            }
+
+            _logger.LogRequest(response);
             var indices = response.Records
                 .Where(i => version < 0 || GetIndexVersion(i.Index) == version)
-                .Select(i => new IndexInfo { DateUtc = GetIndexDate(i.Index), Index = i.Index, Version = GetIndexVersion(i.Index) })
+                .Select(i => {
+                    var indexDate = GetIndexDate(i.Index);
+                    var indexAliasName = GetIndexByDate(GetIndexDate(i.Index));
+                    var aliasRecord = aliasResponse.Records.FirstOrDefault(r => r.Alias == indexAliasName);
+                    int currentVersion = -1;
+                    if (aliasRecord != null)
+                        currentVersion = GetIndexVersion(aliasRecord.Index);
+
+                    return new IndexInfo { DateUtc = indexDate, Index = i.Index, Version = GetIndexVersion(i.Index), CurrentVersion = currentVersion };
+                })
                 .OrderBy(i => i.DateUtc)
                 .ToList();
 
@@ -234,6 +255,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
         protected virtual DateTime GetIndexDate(string name) {
             return DateTime.MaxValue;
+        }
+
+        protected virtual string GetIndexByDate(DateTime date) {
+            return Name;
         }
 
         [DebuggerDisplay("{Index} (Date: {DateUtc} Version: {Version} CurrentVersion: {CurrentVersion})")]

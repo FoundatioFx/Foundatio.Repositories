@@ -50,7 +50,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                                 .IncludeGlobalState(false)
                                 .WaitForCompletion(false)
                             , cancellationToken).AnyContext();
-                        _logger.LogTraceRequest(response);
+                        _logger.LogRequest(response);
 
                         // 400 means the snapshot already exists
                         if (!response.IsValid && response.ApiCall.HttpStatusCode != 400) {
@@ -72,7 +72,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                     await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken).AnyContext();
 
                     var status = await _client.Snapshot.StatusAsync(s => s.Snapshot(snapshotName).RepositoryName(Repository), cancellationToken).AnyContext();
-                    _logger.LogTraceRequest(status);
+                    _logger.LogRequest(status);
                     if (status.IsValid && status.Snapshots.Count > 0) {
                         string state = status.Snapshots.First().State;
                         if (state.Equals("SUCCESS", StringComparison.OrdinalIgnoreCase)) {

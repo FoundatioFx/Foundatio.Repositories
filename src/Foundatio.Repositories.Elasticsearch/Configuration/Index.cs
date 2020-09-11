@@ -131,7 +131,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (response.IsValid || response.ServerError.Status == 400 &&
                 (response.ServerError.Error.Type == "index_already_exists_exception"
                  || response.ServerError.Error.Type == "resource_already_exists_exception")) {
-                _logger.LogTraceRequest(response);
+                _logger.LogRequest(response);
                 return;
             }
 
@@ -153,7 +153,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var response = await Configuration.Client.Indices.DeleteAsync(Indices.Index(names), i => i.IgnoreUnavailable()).AnyContext();
 
             if (response.IsValid) {
-                _logger.LogTraceRequest(response);
+                _logger.LogRequest(response);
                 return;
             }
 
@@ -167,7 +167,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             var response = await Configuration.Client.Indices.ExistsAsync(name).AnyContext();
             if (response.ApiCall.Success) {
-                _logger.LogTraceRequest(response);
+                _logger.LogRequest(response);
                 return response.Exists;
             }
 
