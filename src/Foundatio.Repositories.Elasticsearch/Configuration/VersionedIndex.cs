@@ -224,7 +224,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (response.Records.Count == 0)
                 return new List<IndexInfo>();
 
-            var nonAliasedIndexNames = String.Join(",", response.Records.Select(r => GetIndexByDate(GetIndexDate(r.Index))));
+            var nonAliasedIndexNames = String.Join(",", response.Records.Select(r => GetIndexByDate(GetIndexDate(r.Index))).Distinct());
             var aliasResponse = await Configuration.Client.Cat.AliasesAsync(i => i.Name(nonAliasedIndexNames)).AnyContext();
 
             if (!aliasResponse.IsValid) {
@@ -240,6 +240,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                     var indexDate = GetIndexDate(i.Index);
                     var indexAliasName = GetIndexByDate(GetIndexDate(i.Index));
                     var aliasRecord = aliasResponse.Records.FirstOrDefault(r => r.Alias == indexAliasName);
+
                     int currentVersion = -1;
                     if (aliasRecord != null)
                         currentVersion = GetIndexVersion(aliasRecord.Index);
