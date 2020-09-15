@@ -2,11 +2,9 @@
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Jobs;
-using Foundatio.Jobs.Commands;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Migrations;
-using Microsoft.Extensions.CommandLineUtils;
 using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs {
@@ -42,46 +40,6 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         private async Task ReindexIfNecessary(IVersionedIndex index) {
             if (index.Version != await index.GetCurrentVersionAsync().AnyContext())
                 await index.ReindexAsync().AnyContext();
-        }
-
-        public static void Configure(JobCommandContext context) {
-            var app = context.Application;
-            var migrationOption = app.Option("-m|--migration-type", "The type of the migration to run manually.", CommandOptionType.MultipleValue);
-
-            app.OnExecute(() => {
-                var provider = context.ServiceProvider.Value;
-
-                var migrationTypeNames = migrationOption.Values;
-                if (context.JobType == null)
-                    throw new ArgumentNullException(nameof(context), $"{nameof(context)}.{nameof(context.JobType)} cannot be null");
-
-                object jobInstance = provider.GetService(context.JobType);
-                if (jobInstance == null)
-                    throw new ArgumentException($"Unable to get instance of type '{context.JobType.Name}'. Please ensure it's registered in Dependency Injection.", nameof(context));
-
-                if (!(jobInstance is ElasticMigrationJobBase job))
-                    throw new ArgumentException($"Type '{context.JobType.Name}' must implement '{nameof(ElasticMigrationJobBase)}'.", nameof(context));
-
-                if (migrationTypeNames.Any(m => !String.IsNullOrEmpty(m)))
-                    job.MigrationManager.Migrations.Clear();
-
-                foreach (string migrationTypeName in migrationTypeNames.Where(m => !String.IsNullOrEmpty(m))) {
-                    try {
-                        var migrationType = Type.GetType(migrationTypeName);
-                        if (migrationType == null) {
-                            Console.WriteLine("Migration type is null.");
-                            return Task.FromResult(-1);
-                        }
-
-                        job.MigrationManager.AddMigration(migrationType);
-                    } catch (Exception ex) {
-                        Console.WriteLine($"Error getting migration type: {ex.Message}");
-                        return Task.FromResult(-1);
-                    }
-                }
-
-                return new JobRunner(job, context.LoggerFactory, runContinuous: false).RunInConsoleAsync();
-            });
         }
     }
 }
