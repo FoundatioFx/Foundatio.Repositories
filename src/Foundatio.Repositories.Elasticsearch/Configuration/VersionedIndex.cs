@@ -224,8 +224,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (response.Records.Count == 0)
                 return new List<IndexInfo>();
 
-            var nonAliasedIndexNames = String.Join(",", response.Records.Select(r => GetIndexByDate(GetIndexDate(r.Index))).Distinct());
-            var aliasResponse = await Configuration.Client.Cat.AliasesAsync(i => i.Name(nonAliasedIndexNames)).AnyContext();
+            var aliasResponse = await Configuration.Client.Cat.AliasesAsync(i => i.Name($"{Name}-*")).AnyContext();
 
             if (!aliasResponse.IsValid) {
                 _logger.LogErrorRequest(response, "Error getting idnex aliases for {Indexes}", filter);
