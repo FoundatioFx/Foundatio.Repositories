@@ -353,8 +353,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                 result.HasMore = response.Hits.Count >= options.GetLimit();
                 
                 // clear the scroll
-                if (!result.HasMore)
-                    await _client.ClearScrollAsync(s => s.ScrollId(result.GetScrollId()));
+                if (!result.HasMore) {
+                    var scrollId = result.GetScrollId();
+                    if (!String.IsNullOrEmpty(scrollId))
+                        await _client.ClearScrollAsync(s => s.ScrollId(result.GetScrollId()));
+                }
                 
                 ((IGetNextPage<TResult>)result).GetNextPageFunc = GetNextPageFunc;
             } else if (options.HasPageLimit()) {

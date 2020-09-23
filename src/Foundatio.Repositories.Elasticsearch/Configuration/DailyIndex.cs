@@ -340,6 +340,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return $"{Name}-{date.ToString(DateFormat)}";
         }
 
+        protected override ElasticMappingResolver CreateMappingResolver() {
+            return ElasticMappingResolver.Create(GetLatestIndexMapping, Configuration.Client.Infer, _logger);
+        }
+
         protected ITypeMapping GetLatestIndexMapping() {
             string filter = $"{Name}-v{Version}-*";
             var catResponse = Configuration.Client.Cat.Indices(i => i.Pri().Index(Indices.Index((IndexName)filter)));
@@ -439,11 +443,9 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public DailyIndex(IElasticConfiguration configuration, string name = null, int version = 1, Func<object, DateTime> getDocumentDateUtc = null) : base(configuration, name, version, getDocumentDateUtc) {
             Name = name ?? _typeName;
         }
-        
-        protected override ElasticQueryParser CreateQueryParser() {
-            var parser = base.CreateQueryParser();
-            parser.Configuration.UseMappings<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMapping);
-            return parser;
+
+        protected override ElasticMappingResolver CreateMappingResolver() {
+            return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMapping, _logger);
         }
         
         public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map) {
