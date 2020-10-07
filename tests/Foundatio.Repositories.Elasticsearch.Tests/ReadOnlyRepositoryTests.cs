@@ -568,28 +568,34 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetAllWithSearchAfterPagingAsync() {
-            var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
-            Assert.NotNull(identity1?.Id);
+        public async Task FindWithSearchAfterPagingAsync() {
+            Log.MinimumLevel = LogLevel.Trace;
 
-            var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
-            Assert.NotNull(identity2?.Id);
+            var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+            Assert.NotNull(employee1?.Id);
 
-            var results = await _identityRepository.GetAllAsync(o => o.PageLimit(1).SearchAfterPaging());
+            var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
+            Assert.NotNull(employee2?.Id);
+
+            var results = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchAfterPaging());
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
             Assert.True(results.HasMore);
-            Assert.Equal(identity1.Id, results.Documents.First().Id);
+            Assert.Equal(employee1.Id, results.Documents.First().Id);
             Assert.Equal(2, results.Total);
+            Assert.Null(results.GetSearchBeforeToken());
+            Assert.NotNull(results.GetSearchAfterToken());
 
             Assert.True(await results.NextPageAsync());
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(2, results.Page);
             Assert.Equal(2, results.Total);
-            Assert.Equal(identity2.Id, results.Documents.First().Id);
+            Assert.Equal(employee2.Id, results.Documents.First().Id);
             Assert.False(results.HasMore);
-            var secondDoc = results.Documents.First();
+            var searchBeforeToken = results.GetSearchBeforeToken();
+            Assert.NotNull(searchBeforeToken);
+            Assert.Null(results.GetSearchAfterToken());
 
             Assert.False(await results.NextPageAsync());
             Assert.Equal(0, results.Documents.Count);
@@ -597,8 +603,39 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.False(results.HasMore);
             Assert.Equal(2, results.Total);
 
-            // var secondPageResults = await _identityRepository.GetAllAsync(o => o.PageNumber(2).PageLimit(1));
-            // Assert.Equal(secondDoc, secondPageResults.Documents.First());
+            // try search before
+            results = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchBeforeToken(searchBeforeToken));
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(employee1.Id, results.Documents.First().Id);
+            Assert.Equal(2, results.Total);
+            Assert.Null(results.GetSearchBeforeToken());
+            Assert.NotNull(results.GetSearchAfterToken());
+
+            results = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(5).SearchAfterPaging());
+            Assert.NotNull(results);
+            Assert.Equal(2, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(employee1.Id, results.Documents.First().Id);
+            Assert.Equal(employee2.Id, results.Documents.Last().Id);
+            Assert.Equal(2, results.Total);
+
+            // use while loop
+            var findResults = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchAfterPaging());
+            do {
+                Assert.Equal(1, findResults.Documents.Count);
+                Assert.Equal(2, findResults.Total);
+            } while (await findResults.NextPageAsync().ConfigureAwait(false));
+
+            findResults = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(5).SearchAfterPaging());
+            do {
+                Assert.Equal(2, findResults.Documents.Count);
+                Assert.Equal(1, findResults.Page);
+                Assert.Equal(2, findResults.Total);
+            } while (await findResults.NextPageAsync().ConfigureAwait(false));
         }
 
         [Fact]

@@ -9,7 +9,7 @@ using Foundatio.Repositories.Options;
 using Nest;
 
 namespace Foundatio.Repositories {
-    public static class SearchBeforeQueryExtensions {
+    public static class SearchAfterQueryExtensions {
         internal const string SearchAfterPagingKey = "@SearchAfterPaging";
         internal const string SearchAfterKey = "@SearchAfter";
         internal const string SearchBeforeKey = "@SearchBefore";
@@ -67,33 +67,33 @@ namespace Foundatio.Repositories {
 }
 
 namespace Foundatio.Repositories.Options {
-    public static class ReadSearchBeforeQueryExtensions {
+    public static class ReadSearchAfterQueryExtensions {
         public static bool ShouldUseSearchAfterPaging(this ICommandOptions options) {
-            return options.SafeGetOption<bool>(SearchBeforeQueryExtensions.SearchAfterPagingKey, false);
+            return options.SafeGetOption<bool>(SearchAfterQueryExtensions.SearchAfterPagingKey, false);
         }
 
         public static object[] GetSearchAfter(this ICommandOptions options) {
-            return options.SafeGetOption<object[]>(SearchBeforeQueryExtensions.SearchAfterKey);
+            return options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchAfterKey);
         }
 
         public static bool HasSearchAfter(this ICommandOptions options) {
-            var sorts = options.SafeGetOption<object[]>(SearchBeforeQueryExtensions.SearchAfterKey);
+            var sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchAfterKey);
             return sorts != null && sorts.Length > 0;
         }
 
         public static object[] GetSearchBefore(this ICommandOptions options) {
-            return options.SafeGetOption<object[]>(SearchBeforeQueryExtensions.SearchBeforeKey);
+            return options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchBeforeKey);
         }
 
         public static bool HasSearchBefore(this ICommandOptions options) {
-            var sorts = options.SafeGetOption<object[]>(SearchBeforeQueryExtensions.SearchBeforeKey);
+            var sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchBeforeKey);
             return sorts != null && sorts.Length > 0;
         }
     }
 }
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public class SearchBeforeQueryBuilder : IElasticQueryBuilder {
+    public class SearchAfterQueryBuilder : IElasticQueryBuilder {
         private const string Id = nameof(IIdentity.Id);
 
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
@@ -108,11 +108,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (searchRequest == null)
                 return Task.CompletedTask;
 
-            var sortFields = searchRequest.Sort?.ToList() ?? new List<ISort>();
+            var sortFields = searchRequest.Sort ?? new List<ISort>();
 
             // ensure id field is always added to the end of the sort fields list
             if (!sortFields.Any(s => resolver.GetResolvedField(s.SortKey).Equals(idField)))
-                ctx.Search.Sort(new[] { new FieldSort { Field = idField } });
+                sortFields.Add(new FieldSort { Field = idField });
 
             // reverse sort orders on all sorts
             if (ctx.Options.HasSearchBefore())

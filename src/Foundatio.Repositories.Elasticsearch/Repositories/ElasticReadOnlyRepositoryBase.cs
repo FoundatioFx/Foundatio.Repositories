@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -300,11 +300,8 @@ namespace Foundatio.Repositories.Elasticsearch {
                     return results;
                 }
 
-                if (options.ShouldUseSearchAfterPaging()) {
-                    var lastHit = previousResults.Hits.LastOrDefault();
-                    if (lastHit != null)
-                        options.SearchAfter(lastHit.GetSorts());
-                }
+                if (options.ShouldUseSearchAfterPaging())
+                    options.SearchAfterToken(previousResults.GetSearchAfterToken());
 
                 if (options == null)
                     return new FindResults<TResult>();
