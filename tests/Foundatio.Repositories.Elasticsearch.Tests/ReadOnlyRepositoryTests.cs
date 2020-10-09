@@ -749,11 +749,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var utcNow = SystemClock.UtcNow;
             var chicagoNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, chicagoTimeZone);
             var asiaNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, asiaTimeZone);
+
+            _logger.LogInformation($"UTC: {utcNow.ToString("o")} Chicago: {chicagoNow.ToString("o")} Asia: {asiaNow.ToString("o")}");
             
-            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: chicagoNow), o => o.ImmediateConsistency());
+            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: utcNow), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);
 
             var results = await _employeeRepository.FindAsync(o => o.DateRange(utcNow.SubtractHours(1), utcNow, "next"));
+            _logger.LogInformation($"Count: {results.Total} - UTC range");
 
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
@@ -762,6 +765,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, results.Total);
 
             results = await _employeeRepository.FindAsync(o => o.DateRange(chicagoNow.SubtractHours(1), chicagoNow, "next", "America/Chicago"));
+            _logger.LogInformation($"Count: {results.Total} - Chicago range");
 
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
@@ -769,20 +773,28 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.False(results.HasMore);
             Assert.Equal(1, results.Total);
 
-            results = await _employeeRepository.FindAsync(o => o.DateRange(chicagoNow.SubtractHours(1), chicagoNow, "next", "Asia/Shanghai"));
-            Assert.Empty(results.Documents);
-            
-            results = await _employeeRepository.FindAsync(o => o.DateRange(null, chicagoNow, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
-            Assert.Empty(results.Documents);
-            
+            results = await _employeeRepository.FindAsync(o => o.DateRange(asiaNow.SubtractHours(1), asiaNow, "next", "Asia/Shanghai"));
+            _logger.LogInformation($"Count: {results.Total} - Asia range");
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(1, results.Total);
+
+            results = await _employeeRepository.FindAsync(o => o.DateRange(null, asiaNow, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            _logger.LogInformation($"Count: {results.Total} - Asia LTE");
+            Assert.Single(results.Documents);
+
             results = await _employeeRepository.FindAsync(o => o.DateRange(null, DateTime.MaxValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            _logger.LogInformation($"Count: {results.Total} - Max date LTE with asia time zone");
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
             Assert.False(results.HasMore);
             Assert.Equal(1, results.Total);
-            
-            results = await _employeeRepository.FindAsync(o => o.DateRange(chicagoNow.SubtractHours(1), null, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+
+            results = await _employeeRepository.FindAsync(o => o.DateRange(asiaNow.SubtractHours(1), null, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            _logger.LogInformation($"Count: {results.Total} - Chicago (-1) GTE with asia time zone");
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
@@ -790,18 +802,21 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(1, results.Total);
 
             results = await _employeeRepository.FindAsync(o => o.DateRange(DateTime.MinValue, DateTime.MaxValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            _logger.LogInformation($"Count: {results.Total} - Min to max date range with asia time zone");
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
             Assert.False(results.HasMore);
             Assert.Equal(1, results.Total);
-            
+
             // No matching documents will be found.
             results = await _employeeRepository.FindAsync(o => o.DateRange(DateTime.MinValue, DateTime.MinValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            _logger.LogInformation($"Count: {results.Total} - Min to min date range with asia time zone");
             Assert.Empty(results.Documents);
-            
+
             // start date won't be used but max value will.
             results = await _employeeRepository.FindAsync(o => o.DateRange(DateTime.MaxValue, DateTime.MaxValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            _logger.LogInformation($"Count: {results.Total} - Max to max date range with asia time zone");
             Assert.Empty(results.Documents);
             
             await Assert.ThrowsAsync<ArgumentNullException>(() => _employeeRepository.FindAsync(o => o.DateRange(null, null, "next", "Asia/Shanghai").AggregationsExpression("date:next")));
