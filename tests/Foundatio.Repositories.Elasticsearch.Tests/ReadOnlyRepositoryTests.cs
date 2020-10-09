@@ -11,6 +11,7 @@ using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using TimeZoneConverter;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -741,11 +742,18 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task GetWithDateRangeHonoringTimeZoneAsync() {
             Log.MinimumLevel = LogLevel.Trace;
-            var dateTimeOffset = SystemClock.OffsetUtcNow;
-            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: dateTimeOffset), o => o.ImmediateConsistency());
+
+            var chicagoTimeZone = TZConvert.GetTimeZoneInfo("America/Chicago");
+            var asiaTimeZone = TZConvert.GetTimeZoneInfo("Asia/Shanghai");
+
+            var utcNow = SystemClock.UtcNow;
+            var chicagoNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, chicagoTimeZone);
+            var asiaNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, asiaTimeZone);
+            
+            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: chicagoNow), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);
 
-            var results = await _employeeRepository.FindAsync(o => o.DateRange(dateTimeOffset.UtcDateTime.SubtractHours(1), dateTimeOffset.UtcDateTime, "next"));
+            var results = await _employeeRepository.FindAsync(o => o.DateRange(utcNow.SubtractHours(1), utcNow, "next"));
 
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
@@ -753,8 +761,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.False(results.HasMore);
             Assert.Equal(1, results.Total);
 
-            var localNow = dateTimeOffset.ToLocalTime().DateTime;
-            results = await _employeeRepository.FindAsync(o => o.DateRange(localNow.SubtractHours(1), localNow, "next", TimeZoneInfo.Local.Id));
+            results = await _employeeRepository.FindAsync(o => o.DateRange(chicagoNow.SubtractHours(1), chicagoNow, "next", "America/Chicago"));
 
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
@@ -762,10 +769,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.False(results.HasMore);
             Assert.Equal(1, results.Total);
 
-            results = await _employeeRepository.FindAsync(o => o.DateRange(localNow.SubtractHours(1), localNow, "next", "Asia/Shanghai"));
+            results = await _employeeRepository.FindAsync(o => o.DateRange(chicagoNow.SubtractHours(1), chicagoNow, "next", "Asia/Shanghai"));
             Assert.Empty(results.Documents);
             
-            results = await _employeeRepository.FindAsync(o => o.DateRange(null, localNow, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            results = await _employeeRepository.FindAsync(o => o.DateRange(null, chicagoNow, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
             Assert.Empty(results.Documents);
             
             results = await _employeeRepository.FindAsync(o => o.DateRange(null, DateTime.MaxValue, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
@@ -775,7 +782,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.False(results.HasMore);
             Assert.Equal(1, results.Total);
             
-            results = await _employeeRepository.FindAsync(o => o.DateRange(localNow.SubtractHours(1), null, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
+            results = await _employeeRepository.FindAsync(o => o.DateRange(chicagoNow.SubtractHours(1), null, "next", "Asia/Shanghai").AggregationsExpression("date:next"));
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(1, results.Page);
