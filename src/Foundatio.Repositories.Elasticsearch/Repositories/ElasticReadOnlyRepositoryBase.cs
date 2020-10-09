@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -357,13 +357,11 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
                 
                 ((IGetNextPage<TResult>)result).GetNextPageFunc = GetNextPageFunc;
-            } else if (options.HasPageLimit()) {
+            } else {
                 int limit = options.GetLimit();
                 result = response.ToFindResults(limit);
                 result.HasMore = response.Hits.Count > limit || response.Hits.Count >= options.GetMaxLimit();
                 ((IGetNextPage<TResult>)result).GetNextPageFunc = GetNextPageFunc;
-            } else {
-                result = response.ToFindResults();
             }
 
             if (options.HasSearchAfter()) {

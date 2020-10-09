@@ -62,7 +62,7 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static bool ShouldUseSkip(this ICommandOptions options) {
-            return options.HasPageLimit() && options.GetPage() > 1;
+            return options.GetPage() > 1;
         }
 
         public static int GetSkip(this ICommandOptions options) {

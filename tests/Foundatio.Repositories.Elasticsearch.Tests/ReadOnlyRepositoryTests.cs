@@ -445,6 +445,23 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(25, results.Total);
             Assert.Equal(25, results.Documents.Count);
             Assert.Equal(identities.OrderBy(i => i.Id), results.Documents.OrderBy(i => i.Id));
+
+            results = await _identityRepository.GetAllAsync();
+            Assert.NotNull(results);
+            Assert.Equal(25, results.Total);
+            Assert.Equal(10, results.Documents.Count);
+
+            Assert.True(await results.NextPageAsync());
+            Assert.Equal(10, results.Documents.Count);
+            Assert.Equal(2, results.Page);
+            Assert.Equal(25, results.Total);
+            Assert.True(results.HasMore);
+
+            Assert.True(await results.NextPageAsync());
+            Assert.Equal(5, results.Documents.Count);
+            Assert.Equal(3, results.Page);
+            Assert.Equal(25, results.Total);
+            Assert.False(results.HasMore);
         }
 
         [Fact]
@@ -723,7 +740,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task GetWithDateRangeHonoringTimeZoneAsync() {
-            Log.MinimumLevel = Microsoft.Extensions.Logging.LogLevel.Trace;
+            Log.MinimumLevel = LogLevel.Trace;
             var dateTimeOffset = SystemClock.OffsetUtcNow;
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: dateTimeOffset), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);
