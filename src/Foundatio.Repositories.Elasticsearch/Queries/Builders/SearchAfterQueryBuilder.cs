@@ -97,18 +97,18 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         private const string Id = nameof(IIdentity.Id);
 
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var resolver = ctx.GetMappingResolver();
-
             if (!ctx.Options.ShouldUseSearchAfterPaging())
                 return Task.CompletedTask;
             
-            string idField = resolver.GetResolvedField(Id) ?? "id";
+            var resolver = ctx.GetMappingResolver();
+            string idField = resolver.GetResolvedField(Id) ?? "_id";
 
             var searchRequest = ctx.Search as ISearchRequest;
             if (searchRequest == null)
                 return Task.CompletedTask;
 
-            var sortFields = searchRequest.Sort ?? new List<ISort>();
+            searchRequest.Sort ??= new List<ISort>();
+            var sortFields = searchRequest.Sort;
 
             // ensure id field is always added to the end of the sort fields list
             if (!sortFields.Any(s => resolver.GetResolvedField(s.SortKey).Equals(idField)))

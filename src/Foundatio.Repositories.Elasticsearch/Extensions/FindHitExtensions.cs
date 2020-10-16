@@ -25,35 +25,36 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (results == null || results.Hits.Count == 0)
                 return null;
 
-            return results.Data.GetString("SearchBeforeToken", null);
+            return results.Data.GetString(ElasticDataKeys.SearchBeforeToken, null);
         }
 
         public static string GetSearchAfterToken<T>(this FindResults<T> results) where T : class {
             if (results == null || results.Hits.Count == 0)
                 return null;
 
-            return results.Data.GetString("SearchAfterToken", null);
+            return results.Data.GetString(ElasticDataKeys.SearchAfterToken, null);
         }
 
         internal static void SetSearchBeforeToken<T>(this FindResults<T> results) where T : class {
             if (results == null || results.Hits.Count == 0)
                 return;
 
-            results.Data["SearchBeforeToken"] = results.Hits.First().GetSortToken();
+            string token = results.Hits.First().GetSortToken();
+            if (!String.IsNullOrEmpty(token))
+                results.Data[ElasticDataKeys.SearchBeforeToken] = token;
         }
 
         internal static void SetSearchAfterToken<T>(this FindResults<T> results) where T : class {
             if (results == null || results.Hits.Count == 0)
                 return;
 
-            results.Data["SearchAfterToken"] = results.Hits.Last().GetSortToken();
+            string token = results.Hits.Last().GetSortToken();
+            if (!String.IsNullOrEmpty(token))
+                results.Data[ElasticDataKeys.SearchAfterToken] = token;
         }
 
         public static string GetSortToken<T>(this FindHit<T> hit) {
-            if (hit == null)
-                return null;
-
-            var sorts = hit.GetSorts();
+            var sorts = hit?.GetSorts();
             if (sorts == null || sorts.Length == 0)
                 return null;
 
@@ -108,5 +109,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         public const string Index = "index";
         public const string ScrollId = "scrollid";
         public const string Sorts = "sorts";
+        public const string SearchBeforeToken = nameof(SearchBeforeToken);
+        public const string SearchAfterToken = nameof(SearchAfterToken);
     }
 }

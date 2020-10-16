@@ -51,11 +51,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class SortQueryBuilder : IElasticQueryBuilder {
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             var sortFields = ctx.Source.GetSorts();
-            var resolver = ctx.GetMappingResolver();
-
             if (sortFields.Count <= 0)
                 return Task.CompletedTask;
 
+            var resolver = ctx.GetMappingResolver();
             var resolvedSorts = new List<ISort>();
             foreach (var sort in sortFields) {
                 resolvedSorts.Add(new FieldSort {
@@ -71,16 +70,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             }
             
             ctx.Search.Sort(resolvedSorts);
-
             return Task.CompletedTask;
-        }
-
-        protected bool CanSortByField(ISet<string> allowedFields, string field) {
-            // allow all fields if an allowed list isn't specified
-            if (allowedFields == null || allowedFields.Count == 0)
-                return true;
-
-            return allowedFields.Contains(field, StringComparer.OrdinalIgnoreCase);
         }
     }
 }
