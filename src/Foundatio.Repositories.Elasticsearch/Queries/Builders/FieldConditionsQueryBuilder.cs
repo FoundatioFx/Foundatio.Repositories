@@ -138,6 +138,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             foreach (var fieldValue in fieldConditions) {
                 QueryBase query;
+                if (fieldValue.Value == null && fieldValue.Operator == ComparisonOperator.Equals)
+                    fieldValue.Operator = ComparisonOperator.IsEmpty;
+                else if (fieldValue.Value == null && fieldValue.Operator == ComparisonOperator.NotEquals)
+                    fieldValue.Operator = ComparisonOperator.HasValue;
+
                 switch (fieldValue.Operator) {
                     case ComparisonOperator.Equals:
                         if (fieldValue.Value is IEnumerable && !(fieldValue.Value is string))

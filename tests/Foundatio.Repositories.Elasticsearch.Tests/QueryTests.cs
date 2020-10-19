@@ -39,6 +39,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task GetByCompanyAsync() {
+            Log.MinimumLevel = LogLevel.Trace;
+
             var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId), o => o.ImmediateConsistency());
             var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
 
@@ -69,6 +71,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             
             Assert.Equal(1, await _employeeRepository.CountAsync());
             Assert.Equal(0, await _employeeRepository.GetCountByCompanyAsync(employee1.CompanyId));
+
+            query = new RepositoryQuery<Employee>();
+            query.FieldEquals(e => e.Name, null);
+            result = await _employeeRepository.FindAsync(q => query);
+            Assert.Single(result.Documents);
+
+            query = new RepositoryQuery<Employee>();
+            query.FieldNotEquals(e => e.Name, null);
+            result = await _employeeRepository.FindAsync(q => query);
+            Assert.Empty(result.Documents);
         }
 
         [Fact]
