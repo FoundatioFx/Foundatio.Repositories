@@ -671,53 +671,71 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         protected async Task<ICollection<FindHit<T>>> GetCachedFindHit(ICommandOptions options) {
             string cacheKey = options.GetCacheKey();
-            var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
-            
-            var result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull ? cacheKeyHits.Value : null;
-            
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey);
+            try {
+                var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
 
-            return result;
+                var result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull ? cacheKeyHits.Value : null;
+
+                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                    _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey);
+
+                return result;
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Error getting cached find hit: type={EntityType} key={CacheKey}", EntityTypeName, cacheKey);
+
+                return null;
+            }
         }
         
         protected async Task<FindHit<T>> GetCachedFindHit(Id id, string cacheKey = null) {
-            var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey ?? id).AnyContext();
+            try {
+                var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey ?? id).AnyContext();
             
-            var result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull
-                ? cacheKeyHits.Value.FirstOrDefault(v => v?.Document != null && String.Equals(v.Id, id))
-                : null;
+                var result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull
+                    ? cacheKeyHits.Value.FirstOrDefault(v => v?.Document != null && String.Equals(v.Id, id))
+                    : null;
             
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey ?? id);
+                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                    _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey ?? id);
 
-            return result;
+                return result;
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Error getting cached find hit: type={EntityType} key={CacheKey}", EntityTypeName, cacheKey ?? id);
+
+                return null;
+            }
         }
 
         protected async Task<ICollection<FindHit<T>>> GetCachedFindHit(ICollection<Id> ids, string cacheKey = null) {
             var idList = ids.Select(id => id.Value).ToList();
             IEnumerable<FindHit<T>> result;
-            
-            if (String.IsNullOrEmpty(cacheKey)) {
-                var cacheHitsById = await Cache.GetAllAsync<ICollection<FindHit<T>>>(idList).AnyContext();
-                result = cacheHitsById
-                    .Where(kvp => kvp.Value.HasValue && !kvp.Value.IsNull)
-                    .SelectMany(kvp => kvp.Value.Value)
-                    .Where(v => v?.Document != null && idList.Contains(v.Id));
-            } else {
-                var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
-                result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull
-                    ? cacheKeyHits.Value.Where(v => v?.Document != null && idList.Contains(v.Id))
-                    : Enumerable.Empty<FindHit<T>>();
+
+            try {
+                if (String.IsNullOrEmpty(cacheKey)) {
+                    var cacheHitsById = await Cache.GetAllAsync<ICollection<FindHit<T>>>(idList).AnyContext();
+                    result = cacheHitsById
+                        .Where(kvp => kvp.Value.HasValue && !kvp.Value.IsNull)
+                        .SelectMany(kvp => kvp.Value.Value)
+                        .Where(v => v?.Document != null && idList.Contains(v.Id));
+                } else {
+                    var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
+                    result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull
+                        ? cacheKeyHits.Value.Where(v => v?.Document != null && idList.Contains(v.Id))
+                        : Enumerable.Empty<FindHit<T>>();
+                }
+
+                // Note: the distinct by is an extra safety check just in case we ever get into a weird state.
+                var distinctResults = result.DistinctBy(v => v.Id).ToList();
+
+                if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
+                    _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (distinctResults.Count > 0 ? "hit" : "miss"), EntityTypeName, cacheKey ?? String.Join(", ", idList));
+
+                return distinctResults;
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Error getting cached find hit: type={EntityType} key={CacheKey}", EntityTypeName, cacheKey ?? String.Join(", ", idList));
+
+                return Enumerable.Empty<FindHit<T>>().ToList();
             }
-
-            // Note: the distinct by is an extra safety check just in case we ever get into a weird state.
-            var distinctResults = result.DistinctBy(v => v.Id).ToList();
-            
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (distinctResults.Count > 0 ? "hit" : "miss"), EntityTypeName, cacheKey ?? String.Join(", ", idList));
-
-            return distinctResults;
         }
 
         protected FindHit<T> ToFindHit(T document) {
