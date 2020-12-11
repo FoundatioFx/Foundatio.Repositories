@@ -1,13 +1,10 @@
 ﻿using System.Threading.Tasks;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
-using Foundatio.Repositories.Queries;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class SoftDeletesQueryBuilder : IElasticQueryBuilder {
-        private const string IsDeleted = nameof(ISupportSoftDeletes.IsDeleted);
-        
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             // TODO: Figure out how to automatically add parent filter for soft deletes on queries that have a parent document type
 
@@ -26,16 +23,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (!ctx.Options.SupportsSoftDeletes())
                 return Task.CompletedTask;
 
-            // if we are querying for specific ids then we don't need a deleted filter
-            var ids = ctx.Source.GetIds();
-            if (ids.Count > 0)
-                return Task.CompletedTask;
-
             var documentType = ctx.Options.DocumentType();
             var property = documentType.GetProperty(nameof(ISupportSoftDeletes.IsDeleted));
             var index = ctx.Options.GetElasticIndex();
             
-            string fieldName = index?.Configuration.Client.Infer.Field(new Field(property)) ?? "deleted";
+            string fieldName = property != null ? index?.Configuration.Client.Infer.Field(new Field(property)) ?? "isDeleted" : "isDeleted";
             if (mode == SoftDeleteQueryMode.ActiveOnly)
                 ctx.Filter &= new TermQuery { Field = fieldName, Value = false };
             else if (mode == SoftDeleteQueryMode.DeletedOnly)

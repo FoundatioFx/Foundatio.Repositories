@@ -117,6 +117,27 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task QueryByIdsWorksWithSoftDeletedModes() {
+            var employee1 = EmployeeGenerator.Default;
+            employee1.IsDeleted = true;
+            employee1 = await _employeeRepository.AddAsync(employee1, o => o.ImmediateConsistency());
+            Assert.NotNull(employee1?.Id);
+
+            var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
+
+            var employees = await _employeeRepository.FindAsync(q => q.Id(employee1.Id, employee2.Id));
+            Assert.Equal(1, employees.Total);
+            Assert.Equal(employee2.Id, employees.Documents.Single().Id);
+            
+            employees = await _employeeRepository.FindAsync(q => q.Id(employee1.Id, employee2.Id), o => o.IncludeSoftDeletes());
+            Assert.Equal(2, employees.Total);
+            
+            employees = await _employeeRepository.FindAsync(q => q.Id(employee1.Id, employee2.Id), o => o.SoftDeleteMode(SoftDeleteQueryMode.DeletedOnly));
+            Assert.Equal(1, employees.Total);
+            Assert.Equal(employee1.Id, employees.Documents.Single().Id);
+        }
+
+        [Fact]
         public async Task AddDuplicateAsync() {
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
             Assert.NotNull(identity1?.Id);
