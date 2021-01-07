@@ -5,6 +5,8 @@ using Nest;
 using System.Collections;
 using System.Linq.Expressions;
 using Foundatio.Repositories.Options;
+using Foundatio.Parsers.LuceneQueries.Extensions;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 
 namespace Foundatio.Repositories {
     public class FieldCondition {
@@ -132,6 +134,8 @@ namespace Foundatio.Repositories.Options {
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class FieldConditionsQueryBuilder : IElasticQueryBuilder {
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            var resolver = ctx.GetMappingResolver();
+
             var fieldConditions = ctx.Source.SafeGetCollection<FieldCondition>(FieldConditionQueryExtensions.FieldConditionsKey);
             if (fieldConditions == null || fieldConditions.Count <= 0)
                 return Task.CompletedTask;
@@ -146,25 +150,25 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 switch (fieldValue.Operator) {
                     case ComparisonOperator.Equals:
                         if (fieldValue.Value is IEnumerable && !(fieldValue.Value is string))
-                            query = new TermsQuery { Field = fieldValue.Field, Terms = (IEnumerable<object>)fieldValue.Value };
+                            query = new TermsQuery { Field = resolver.GetResolvedField(fieldValue.Field), Terms = (IEnumerable<object>)fieldValue.Value };
                         else
-                            query = new TermQuery { Field = fieldValue.Field, Value = fieldValue.Value };
+                            query = new TermQuery { Field = resolver.GetResolvedField(fieldValue.Field), Value = fieldValue.Value };
                         ctx.Filter &= query;
 
                         break;
                     case ComparisonOperator.NotEquals:
                         if (fieldValue.Value is IEnumerable && !(fieldValue.Value is string))
-                            query = new TermsQuery { Field = fieldValue.Field, Terms = (IEnumerable<object>)fieldValue.Value };
+                            query = new TermsQuery { Field = resolver.GetResolvedField(fieldValue.Field), Terms = (IEnumerable<object>)fieldValue.Value };
                         else
-                            query = new TermQuery { Field = fieldValue.Field, Value = fieldValue.Value };
+                            query = new TermQuery { Field = resolver.GetResolvedField(fieldValue.Field), Value = fieldValue.Value };
 
                         ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { query } };
                         break;
                     case ComparisonOperator.IsEmpty:
-                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { new ExistsQuery { Field = fieldValue.Field } } };
+                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { new ExistsQuery { Field = resolver.GetResolvedField(fieldValue.Field) } } };
                         break;
                     case ComparisonOperator.HasValue:
-                        ctx.Filter &= new ExistsQuery { Field = fieldValue.Field };
+                        ctx.Filter &= new ExistsQuery { Field = resolver.GetResolvedField(fieldValue.Field) };
                         break;
                 }
             }

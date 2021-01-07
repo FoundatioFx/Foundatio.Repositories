@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Options;
 using Nest;
 
@@ -69,11 +71,17 @@ namespace Foundatio.Repositories.Options {
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class FieldIncludesQueryBuilder : IElasticQueryBuilder {
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            var resolver = ctx.GetMappingResolver();
+
             var includes = ctx.Source.GetIncludes();
+            includes = resolver.GetResolvedFields(includes);
+
             if (includes.Count > 0)
                 ctx.Search.Source(s => s.Includes(i => i.Fields(includes.ToArray())));
 
             var excludes = ctx.Source.GetExcludes();
+            excludes = resolver.GetResolvedFields(excludes);
+
             if (excludes.Count > 0)
                 ctx.Search.Source(s => s.Excludes(i => i.Fields(excludes.ToArray())));
 

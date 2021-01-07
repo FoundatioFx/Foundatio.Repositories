@@ -55,21 +55,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return Task.CompletedTask;
 
             var resolver = ctx.GetMappingResolver();
-            var resolvedSorts = new List<ISort>();
-            foreach (var sort in sortFields) {
-                resolvedSorts.Add(new FieldSort {
-                    Field = resolver.GetSortFieldName(sort.SortKey),
-                    IgnoreUnmappedFields = sort.IgnoreUnmappedFields,
-                    Missing = sort.Missing,
-                    Mode = sort.Mode,
-                    Nested = sort.Nested,
-                    NumericType = sort.NumericType,
-                    Order = sort.Order,
-                    UnmappedType = sort.UnmappedType
-                });
-            }
+            sortFields = resolver.GetResolvedFields(sortFields);
             
-            ctx.Search.Sort(resolvedSorts);
+            ctx.Search.Sort(sortFields);
             return Task.CompletedTask;
         }
     }

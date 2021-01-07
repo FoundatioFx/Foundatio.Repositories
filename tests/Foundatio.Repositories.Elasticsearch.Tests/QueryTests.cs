@@ -102,17 +102,57 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
             Assert.NotNull(log?.Id);
 
-            var results = await _dailyRepository.GetByCompanyAsync(log.CompanyId);
+            var results = await _dailyRepository.FindAsync(q => q.Company(log.CompanyId));
             Assert.Equal(1, results.Documents.Count);
             Assert.Equal(log, results.Documents.First());
-
-            results = await _dailyRepository.GetPartialByCompanyAsync(log.CompanyId);
+            
+            results = await _dailyRepository.FindAsync(q => q.Company(log.CompanyId).Include(e => e.Id).Include(l => l.CreatedUtc));
             Assert.Equal(1, results.Documents.Count);
             var companyLog = results.Documents.First();
             Assert.Equal(log.Id, companyLog.Id);
             Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
             Assert.Null(companyLog.Message);
             Assert.Null(companyLog.CompanyId);
+        }
+
+        [Fact]
+        public async Task CanHandleIncludeWithWrongCasing() {
+            var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+            Assert.NotNull(log?.Id);
+
+            var results = await _dailyRepository.FindAsync(q => q.Include(e => e.Id).Include("CreatedUtc"));
+            Assert.Equal(1, results.Documents.Count);
+            var companyLog = results.Documents.First();
+            Assert.Equal(log.Id, companyLog.Id);
+            Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
+            Assert.Null(companyLog.Message);
+            Assert.Null(companyLog.CompanyId);
+
+            results = await _dailyRepository.FindAsync(q => q.Include(e => e.Id).Include("createdUtc"));
+            Assert.Equal(1, results.Documents.Count);
+            companyLog = results.Documents.First();
+            Assert.Equal(log.Id, companyLog.Id);
+            Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
+            Assert.Null(companyLog.Message);
+            Assert.Null(companyLog.CompanyId);
+        }
+
+        [Fact]
+        public async Task CanHandleExcludeWithWrongCasing() {
+            var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+            Assert.NotNull(log?.Id);
+
+            var results = await _dailyRepository.FindAsync(q => q.Exclude("CreatedUtc"));
+            Assert.Equal(1, results.Documents.Count);
+            var companyLog = results.Documents.First();
+            Assert.Equal(log.Id, companyLog.Id);
+            Assert.NotEqual(log.CreatedUtc, companyLog.CreatedUtc);
+
+            results = await _dailyRepository.FindAsync(q => q.Exclude("createdUtc"));
+            Assert.Equal(1, results.Documents.Count);
+            companyLog = results.Documents.First();
+            Assert.Equal(log.Id, companyLog.Id);
+            Assert.NotEqual(log.CreatedUtc, companyLog.CreatedUtc);
         }
 
         [Fact]

@@ -5,6 +5,8 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
+using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Options;
 using Foundatio.Utility;
 using Nest;
@@ -88,8 +90,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (dateRanges.Count <= 0)
                 return Task.CompletedTask;
 
+            var resolver = ctx.GetMappingResolver();
+
             foreach (var dateRange in dateRanges.Where(dr => dr.UseDateRange)) {
-                var rangeQuery = new DateRangeQuery { Field = dateRange.Field };
+                var rangeQuery = new DateRangeQuery { Field = resolver.ResolveFieldName(dateRange.Field) };
                 if (dateRange.UseStartDate)
                     rangeQuery.GreaterThanOrEqualTo = dateRange.GetStartDate();
                 if (dateRange.UseEndDate)
