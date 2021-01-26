@@ -26,6 +26,56 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
         }
 
         [Fact]
+        public void Add_an_array_element_to_non_existent_property() {
+
+            var sample = GetSample2();
+
+            var patchDocument = new PatchDocument();
+            string pointer = "/someobject/somearray/-";
+
+            patchDocument.AddOperation(new AddOperation { Path = pointer, Value = new JObject(new[] { new JProperty("author", "James Brown") }) });
+
+            var patcher = new JsonPatcher();
+            patcher.Patch(ref sample, patchDocument);
+
+            var list = sample["someobject"]["somearray"] as JArray;
+
+            Assert.Single(list);
+        }
+
+        [Fact]
+        public void Remove_array_item_by_matching() {
+
+            var sample = JToken.Parse(@"{
+    'books': [
+        {
+          'title' : 'The Great Gatsby',
+          'author' : 'F. Scott Fitzgerald'
+        },
+        {
+          'title' : 'The Grapes of Wrath',
+          'author' : 'John Steinbeck'
+        },
+        {
+          'title' : 'Some Other Title',
+          'author' : 'John Steinbeck'
+        }
+    ]
+}");
+
+            var patchDocument = new PatchDocument();
+            string pointer = "$.books[?(@.author == 'John Steinbeck')]";
+
+            patchDocument.AddOperation(new RemoveOperation { Path = pointer });
+
+            new JsonPatcher().Patch(ref sample, patchDocument);
+
+            var list = sample["books"] as JArray;
+
+            Assert.Single(list);
+        }
+
+        [Fact]
         public void Add_an_existing_member_property()  // Why isn't this replace?
         {
 

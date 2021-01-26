@@ -38,14 +38,14 @@ namespace Foundatio.Repositories.JsonPatch {
             var propertyName = parts.LastOrDefault();
 
             if (propertyName == "-") {
-                var array = target.SelectPatchToken(parentPath) as JArray;
+                var array = target.SelectOrCreatePatchArrayToken(parentPath) as JArray;
                 array?.Add(operation.Value);
             } else if (propertyName.IsNumeric()) {
-                var array = target.SelectPatchToken(parentPath) as JArray;
+                var array = target.SelectOrCreatePatchArrayToken(parentPath) as JArray;
                 if (Int32.TryParse(propertyName, out int index))
                     array?.Insert(index, operation.Value);
             } else {
-                var parent = target.SelectPatchToken(parentPath) as JObject;
+                var parent = target.SelectOrCreatePatchToken(parentPath) as JObject;
                 var property = parent?.Property(propertyName);
                 if (property == null)
                     parent?.Add(propertyName, operation.Value);
@@ -55,14 +55,16 @@ namespace Foundatio.Repositories.JsonPatch {
         }
 
         protected override void Remove(RemoveOperation operation, JToken target) {
-            var token = target.SelectPatchToken(operation.Path);
-            if (token == null)
+            var tokens = target.SelectPatchTokens(operation.Path).ToList();
+            if (tokens.Count == 0)
                 return;
-            
-            if (token.Parent is JProperty) {
-                token.Parent.Remove();
-            } else {
-                token.Remove();
+
+            foreach (var token in tokens) {
+                if (token.Parent is JProperty) {
+                    token.Parent.Remove();
+                } else {
+                    token.Remove();
+                }
             }
         }
 
@@ -98,16 +100,47 @@ namespace Foundatio.Repositories.JsonPatch {
         }
 
         public static JToken SelectOrCreatePatchToken(this JToken token, string path) {
-            var parts = path.Split('/');
+            var result = token.SelectToken(path.ToJTokenPath());
+            if (result != null)
+                return result;
+
+            var parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Any(p => p.IsNumeric()))
                 return null;
 
             JToken current = token;
-            foreach (var part in parts.Where(p => p.Length > 0)) {
+            for (int i = 0; i < parts.Length; i++) {
+                var part = parts[i];
                 var partToken = current.SelectPatchToken(part);
                 if (partToken == null) {
                     if (current is JObject partObject)
                         current = partObject[part] = new JObject();
+                } else {
+                    current = partToken;
+                }
+            }
+
+            return current;
+        }
+
+        public static JToken SelectOrCreatePatchArrayToken(this JToken token, string path) {
+            var result = token.SelectToken(path.ToJTokenPath());
+            if (result != null)
+                return result;
+
+            var parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Any(p => p.IsNumeric()))
+                return null;
+
+            JToken current = token;
+            for (int i = 0; i < parts.Length; i++) {
+                var part = parts[i];
+                var partToken = current.SelectPatchToken(part);
+                if (partToken == null) {
+                    if (current is JObject partObject) {
+                        var isLastPart = i == parts.Length - 1;
+                        current = partObject[part] = isLastPart ? new JArray() : new JObject();
+                    }
                 } else {
                     current = partToken;
                 }

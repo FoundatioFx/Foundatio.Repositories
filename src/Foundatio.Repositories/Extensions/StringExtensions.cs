@@ -12,9 +12,8 @@ namespace Foundatio.Repositories.Extensions {
             for (int i = 0; i < parts.Length; i++) {
                 if (parts[i].IsNumeric())
                     sb.Append("[").Append(parts[i]).Append("]");
-                else {
+                else
                     sb.Append(parts[i]);
-                }
 
                 if (i < parts.Length - 1 && !parts[i + 1].IsNumeric())
                     sb.Append(".");
