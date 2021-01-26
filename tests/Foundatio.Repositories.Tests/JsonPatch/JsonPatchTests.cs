@@ -76,6 +76,23 @@ namespace Foundatio.Repositories.Tests.JsonPatch {
         }
 
         [Fact]
+        public void Remove_array_item_by_value() {
+
+            var sample = JToken.Parse(@"{ 'tags': [ 'tag1', 'tag2', 'tag3' ] }");
+
+            var patchDocument = new PatchDocument();
+            string pointer = "$.tags[?(@ == 'tag2')]";
+
+            patchDocument.AddOperation(new RemoveOperation { Path = pointer });
+
+            new JsonPatcher().Patch(ref sample, patchDocument);
+
+            var list = sample["tags"] as JArray;
+
+            Assert.Equal(2, list.Count);
+        }
+
+        [Fact]
         public void Add_an_existing_member_property()  // Why isn't this replace?
         {
 
