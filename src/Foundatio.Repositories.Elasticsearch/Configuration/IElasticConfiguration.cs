@@ -21,6 +21,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true);
         Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null);
         Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null);
-        Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func <int, string, Task> progressCallbackAsync = null);
+        Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func<int, string, Task> progressCallbackAsync = null);
     }
 }

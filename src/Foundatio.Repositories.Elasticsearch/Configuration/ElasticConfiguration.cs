@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Foundatio.Caching;
@@ -14,6 +14,8 @@ using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Parsers.ElasticQueries;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Linq;
+using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class ElasticConfiguration: IElasticConfiguration {
@@ -85,7 +87,6 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (indexes == null)
                 indexes = Indexes;
             
-            
             var tasks = new List<Task>();
             foreach (var idx in indexes)
                 tasks.Add(ConfigureIndexInternalAsync(idx, beginReindexingOutdated));
@@ -147,9 +148,26 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (indexes == null)
                 indexes = Indexes;
 
-            // TODO: Base the progress on the number of indexes
-            foreach (var idx in indexes)
-                await idx.ReindexAsync(progressCallbackAsync).AnyContext();
+            var outdatedIndexes = new List<IVersionedIndex>();
+            foreach (var versionedIndex in indexes.OfType<IVersionedIndex>()) {
+                int currentVersion = await versionedIndex.GetCurrentVersionAsync().AnyContext();
+                if (versionedIndex.Version <= currentVersion)
+                    continue;
+
+                outdatedIndexes.Add(versionedIndex);
+            }
+
+            if (outdatedIndexes.Count == 0)
+                return;
+
+            foreach (var outdatedIndex in outdatedIndexes) {
+                try {
+                    await Run.WithRetriesAsync(() => outdatedIndex.ReindexAsync((progress, message) => progressCallbackAsync(progress / outdatedIndexes.Count, message)),
+                        logger: _logger).AnyContext();
+                } catch (Exception) {
+                    // unable to reindex after 5 retries, move to next index.
+                }
+            }
         }
 
         public virtual void Dispose() {
