@@ -162,7 +162,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
             foreach (var outdatedIndex in outdatedIndexes) {
                 try {
-                    await Run.WithRetriesAsync(() => outdatedIndex.ReindexAsync((progress, message) => progressCallbackAsync(progress / outdatedIndexes.Count, message)),
+                    await Run.WithRetriesAsync(() => outdatedIndex.ReindexAsync((progress, message) => progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask),
                         logger: _logger).AnyContext();
                 } catch (Exception) {
                     // unable to reindex after 5 retries, move to next index.
