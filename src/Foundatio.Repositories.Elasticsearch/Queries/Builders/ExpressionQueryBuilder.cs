@@ -5,6 +5,7 @@ using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries;
+using Foundatio.Parsers.LuceneQueries.Extensions;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Extensions;
@@ -119,7 +120,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 var result = _parser.Parse(sort);
                 TermToFieldVisitor.Run(result, ctx);
                 FieldResolverQueryVisitor.Run(result, _aliasMap, ctx);
-                var fields = GetReferencedFieldsQueryVisitor.Run(result);
+                var fields = result.GetReferencedFields();
                 // TODO: Check referenced fields against opt.AllowedSortFields
 
                 var sortFields = GetSortFieldsVisitor.Run(result, ctx).ToList();
@@ -156,7 +157,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (!String.IsNullOrEmpty(sort)) {
                 var result = _parser.Parse(sort);
                 TermToFieldVisitor.Run(result, ctx);
-                var fields = GetReferencedFieldsQueryVisitor.Run(result);
+                var fields = result.GetReferencedFields();
                 // TODO: Check referenced fields against opt.AllowedSortFields
 
                 var sortFields = GetSortFieldsVisitor.Run(result, ctx).ToList();
