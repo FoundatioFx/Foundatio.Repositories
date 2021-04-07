@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Elasticsearch.Net;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
@@ -85,10 +86,10 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal("1:1", employee.Version);
 
             string version = employeeCopy.Version;
-            await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(employeeCopy));
+            await Assert.ThrowsAsync<VersionConflictDocumentException>(async () => await _employeeRepository.SaveAsync(employeeCopy));
             Assert.Equal(version, employeeCopy.Version);
 
-            await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(employeeCopy));
+            await Assert.ThrowsAsync<VersionConflictDocumentException>(async () => await _employeeRepository.SaveAsync(employeeCopy));
             Assert.Equal(version, employeeCopy.Version);
 
             Assert.Equal(employee, await _employeeRepository.GetByIdAsync(employee.Id));
@@ -117,7 +118,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal("1:0", employee.Version);
 
             employee.Version = "1:5";
-            await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(employee));
+            await Assert.ThrowsAsync<VersionConflictDocumentException>(async () => await _employeeRepository.SaveAsync(employee));
         }
 
         [Fact]
@@ -139,12 +140,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal("1:2", employee1.Version);
             Assert.Equal("1:3", employee2.Version);
 
-            await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(new List<Employee> { employee1Version1Copy, employee2 }));
+            await Assert.ThrowsAsync<VersionConflictDocumentException>(async () => await _employeeRepository.SaveAsync(new List<Employee> { employee1Version1Copy, employee2 }));
             Assert.Equal("1:0", employee1Version1Copy.Version);
             Assert.Equal("1:2", employee1.Version);
             Assert.Equal("1:4", employee2.Version);
 
-            await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(new List<Employee> { employee1Version1Copy, employee2 }));
+            await Assert.ThrowsAsync<VersionConflictDocumentException>(async () => await _employeeRepository.SaveAsync(new List<Employee> { employee1Version1Copy, employee2 }));
             Assert.Equal("1:0", employee1Version1Copy.Version);
             Assert.Equal("1:2", employee1.Version);
             Assert.Equal("1:5", employee2.Version);
@@ -187,7 +188,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             results = await _employeeRepository.GetAllByCompanyAsync("2");
             Assert.Equal(company2Employees.First().YearsEmployed + 1, results.Documents.First().YearsEmployed);
 
-            await Assert.ThrowsAsync<ApplicationException>(async () => await _employeeRepository.SaveAsync(company2Employees));
+            await Assert.ThrowsAsync<VersionConflictDocumentException>(async () => await _employeeRepository.SaveAsync(company2Employees));
             Assert.Equal(company2EmployeesVersion, company2Employees.First().Version);
         }
 

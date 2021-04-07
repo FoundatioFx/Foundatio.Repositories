@@ -1,20 +1,13 @@
 ﻿using System;
 
 namespace Foundatio.Repositories.Exceptions {
-    public class DocumentNotFoundException : ApplicationException {
+    public class DocumentNotFoundException : DocumentException {
         public DocumentNotFoundException() { }
 
-        public DocumentNotFoundException(string id) {
+        public DocumentNotFoundException(string id) : base($"Document \"{id}\" could not be found") {
             Id = id;
         }
 
         public string Id { get; private set; }
-
-        public override string ToString() {
-            if (!String.IsNullOrEmpty(Id))
-                return $"Document \"{Id}\" could not be found";
-
-            return base.ToString();
-        }
     }
 }

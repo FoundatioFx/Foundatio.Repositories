@@ -12,6 +12,7 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Nest;
 using Microsoft.Extensions.Logging;
+using Foundatio.Repositories.Exceptions;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public interface IVersionedIndex : IIndex {
@@ -79,9 +80,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (await AliasExistsAsync(name).AnyContext())
                 return;
 
-            _logger.LogErrorRequest(response, "Error creating alias {Name}", name);
-            string message = $"Error creating alias {name}: {response.GetErrorMessage()}";
-            throw new ApplicationException(message, response.OriginalException);
+            throw new RepositoryException(response.GetErrorMessage($"Error creating alias {name}"), response.OriginalException);
         }
 
         protected async Task<bool> AliasExistsAsync(string alias) {
@@ -89,9 +88,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (response.ApiCall.Success)
                 return response.Exists;
 
-            _logger.LogErrorRequest(response, "Error checking to see if alias {Name}", alias);
-            string message = $"Error checking to see if alias {alias} exists: {response.GetErrorMessage()}";
-            throw new ApplicationException(message, response.OriginalException);
+            throw new RepositoryException(response.GetErrorMessage($"Error checking to see if alias {alias}"), response.OriginalException);
         }
 
         public override async Task DeleteAsync() {
@@ -215,22 +212,16 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             var response = await Configuration.Client.Cat.IndicesAsync(i => i.Pri().Index(Indices.Index((IndexName)filter))).AnyContext();
             sw.Stop();
 
-            if (!response.IsValid) {
-                _logger.LogErrorRequest(response, "Error getting indices {Indexes}", filter);
-                string message = $"Error getting indices: {response.GetErrorMessage()}";
-                throw new ApplicationException(message, response.OriginalException);
-            }
+            if (!response.IsValid)
+                throw new RepositoryException(response.GetErrorMessage($"Error getting indices {filter}"), response.OriginalException);
 
             if (response.Records.Count == 0)
                 return new List<IndexInfo>();
 
             var aliasResponse = await Configuration.Client.Cat.AliasesAsync(i => i.Name($"{Name}-*")).AnyContext();
 
-            if (!aliasResponse.IsValid) {
-                _logger.LogErrorRequest(response, "Error getting idnex aliases for {Indexes}", filter);
-                string message = $"Error getting index aliases: {response.GetErrorMessage()}";
-                throw new ApplicationException(message, response.OriginalException);
-            }
+            if (!aliasResponse.IsValid)
+                throw new RepositoryException(response.GetErrorMessage($"Error getting index aliases for {filter}"), response.OriginalException);
 
             _logger.LogRequest(response);
             var indices = response.Records

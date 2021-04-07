@@ -9,6 +9,7 @@ using Foundatio.Repositories;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
@@ -341,8 +342,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return new FindResults<TResult>();
 
-                _logger.LogErrorRequest(response, "Error while searching");
-                throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+                throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException);
             }
 
             if (useSnapshotPaging) {
@@ -420,8 +420,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return FindHit<T>.Empty;
 
-                _logger.LogErrorRequest(response, "Error while finding document");
-                throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+                throw new DocumentException(response.GetErrorMessage("Error while finding document"), response.OriginalException);
             }
 
             result = response.Hits.Select(h => h.ToFindHit()).ToList();
@@ -461,8 +460,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return new CountResult();
 
-                _logger.LogErrorRequest(response, "Error getting document count");
-                throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+                throw new DocumentException(response.GetErrorMessage("Error getting document count"), response.OriginalException);
             }
 
             result = new CountResult(response.Total, response.ToAggregations());
@@ -492,8 +490,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return false;
 
-                _logger.LogErrorRequest(response, "Error checking if document exists");
-                throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+                throw new DocumentException(response.GetErrorMessage("Error checking if document exists"), response.OriginalException);
             }
 
             return response.HitsMetadata.Total.Value > 0;

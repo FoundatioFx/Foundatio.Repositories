@@ -18,6 +18,7 @@ using Microsoft.Extensions.Logging;
 using Foundatio.Repositories.Utility;
 using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Exceptions;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class DailyIndex : VersionedIndex {
@@ -285,9 +286,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                     return;
 
-                _logger.LogErrorRequest(response, "Error updating aliases");
-                string message = $"Error updating aliases: {response.GetErrorMessage()}";
-                throw new ApplicationException(message, response.OriginalException);
+                throw new DocumentException(response.GetErrorMessage("Error updating aliases"), response.OriginalException);
             }
         }
 
@@ -348,9 +347,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             string filter = $"{Name}-v{Version}-*";
             var catResponse = Configuration.Client.Cat.Indices(i => i.Pri().Index(Indices.Index((IndexName)filter)));
             if (!catResponse.IsValid) {
-                _logger.LogErrorRequest(catResponse, "Error getting latest index mapping {Indexes}", filter);
-                string message = $"Error getting latest index mapping {filter}: {catResponse.GetErrorMessage()}";
-                throw new ApplicationException(message, catResponse.OriginalException);
+                throw new RepositoryException(catResponse.GetErrorMessage($"Error getting latest index mapping {filter}"), catResponse.OriginalException);
             }
 
             var latestIndex = catResponse.Records

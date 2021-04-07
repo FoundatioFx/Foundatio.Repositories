@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
@@ -73,11 +74,11 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             var repoExists = await SnapshotRepositoryExistsAsync(options.Repository).AnyContext();
             if (!repoExists)
-                throw new ApplicationException();
+                throw new RepositoryException();
 
             var success = await WaitForSafeToSnapshotAsync(options.Repository).AnyContext();
             if (!success)
-                throw new ApplicationException();
+                throw new RepositoryException();
 
             var res = await _client.Snapshot.SnapshotAsync(new SnapshotRequest(options.Repository, options.Name) {
                 Indices = options.Indices != null ? Indices.Index(options.Indices) : Indices.All,

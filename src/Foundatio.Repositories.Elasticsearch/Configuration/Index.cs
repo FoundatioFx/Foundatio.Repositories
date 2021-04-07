@@ -14,6 +14,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
+using Foundatio.Repositories.Exceptions;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class Index : IIndex {
@@ -135,8 +136,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return;
             }
 
-            _logger.LogErrorRequest(response.OriginalException, response, "Error creating the index {IndexName}: {ErrorMessage}", name, response.GetErrorMessage());
-            throw new ApplicationException($"Error creating the index {name}: {response.GetErrorMessage()}", response.OriginalException);
+            throw new RepositoryException(response.GetErrorMessage($"Error creating the index {name}"), response.OriginalException);
         }
 
         protected virtual Task DeleteIndexAsync(string name) {
@@ -157,8 +157,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return;
             }
 
-            _logger.LogErrorRequest(response.OriginalException, response, "Error deleting the index {IndexNames}: {ErrorMessage}", names, response.GetErrorMessage());
-            throw new ApplicationException($"Error deleting the index {names}: {response.GetErrorMessage()}", response.OriginalException);
+            throw new RepositoryException(response.GetErrorMessage("Error deleting the index {names}"), response.OriginalException);
         }
 
         protected async Task<bool> IndexExistsAsync(string name) {
@@ -171,9 +170,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 return response.Exists;
             }
 
-            string message = $"Error checking to see if index {name} exists: {response.GetErrorMessage()}";
-            _logger.LogErrorRequest(response, message);
-            throw new ApplicationException(message, response.OriginalException);
+            throw new RepositoryException(response.GetErrorMessage($"Error checking to see if index {name} exists"), response.OriginalException);
         }
 
         public virtual Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {

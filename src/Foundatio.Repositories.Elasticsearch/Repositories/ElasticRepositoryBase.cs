@@ -110,7 +110,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             string[] ids = docs.Where(d => !String.IsNullOrEmpty(d.Id)).Select(d => d.Id).ToArray();
             if (ids.Length < docs.Count)
-                throw new ApplicationException("Id must be set when calling Save.");
+                throw new ArgumentException("Id must be set when calling Save.");
 
             options = ConfigureOptions(options.As<T>());
             if (IsCacheEnabled && options.HasCacheKey())
@@ -158,8 +158,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (response.IsValid) {
                     _logger.LogRequest(response, options.GetQueryLogLevel());
                 } else {
-                    _logger.LogErrorRequest(response, "Error patching document {Index}/{Id}", ElasticIndex.GetIndex(id), id.Value);
-                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
                 }
             } else if (operation is Models.JsonPatch jsonOperation) {
                 var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
@@ -171,8 +170,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (response.IsValid) {
                     _logger.LogRequest(response, options.GetQueryLogLevel());
                 } else {
-                    _logger.LogErrorRequest(response, "Error patching document {Index}/{Id}", ElasticIndex.GetIndex(id), id.Value);
-                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
                 }
 
                 var target = (JToken)jobject;
@@ -190,8 +188,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (updateResponse.Success) {
                     _logger.LogRequest(updateResponse, options.GetQueryLogLevel());
                 } else {
-                    _logger.LogErrorRequest(updateResponse, "Error patching document {Index}/{Id} with {Pipeline}", ElasticIndex.GetIndex(id), id.Value, DefaultPipeline);
-                    throw new ApplicationException(updateResponse.GetErrorMessage(), updateResponse.OriginalException);
+                    throw new DocumentException(updateResponse.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value} with {DefaultPipeline}"), updateResponse.OriginalException);
                 }
             } else if (operation is PartialPatch partialOperation) {
                 // TODO: Figure out how to specify a pipeline here.
@@ -208,8 +205,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (response.IsValid) {
                     _logger.LogRequest(response, options.GetQueryLogLevel());
                 } else {
-                    _logger.LogErrorRequest(response, "Error patching document {Index}/{Id}", ElasticIndex.GetIndex(id), id.Value);
-                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
                 }
             } else {
                 throw new ArgumentException("Unknown operation type", nameof(operation));
@@ -292,8 +288,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (bulkResponse.IsValid) {
                 _logger.LogRequest(bulkResponse, options.GetQueryLogLevel());
             } else {
-                _logger.LogErrorRequest(bulkResponse, "Error bulk patching documents");
-                throw new ApplicationException(bulkResponse.GetErrorMessage(), bulkResponse.OriginalException);
+                throw new DocumentException(bulkResponse.GetErrorMessage("Error bulk patching documents"), bulkResponse.OriginalException);
             }
 
             // TODO: Find a good way to invalidate cache and send changed notification
@@ -390,8 +385,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (response.IsValid || response.ApiCall.HttpStatusCode == 404) {
                     _logger.LogRequest(response, options.GetQueryLogLevel());
                 } else {
-                    _logger.LogErrorRequest(response, "Error removing document {Index}/{Id}", ElasticIndex.GetIndex(document), document.Id);
-                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+                    throw new DocumentException(response.GetErrorMessage($"Error removing document {ElasticIndex.GetIndex(document)}/{document.Id}"), response.OriginalException);
                 }
             } else {
                 var response = await _client.BulkAsync(bulk => {
@@ -412,8 +406,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (response.IsValid) {
                     _logger.LogRequest(response, options.GetQueryLogLevel());
                 } else {
-                    _logger.LogErrorRequest(response, "Error bulk removing documents");
-                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+                    throw new DocumentException(response.GetErrorMessage("Error bulk removing documents"), response.OriginalException);
                 }
             }
 
@@ -518,8 +511,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     if (response.IsValid) {
                         _logger.LogRequest(response, options.GetQueryLogLevel());
                     } else {
-                        _logger.LogErrorRequest(response, "Error occurred while patching by query");
-                        throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+                        throw new DocumentException(response.GetErrorMessage("Error occurred while patching by query"), response.OriginalException);
                     }
 
                     var taskId = response.Task;
@@ -626,8 +618,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (response.IsValid) {
                 _logger.LogRequest(response, options.GetQueryLogLevel());
             } else {
-                _logger.LogErrorRequest(response, "Error removing documents");
-                throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+                throw new DocumentException(response.GetErrorMessage("Error removing documents"), response.OriginalException);
             }
 
             if (response.Deleted > 0) {
@@ -877,8 +868,10 @@ namespace Foundatio.Repositories.Elasticsearch {
                     _logger.LogErrorRequest(response, $"Error {(isCreateOperation ? "adding" : "saving")} document");
                     if (isCreateOperation && response.ServerError?.Status == 409)
                         throw new DuplicateDocumentException(response.GetErrorMessage(), response.OriginalException);
-
-                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+                    else if (!isCreateOperation && response.ServerError?.Status == 409)
+                        throw new VersionConflictDocumentException(response.GetErrorMessage(), response.OriginalException);
+                    
+                    throw new DocumentException(response.GetErrorMessage(), response.OriginalException);
                 }
 
                 if (HasVersion) {
@@ -942,11 +935,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (response.IsValid) {
                     _logger.LogRequest(response, options.GetQueryLogLevel());
                 } else {
-                    _logger.LogErrorRequest(response, $"Error {(isCreateOperation ? "adding" : "saving")} documents");
                     if (isCreateOperation && allErrors.Any(e => e.Status == 409))
-                        throw new DuplicateDocumentException(response.GetErrorMessage(), response.OriginalException);
+                        throw new DuplicateDocumentException(response.GetErrorMessage("Error adding duplicate documents"), response.OriginalException);
+                    else if (allErrors.Any(e => e.Status == 409))
+                        throw new VersionConflictDocumentException(response.GetErrorMessage("Error saving documents"), response.OriginalException);
 
-                    throw new ApplicationException(response.GetErrorMessage(), response.OriginalException);
+                    throw new DocumentException(response.GetErrorMessage($"Error {(isCreateOperation ? "adding" : "saving")} documents"), response.OriginalException);
                 }
             }
             // 429 // 503

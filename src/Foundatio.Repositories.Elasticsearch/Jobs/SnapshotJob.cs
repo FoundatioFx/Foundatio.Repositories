@@ -8,6 +8,7 @@ using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
@@ -53,10 +54,8 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                         _logger.LogRequest(response);
 
                         // 400 means the snapshot already exists
-                        if (!response.IsValid && response.ApiCall.HttpStatusCode != 400) {
-                            _logger.LogErrorRequest(response, "Snapshot failed");
-                            throw new ApplicationException($"Snapshot failed: {response.GetErrorMessage()}", response.OriginalException);
-                        }
+                        if (!response.IsValid && response.ApiCall.HttpStatusCode != 400)
+                            throw new RepositoryException(response.GetErrorMessage("Snapshot failed"), response.OriginalException);
 
                         return response;
                     },

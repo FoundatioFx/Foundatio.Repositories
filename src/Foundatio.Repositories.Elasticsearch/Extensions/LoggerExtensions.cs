@@ -1,8 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Elasticsearch.Net;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Microsoft.Extensions.Logging;
 using Nest;
 using Newtonsoft.Json;
@@ -39,56 +39,13 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (elasticResponse == null || !logger.IsEnabled(LogLevel.Error))
                 return;
 
-            var sb =  new StringBuilder();
-            var messageArguments = new List<object>(args);
-
-            if (!String.IsNullOrEmpty(message))
-                sb.AppendLine(message);
-
             var response = elasticResponse as IResponse;
-            if (response?.OriginalException != null) {
-                sb.AppendLine("Original: [{OriginalExceptionType}] {OriginalExceptionMessage}");
-                messageArguments.Add(response.OriginalException.GetType().Name);
-                messageArguments.Add(response.OriginalException.Message);
-            }
-
-            if (response?.ServerError?.Error != null) {
-                sb.AppendLine("Server Error (Index={ErrorIndex}): {ErrorReason}");
-                messageArguments.Add(response.ServerError.Error?.Index);
-                messageArguments.Add(response.ServerError.Error.Reason);
-            }
-
-            if (elasticResponse is BulkResponse bulkResponse) {
-                sb.AppendLine("Bulk: {BulkErrors}");
-                messageArguments.Add(String.Join("\r\n", bulkResponse.ItemsWithErrors.Select(i => i.Error)));
-            }
-
-            if (elasticResponse.ApiCall != null) {
-                sb.AppendLine("[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}");
-                messageArguments.Add(elasticResponse.ApiCall.HttpStatusCode);
-                messageArguments.Add(elasticResponse.ApiCall.HttpMethod);
-                messageArguments.Add(elasticResponse.ApiCall.Uri?.PathAndQuery);
-            }
-
-            if (elasticResponse.ApiCall?.RequestBodyInBytes != null) {
-                string body = Encoding.UTF8.GetString(elasticResponse.ApiCall?.RequestBodyInBytes);
-                body = JsonUtility.NormalizeJsonString(body);
-                sb.AppendLine("{HttpBody}");
-                messageArguments.Add(body);
-            }
-
-            if (elasticResponse.ApiCall?.ResponseBodyInBytes != null) {
-                string body = Encoding.UTF8.GetString(elasticResponse.ApiCall?.ResponseBodyInBytes);
-                body = JsonUtility.NormalizeJsonString(body);
-                sb.AppendLine("{HttpResponse}");
-                messageArguments.Add(body);
-            }
 
             AggregateException aggEx = null;
             if (ex != null && response?.OriginalException != null)
                 aggEx = new AggregateException(ex, response.OriginalException);
 
-            logger.LogError(aggEx ?? response?.OriginalException, sb.ToString(), messageArguments.ToArray());
+            logger.LogError(aggEx ?? response?.OriginalException, elasticResponse.GetErrorMessage(message), args);
         }
     }
 

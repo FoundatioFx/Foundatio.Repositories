@@ -444,9 +444,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task SaveWithNoIdentityAsync() {
+        public Task SaveWithNoIdentityAsync() {
             var identity = IdentityGenerator.Generate();
-            await Assert.ThrowsAsync<ApplicationException>(async () => await _identityRepository.SaveAsync(new List<Identity> { identity }, o => o.Cache()));
+            return Assert.ThrowsAsync<ArgumentException>(async () => await _identityRepository.SaveAsync(new List<Identity> { identity }, o => o.Cache()));
         }
 
         [Fact]
