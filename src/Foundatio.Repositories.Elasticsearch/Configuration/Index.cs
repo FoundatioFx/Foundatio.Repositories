@@ -99,8 +99,18 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return CreateIndexAsync(Name, ConfigureIndex);
         }
 
-        public virtual Task EnsureIndexAsync(object target) {
-            return Task.CompletedTask;
+        private bool _isEnsured = false;
+        public virtual async Task EnsureIndexAsync(object target) {
+            if (_isEnsured)
+                return;
+
+            var existsResult = await IndexExistsAsync(Name).AnyContext();
+            if (existsResult) {
+                _isEnsured = true;
+                return;
+            }
+
+            await ConfigureAsync().AnyContext();
         }
 
         public virtual Task MaintainAsync(bool includeOptionalTasks = true) {
@@ -127,7 +137,8 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 throw new ArgumentNullException(nameof(name));
 
             var response = await Configuration.Client.Indices.CreateAsync(name, descriptor).AnyContext();
-            
+            _isEnsured = true;
+
             // check for valid response or that the index already exists
             if (response.IsValid || response.ServerError.Status == 400 &&
                 (response.ServerError.Error.Type == "index_already_exists_exception"

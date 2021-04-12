@@ -19,6 +19,7 @@ using Foundatio.Repositories.Utility;
 using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
+using System.Collections.Concurrent;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class DailyIndex : VersionedIndex {
@@ -119,17 +120,25 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return DateTime.MaxValue;
         }
 
+        private readonly Dictionary<DateTime, object> _ensuredDates = new();
         protected async Task EnsureDateIndexAsync(DateTime utcDate) {
+            utcDate = utcDate.Date;
+            if (_ensuredDates.ContainsKey(utcDate))
+                return;
+
             var indexExpirationUtcDate = GetIndexExpirationDate(utcDate);
             if (SystemClock.UtcNow > indexExpirationUtcDate)
                 throw new ArgumentException($"Index max age exceeded: {indexExpirationUtcDate}", nameof(utcDate));
 
             var expires = indexExpirationUtcDate < DateTime.MaxValue ? indexExpirationUtcDate : (DateTime?)null;
             string unversionedIndexAlias = GetIndexByDate(utcDate);
-            if (await _aliasCache.ExistsAsync(unversionedIndexAlias).AnyContext())
+            if (await _aliasCache.ExistsAsync(unversionedIndexAlias).AnyContext()) {
+                _ensuredDates[utcDate] = null;
                 return;
+            }
 
             if (await AliasExistsAsync(unversionedIndexAlias).AnyContext()) {
+                _ensuredDates[utcDate] = null;
                 await _aliasCache.SetAsync(unversionedIndexAlias, unversionedIndexAlias, expires).AnyContext();
                 return;
             }
@@ -141,6 +150,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 foreach (var a in Aliases.Where(a => ShouldCreateAlias(utcDate, a)))
                     aliasesDescriptor.Alias(a.Name);
 
+                _ensuredDates[utcDate] = null;
                 return ConfigureIndex(descriptor).Aliases(a => aliasesDescriptor);
             }).AnyContext();
 

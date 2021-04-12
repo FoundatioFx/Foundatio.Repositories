@@ -363,6 +363,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (ElasticIndex.HasMultipleIndexes) {
                 foreach (var documentGroup in docs.GroupBy(ElasticIndex.GetIndex))
                     await ElasticIndex.EnsureIndexAsync(documentGroup.First()).AnyContext();
+            } else {
+                await ElasticIndex.EnsureIndexAsync(null).AnyContext();
             }
 
             options = ConfigureOptions(options.As<T>());
@@ -437,6 +439,9 @@ namespace Foundatio.Repositories.Elasticsearch {
         public virtual async Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null) {
             if (operation == null)
                 throw new ArgumentNullException(nameof(operation));
+
+            if (!ElasticIndex.HasMultipleIndexes)
+                await ElasticIndex.EnsureIndexAsync(null).AnyContext();
 
             options = ConfigureOptions(options.As<T>());
 
@@ -650,6 +655,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (processFunc == null)
                 throw new ArgumentNullException(nameof(processFunc));
 
+            if (!ElasticIndex.HasMultipleIndexes)
+                await ElasticIndex.EnsureIndexAsync(null).AnyContext();
+
             options = ConfigureOptions(options.As<T>());
             options.SnapshotPaging();
             if (!options.HasPageLimit())
@@ -838,6 +846,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (ElasticIndex.HasMultipleIndexes) {
                 foreach (var documentGroup in documents.GroupBy(ElasticIndex.GetIndex))
                     await ElasticIndex.EnsureIndexAsync(documentGroup.First()).AnyContext();
+            } else {
+                await ElasticIndex.EnsureIndexAsync(null).AnyContext();
             }
 
             if (documents.Count == 1) {
