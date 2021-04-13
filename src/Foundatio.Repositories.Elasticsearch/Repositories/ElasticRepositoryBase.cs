@@ -875,13 +875,13 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (response.IsValid) {
                     _logger.LogRequest(response, options.GetQueryLogLevel());
                 } else {
-                    _logger.LogErrorRequest(response, $"Error {(isCreateOperation ? "adding" : "saving")} document");
+                    string message = $"Error {(isCreateOperation ? "adding" : "saving")} document";
                     if (isCreateOperation && response.ServerError?.Status == 409)
-                        throw new DuplicateDocumentException(response.GetErrorMessage(), response.OriginalException);
+                        throw new DuplicateDocumentException(response.GetErrorMessage(message), response.OriginalException);
                     else if (!isCreateOperation && response.ServerError?.Status == 409)
-                        throw new VersionConflictDocumentException(response.GetErrorMessage(), response.OriginalException);
+                        throw new VersionConflictDocumentException(response.GetErrorMessage(message), response.OriginalException);
                     
-                    throw new DocumentException(response.GetErrorMessage(), response.OriginalException);
+                    throw new DocumentException(response.GetErrorMessage(message), response.OriginalException);
                 }
 
                 if (HasVersion) {
