@@ -8,7 +8,7 @@
     <PackageReleaseNotes>https://github.com/FoundatioFx/Foundatio.Repositories/releases</PackageReleaseNotes>
     <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>
     <MinVerTagPrefix>v</MinVerTagPrefix>
-    <ReferenceFoundatioSource Condition="$(SolutionName.Contains('All'))">true</ReferenceFoundatioSource>
+    <ReferenceFoundatioSource Condition="$(SolutionName.Contains('All')) Or !$(SolutionName.Contains('Foundatio'))">true</ReferenceFoundatioSource>
     <ReferenceFoundatioRepositoriesSource Condition="$(SolutionName.Contains('All')) Or !$(SolutionName.Contains('Foundatio'))">true</ReferenceFoundatioRepositoriesSource>
     
     <Copyright>Copyright (c) 2020 Foundatio.  All rights reserved.</Copyright>
