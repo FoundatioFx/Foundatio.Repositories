@@ -140,7 +140,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             _isEnsured = true;
 
             // check for valid response or that the index already exists
-            if (response.IsValid || response.ServerError.Status == 400 &&
+            if (response.IsValid || response.ServerError?.Status == 400 &&
                 (response.ServerError.Error.Type == "index_already_exists_exception"
                  || response.ServerError.Error.Type == "resource_already_exists_exception")) {
                 _logger.LogRequest(response);
