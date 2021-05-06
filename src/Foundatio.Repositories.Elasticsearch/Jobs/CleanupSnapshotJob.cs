@@ -29,7 +29,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
         }
 
-        protected void AddRepository(string name, TimeSpan maxAge) {
+        public void AddRepository(string name, TimeSpan maxAge) {
             _repositories.Add(new RepositoryMaxAge { Name = name, MaxAge = maxAge });
         }
 
@@ -53,12 +53,12 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 "_all",
                 d => d.RequestConfiguration(r =>
                     r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
-            sw.Stop();
+             sw.Stop();
             _logger.LogRequest(result);
 
             var snapshots = new List<SnapshotDate>();
             if (result.IsValid && result.Snapshots != null)
-                snapshots = result.Snapshots?.Select(r => new SnapshotDate { Name = r.Name, Date = GetSnapshotDate(repo, r.Name) }).ToList();
+                snapshots = result.Snapshots?.Select(r => new SnapshotDate { Name = r.Name, Date = r.EndTime }).ToList();
 
             if (result.IsValid)
                 _logger.LogInformation("Retrieved list of {SnapshotCount} snapshots from {Repo} in {Duration:g}", snapshots.Count, repo, sw.Elapsed);
@@ -69,7 +69,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                 return;
 
             var oldestValidSnapshot = SystemClock.UtcNow.Subtract(maxAge);
-            var snapshotsToDelete = snapshots.Where(r => r.Date.IsBefore(oldestValidSnapshot)).ToList();
+            var snapshotsToDelete = snapshots.Where(r => r.Date.IsBefore(oldestValidSnapshot)).OrderBy(s => s.Date).ToList();
             if (snapshotsToDelete.Count == 0)
                 return;
 
@@ -81,29 +81,32 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             _logger.LogInformation("Selected {SnapshotCount} snapshots for deletion", snapshotsToDelete.Count);
 
             bool shouldContinue = true;
-            foreach (var snapshot in snapshotsToDelete) {
+            foreach (var snapshotBatch in snapshotsToDelete.Batch(25)) {
                 if (!shouldContinue) {
                     _logger.LogInformation("Stopped deleted snapshots.");
                     break;
                 }
 
-                _logger.LogInformation("Acquiring snapshot lock to delete {SnapshotName} from {Repo}", snapshot.Name, repo);
+                string snapshotNames = String.Join(",", snapshotBatch.Select(s => s.Name));
+
                 try {
-                    await _lockProvider.TryUsingAsync("es-snapshot", async t => {
-                        _logger.LogInformation("Got snapshot lock to delete {SnapshotName} from {Repo}", snapshot.Name, repo);
-                        sw.Restart();
-                        var response = await _client.Snapshot.DeleteAsync(repo, snapshot.Name, r => r.RequestConfiguration(c => c.RequestTimeout(TimeSpan.FromMinutes(15))), ct: t).AnyContext();
-                        sw.Stop();
+                    sw.Restart();
+                    await Run.WithRetriesAsync(async () => {
+                        var response = await _client.Snapshot.DeleteAsync(repo, snapshotNames, r => r.RequestConfiguration(c => c.RequestTimeout(TimeSpan.FromMinutes(5))), ct: cancellationToken).AnyContext();
                         _logger.LogRequest(response);
 
-                        if (response.IsValid)
-                            await OnSnapshotDeleted(snapshot.Name, sw.Elapsed).AnyContext();
-                        else
-                            shouldContinue = await OnSnapshotDeleteFailure(snapshot.Name, sw.Elapsed, response, null).AnyContext();
-                    }, TimeSpan.FromMinutes(30), cancellationToken).AnyContext();
+                        if (response.IsValid) {
+                            await OnSnapshotDeleted(snapshotNames, sw.Elapsed).AnyContext();
+                        } else {
+                            shouldContinue = await OnSnapshotDeleteFailure(snapshotNames, sw.Elapsed, response, null).AnyContext();
+                            if (shouldContinue)
+                                throw response.OriginalException ?? new ApplicationException($"Failed deleting snapshots \"{snapshotNames}\"");
+                        }
+                    }, 5, TimeSpan.Zero, cancellationToken);
+                    sw.Stop();
                 } catch (Exception ex) {
                     sw.Stop();
-                    shouldContinue = await OnSnapshotDeleteFailure(snapshot.Name, sw.Elapsed, null, ex).AnyContext();
+                    shouldContinue = await OnSnapshotDeleteFailure(snapshotNames, sw.Elapsed, null, ex).AnyContext();
                 }
             }
 
@@ -111,24 +114,17 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         }
 
         public virtual Task OnSnapshotDeleted(string snapshotName, TimeSpan duration) {
-            _logger.LogInformation("Completed delete snapshot {SnapshotName} in {Duration:g}", snapshotName, duration);
+            _logger.LogInformation("Completed delete snapshot(s) {SnapshotName} in {Duration:g}", snapshotName, duration);
             return Task.CompletedTask;
         }
 
         public virtual Task<bool> OnSnapshotDeleteFailure(string snapshotName, TimeSpan duration, DeleteSnapshotResponse response, Exception ex) {
-            _logger.LogErrorRequest(ex, response, "Failed to delete snapshot {SnapshotName} after {Duration:g}", snapshotName, duration);
+            _logger.LogErrorRequest(ex, response, "Failed to delete snapshot(s) {SnapshotName} after {Duration:g}", snapshotName, duration);
             return Task.FromResult(true);
         }
 
         public virtual Task OnCompleted() {
             return Task.CompletedTask;
-        }
-
-        private DateTime GetSnapshotDate(string repo, string name) {
-            if (DateTime.TryParseExact(name, "'" + repo + "-'yyyy-MM-dd-HH-mm", _enUS, DateTimeStyles.None, out var result))
-                return result;
-
-            return DateTime.MaxValue;
         }
 
         [DebuggerDisplay("{Name}")]
