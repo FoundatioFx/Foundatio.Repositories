@@ -52,6 +52,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             await _workItemQueue.DeleteQueueAsync();
             await _configuration.DeleteIndexesAsync();
+            await _client.Indices.DeleteAsync(Indices.Parse("employee*"));
             if (configureIndexes)
                 await _configuration.ConfigureIndexesAsync(null, false);
 

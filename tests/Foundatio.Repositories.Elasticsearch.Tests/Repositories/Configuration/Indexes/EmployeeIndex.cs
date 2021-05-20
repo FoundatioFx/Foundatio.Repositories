@@ -94,14 +94,31 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
     }
 
     public sealed class VersionedEmployeeIndex : VersionedIndex<Employee> {
-        public VersionedEmployeeIndex(IElasticConfiguration configuration, int version) : base(configuration, "employees", version) {
+        private readonly Func<CreateIndexDescriptor, CreateIndexDescriptor> _createIndex;
+        private readonly Func<TypeMappingDescriptor<Employee>, TypeMappingDescriptor<Employee>> _createMappings;
+
+        public VersionedEmployeeIndex(IElasticConfiguration configuration, int version,
+            Func<CreateIndexDescriptor, CreateIndexDescriptor> createIndex = null,
+            Func<TypeMappingDescriptor<Employee>, TypeMappingDescriptor<Employee>> createMappings = null) : base(configuration, "employees", version) {
+            _createIndex = createIndex;
+            _createMappings = createMappings;
             AddReindexScript(20, "ctx._source.companyName = 'scripted';");
             AddReindexScript(21, "ctx._source.companyName = 'typed script';");
             AddReindexScript(22, "ctx._source.FAIL = 'should not work");
         }
 
         public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+            if (_createIndex != null)
+                return _createIndex(idx);
+            
             return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+        }
+
+        public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map) {
+            if (_createMappings != null)
+                return _createMappings(map);
+            
+            return base.ConfigureIndexMapping(map);
         }
     }
 

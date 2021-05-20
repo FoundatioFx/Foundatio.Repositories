@@ -60,8 +60,10 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (!await IndexExistsAsync(VersionedName).AnyContext()) {
                 if (!await AliasExistsAsync(Name).AnyContext())
                     await CreateIndexAsync(VersionedName, d => ConfigureIndex(d).Aliases(ad => ad.Alias(Name))).AnyContext();
-                else
+                else // new version of an existing index, don't set the alias yet
                     await CreateIndexAsync(VersionedName, ConfigureIndex).AnyContext();
+            } else {
+                await UpdateIndexAsync(VersionedName).AnyContext();
             }
         }
 
@@ -192,12 +194,16 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (String.IsNullOrEmpty(name))
                 throw new ArgumentNullException(nameof(name));
 
+            string namePrefix = $"{Name}-v";
+            if (name.Length <= namePrefix.Length || !name.StartsWith(namePrefix))
+                return -1;
+            
             string input = name.Substring($"{Name}-v".Length);
             int index = input.IndexOf('-');
             if (index > 0)
                 input = input.Substring(0, index);
 
-            if (Int32.TryParse(input, out var version))
+            if (Int32.TryParse(input, out int version))
                 return version;
 
             return -1;
@@ -279,6 +285,22 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
             idx = base.ConfigureIndex(idx);
             return idx.Map<T>(ConfigureIndexMapping);
+        }
+
+        protected override async Task UpdateIndexAsync(string name, Func<UpdateIndexSettingsDescriptor, UpdateIndexSettingsDescriptor> descriptor = null) {
+            await base.UpdateIndexAsync(name, descriptor).AnyContext();
+            
+            var typeMappingDescriptor = new TypeMappingDescriptor<T>();
+            typeMappingDescriptor = ConfigureIndexMapping(typeMappingDescriptor);
+            var mapping = (ITypeMapping)typeMappingDescriptor;
+
+            var response = await Configuration.Client.Indices.PutMappingAsync<T>(m => m.Index(name).Properties(_ => new NestPromise<IProperties>(mapping.Properties))).AnyContext();
+
+            // TODO: Check for issues with attempting to change existing fields and warn that index version needs to be incremented
+            if (response.IsValid)
+                _logger.LogRequest(response);
+            else
+                _logger.LogErrorRequest(response, $"Error updating index ({name}) mappings. Changing existing fields requires a new index version.");
         }
 
         public override void ConfigureSettings(ConnectionSettings settings) {

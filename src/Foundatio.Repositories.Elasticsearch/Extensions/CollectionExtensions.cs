@@ -16,7 +16,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             }
         }
 
-        public static IEnumerable<IEnumerable<T>> Batch<T>(this IEnumerable<T> source, int size) {
+        public static IEnumerable<IEnumerable<T>> Chunk<T>(this IEnumerable<T> source, int size) {
             T[] bucket = null;
             var count = 0;
 

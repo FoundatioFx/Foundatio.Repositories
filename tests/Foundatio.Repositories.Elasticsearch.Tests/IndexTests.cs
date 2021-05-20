@@ -416,8 +416,58 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task CanChangeIndexSettings() {
+            var index1 = new VersionedEmployeeIndex(_configuration, 1, i => i.Settings(s => s.NumberOfReplicas(0)));
+            await index1.DeleteAsync();
+
+            await index1.ConfigureAsync();
+            var settings = await _client.Indices.GetSettingsAsync(index1.VersionedName);
+            Assert.Equal(0, settings.Indices[index1.VersionedName].Settings.NumberOfReplicas);
+            
+            var index2 = new VersionedEmployeeIndex(_configuration, 1, i => i.Settings(s => s.NumberOfReplicas(1)));
+            
+            await index2.ConfigureAsync();
+            settings = await _client.Indices.GetSettingsAsync(index1.VersionedName);
+            Assert.Equal(1, settings.Indices[index1.VersionedName].Settings.NumberOfReplicas);
+        }
+
+        [Fact]
+        public async Task CanAddIndexMappings() {
+            var index1 = new VersionedEmployeeIndex(_configuration, 1, null, m => m.Properties(p => p.Keyword(k => k.Name(n => n.EmailAddress))));
+            await index1.DeleteAsync();
+
+            await index1.ConfigureAsync();
+            var fieldMapping = await _client.Indices.GetFieldMappingAsync<Employee>("emailAddress", d => d.Index(index1.VersionedName));
+            Assert.NotNull(fieldMapping.Indices[index1.VersionedName].Mappings["emailAddress"]);
+            
+            var index2 = new VersionedEmployeeIndex(_configuration, 1, null, m => m.Properties(p => p.Keyword(k => k.Name(n => n.EmailAddress)).Number(k => k.Name(n => n.Age))));
+            
+            await index2.ConfigureAsync();
+            fieldMapping = await _client.Indices.GetFieldMappingAsync<Employee>("age", d => d.Index(index2.VersionedName));
+            Assert.NotNull(fieldMapping.Indices[index2.VersionedName].Mappings["age"]);
+        }
+
+        [Fact]
+        public async Task WillWarnWhenAttemptingToChangeFieldMappingType() {
+            var index1 = new VersionedEmployeeIndex(_configuration, 1, null, m => m.Properties(p => p.Keyword(k => k.Name(n => n.EmailAddress))));
+            await index1.DeleteAsync();
+
+            await index1.ConfigureAsync();
+            var existsResponse = await _client.Indices.ExistsAsync(index1.VersionedName);
+            _logger.LogRequest(existsResponse);
+            Assert.True(existsResponse.ApiCall.Success);
+            Assert.True(existsResponse.Exists);
+            
+            var index2 = new VersionedEmployeeIndex(_configuration, 1, null, m => m.Properties(p => p.Number(k => k.Name(n => n.EmailAddress))));
+            
+            await index2.ConfigureAsync();
+            Assert.Contains(Log.LogEntries, l => l.LogLevel == LogLevel.Error && l.Message.Contains("requires a new index version"));
+        }
+
+        [Fact]
         public async Task CanCreateAndDeleteVersionedIndex() {
             var index = new VersionedEmployeeIndex(_configuration, 1);
+            await index.DeleteAsync();
 
             await index.ConfigureAsync();
             var existsResponse = await _client.Indices.ExistsAsync(index.VersionedName);
@@ -439,6 +489,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         [Fact]
         public async Task CanCreateAndDeleteDailyIndex() {
             var index = new DailyEmployeeIndex(_configuration, 1);
+            await index.DeleteAsync();
 
             await index.ConfigureAsync();
             var todayDate = SystemClock.Now;

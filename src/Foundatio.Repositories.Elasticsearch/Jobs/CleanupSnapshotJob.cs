@@ -81,17 +81,23 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
             _logger.LogInformation("Selected {SnapshotCount} snapshots for deletion", snapshotsToDelete.Count);
 
             bool shouldContinue = true;
-            foreach (var snapshotBatch in snapshotsToDelete.Batch(25)) {
+            int batchSize = snapshotsToDelete.Count > 10 ? 25 : 1;
+            int batch = 0;
+            foreach (var snapshotBatch in snapshotsToDelete.Chunk(batchSize)) {
                 if (!shouldContinue) {
-                    _logger.LogInformation("Stopped deleted snapshots.");
+                    _logger.LogInformation("Stopped deleted snapshots");
                     break;
                 }
 
+                batch++;
+                int snapshotCount = snapshotBatch.Count();
                 string snapshotNames = String.Join(",", snapshotBatch.Select(s => s.Name));
 
                 try {
                     sw.Restart();
                     await Run.WithRetriesAsync(async () => {
+                        _logger.LogInformation("Deleting {SnapshotCount} expired snapshot(s) from {Repo}: {SnapshotNames}", snapshotCount, repo, snapshotNames);
+
                         var response = await _client.Snapshot.DeleteAsync(repo, snapshotNames, r => r.RequestConfiguration(c => c.RequestTimeout(TimeSpan.FromMinutes(5))), ct: cancellationToken).AnyContext();
                         _logger.LogRequest(response);
 
@@ -100,7 +106,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
                         } else {
                             shouldContinue = await OnSnapshotDeleteFailure(snapshotNames, sw.Elapsed, response, null).AnyContext();
                             if (shouldContinue)
-                                throw response.OriginalException ?? new ApplicationException($"Failed deleting snapshots \"{snapshotNames}\"");
+                                throw response.OriginalException ?? new ApplicationException($"Failed deleting snapshot(s) \"{snapshotNames}\"");
                         }
                     }, 5, TimeSpan.Zero, cancellationToken);
                     sw.Stop();

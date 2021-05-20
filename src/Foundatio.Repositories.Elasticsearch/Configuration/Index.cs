@@ -94,11 +94,18 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public virtual string GetIndex(object target) {
             return Name;
         }
-
+ 
         public virtual Task ConfigureAsync() {
-            return CreateIndexAsync(Name, ConfigureIndex);
+            return ConfigureAsync(Name);
         }
-
+ 
+        protected virtual async Task ConfigureAsync(string name) {
+            if (!await IndexExistsAsync(name).AnyContext())
+                await CreateIndexAsync(name).AnyContext();
+            else
+                await UpdateIndexAsync(name).AnyContext();
+        }
+       
         private bool _isEnsured = false;
         public virtual async Task EnsureIndexAsync(object target) {
             if (_isEnsured)
@@ -132,22 +139,54 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return DeleteIndexAsync(Name);
         }
 
-        protected virtual async Task CreateIndexAsync(string name, Func<CreateIndexDescriptor, CreateIndexDescriptor> descriptor) {
+        protected virtual async Task CreateIndexAsync(string name, Func<CreateIndexDescriptor, CreateIndexDescriptor> descriptor = null) {
             if (name == null)
                 throw new ArgumentNullException(nameof(name));
 
+            descriptor ??= ConfigureIndex;
+            
             var response = await Configuration.Client.Indices.CreateAsync(name, descriptor).AnyContext();
             _isEnsured = true;
 
             // check for valid response or that the index already exists
             if (response.IsValid || response.ServerError?.Status == 400 &&
-                (response.ServerError.Error.Type == "index_already_exists_exception"
-                 || response.ServerError.Error.Type == "resource_already_exists_exception")) {
+                (response.ServerError.Error.Type is "index_already_exists_exception" or "resource_already_exists_exception")) {
                 _logger.LogRequest(response);
                 return;
             }
 
             throw new RepositoryException(response.GetErrorMessage($"Error creating the index {name}"), response.OriginalException);
+        }
+        
+        protected virtual async Task UpdateIndexAsync(string name, Func<UpdateIndexSettingsDescriptor, UpdateIndexSettingsDescriptor> descriptor = null) {
+            var updateIndexDescriptor = new UpdateIndexSettingsDescriptor(name);
+            if (descriptor != null) {
+                updateIndexDescriptor = descriptor(updateIndexDescriptor);
+            } else {
+                // default to update dynamic index settings from the ConfigureIndex method
+                var createIndexDescriptor = new CreateIndexDescriptor(name);
+                createIndexDescriptor = ConfigureIndex(createIndexDescriptor);
+                var settings = ((IIndexState)createIndexDescriptor).Settings;
+                
+                // strip off non-dynamic index settings
+                settings.FileSystemStorageImplementation = null;
+                settings.NumberOfRoutingShards = null;
+                settings.NumberOfShards = null;
+                settings.Queries = null;
+                settings.RoutingPartitionSize = null;
+                settings.Hidden = null;
+                settings.Sorting = null;
+                settings.SoftDeletes = null;
+                
+                updateIndexDescriptor.IndexSettings(_ => new NestPromise<IDynamicIndexSettings>(settings));
+            }
+
+            var response = await Configuration.Client.Indices.UpdateSettingsAsync(name, _ => updateIndexDescriptor).AnyContext();
+
+            if (response.IsValid)
+                _logger.LogRequest(response);
+            else
+                _logger.LogErrorRequest(response, $"Error updating index ({name}) settings");
         }
 
         protected virtual Task DeleteIndexAsync(string name) {
@@ -203,7 +242,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public virtual CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
             return idx.Aliases(ConfigureIndexAliases);
         }
-
+        
         public virtual void ConfigureSettings(ConnectionSettings settings) {}
 
         public virtual void Dispose() {}
@@ -229,6 +268,21 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             return idx.Map<T>(ConfigureIndexMapping);
         }
 
+        protected override async Task UpdateIndexAsync(string name, Func<UpdateIndexSettingsDescriptor, UpdateIndexSettingsDescriptor> descriptor = null) {
+            await base.UpdateIndexAsync(name, descriptor).AnyContext();
+            
+            var typeMappingDescriptor = new TypeMappingDescriptor<T>();
+            typeMappingDescriptor = ConfigureIndexMapping(typeMappingDescriptor);
+            var mapping = (ITypeMapping)typeMappingDescriptor;
+
+            var response = await Configuration.Client.Indices.PutMappingAsync<T>(m => m.Properties(_ => new NestPromise<IProperties>(mapping.Properties))).AnyContext();
+
+            if (response.IsValid)
+                _logger.LogRequest(response);
+            else
+                _logger.LogErrorRequest(response, $"Error updating index ({name}) mappings.");
+        }
+
         public override void ConfigureSettings(ConnectionSettings settings) {
             settings.DefaultMappingFor<T>(d => d.IndexName(Name));
         }
@@ -246,5 +300,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public Inferrer Infer => Configuration.Client.Infer;
         public string InferField(Expression<Func<T, object>> objectPath) => Infer.Field(objectPath);
         public string InferPropertyName(Expression<Func<T, object>> objectPath) => Infer.PropertyName(objectPath);
+    }
+
+    internal class NestPromise<TValue> : IPromise<TValue> where TValue : class {
+        public NestPromise(TValue value) {
+            Value = value;
+        }
+            
+        public TValue Value { get; }
     }
 }
