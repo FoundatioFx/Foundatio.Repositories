@@ -189,35 +189,35 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 if (settings.Analysis?.Analyzers != null) {
                     foreach (var analyzer in settings.Analysis.Analyzers.ToList()) {
                         if (!currentAnalyzers.ContainsKey(analyzer.Key))
-                            _logger.LogError("New analyzers can't be added to existing indexes");
+                            _logger.LogError("New analyzer {AnalyzerKey} can't be added to existing index", analyzer.Key);
                     }
                 }
 
                 if (settings.Analysis?.Tokenizers != null) {
                     foreach (var tokenizer in settings.Analysis.Tokenizers.ToList()) {
                         if (currentTokenizers.ContainsKey(tokenizer.Key))
-                            _logger.LogError("New tokenizers can't be added to existing indexes");
+                            _logger.LogError("New tokenizer {TokenizerKey}  can't be added to existing index", tokenizer.Key);
                     }
                 }
 
                 if (settings.Analysis?.TokenFilters != null) {
                     foreach (var tokenFilter in settings.Analysis.TokenFilters.ToList()) {
                         if (currentTokenFilters.ContainsKey(tokenFilter.Key))
-                            _logger.LogError("New token filters can't be added to existing indexes");
+                            _logger.LogError("New token filter {TokenFilterKey} can't be added to existing index", tokenFilter.Key);
                     }
                 }
 
                 if (settings.Analysis?.Normalizers != null) {
                     foreach (var normalizer in settings.Analysis.Normalizers.ToList()) {
                         if (currentNormalizers.ContainsKey(normalizer.Key))
-                            _logger.LogError("New normalizers can't be added to existing indexes");
+                            _logger.LogError("New normalizer {NormalizerKey} can't be added to existing index", normalizer.Key);
                     }
                 }
 
                 if (settings.Analysis?.CharFilters != null) {
                     foreach (var charFilter in settings.Analysis.CharFilters.ToList()) {
                         if (currentCharFilters.ContainsKey(charFilter.Key))
-                            _logger.LogError("New char filters can't be added to existing indexes");
+                            _logger.LogError("New char filter {CharFilterKey} can't be added to existing index", charFilter.Key);
                     }
                 }
                 
