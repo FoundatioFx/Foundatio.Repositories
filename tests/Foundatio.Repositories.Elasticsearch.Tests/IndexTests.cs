@@ -417,18 +417,29 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
         [Fact]
         public async Task CanChangeIndexSettings() {
-            var index1 = new VersionedEmployeeIndex(_configuration, 1, i => i.Settings(s => s.NumberOfReplicas(0)));
+            var index1 = new VersionedEmployeeIndex(_configuration, 1, i => i
+                .Settings(s => s
+                    .NumberOfReplicas(0)
+                    .Setting("index.mapping.total_fields.limit", 2000)
+                    .Analysis(a => a.Analyzers(a1 => a1.Custom("custom1", c => c.Filters("uppercase").Tokenizer("whitespace"))))
+                ));
             await index1.DeleteAsync();
 
             await index1.ConfigureAsync();
             var settings = await _client.Indices.GetSettingsAsync(index1.VersionedName);
             Assert.Equal(0, settings.Indices[index1.VersionedName].Settings.NumberOfReplicas);
+            Assert.NotNull(settings.Indices[index1.VersionedName].Settings.Analysis.Analyzers["custom1"]);
             
-            var index2 = new VersionedEmployeeIndex(_configuration, 1, i => i.Settings(s => s.NumberOfReplicas(1)));
+            var index2 = new VersionedEmployeeIndex(_configuration, 1, i => i.Settings(s => s
+                .NumberOfReplicas(1)
+                .Setting("index.mapping.total_fields.limit", 3000)
+                .Analysis(a => a.Analyzers(a1 => a1.Custom("custom1", c => c.Filters("uppercase").Tokenizer("whitespace")).Custom("custom2", c => c.Filters("uppercase").Tokenizer("whitespace"))))
+            ));
             
             await index2.ConfigureAsync();
             settings = await _client.Indices.GetSettingsAsync(index1.VersionedName);
             Assert.Equal(1, settings.Indices[index1.VersionedName].Settings.NumberOfReplicas);
+            Assert.NotNull(settings.Indices[index1.VersionedName].Settings.Analysis.Analyzers["custom1"]);
         }
 
         [Fact]

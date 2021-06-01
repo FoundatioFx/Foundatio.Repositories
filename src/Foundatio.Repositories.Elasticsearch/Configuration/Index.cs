@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -163,6 +164,13 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (descriptor != null) {
                 updateIndexDescriptor = descriptor(updateIndexDescriptor);
             } else {
+                var currentSettings = await Configuration.Client.Indices.GetSettingsAsync(name);
+                var currentAnalyzers = currentSettings.Indices[name]?.Settings?.Analysis?.Analyzers ?? new Analyzers();
+                var currentTokenizers = currentSettings.Indices[name]?.Settings?.Analysis?.Tokenizers ?? new Tokenizers();
+                var currentTokenFilters = currentSettings.Indices[name]?.Settings?.Analysis?.TokenFilters ?? new TokenFilters();
+                var currentNormalizers = currentSettings.Indices[name]?.Settings?.Analysis?.Normalizers ?? new Normalizers();
+                var currentCharFilters = currentSettings.Indices[name]?.Settings?.Analysis?.CharFilters ?? new CharFilters();
+                
                 // default to update dynamic index settings from the ConfigureIndex method
                 var createIndexDescriptor = new CreateIndexDescriptor(name);
                 createIndexDescriptor = ConfigureIndex(createIndexDescriptor);
@@ -177,6 +185,43 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 settings.Hidden = null;
                 settings.Sorting = null;
                 settings.SoftDeletes = null;
+
+                if (settings.Analysis?.Analyzers != null) {
+                    foreach (var analyzer in settings.Analysis.Analyzers.ToList()) {
+                        if (!currentAnalyzers.ContainsKey(analyzer.Key))
+                            _logger.LogError("New analyzers can't be added to existing indexes");
+                    }
+                }
+
+                if (settings.Analysis?.Tokenizers != null) {
+                    foreach (var tokenizer in settings.Analysis.Tokenizers.ToList()) {
+                        if (currentTokenizers.ContainsKey(tokenizer.Key))
+                            _logger.LogError("New tokenizers can't be added to existing indexes");
+                    }
+                }
+
+                if (settings.Analysis?.TokenFilters != null) {
+                    foreach (var tokenFilter in settings.Analysis.TokenFilters.ToList()) {
+                        if (currentTokenFilters.ContainsKey(tokenFilter.Key))
+                            _logger.LogError("New token filters can't be added to existing indexes");
+                    }
+                }
+
+                if (settings.Analysis?.Normalizers != null) {
+                    foreach (var normalizer in settings.Analysis.Normalizers.ToList()) {
+                        if (currentNormalizers.ContainsKey(normalizer.Key))
+                            _logger.LogError("New normalizers can't be added to existing indexes");
+                    }
+                }
+
+                if (settings.Analysis?.CharFilters != null) {
+                    foreach (var charFilter in settings.Analysis.CharFilters.ToList()) {
+                        if (currentCharFilters.ContainsKey(charFilter.Key))
+                            _logger.LogError("New char filters can't be added to existing indexes");
+                    }
+                }
+                
+                settings.Analysis = null;
                 
                 updateIndexDescriptor.IndexSettings(_ => new NestPromise<IDynamicIndexSettings>(settings));
             }
