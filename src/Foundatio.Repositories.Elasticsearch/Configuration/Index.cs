@@ -195,28 +195,28 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
 
                 if (settings.Analysis?.Tokenizers != null) {
                     foreach (var tokenizer in settings.Analysis.Tokenizers.ToList()) {
-                        if (currentTokenizers.ContainsKey(tokenizer.Key))
+                        if (!currentTokenizers.ContainsKey(tokenizer.Key))
                             _logger.LogError("New tokenizer {TokenizerKey}  can't be added to existing index", tokenizer.Key);
                     }
                 }
 
                 if (settings.Analysis?.TokenFilters != null) {
                     foreach (var tokenFilter in settings.Analysis.TokenFilters.ToList()) {
-                        if (currentTokenFilters.ContainsKey(tokenFilter.Key))
+                        if (!currentTokenFilters.ContainsKey(tokenFilter.Key))
                             _logger.LogError("New token filter {TokenFilterKey} can't be added to existing index", tokenFilter.Key);
                     }
                 }
 
                 if (settings.Analysis?.Normalizers != null) {
                     foreach (var normalizer in settings.Analysis.Normalizers.ToList()) {
-                        if (currentNormalizers.ContainsKey(normalizer.Key))
+                        if (!currentNormalizers.ContainsKey(normalizer.Key))
                             _logger.LogError("New normalizer {NormalizerKey} can't be added to existing index", normalizer.Key);
                     }
                 }
 
                 if (settings.Analysis?.CharFilters != null) {
                     foreach (var charFilter in settings.Analysis.CharFilters.ToList()) {
-                        if (currentCharFilters.ContainsKey(charFilter.Key))
+                        if (!currentCharFilters.ContainsKey(charFilter.Key))
                             _logger.LogError("New char filter {CharFilterKey} can't be added to existing index", charFilter.Key);
                     }
                 }
