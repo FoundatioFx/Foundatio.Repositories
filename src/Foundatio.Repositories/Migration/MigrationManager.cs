@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -90,8 +90,10 @@ namespace Foundatio.Repositories.Migrations {
                         return MigrationResult.Cancelled;
 
                     // stuck on non-resumable versioned migration, must be manually fixed
-                    if (migrationInfo.Migration.MigrationType == MigrationType.Versioned && migrationInfo.State != null && migrationInfo.State.StartedUtc > DateTime.MinValue)
+                    if (migrationInfo.Migration.MigrationType == MigrationType.Versioned && migrationInfo.State != null && migrationInfo.State.StartedUtc > DateTime.MinValue) {
+                        _logger.LogError("Migration {Id} failed to complete and cannot be resumed, please correct the error and then delete the migration record to make it run again", migrationInfo.Migration.GetId());
                         return MigrationResult.Failed;
+                    }
 
                     await MarkMigrationStartedAsync(migrationInfo).AnyContext();
 
