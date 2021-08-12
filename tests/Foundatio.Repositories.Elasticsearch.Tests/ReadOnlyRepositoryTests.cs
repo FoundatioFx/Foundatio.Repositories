@@ -46,6 +46,24 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task CanCacheSaveByKeyAsync() {
+            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency().Cache("test"));
+            Assert.Equal(2, _cache.Count);
+
+            var employeeResult1 = await _employeeRepository.FindOneAsync(new RepositoryQuery().Age(20), new CommandOptions().Cache("test"));
+            Assert.NotNull(employeeResult1);
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(1, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+
+            var employeeResult2 = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache("test"));
+            Assert.NotNull(employeeResult2);
+            Assert.Equal(2, _cache.Count);
+            Assert.Equal(2, _cache.Hits);
+            Assert.Equal(0, _cache.Misses);
+        }
+
+        [Fact]
         public async Task CanCacheFindOneAsync() {
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
 

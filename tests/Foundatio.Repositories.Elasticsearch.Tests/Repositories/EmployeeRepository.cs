@@ -114,8 +114,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return PatchAllAsync(query, new ScriptPatch(script), o => o.ImmediateConsistency(true));
         }
 
-        protected override async Task AddDocumentsToCacheAsync(ICollection<FindHit<Employee>> findHits, ICommandOptions options) {
-            await base.AddDocumentsToCacheAsync(findHits, options);
+        protected override async Task AddDocumentsToCacheAsync(ICollection<FindHit<Employee>> findHits, ICommandOptions options, bool isDirtyRead) {
+            await base.AddDocumentsToCacheAsync(findHits, options, isDirtyRead);
 
             var cacheEntries = new Dictionary<string, FindHit<Employee>>();
             foreach (var hit in findHits.Where(d => !String.IsNullOrEmpty(d.Document.EmailAddress)))

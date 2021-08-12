@@ -71,8 +71,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return null;
 
             options = ConfigureOptions(options.As<T>());
-            if (IsCacheEnabled && options.HasCacheKey())
-                throw new ArgumentException("Cache key can't be set when calling GetById");
 
             if (IsCacheEnabled && options.ShouldReadCache()) {
                 var value = await GetCachedFindHit(id).AnyContext();
@@ -100,7 +98,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             if (IsCacheEnabled && options.ShouldUseCache())
-                await AddDocumentsToCacheAsync(findHit ?? new FindHit<T>(id, null, 0), options).AnyContext();
+                await AddDocumentsToCacheAsync(findHit ?? new FindHit<T>(id, null, 0), options, false).AnyContext();
 
             return ShouldReturnDocument(findHit?.Document, options) ? findHit?.Document : null;
         }
@@ -118,8 +116,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new NotSupportedException("Model type must implement IIdentity.");
 
             options = ConfigureOptions(options.As<T>());
-            if (IsCacheEnabled && options.HasCacheKey())
-                throw new ArgumentException("Cache key can't be set when calling GetByIds");
 
             var hits = new List<FindHit<T>>();
             if (IsCacheEnabled && options.ShouldReadCache())
@@ -158,7 +154,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             if (IsCacheEnabled && options.ShouldUseCache())
-                await AddDocumentsToCacheAsync(hits, options).AnyContext();
+                await AddDocumentsToCacheAsync(hits, options, false).AnyContext();
 
             return hits.Where(h => h.Document != null && ShouldReturnDocument(h.Document, options)).Select(h => h.Document).ToList().AsReadOnly();
         }
@@ -389,6 +385,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             var nextPageFunc = ((IGetNextPage<TResult>)result).GetNextPageFunc;
             ((IGetNextPage<TResult>)result).GetNextPageFunc = null;
             await SetCachedQueryResultAsync(options, result, cacheSuffix: cacheSuffix).AnyContext();
+            
+            if (IsCacheEnabled && options.ShouldUseCache() && options.GetConsistency(DefaultConsistency) == Consistency.Immediate)
+                await AddDocumentsToCacheAsync((ICollection<T>)result.Documents, options, false);
+
             ((IGetNextPage<TResult>)result).GetNextPageFunc = nextPageFunc;
 
             return result;
@@ -426,7 +426,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             result = response.Hits.Select(h => h.ToFindHit()).ToList();
 
             if (IsCacheEnabled && options.ShouldUseCache())
-                await AddDocumentsToCacheAsync(result, options).AnyContext();
+                await AddDocumentsToCacheAsync(result, options, options.GetConsistency(DefaultConsistency) == Consistency.Immediate ? false : true).AnyContext();
 
             return result.FirstOrDefault();
         }
@@ -653,7 +653,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected async Task SetCachedQueryResultAsync<TResult>(ICommandOptions options, TResult result, string cachePrefix = null, string cacheSuffix = null) {
             if (!IsCacheEnabled || result == null || !options.ShouldUseCache())
                 return;
-
+            
             if (!options.HasCacheKey())
                 throw new ArgumentException("Cache key is required when enabling cache.", nameof(options));
 
@@ -742,23 +742,25 @@ namespace Foundatio.Repositories.Elasticsearch {
             return new FindHit<T>(idDocument?.Id, document, 0, version, routing);
         }
 
-        protected Task AddDocumentsToCacheAsync(T document, ICommandOptions options) {
-            return AddDocumentsToCacheAsync(new[] { document }, options);
+        protected Task AddDocumentsToCacheAsync(T document, ICommandOptions options, bool isDirtyRead) {
+            return AddDocumentsToCacheAsync(new[] { document }, options, isDirtyRead);
         }
 
-        protected Task AddDocumentsToCacheAsync(ICollection<T> documents, ICommandOptions options) {
-            return AddDocumentsToCacheAsync(documents.Select(ToFindHit).ToList(), options);
+        protected Task AddDocumentsToCacheAsync(ICollection<T> documents, ICommandOptions options, bool isDirtyRead) {
+            return AddDocumentsToCacheAsync(documents.Select(ToFindHit).ToList(), options, isDirtyRead);
         }
 
-        protected Task AddDocumentsToCacheAsync(FindHit<T> findHit, ICommandOptions options) {
-            return AddDocumentsToCacheAsync(new[] { findHit }, options);
+        protected Task AddDocumentsToCacheAsync(FindHit<T> findHit, ICommandOptions options, bool isDirtyRead) {
+            return AddDocumentsToCacheAsync(new[] { findHit }, options, isDirtyRead);
         }
 
-        protected virtual async Task AddDocumentsToCacheAsync(ICollection<FindHit<T>> findHits, ICommandOptions options) {
+        protected virtual async Task AddDocumentsToCacheAsync(ICollection<FindHit<T>> findHits, ICommandOptions options, bool isDirtyRead) {
             if (options.HasCacheKey()) {
-                // when caching by key, don't add documents by id as they may be out of sync due to eventual consistency
                 await Cache.SetAsync(options.GetCacheKey(), findHits, options.GetExpiresIn()).AnyContext();
-                return;
+
+                // when caching by key, don't add documents by id as they may be out of sync due to eventual consistency
+                if (isDirtyRead)
+                    return;
             }
 
             var findHitsById = findHits
