@@ -45,7 +45,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         ElasticMappingResolver IElasticQueryVisitorContext.MappingResolver { get; set; }
 
         GroupOperator IQueryVisitorContext.DefaultOperator { get; set; }
-        string IElasticQueryVisitorContext.DefaultTimeZone { get; set; }
+        Lazy<string> IElasticQueryVisitorContext.DefaultTimeZone { get; set; }
         bool IElasticQueryVisitorContext.UseScoring { get; set; }
         string[] IQueryVisitorContext.DefaultFields { get; set; }
         string IQueryVisitorContext.QueryType { get; set; }
@@ -70,7 +70,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public static class QueryBuilderContextExtensions {
-        public static void SetTimeZone(this IQueryBuilderContext context, string timeZone) {
+        public static void SetTimeZone(this IQueryBuilderContext context, Lazy<string> timeZone) {
             var elasticContext = context as IElasticQueryVisitorContext;
             if (elasticContext == null)
                 throw new ArgumentException("Context must be of type IElasticQueryVisitorContext", nameof(context));
@@ -78,9 +78,17 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             elasticContext.DefaultTimeZone = timeZone;
         }
 
+        public static void SetTimeZone(this IQueryBuilderContext context, string timeZone) {
+            var elasticContext = context as IElasticQueryVisitorContext;
+            if (elasticContext == null)
+                throw new ArgumentException("Context must be of type IElasticQueryVisitorContext", nameof(context));
+
+            elasticContext.DefaultTimeZone = new Lazy<string>(() => timeZone);
+        }
+
         public static string GetTimeZone(this IQueryBuilderContext context) {
             var elasticContext = context as IElasticQueryVisitorContext;
-            return elasticContext?.DefaultTimeZone;
+            return elasticContext?.DefaultTimeZone?.Value;
         }
     }
 
@@ -103,4 +111,4 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             search.Query(d => q);
         }
     }
-}
+} 
