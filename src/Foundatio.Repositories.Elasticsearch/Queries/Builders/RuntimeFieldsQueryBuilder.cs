@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Repositories.Options;
 using Nest;
 
@@ -19,24 +20,6 @@ namespace Foundatio.Repositories {
             return query.AddCollectionOptionValue(RuntimeFieldsKey, fields);
         }
     }
-
-    public class ElasticRuntimeField {
-        public string Name { get; set; }
-        public ElasticRuntimeFieldType FieldType { get; set; }
-        public string Script { get; set; }
-    }
-
-    // This is the list of supported field types for runtime fields:
-    // https://www.elastic.co/guide/en/elasticsearch/reference/master/runtime-mapping-fields.html
-    public enum ElasticRuntimeFieldType {
-        Boolean,
-        Date,
-        Double,
-        GeoPoint,
-        Ip,
-        Keyword,
-        Long
-    }
 }
 
 namespace Foundatio.Repositories.Options {
@@ -48,10 +31,25 @@ namespace Foundatio.Repositories.Options {
 }
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
+    public class AddRuntimeFieldsToContextQueryBuilder : IElasticQueryBuilder {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+            if (ctx is not IElasticQueryVisitorContext elasticContext)
+                return Task.CompletedTask;
+
+            foreach (var field in ctx.Source.GetRuntimeFields())
+                elasticContext.RuntimeFields.Add(field);
+
+            return Task.CompletedTask;
+        }
+    }
+
     public class RuntimeFieldsQueryBuilder : IElasticQueryBuilder {
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var runtimeFields = ctx.Source.GetRuntimeFields();
-            foreach (var field in runtimeFields)
+            if (ctx is not IElasticQueryVisitorContext elasticContext)
+                return Task.CompletedTask;
+
+            // fields need to be added to the context from the query before this
+            foreach (var field in elasticContext.RuntimeFields)
                 ctx.Search.RuntimeFields<T>(f => f.RuntimeField(field.Name, GetFieldType(field.FieldType), d => {
                     if (!String.IsNullOrEmpty(field.Script))
                         d.Script(field.Script);

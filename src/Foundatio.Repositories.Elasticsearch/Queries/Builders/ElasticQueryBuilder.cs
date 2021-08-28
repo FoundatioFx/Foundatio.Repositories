@@ -98,8 +98,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             Unregister<ExpressionQueryBuilder>();
             Register(new ParsedExpressionQueryBuilder(parser));
 
-            Unregister<AggregationsQueryBuilder>();
-            Register(new AggregationsQueryBuilder());
+            Register<AggregationsQueryBuilder>();
+            Register<RuntimeFieldsQueryBuilder>();
         }
 
         public void UseAliases(QueryFieldResolver aliasMap) {
@@ -108,18 +108,19 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
 
         public void RegisterDefaults() {
+            Register<AddRuntimeFieldsToContextQueryBuilder>();
             Register<PageableQueryBuilder>();
             Register<FieldIncludesQueryBuilder>();
-            Register<RuntimeFieldsQueryBuilder>();
             Register<SortQueryBuilder>();
-            Register(new AggregationsQueryBuilder());
-            Register(new ParentQueryBuilder());
-            Register(new ChildQueryBuilder());
+            Register<AggregationsQueryBuilder>();
+            Register<ParentQueryBuilder>();
+            Register<ChildQueryBuilder>();
             Register<IdentityQueryBuilder>();
             Register<SoftDeletesQueryBuilder>();
             Register<DateRangeQueryBuilder>();
-            Register(new ExpressionQueryBuilder());
+            Register<ExpressionQueryBuilder>();
             Register<ElasticFilterQueryBuilder>();
+            Register<RuntimeFieldsQueryBuilder>();
             Register<FieldConditionsQueryBuilder>();
             Register<SearchAfterQueryBuilder>(Int32.MaxValue);
         }

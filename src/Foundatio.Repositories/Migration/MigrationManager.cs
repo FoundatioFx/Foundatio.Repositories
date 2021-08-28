@@ -55,7 +55,7 @@ namespace Foundatio.Repositories.Migrations {
             if (migrationInstance == null)
                 throw new ArgumentException($"Unable to get instance of type '{migrationType.Name}'. Please ensure it's registered in Dependency Injection.", nameof(migrationType));
 
-            if (!(migrationInstance is IMigration migration))
+            if (migrationInstance is not IMigration migration)
                 throw new ArgumentException($"Type '{migrationType.Name}' must implement interface '{nameof(IMigration)}'.", nameof(migrationType));
 
             var versionedMigrations = _migrations.Where(m => m.MigrationType != MigrationType.Repeatable && m.Version.HasValue);

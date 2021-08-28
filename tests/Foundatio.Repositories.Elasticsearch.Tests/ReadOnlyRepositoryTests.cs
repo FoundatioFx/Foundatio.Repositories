@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
+using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
@@ -616,6 +617,25 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var stats = await _client.Nodes.StatsAsync();
             var nodeStats = stats.Nodes.First().Value;
             return nodeStats.Indices.Search.ScrollCurrent;
+        }
+
+        [Fact]
+        public async Task FindWithRuntimeFieldsAsync() {
+            Log.MinimumLevel = LogLevel.Trace;
+
+            var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+            Assert.NotNull(employee1?.Id);
+
+            var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake", age: 3), o => o.ImmediateConsistency());
+            Assert.NotNull(employee2?.Id);
+
+            var results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedage:>20").RuntimeField("unmappedAge", ElasticRuntimeFieldType.Long));
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+
+            results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedEmailAddress:" + employee1.EmailAddress));
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
         }
 
         [Fact]

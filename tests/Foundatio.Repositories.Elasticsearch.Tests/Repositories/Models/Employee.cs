@@ -23,7 +23,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
         public string CompanyName { get; set; }
         public string Name { get; set; }
         public string EmailAddress { get; set; }
+        public string UnmappedEmailAddress => EmailAddress;
         public int Age { get; set; }
+        public int UnmappedAge => Age;
         public string Location { get; set; }
         public int YearsEmployed { get; set; }
         public DateTime LastReview { get; set; }

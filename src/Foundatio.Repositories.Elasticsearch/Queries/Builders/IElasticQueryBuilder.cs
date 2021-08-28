@@ -15,7 +15,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new();
     }
 
-    public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitorContext, IQueryVisitorContextWithFieldResolver, IQueryVisitorContextWithIncludeResolver where T : class, new() {
+    public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitorContext, IQueryVisitorContextWithFieldResolver, IQueryVisitorContextWithIncludeResolver, IQueryVisitorContextWithValidation where T : class, new() {
         public QueryBuilderContext(IRepositoryQuery source, ICommandOptions options, SearchDescriptor<T> search = null, IQueryBuilderContext parentContext = null) {
             Source = source;
             Options = options;
@@ -39,10 +39,13 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         public QueryContainer Filter { get; set; }
         public SearchDescriptor<T> Search { get; }
         public IDictionary<string, object> Data { get; } = new Dictionary<string, object>();
-
+        public QueryValidationOptions ValidationOptions { get; set; }
+        public QueryValidationInfo ValidationInfo { get; set; }
         QueryFieldResolver IQueryVisitorContextWithFieldResolver.FieldResolver { get; set; }
         IncludeResolver IQueryVisitorContextWithIncludeResolver.IncludeResolver { get; set; }
         ElasticMappingResolver IElasticQueryVisitorContext.MappingResolver { get; set; }
+        ICollection<ElasticRuntimeField> IElasticQueryVisitorContext.RuntimeFields { get; } = new List<ElasticRuntimeField>();
+        RuntimeFieldResolver IElasticQueryVisitorContext.RuntimeFieldResolver { get; set; }
 
         GroupOperator IQueryVisitorContext.DefaultOperator { get; set; }
         Lazy<string> IElasticQueryVisitorContext.DefaultTimeZone { get; set; }
