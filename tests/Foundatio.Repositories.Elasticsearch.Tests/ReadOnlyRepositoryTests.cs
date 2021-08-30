@@ -1,10 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
-using Foundatio.Parsers.ElasticQueries.Visitors;
+using Foundatio.Parsers;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
@@ -633,7 +632,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
 
-            results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedEmailAddress:" + employee1.EmailAddress));
+            results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedemailaddress:" + employee1.EmailAddress));
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
         }

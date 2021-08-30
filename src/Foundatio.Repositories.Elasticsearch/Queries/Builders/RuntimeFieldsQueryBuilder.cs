@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Foundatio.Parsers;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Repositories.Options;
 using Nest;
@@ -19,6 +20,11 @@ namespace Foundatio.Repositories {
         public static T RuntimeField<T>(this T query, IEnumerable<ElasticRuntimeField> fields) where T : IRepositoryQuery {
             return query.AddCollectionOptionValue(RuntimeFieldsKey, fields);
         }
+
+        internal const string RuntimeFieldResolverKey = "@RuntimeFieldResolver";
+        public static T RuntimeFieldResolver<T>(this T query, RuntimeFieldResolver fieldResolver) where T : IRepositoryQuery {
+            return query.BuildOption(RuntimeFieldResolverKey, fieldResolver);
+        }
     }
 }
 
@@ -26,6 +32,10 @@ namespace Foundatio.Repositories.Options {
     public static class ReadRuntimeFieldsQueryExtensions {
         public static ICollection<ElasticRuntimeField> GetRuntimeFields(this IRepositoryQuery options) {
             return options.SafeGetCollection<ElasticRuntimeField>(RuntimeFieldsQueryExtensions.RuntimeFieldsKey);
+        }
+
+        public static RuntimeFieldResolver GetRuntimeFieldResolver(this IRepositoryQuery options) {
+            return options.SafeGetOption<RuntimeFieldResolver>(RuntimeFieldsQueryExtensions.RuntimeFieldResolverKey);
         }
     }
 }
@@ -38,6 +48,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             foreach (var field in ctx.Source.GetRuntimeFields())
                 elasticContext.RuntimeFields.Add(field);
+
+            var fieldResolver = ctx.Source.GetRuntimeFieldResolver();
+            if (fieldResolver != null)
+                elasticContext.RuntimeFieldResolver = elasticContext.RuntimeFieldResolver != null ? f => fieldResolver(f) ?? elasticContext.RuntimeFieldResolver(f) : fieldResolver;
 
             return Task.CompletedTask;
         }

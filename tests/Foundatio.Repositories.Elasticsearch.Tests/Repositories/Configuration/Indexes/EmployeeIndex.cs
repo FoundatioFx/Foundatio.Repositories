@@ -10,6 +10,7 @@ using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Nest;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
+using Foundatio.Parsers;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes {
     public sealed class EmployeeIndex : Index<Employee> {
@@ -60,12 +61,19 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
 
         protected override void ConfigureQueryParser(ElasticQueryParserConfiguration config) {
             base.ConfigureQueryParser(config);
-            config.UseIncludes(i => ResolveIncludeAsync(i)).UseValidation(new QueryValidationOptions { ShouldResolveFields = true });
+            config.UseIncludes(ResolveIncludeAsync).UseRuntimeFieldResolver(ResolveRuntimeFieldAsync);
         }
 
         private async Task<string> ResolveIncludeAsync(string name) {
             await Task.Delay(100);
             return "aliasedage:10";
+        }
+
+        private async Task<ElasticRuntimeField> ResolveRuntimeFieldAsync(string name) {
+            if (name.Equals("unmappedEmailAddress", StringComparison.OrdinalIgnoreCase))
+                return new ElasticRuntimeField { Name = "unmappedEmailAddress" };
+            
+            return null;
         }
     }
 

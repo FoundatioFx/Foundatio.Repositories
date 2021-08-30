@@ -9,6 +9,7 @@ using Foundatio.Repositories.Options;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Parsers.LuceneQueries.Nodes;
+using Foundatio.Parsers;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IElasticQueryBuilder {
