@@ -72,11 +72,11 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (String.IsNullOrEmpty(options.Name))
                 options.Name = SystemClock.UtcNow.ToString("'" + options.Repository + "-'yyyy-MM-dd-HH-mm");
 
-            var repoExists = await SnapshotRepositoryExistsAsync(options.Repository).AnyContext();
+            bool repoExists = await SnapshotRepositoryExistsAsync(options.Repository).AnyContext();
             if (!repoExists)
                 throw new RepositoryException();
 
-            var success = await WaitForSafeToSnapshotAsync(options.Repository).AnyContext();
+            bool success = await WaitForSafeToSnapshotAsync(options.Repository).AnyContext();
             if (!success)
                 throw new RepositoryException();
 

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -19,7 +19,7 @@ namespace Foundatio.Repositories.Migrations {
         protected readonly ILockProvider _lockProvider;
         protected readonly ILoggerFactory _loggerFactory;
         protected readonly ILogger _logger;
-        protected readonly List<IMigration> _migrations = new List<IMigration>();
+        protected readonly List<IMigration> _migrations = new();
 
         public MigrationManager(IServiceProvider serviceProvider, IMigrationStateRepository migrationStatusRepository, ILockProvider lockProvider, ILoggerFactory loggerFactory) {
             _serviceProvider = serviceProvider;
@@ -156,7 +156,7 @@ namespace Foundatio.Repositories.Migrations {
 
         public async Task<MigrationStatus> GetMigrationStatus() {
             var migrations = Migrations.OrderBy(m => m.Version).ToList();
-            var migrationIds = migrations.Select(m => m.GetId()).ToArray();
+            string[] migrationIds = migrations.Select(m => m.GetId()).ToArray();
 
             // get by id to ensure latest document versions
             var migrationStatesByIds = await _migrationStatusRepository.GetByIdsAsync(migrationIds).AnyContext();

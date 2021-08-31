@@ -18,8 +18,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         }
 
         public override Task<ILock> GetWorkItemLockAsync(object workItem, CancellationToken cancellationToken = default) {
-            var reindexWorkItem = workItem as ReindexWorkItem;
-            if (reindexWorkItem == null)
+            if (workItem is not ReindexWorkItem reindexWorkItem)
                 return null;
 
             return _lockProvider.AcquireAsync(String.Join(":", "reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex), TimeSpan.FromMinutes(20), cancellationToken);

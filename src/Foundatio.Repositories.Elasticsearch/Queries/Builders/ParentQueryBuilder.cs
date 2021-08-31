@@ -61,7 +61,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (!String.IsNullOrEmpty(parentId.Item2))
                 ctx.Filter &= new ParentIdQuery { Id = parentId.ParentId, Type = parentId.Relation };
 
-            var discriminator = ctx.Source.GetDiscriminator();
+            string discriminator = ctx.Source.GetDiscriminator();
             if (discriminator != null)
                 ctx.Filter &= new TermQuery { Field = "discriminator", Value = discriminator };
 

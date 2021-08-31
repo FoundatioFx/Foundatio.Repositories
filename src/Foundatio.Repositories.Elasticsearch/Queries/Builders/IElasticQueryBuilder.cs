@@ -75,16 +75,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
     public static class QueryBuilderContextExtensions {
         public static void SetTimeZone(this IQueryBuilderContext context, Lazy<string> timeZone) {
-            var elasticContext = context as IElasticQueryVisitorContext;
-            if (elasticContext == null)
+            if (context is not IElasticQueryVisitorContext elasticContext)
                 throw new ArgumentException("Context must be of type IElasticQueryVisitorContext", nameof(context));
 
             elasticContext.DefaultTimeZone = timeZone;
         }
 
         public static void SetTimeZone(this IQueryBuilderContext context, string timeZone) {
-            var elasticContext = context as IElasticQueryVisitorContext;
-            if (elasticContext == null)
+            if (context is not IElasticQueryVisitorContext elasticContext)
                 throw new ArgumentException("Context must be of type IElasticQueryVisitorContext", nameof(context));
 
             elasticContext.DefaultTimeZone = new Lazy<string>(() => timeZone);

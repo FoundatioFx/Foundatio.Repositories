@@ -8,7 +8,7 @@ using Newtonsoft.Json.Linq;
 namespace Foundatio.Repositories.JsonPatch {
     [JsonConverter(typeof(PatchDocumentConverter))]
     public class PatchDocument {
-        private readonly List<Operation> _operations = new List<Operation>();
+        private readonly List<Operation> _operations = new();
 
         public PatchDocument(params Operation[] operations) {
             foreach (var operation in operations) {

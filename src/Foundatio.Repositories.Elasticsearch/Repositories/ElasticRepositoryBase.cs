@@ -27,7 +27,7 @@ namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, ISearchableRepository<T> where T : class, IIdentity, new() {
         protected readonly IValidator<T> _validator;
         protected readonly IMessagePublisher _messagePublisher;
-        private readonly List<Lazy<Field>> _propertiesRequiredForRemove = new List<Lazy<Field>>();
+        private readonly List<Lazy<Field>> _propertiesRequiredForRemove = new();
 
         protected ElasticRepositoryBase(IIndex index, IValidator<T> validator = null) : base(index) {
             _validator = validator;
@@ -183,7 +183,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (id.Routing != null)
                     indexParameters.Routing = id.Routing;
                 
-                var updateResponse = await _client.LowLevel.IndexAsync<VoidResponse>(ElasticIndex.GetIndex(id), id.Value, PostData.String(target.ToString()), indexParameters, default(CancellationToken)).AnyContext();
+                var updateResponse = await _client.LowLevel.IndexAsync<VoidResponse>(ElasticIndex.GetIndex(id), id.Value, PostData.String(target.ToString()), indexParameters, default).AnyContext();
 
                 if (updateResponse.Success) {
                     _logger.LogRequest(updateResponse, options.GetQueryLogLevel());
@@ -959,10 +959,6 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected bool NotificationsEnabled { get; set; }
         protected bool OriginalsEnabled { get; set; }
         public bool BatchNotifications { get; set; }
-
-        private Task SendNotificationsAsync(ChangeType changeType, ICommandOptions options) {
-            return SendNotificationsAsync(changeType, EmptyList, options);
-        }
 
         private Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<T> documents, ICommandOptions options) {
             return SendNotificationsAsync(changeType, documents.Select(d => new ModifiedDocument<T>(d, null)).ToList(), options);

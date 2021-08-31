@@ -28,7 +28,7 @@ namespace Foundatio.Repositories.Utility {
                     return (T)parsedValue;
                 }
 
-                var message = $"The Enum value of '{value}' is not defined as a valid value for '{targetType.FullName}'.";
+                string message = $"The Enum value of '{value}' is not defined as a valid value for '{targetType.FullName}'.";
                 throw new ArgumentException(message);
             }
 

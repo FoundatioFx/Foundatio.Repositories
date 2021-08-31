@@ -10,7 +10,7 @@ using Foundatio.Repositories.Extensions;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class ElasticQueryBuilder : IElasticQueryBuilder {
-        private readonly List<ElasticQueryBuilderRegistration> _registrations = new List<ElasticQueryBuilderRegistration>();
+        private readonly List<ElasticQueryBuilderRegistration> _registrations = new();
         private IElasticQueryBuilder[] _queryBuilders = null;
 
 
@@ -155,7 +155,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 await builder.BuildAsync(ctx).AnyContext();
         }
 
-        private static readonly Lazy<ElasticQueryBuilder> _default = new Lazy<ElasticQueryBuilder>(() => new ElasticQueryBuilder());
+        private static readonly Lazy<ElasticQueryBuilder> _default = new(() => new ElasticQueryBuilder());
         public static ElasticQueryBuilder Default => _default.Value;
     }
     

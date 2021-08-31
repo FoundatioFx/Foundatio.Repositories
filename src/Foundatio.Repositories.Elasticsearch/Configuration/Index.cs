@@ -75,16 +75,12 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         public IElasticConfiguration Configuration { get; }
 
         public virtual string CreateDocumentId(object document) {
-            switch (document) {
-                case null:
-                    throw new ArgumentNullException(nameof(document));
-                case IIdentity identityDoc when !String.IsNullOrEmpty(identityDoc.Id):
-                    return identityDoc.Id;
-                case IHaveCreatedDate createdDoc when createdDoc.CreatedUtc != DateTime.MinValue:
-                    return ObjectId.GenerateNewId(createdDoc.CreatedUtc).ToString();
-                default:
-                    return ObjectId.GenerateNewId().ToString();
-            }
+            return document switch {
+                null => throw new ArgumentNullException(nameof(document)),
+                IIdentity identityDoc when !String.IsNullOrEmpty(identityDoc.Id) => identityDoc.Id,
+                IHaveCreatedDate createdDoc when createdDoc.CreatedUtc != DateTime.MinValue => ObjectId.GenerateNewId(createdDoc.CreatedUtc).ToString(),
+                _ => ObjectId.GenerateNewId().ToString(),
+            };
         }
 
         private string[] _indexes;
@@ -112,7 +108,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (_isEnsured)
                 return;
 
-            var existsResult = await IndexExistsAsync(Name).AnyContext();
+            bool existsResult = await IndexExistsAsync(Name).AnyContext();
             if (existsResult) {
                 _isEnsured = true;
                 return;

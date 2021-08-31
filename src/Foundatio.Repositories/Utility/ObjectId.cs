@@ -13,7 +13,7 @@ namespace Foundatio.Repositories.Utility {
         private static readonly int __staticMachine;
         private static readonly short __staticPid;
         private static int __staticIncrement;
-        private static DateTime __unixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        private static DateTime __unixEpoch = new(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         private readonly int _timestamp;
         private readonly int _machine;
@@ -149,7 +149,7 @@ namespace Foundatio.Repositories.Utility {
             if (TryParse(s, out objectId)) {
                 return objectId;
             } else {
-                var message = $"'{s}' is not a valid 24 digit hex string.";
+                string message = $"'{s}' is not a valid 24 digit hex string.";
                 throw new FormatException(message);
             }
         }
@@ -186,12 +186,12 @@ namespace Foundatio.Repositories.Utility {
         }
 
         private static int GetMachineHash() {
-            var hostName = Environment.MachineName;
+            string hostName = Environment.MachineName;
             return 0x00ffffff & hostName.GetHashCode();
         }
 
         private static int GetTimestampFromDateTime(DateTime timestamp) {
-            var secondsSinceEpoch = (long)Math.Floor((Utils.ToUniversalTime(timestamp) - __unixEpoch).TotalSeconds);
+            long secondsSinceEpoch = (long)Math.Floor((Utils.ToUniversalTime(timestamp) - __unixEpoch).TotalSeconds);
             if (secondsSinceEpoch < int.MinValue || secondsSinceEpoch > int.MaxValue) {
                 throw new ArgumentOutOfRangeException(nameof(timestamp));
             }
@@ -366,7 +366,7 @@ namespace Foundatio.Repositories.Utility {
                     throw new ArgumentNullException(nameof(bytes));
                 }
                 var sb = new StringBuilder(bytes.Length * 2);
-                foreach (var b in bytes) {
+                foreach (byte b in bytes) {
                     sb.AppendFormat("{0:x2}", b);
                 }
                 return sb.ToString();

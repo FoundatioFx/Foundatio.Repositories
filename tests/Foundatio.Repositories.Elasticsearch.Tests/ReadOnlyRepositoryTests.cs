@@ -663,7 +663,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(2, results.Total);
             Assert.Equal(employee2.Id, results.Documents.First().Id);
             Assert.False(results.HasMore);
-            var searchBeforeToken = results.GetSearchBeforeToken();
+            string searchBeforeToken = results.GetSearchBeforeToken();
             Assert.NotEmpty(searchBeforeToken);
             Assert.Null(results.GetSearchAfterToken());
 
@@ -813,7 +813,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var chicagoNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, chicagoTimeZone);
             var asiaNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, asiaTimeZone);
 
-            _logger.LogInformation($"UTC: {utcNow.ToString("o")} Chicago: {chicagoNow.ToString("o")} Asia: {asiaNow.ToString("o")}");
+            _logger.LogInformation($"UTC: {utcNow:o} Chicago: {chicagoNow:o} Asia: {asiaNow:o}");
             
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: utcNow), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);

@@ -27,7 +27,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected static readonly bool HasVersion = typeof(IVersioned).IsAssignableFrom(typeof(T));
         protected static readonly string EntityTypeName = typeof(T).Name;
         protected static readonly IReadOnlyCollection<T> EmptyList = new List<T>(0).AsReadOnly();
-        private readonly List<Lazy<Field>> _defaultExcludes = new List<Lazy<Field>>();
+        private readonly List<Lazy<Field>> _defaultExcludes = new();
         protected readonly Lazy<string> _idField;
 
         protected readonly ILogger _logger;
@@ -351,7 +351,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 
                 // clear the scroll
                 if (!result.HasMore) {
-                    var scrollId = result.GetScrollId();
+                    string scrollId = result.GetScrollId();
                     if (!String.IsNullOrEmpty(scrollId))
                         await _client.ClearScrollAsync(s => s.ScrollId(result.GetScrollId()));
                 }
@@ -371,8 +371,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             } else if (options.HasSearchBefore()) {
                 // reverse results
                 bool hasMore = result.HasMore;
-                result = new FindResults<TResult>(result.Hits.Reverse(), result.Total, result.Aggregations.ToDictionary(k => k.Key, v => v.Value), GetNextPageFunc, result.Data.ToDictionary(k => k.Key, v => v.Value));
-                result.HasMore = hasMore;
+                result = new FindResults<TResult>(result.Hits.Reverse(), result.Total, result.Aggregations.ToDictionary(k => k.Key, v => v.Value), GetNextPageFunc, result.Data.ToDictionary(k => k.Key, v => v.Value)) {
+                    HasMore = hasMore
+                };
 
                 result.SetSearchAfterToken();
                 if (result.HasMore)
@@ -578,7 +579,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             search ??= new SearchDescriptor<T>();
 
             query = ConfigureQuery(query.As<T>()).Unwrap();
-            var indices = ElasticIndex.GetIndexesByQuery(query);
+            string[] indices = ElasticIndex.GetIndexesByQuery(query);
             if (indices?.Length > 0)
                 search.Index(String.Join(",", indices));
             if (HasVersion)
@@ -625,7 +626,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             // if using immediate consistency, force a refresh before query
             if (options.GetConsistency() == Consistency.Immediate) {
-                var indices = ElasticIndex.GetIndexesByQuery(query);
+                string[] indices = ElasticIndex.GetIndexesByQuery(query);
                 return _client.Indices.RefreshAsync(indices);
             }
 
