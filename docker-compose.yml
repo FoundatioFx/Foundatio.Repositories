@@ -2,7 +2,7 @@ version: '3.5'
 
 services:
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.12.0
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.14.0
     environment:
       discovery.type: single-node
       xpack.security.enabled: 'false'
@@ -16,7 +16,7 @@ services:
   kibana:
     depends_on:
       - elasticsearch
-    image: docker.elastic.co/kibana/kibana:7.12.0
+    image: docker.elastic.co/kibana/kibana:7.14.0
     ports:
       - 5601:5601
     networks:
