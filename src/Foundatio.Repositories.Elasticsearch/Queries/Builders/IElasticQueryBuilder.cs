@@ -49,7 +49,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         RuntimeFieldResolver IElasticQueryVisitorContext.RuntimeFieldResolver { get; set; }
 
         GroupOperator IQueryVisitorContext.DefaultOperator { get; set; }
-        Lazy<string> IElasticQueryVisitorContext.DefaultTimeZone { get; set; }
+        Func<Task<string>> IElasticQueryVisitorContext.DefaultTimeZone { get; set; }
         bool IElasticQueryVisitorContext.UseScoring { get; set; }
         string[] IQueryVisitorContext.DefaultFields { get; set; }
         string IQueryVisitorContext.QueryType { get; set; }
@@ -74,7 +74,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public static class QueryBuilderContextExtensions {
-        public static void SetTimeZone(this IQueryBuilderContext context, Lazy<string> timeZone) {
+        public static void SetTimeZone(this IQueryBuilderContext context, Func<Task<string>> timeZone) {
             if (context is not IElasticQueryVisitorContext elasticContext)
                 throw new ArgumentException("Context must be of type IElasticQueryVisitorContext", nameof(context));
 
@@ -85,12 +85,15 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (context is not IElasticQueryVisitorContext elasticContext)
                 throw new ArgumentException("Context must be of type IElasticQueryVisitorContext", nameof(context));
 
-            elasticContext.DefaultTimeZone = new Lazy<string>(() => timeZone);
+            elasticContext.DefaultTimeZone = () => Task.FromResult(timeZone);
         }
 
-        public static string GetTimeZone(this IQueryBuilderContext context) {
+        public static Task<string> GetTimeZoneAsync(this IQueryBuilderContext context) {
             var elasticContext = context as IElasticQueryVisitorContext;
-            return elasticContext?.DefaultTimeZone?.Value;
+            if (elasticContext?.DefaultTimeZone != null)
+                return elasticContext?.DefaultTimeZone?.Invoke();
+
+            return Task.FromResult<string>(null);
         }
     }
 
