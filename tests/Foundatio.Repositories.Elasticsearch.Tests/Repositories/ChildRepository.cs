@@ -16,14 +16,14 @@
              GetParentIdFunc = d => d.ParentId;
          }
 
-         protected Task OnDocumentsChanging(object sender, DocumentsChangeEventArgs<Child> args) {
+         protected static Task OnDocumentsChanging(object sender, DocumentsChangeEventArgs<Child> args) {
              foreach (var doc in args.Documents.Select(d => d.Value).Cast<IParentChildDocument>())
                  doc.Discriminator = JoinField.Link<Child>(doc.ParentId);
              
              return Task.CompletedTask;
          }
 
-         protected Task OnBeforeQuery(object sender, BeforeQueryEventArgs<Child> args) {
+         protected static Task OnBeforeQuery(object sender, BeforeQueryEventArgs<Child> args) {
              args.Query.Discriminator("child");
              return Task.CompletedTask;
          }

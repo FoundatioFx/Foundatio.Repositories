@@ -9,12 +9,11 @@ namespace Foundatio.Repositories.JsonPatch {
         protected override JToken Replace(ReplaceOperation operation, JToken target) {
             var tokens = target.SelectPatchTokens(operation.Path).ToList();
             if (tokens.Count == 0) {
-                var parts = operation.Path.Split('/');
-                var parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
-                var propertyName = parts.LastOrDefault();
+                string[] parts = operation.Path.Split('/');
+                string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
+                string propertyName = parts.LastOrDefault();
 
-                var parent = target.SelectOrCreatePatchToken(parentPath) as JObject;
-                if (parent == null)
+                if (target.SelectOrCreatePatchToken(parentPath) is not JObject parent)
                     return target;
 
                 parent[propertyName] = operation.Value;
@@ -33,9 +32,9 @@ namespace Foundatio.Repositories.JsonPatch {
         }
 
         protected override void Add(AddOperation operation, JToken target) {
-            var parts = operation.Path.Split('/');
-            var parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
-            var propertyName = parts.LastOrDefault();
+            string[] parts = operation.Path.Split('/');
+            string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
+            string propertyName = parts.LastOrDefault();
 
             if (propertyName == "-") {
                 var array = target.SelectOrCreatePatchArrayToken(parentPath) as JArray;
@@ -104,13 +103,13 @@ namespace Foundatio.Repositories.JsonPatch {
             if (result != null)
                 return result;
 
-            var parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+            string[] parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Any(p => p.IsNumeric()))
                 return null;
 
             JToken current = token;
             for (int i = 0; i < parts.Length; i++) {
-                var part = parts[i];
+                string part = parts[i];
                 var partToken = current.SelectPatchToken(part);
                 if (partToken == null) {
                     if (current is JObject partObject)
@@ -128,17 +127,17 @@ namespace Foundatio.Repositories.JsonPatch {
             if (result != null)
                 return result;
 
-            var parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+            string[] parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Any(p => p.IsNumeric()))
                 return null;
 
             JToken current = token;
             for (int i = 0; i < parts.Length; i++) {
-                var part = parts[i];
+                string part = parts[i];
                 var partToken = current.SelectPatchToken(part);
                 if (partToken == null) {
                     if (current is JObject partObject) {
-                        var isLastPart = i == parts.Length - 1;
+                        bool isLastPart = i == parts.Length - 1;
                         current = partObject[part] = isLastPart ? new JArray() : new JObject();
                     }
                 } else {

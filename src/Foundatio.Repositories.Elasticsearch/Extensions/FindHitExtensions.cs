@@ -14,10 +14,10 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         }
 
         public static object[] GetSorts<T>(this FindHit<T> hit) {
-            if (hit == null || !hit.Data.TryGetValue(ElasticDataKeys.Sorts, out var sorts))
+            if (hit == null || !hit.Data.TryGetValue(ElasticDataKeys.Sorts, out object sorts))
                 return new object[0];
 
-            var sortsArray = sorts as object[];
+            object[] sortsArray = sorts as object[];
             return sortsArray;
         }
 
@@ -54,7 +54,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         }
 
         public static string GetSortToken<T>(this FindHit<T> hit) {
-            var sorts = hit?.GetSorts();
+            object[] sorts = hit?.GetSorts();
             if (sorts == null || sorts.Length == 0)
                 return null;
 

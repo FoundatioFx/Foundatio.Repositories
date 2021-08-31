@@ -75,16 +75,16 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
 
         private FieldType GetFieldType(ElasticRuntimeFieldType fieldType) {
-            switch (fieldType) {
-                case ElasticRuntimeFieldType.Boolean: return FieldType.Boolean;
-                case ElasticRuntimeFieldType.Date: return FieldType.Date;
-                case ElasticRuntimeFieldType.Double: return FieldType.Double;
-                case ElasticRuntimeFieldType.GeoPoint: return FieldType.GeoPoint;
-                case ElasticRuntimeFieldType.Ip: return FieldType.Ip;
-                case ElasticRuntimeFieldType.Keyword: return FieldType.Keyword;
-                case ElasticRuntimeFieldType.Long: return FieldType.Long;
-                default: return FieldType.Keyword;
-            }
+            return fieldType switch {
+                ElasticRuntimeFieldType.Boolean => FieldType.Boolean,
+                ElasticRuntimeFieldType.Date => FieldType.Date,
+                ElasticRuntimeFieldType.Double => FieldType.Double,
+                ElasticRuntimeFieldType.GeoPoint => FieldType.GeoPoint,
+                ElasticRuntimeFieldType.Ip => FieldType.Ip,
+                ElasticRuntimeFieldType.Keyword => FieldType.Keyword,
+                ElasticRuntimeFieldType.Long => FieldType.Long,
+                _ => FieldType.Keyword,
+            };
         }
     }
 }

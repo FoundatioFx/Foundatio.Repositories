@@ -74,7 +74,7 @@ namespace Foundatio.Repositories.Models {
     }
 
     public class CountResult : IHaveData {
-        public static readonly CountResult Empty = new CountResult();
+        public static readonly CountResult Empty = new();
         private AggregationsHelper _agg;
 
         public CountResult(long total = 0, IDictionary<string, IAggregate> aggregations = null, IDictionary<string, object> data = null) {
@@ -100,7 +100,7 @@ namespace Foundatio.Repositories.Models {
     }
 
     public class FindHit<T> : IHaveData {
-        public static readonly FindHit<T> Empty = new FindHit<T>(null, default, 0);
+        public static readonly FindHit<T> Empty = new(null, default, 0);
 
         public FindHit(string id, T document, double score, string version = null, string routing = null, IDictionary<string, object> data = null) {
             Id = id;

@@ -26,7 +26,7 @@ namespace Foundatio.Repositories.Options {
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries {
     public class EmailAddressQueryBuilder : IElasticQueryBuilder {
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
-            var emailAddress = ctx.Source.GetEmailAddress();
+            string emailAddress = ctx.Source.GetEmailAddress();
             if (String.IsNullOrEmpty(emailAddress))
                 return Task.CompletedTask;
 

@@ -6,7 +6,7 @@ using System.Linq;
 namespace Foundatio.Repositories {
     public struct Id : IEquatable<Id> {
 
-        public static readonly Id Null = new Id();
+        public static readonly Id Null = new();
 
         public Id(string id, string routing = null) {
             Value = id;
@@ -16,7 +16,7 @@ namespace Foundatio.Repositories {
         public string Value { get; }
         public string Routing { get; }
 
-        public static implicit operator Id(string id) => new Id(id);
+        public static implicit operator Id(string id) => new(id);
         public static implicit operator string(Id id) => id.ToString();
 
         public override string ToString() {
@@ -54,7 +54,7 @@ namespace Foundatio.Repositories {
     }
 
     public class Ids : List<Id> {
-        public static readonly Ids Empty = new Ids();
+        public static readonly Ids Empty = new();
 
         public Ids() { }
 

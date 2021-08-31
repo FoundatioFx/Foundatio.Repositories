@@ -70,6 +70,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
         }
 
         private async Task<ElasticRuntimeField> ResolveRuntimeFieldAsync(string name) {
+            await Task.Delay(100);
+
             if (name.Equals("unmappedEmailAddress", StringComparison.OrdinalIgnoreCase))
                 return new ElasticRuntimeField { Name = "unmappedEmailAddress" };
             

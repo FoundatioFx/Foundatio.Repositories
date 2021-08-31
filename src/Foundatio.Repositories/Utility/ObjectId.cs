@@ -9,11 +9,10 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Utility {
     public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertible {
-        private static readonly ObjectId __emptyInstance = default(ObjectId);
         private static readonly int __staticMachine;
         private static readonly short __staticPid;
         private static int __staticIncrement;
-        private static DateTime __unixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        private static readonly DateTime __unixEpoch = new(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         private readonly int _timestamp;
         private readonly int _machine;
@@ -68,7 +67,7 @@ namespace Foundatio.Repositories.Utility {
             Unpack(Utils.ParseHexString(value), out _timestamp, out _machine, out _pid, out _increment);
         }
 
-        public static ObjectId Empty => __emptyInstance;
+        public static ObjectId Empty { get; } = default;
 
         public int Timestamp => _timestamp;
 
@@ -145,25 +144,23 @@ namespace Foundatio.Repositories.Utility {
             if (s == null) {
                 throw new ArgumentNullException(nameof(s));
             }
-            ObjectId objectId;
-            if (TryParse(s, out objectId)) {
+            if (TryParse(s, out var objectId)) {
                 return objectId;
             } else {
-                var message = $"'{s}' is not a valid 24 digit hex string.";
+                string message = $"'{s}' is not a valid 24 digit hex string.";
                 throw new FormatException(message);
             }
         }
 
         public static bool TryParse(string s, out ObjectId objectId) {
             if (s != null && s.Length == 24) {
-                byte[] bytes;
-                if (Utils.TryParseHexString(s, out bytes)) {
+                if (Utils.TryParseHexString(s, out byte[] bytes)) {
                     objectId = new ObjectId(bytes);
                     return true;
                 }
             }
 
-            objectId = default(ObjectId);
+            objectId = default;
             return false;
         }
 
@@ -186,13 +183,13 @@ namespace Foundatio.Repositories.Utility {
         }
 
         private static int GetMachineHash() {
-            var hostName = Environment.MachineName;
+            string hostName = Environment.MachineName;
             return 0x00ffffff & hostName.GetHashCode();
         }
 
         private static int GetTimestampFromDateTime(DateTime timestamp) {
-            var secondsSinceEpoch = (long)Math.Floor((Utils.ToUniversalTime(timestamp) - __unixEpoch).TotalSeconds);
-            if (secondsSinceEpoch < int.MinValue || secondsSinceEpoch > int.MaxValue) {
+            long secondsSinceEpoch = (long)Math.Floor((Utils.ToUniversalTime(timestamp) - __unixEpoch).TotalSeconds);
+            if (secondsSinceEpoch < Int32.MinValue || secondsSinceEpoch > Int32.MaxValue) {
                 throw new ArgumentOutOfRangeException(nameof(timestamp));
             }
             return (int)secondsSinceEpoch;
@@ -219,8 +216,8 @@ namespace Foundatio.Repositories.Utility {
         }
 
         public override bool Equals(object obj) {
-            if (obj is ObjectId) {
-                return Equals((ObjectId)obj);
+            if (obj is ObjectId id) {
+                return Equals(id);
             } else {
                 return false;
             }
@@ -366,7 +363,7 @@ namespace Foundatio.Repositories.Utility {
                     throw new ArgumentNullException(nameof(bytes));
                 }
                 var sb = new StringBuilder(bytes.Length * 2);
-                foreach (var b in bytes) {
+                foreach (byte b in bytes) {
                     sb.AppendFormat("{0:x2}", b);
                 }
                 return sb.ToString();

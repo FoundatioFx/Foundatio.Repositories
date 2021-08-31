@@ -44,7 +44,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration 
             return new StaticConnectionPool(servers);
         }
 
-        private bool IsPortOpen(int port) {
+        private static bool IsPortOpen(int port) {
             var ipGlobalProperties = IPGlobalProperties.GetIPGlobalProperties();
             var tcpConnInfoArray = ipGlobalProperties.GetActiveTcpListeners();
 

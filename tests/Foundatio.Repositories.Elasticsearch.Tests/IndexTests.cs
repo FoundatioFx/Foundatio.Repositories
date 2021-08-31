@@ -134,7 +134,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(2, alias.Indices.Count);
 
             var indexes = await _client.GetIndicesPointingToAliasAsync(_configuration.DailyLogEvents.Name);
-            Assert.Equal(2, indexes.Count());
+            Assert.Equal(2, indexes.Count);
 
             await repository.RemoveAllAsync(o => o.ImmediateConsistency());
 
@@ -505,8 +505,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await index.ConfigureAsync();
             var todayDate = SystemClock.Now;
             var yesterdayDate = SystemClock.Now.SubtractDays(1);
-            var todayIndex = index.GetIndex(todayDate);
-            var yesterdayIndex = index.GetIndex(yesterdayDate);
+            string todayIndex = index.GetIndex(todayDate);
+            string yesterdayIndex = index.GetIndex(yesterdayDate);
 
             await index.EnsureIndexAsync(todayDate);
             await index.EnsureIndexAsync(yesterdayDate);
@@ -792,7 +792,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             }
         }
 
-        private string GetExpectedEmployeeDailyAliases(IIndex index, DateTime utcNow, DateTime indexDateUtc) {
+        private static string GetExpectedEmployeeDailyAliases(IIndex index, DateTime utcNow, DateTime indexDateUtc) {
             double totalDays = utcNow.Date.Subtract(indexDateUtc.Date).TotalDays;
             var aliases = new List<string> { index.Name, index.GetIndex(indexDateUtc) };
             if (totalDays <= 30)
@@ -806,7 +806,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             return String.Join(", ", aliases);
         }
 
-        private string GetExpectedEmployeeMonthlyAliases(IIndex index, DateTime utcNow, DateTime indexDateUtc) {
+        private static string GetExpectedEmployeeMonthlyAliases(IIndex index, DateTime utcNow, DateTime indexDateUtc) {
             var aliases = new List<string> { index.Name, index.GetIndex(indexDateUtc) };
             if (new DateTimeRange(utcNow.SubtractDays(1).StartOfMonth(), utcNow.EndOfMonth()).Contains(indexDateUtc))
                 aliases.Add($"{index.Name}-today");

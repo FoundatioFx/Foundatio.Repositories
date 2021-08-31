@@ -304,6 +304,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact(Skip = "Need to fix it, its flakey")]
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "xUnit1004:Test methods should not be skipped", Justification = "<Pending>")]
         public async Task GetDateOffsetAggregationsWithOffsetsAsync() {
             var today = SystemClock.OffsetNow.Floor(TimeSpan.FromMilliseconds(1));
             await _employeeRepository.AddAsync(new List<Employee> {
@@ -331,7 +332,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             }
         }
 
-        private void AssertEqual(DateTime expected, DateTime? actual) {
+        private static void AssertEqual(DateTime expected, DateTime? actual) {
             Assert.NotNull(actual);
             Assert.Equal(expected, actual);
             Assert.Equal(expected.Kind, actual.Value.Kind);
@@ -363,7 +364,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(10, result.Aggregations.Terms<int>("terms_age").Buckets.Count);
             Assert.Equal(1, result.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19).Total);
 
-            var json = JsonConvert.SerializeObject(result);
+            string json = JsonConvert.SerializeObject(result);
             var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
             Assert.Equal(10, roundTripped.Total);
             Assert.Equal(1, roundTripped.Aggregations.Count);
@@ -381,7 +382,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             json = JsonConvert.SerializeObject(result, Formatting.Indented);
             roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
-            var roundTrippedJson = JsonConvert.SerializeObject(roundTripped, Formatting.Indented);
+            string roundTrippedJson = JsonConvert.SerializeObject(roundTripped, Formatting.Indented);
             Assert.Equal(json, roundTrippedJson);
             Assert.Equal(10, roundTripped.Total);
             Assert.Equal(1, roundTripped.Aggregations.Count);
@@ -414,8 +415,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                 Assert.Equal(1, bucket.Total);
                 oldestDate = oldestDate.AddDays(1);
             }
-            
-            var json = JsonConvert.SerializeObject(result);
+
+            string json = JsonConvert.SerializeObject(result);
             var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
             
             dateHistogramAgg = roundTripped.Aggregations.DateHistogram("date_nextReview");
@@ -444,8 +445,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             var dateTermsAgg = result.Aggregations.Min<DateTime>("min_nextReview");
             Assert.Equal(utcToday.SubtractDays(2), dateTermsAgg.Value);
-            
-            var json = JsonConvert.SerializeObject(result);
+
+            string json = JsonConvert.SerializeObject(result);
             var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
             
             dateTermsAgg = roundTripped.Aggregations.Min<DateTime>("min_nextReview");
@@ -471,7 +472,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(19, employees.First().Age);
             Assert.Equal(1, employees.First().YearsEmployed);
 
-            var json = JsonConvert.SerializeObject(result);
+            string json = JsonConvert.SerializeObject(result);
             var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
             Assert.Equal(10, roundTripped.Total);
             Assert.Equal(1, roundTripped.Aggregations.Count);
