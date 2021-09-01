@@ -97,6 +97,10 @@ namespace Foundatio.Repositories.Models {
         public static implicit operator int(CountResult result) {
             return (int)result.Total;
         }
+
+        public override string ToString() {
+            return Total.ToString();
+        }
     }
 
     public class FindHit<T> : IHaveData {
