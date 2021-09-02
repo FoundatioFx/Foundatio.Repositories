@@ -91,7 +91,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         public static Task<string> GetTimeZoneAsync(this IQueryBuilderContext context) {
             var elasticContext = context as IElasticQueryVisitorContext;
             if (elasticContext?.DefaultTimeZone != null)
-                return elasticContext?.DefaultTimeZone?.Invoke();
+                return elasticContext.DefaultTimeZone.Invoke();
 
             return Task.FromResult<string>(null);
         }
