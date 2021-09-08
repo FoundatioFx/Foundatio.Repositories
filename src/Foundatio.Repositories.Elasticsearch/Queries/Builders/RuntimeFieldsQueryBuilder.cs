@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Foundatio.Parsers;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Repositories.Options;
+using Foundatio.Repositories.Queries;
 using Nest;
 
 namespace Foundatio.Repositories {
@@ -20,22 +21,38 @@ namespace Foundatio.Repositories {
         public static T RuntimeField<T>(this T query, IEnumerable<ElasticRuntimeField> fields) where T : IRepositoryQuery {
             return query.AddCollectionOptionValue(RuntimeFieldsKey, fields);
         }
+    }
+
+    public static class RuntimeFieldsOptionsExtensions {
+        internal const string EnableRuntimeFieldResolverKey = "@EnableRuntimeFieldResolver";
+
+        public static T EnableRuntimeFieldResolver<T>(this T options, bool enabled = true) where T : ICommandOptions {
+            return options.BuildOption(EnableRuntimeFieldResolverKey, enabled);
+        }
 
         internal const string RuntimeFieldResolverKey = "@RuntimeFieldResolver";
-        public static T RuntimeFieldResolver<T>(this T query, RuntimeFieldResolver fieldResolver) where T : IRepositoryQuery {
-            return query.BuildOption(RuntimeFieldResolverKey, fieldResolver);
+        public static T RuntimeFieldResolver<T>(this T options, RuntimeFieldResolver fieldResolver) where T : ICommandOptions {
+            return options.BuildOption(RuntimeFieldResolverKey, fieldResolver).BuildOption(EnableRuntimeFieldResolverKey, true);
+        }
+    }
+}
+
+namespace Foundatio.Repositories.Queries {
+    public static class ReadRuntimeFieldsQueryExtensions {
+        public static ICollection<ElasticRuntimeField> GetRuntimeFields(this IRepositoryQuery options) {
+            return options.SafeGetCollection<ElasticRuntimeField>(RuntimeFieldsQueryExtensions.RuntimeFieldsKey);
         }
     }
 }
 
 namespace Foundatio.Repositories.Options {
-    public static class ReadRuntimeFieldsQueryExtensions {
-        public static ICollection<ElasticRuntimeField> GetRuntimeFields(this IRepositoryQuery options) {
-            return options.SafeGetCollection<ElasticRuntimeField>(RuntimeFieldsQueryExtensions.RuntimeFieldsKey);
+    public static class ReadRuntimeFieldsOptionsExtensions {
+        public static bool? IsRuntimeFieldResolvingEnabled(this ICommandOptions options) {
+            return options.SafeGetOption<bool?>(RuntimeFieldsOptionsExtensions.EnableRuntimeFieldResolverKey);
         }
 
-        public static RuntimeFieldResolver GetRuntimeFieldResolver(this IRepositoryQuery options) {
-            return options.SafeGetOption<RuntimeFieldResolver>(RuntimeFieldsQueryExtensions.RuntimeFieldResolverKey);
+        public static RuntimeFieldResolver GetRuntimeFieldResolver(this ICommandOptions options) {
+            return options.SafeGetOption<RuntimeFieldResolver>(RuntimeFieldsOptionsExtensions.RuntimeFieldResolverKey);
         }
     }
 }
@@ -49,7 +66,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             foreach (var field in ctx.Source.GetRuntimeFields())
                 elasticContext.RuntimeFields.Add(field);
 
-            var fieldResolver = ctx.Source.GetRuntimeFieldResolver();
+            var enabled = ctx.Options.IsRuntimeFieldResolvingEnabled();
+            if (enabled.HasValue)
+                elasticContext.EnableRuntimeFieldResolver = enabled;
+
+            var fieldResolver = ctx.Options.GetRuntimeFieldResolver();
             if (fieldResolver != null)
                 elasticContext.RuntimeFieldResolver = elasticContext.RuntimeFieldResolver != null ? f => fieldResolver(f) ?? elasticContext.RuntimeFieldResolver(f) : fieldResolver;
 

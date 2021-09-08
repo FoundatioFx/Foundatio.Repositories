@@ -46,6 +46,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         IncludeResolver IQueryVisitorContextWithIncludeResolver.IncludeResolver { get; set; }
         ElasticMappingResolver IElasticQueryVisitorContext.MappingResolver { get; set; }
         ICollection<ElasticRuntimeField> IElasticQueryVisitorContext.RuntimeFields { get; } = new List<ElasticRuntimeField>();
+        bool? IElasticQueryVisitorContext.EnableRuntimeFieldResolver { get; set; }
         RuntimeFieldResolver IElasticQueryVisitorContext.RuntimeFieldResolver { get; set; }
 
         GroupOperator IQueryVisitorContext.DefaultOperator { get; set; }

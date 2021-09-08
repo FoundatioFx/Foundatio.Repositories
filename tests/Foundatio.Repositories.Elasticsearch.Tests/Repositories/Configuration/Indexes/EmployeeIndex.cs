@@ -61,7 +61,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
 
         protected override void ConfigureQueryParser(ElasticQueryParserConfiguration config) {
             base.ConfigureQueryParser(config);
-            config.UseIncludes(ResolveIncludeAsync).UseRuntimeFieldResolver(ResolveRuntimeFieldAsync);
+            config.UseIncludes(ResolveIncludeAsync).UseOptInRuntimeFieldResolver(ResolveRuntimeFieldAsync);
         }
 
         private async Task<string> ResolveIncludeAsync(string name) {

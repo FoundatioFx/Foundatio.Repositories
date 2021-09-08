@@ -21,6 +21,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
         public string Id { get; set; }
         public string CompanyId { get; set; }
         public string CompanyName { get; set; }
+        public string UnmappedCompanyName => CompanyName;
         public string Name { get; set; }
         public string EmailAddress { get; set; }
         public string UnmappedEmailAddress => EmailAddress;

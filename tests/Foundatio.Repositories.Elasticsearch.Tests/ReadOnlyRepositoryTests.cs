@@ -631,10 +631,44 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedage:>20").RuntimeField("unmappedAge", ElasticRuntimeFieldType.Long));
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
+        }
 
-            results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedemailaddress:" + employee1.EmailAddress));
+        [Fact]
+        public async Task FindWithResolvedRuntimeFieldsAsync() {
+            Log.MinimumLevel = LogLevel.Trace;
+
+            var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+            Assert.NotNull(employee1?.Id);
+
+            var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake", age: 3), o => o.ImmediateConsistency());
+            Assert.NotNull(employee2?.Id);
+
+            var results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedcompanyname:" + employee1.CompanyName), o => o.RuntimeFieldResolver(f => String.Equals(f, "unmappedCompanyName", StringComparison.OrdinalIgnoreCase) ? Task.FromResult(new ElasticRuntimeField { Name = "unmappedCompanyName", FieldType = ElasticRuntimeFieldType.Keyword }) : Task.FromResult<ElasticRuntimeField>(null)));
             Assert.NotNull(results);
             Assert.Equal(1, results.Documents.Count);
+        }
+
+        [Fact]
+        public async Task CanUseOptInRuntimeFieldResolving() {
+            Log.MinimumLevel = LogLevel.Trace;
+
+            var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+            Assert.NotNull(employee1?.Id);
+
+            var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake", age: 3), o => o.ImmediateConsistency());
+            Assert.NotNull(employee2?.Id);
+
+            var results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedemailaddress:" + employee1.UnmappedEmailAddress));
+            Assert.NotNull(results);
+            Assert.Equal(0, results.Documents.Count);
+
+            results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedemailaddress:" + employee1.UnmappedEmailAddress), o => o.EnableRuntimeFieldResolver());
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+
+            results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedemailaddress:" + employee1.UnmappedEmailAddress), o => o.EnableRuntimeFieldResolver(false));
+            Assert.NotNull(results);
+            Assert.Equal(0, results.Documents.Count);
         }
 
         [Fact]
