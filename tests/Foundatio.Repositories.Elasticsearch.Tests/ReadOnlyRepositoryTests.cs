@@ -619,6 +619,30 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task GetAllWithAsyncSearchAsync() {
+            var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
+            Assert.NotNull(identity1?.Id);
+
+            var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
+            Assert.NotNull(identity2?.Id);
+
+            var results = await _identityRepository.GetAllAsync(o => o.AsyncResults());
+            Assert.NotNull(results);
+            Assert.Equal(2, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(identity1.Id, results.Documents.First().Id);
+            Assert.Equal(2, results.Total);
+
+            string asyncSearchId = results.GetAsyncSearchId();
+            Assert.Null(asyncSearchId);
+            Assert.False(results.GetIsPending());
+            Assert.False(results.GetIsRunning());
+
+            //results = await _identityRepository.GetAllAsync(o => o.AsyncSearchId(results.GetAsyncSearchId()));
+        }
+
+        [Fact]
         public async Task FindWithRuntimeFieldsAsync() {
             Log.MinimumLevel = LogLevel.Trace;
 

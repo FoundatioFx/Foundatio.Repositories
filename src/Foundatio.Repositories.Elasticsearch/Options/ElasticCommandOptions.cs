@@ -43,6 +43,17 @@ namespace Foundatio.Repositories {
 
             return options;
         }
+
+        internal const string AsyncResultsKey = "@AsyncResults";
+        internal const string AsyncSearchIdKey = "@AsyncSearchId";
+
+        public static T AsyncResults<T>(this T options, bool asyncResults = true) where T : ICommandOptions {
+            return options.BuildOption(AsyncResultsKey, asyncResults);
+        }
+
+        public static T AsyncSearchId<T>(this T options, string id) where T : ICommandOptions {
+            return options.BuildOption(AsyncSearchIdKey, id);
+        }
     }
 }
 
@@ -138,6 +149,18 @@ namespace Foundatio.Repositories.Options {
 
         public static Refresh GetRefreshMode(this ICommandOptions options, Consistency defaultMode = Consistency.Eventual) {
             return ToRefresh(options.GetConsistency(defaultMode));
+        }
+
+        public static bool ShouldUseAsyncResults(this ICommandOptions options) {
+            return options.SafeGetOption<bool>(SetElasticOptionsExtensions.AsyncResultsKey, false);
+        }
+
+        public static bool HasAsyncSearchId(this ICommandOptions options) {
+            return options.SafeHasOption(SetElasticOptionsExtensions.AsyncSearchIdKey);
+        }
+
+        public static string GetAsyncSearchId(this ICommandOptions options) {
+            return options.SafeGetOption<string>(SetElasticOptionsExtensions.AsyncSearchIdKey, null);
         }
 
         private static Refresh ToRefresh(Consistency mode) {

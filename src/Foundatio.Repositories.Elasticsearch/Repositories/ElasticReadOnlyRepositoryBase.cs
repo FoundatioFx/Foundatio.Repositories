@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Elasticsearch.Net;
 using Foundatio.Caching;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories;
@@ -280,50 +281,26 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             await RefreshForConsistency(query, options).AnyContext();
 
-            async Task<FindResults<TResult>> GetNextPageFunc(FindResults<TResult> r) {
-                var previousResults = r;
-                if (previousResults == null)
-                    throw new ArgumentException(nameof(r));
-
-                string scrollId = previousResults.GetScrollId();
-                if (!String.IsNullOrEmpty(scrollId)) {
-                    var scrollResponse = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), scrollId).AnyContext();
-                    _logger.LogRequest(scrollResponse, options.GetQueryLogLevel());
-
-                    var results = scrollResponse.ToFindResults();
-                    results.Page = previousResults.Page + 1;
-                    results.HasMore = scrollResponse.Hits.Count >= options.GetLimit() || scrollResponse.Hits.Count >= options.GetMaxLimit();
-                    
-                    // clear the scroll
-                    if (!results.HasMore)
-                        await _client.ClearScrollAsync(s => s.ScrollId(scrollId));
-                    
-                    return results;
-                }
-
-                if (options.ShouldUseSearchAfterPaging())
-                    options.SearchAfterToken(previousResults.GetSearchAfterToken());
-
-                if (options == null)
-                    return new FindResults<TResult>();
-
-                options?.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
-                return await FindAsAsync<TResult>(query, options).AnyContext();
-            }
-
             string cacheSuffix = options?.HasPageLimit() == true ? String.Concat(options.GetPage().ToString(), ":", options.GetLimit().ToString()) : null;
 
             FindResults<TResult> result;
             if (allowCaching) {
                 result = await GetCachedQueryResultAsync<FindResults<TResult>>(options, cacheSuffix: cacheSuffix).AnyContext();
                 if (result != null) {
-                    ((IGetNextPage<TResult>)result).GetNextPageFunc = async r => await GetNextPageFunc(r).AnyContext();
+                    ((IFindResults<TResult>)result).GetNextPageFunc = async previousResults => await GetNextPageFunc(previousResults, query, options).AnyContext();
                     return result;
                 }
             }
 
-            ISearchResponse<TResult> response;
-            if (useSnapshotPaging == false || !options.HasSnapshotScrollId()) {
+            if (options.HasAsyncSearchId()) {
+                var response = await _client.AsyncSearch.GetAsync<TResult>(options.GetAsyncSearchId()).AnyContext();
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+                result = response.ToFindResults(options);
+            } else if (options.HasSnapshotScrollId()) {
+                var response = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), options.GetSnapshotScrollId()).AnyContext();
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+                result = response.ToFindResults(options);
+            } else {
                 var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
                 if (useSnapshotPaging)
                     searchDescriptor.Scroll(options.GetSnapshotLifetime());
@@ -331,68 +308,60 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (query.ShouldOnlyHaveIds())
                     searchDescriptor.Source(false);
 
-                response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
-            } else {
-                response = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), options.GetSnapshotScrollId()).AnyContext();
-            }
-
-            if (response.IsValid) {
-                _logger.LogRequest(response, options.GetQueryLogLevel());
-            } else {
-                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
-                    return new FindResults<TResult>();
-
-                throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException);
-            }
-
-            if (useSnapshotPaging) {
-                result = response.ToFindResults();
-                result.HasMore = response.Hits.Count >= options.GetLimit();
-                
-                // clear the scroll
-                if (!result.HasMore) {
-                    string scrollId = result.GetScrollId();
-                    if (!String.IsNullOrEmpty(scrollId))
-                        await _client.ClearScrollAsync(s => s.ScrollId(result.GetScrollId()));
+                if (options.ShouldUseAsyncResults()) {
+                    var asyncSearchDescriptor = searchDescriptor.ToAsyncSearchSubmitDescriptor();
+                    var response = await _client.AsyncSearch.SubmitAsync<TResult>(asyncSearchDescriptor).AnyContext();
+                    _logger.LogRequest(response, options.GetQueryLogLevel());
+                    result = response.ToFindResults(options);
+                } else {
+                    var response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
+                    _logger.LogRequest(response, options.GetQueryLogLevel());
+                    result = response.ToFindResults(options);
                 }
-                
-                ((IGetNextPage<TResult>)result).GetNextPageFunc = GetNextPageFunc;
-            } else {
-                int limit = options.GetLimit();
-                result = response.ToFindResults(limit);
-                result.HasMore = response.Hits.Count > limit || response.Hits.Count >= options.GetMaxLimit();
-                ((IGetNextPage<TResult>)result).GetNextPageFunc = GetNextPageFunc;
             }
 
-            if (options.HasSearchAfter()) {
-                result.SetSearchBeforeToken();
-                if (result.HasMore)
-                    result.SetSearchAfterToken();
-            } else if (options.HasSearchBefore()) {
-                // reverse results
-                bool hasMore = result.HasMore;
-                result = new FindResults<TResult>(result.Hits.Reverse(), result.Total, result.Aggregations.ToDictionary(k => k.Key, v => v.Value), GetNextPageFunc, result.Data.ToDictionary(k => k.Key, v => v.Value)) {
-                    HasMore = hasMore
-                };
-
-                result.SetSearchAfterToken();
-                if (result.HasMore)
-                    result.SetSearchBeforeToken();
-            } else if (result.HasMore) {
-                result.SetSearchAfterToken();
+            if (useSnapshotPaging && !result.HasMore) {
+                // clear the scroll
+                string scrollId = result.GetScrollId();
+                if (!String.IsNullOrEmpty(scrollId))
+                    await _client.ClearScrollAsync(s => s.ScrollId(result.GetScrollId()));
             }
 
-            result.Page = options.GetPage();
-
-            if (!allowCaching)
-                return result;
-
-            var nextPageFunc = ((IGetNextPage<TResult>)result).GetNextPageFunc;
-            ((IGetNextPage<TResult>)result).GetNextPageFunc = null;
-            await SetCachedQueryResultAsync(options, result, cacheSuffix: cacheSuffix).AnyContext();
-            ((IGetNextPage<TResult>)result).GetNextPageFunc = nextPageFunc;
+            if (allowCaching)
+                await SetCachedQueryResultAsync(options, result, cacheSuffix: cacheSuffix).AnyContext();
+            
+            ((IFindResults<TResult>)result).GetNextPageFunc = previousResults => GetNextPageFunc(previousResults, query, options);
 
             return result;
+        }
+
+        private async Task<FindResults<TResult>> GetNextPageFunc<TResult>(FindResults<TResult> previousResults, IRepositoryQuery query, ICommandOptions options) where TResult : class, new() {
+            if (previousResults == null)
+                throw new ArgumentException(nameof(previousResults));
+
+            string scrollId = previousResults.GetScrollId();
+            if (!String.IsNullOrEmpty(scrollId)) {
+                var scrollResponse = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), scrollId).AnyContext();
+                _logger.LogRequest(scrollResponse, options.GetQueryLogLevel());
+
+                var results = scrollResponse.ToFindResults(options);
+                ((IFindResults<T>)results).Page = previousResults.Page + 1;
+
+                // clear the scroll
+                if (!results.HasMore)
+                    await _client.ClearScrollAsync(s => s.ScrollId(scrollId));
+
+                return results;
+            }
+
+            if (options.ShouldUseSearchAfterPaging())
+                options.SearchAfterToken(previousResults.GetSearchAfterToken());
+
+            if (options == null)
+                return new FindResults<TResult>();
+
+            options?.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
+            return await FindAsAsync<TResult>(query, options).AnyContext();
         }
 
         public Task<FindHit<T>> FindOneAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) {
@@ -412,7 +381,8 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             await RefreshForConsistency(query, options).AnyContext();
 
-            var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(1);
+            var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
+            searchDescriptor.Size(1);
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
 
             if (response.IsValid) {
@@ -494,7 +464,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new DocumentException(response.GetErrorMessage("Error checking if document exists"), response.OriginalException);
             }
 
-            return response.HitsMetadata.Total.Value > 0;
+            return response.Total > 0;
         }
 
         public virtual Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, ICommandOptions options = null) {
@@ -790,6 +760,40 @@ namespace Foundatio.Repositories.Elasticsearch {
 
         protected Task AddDocumentsToCacheWithKeyAsync(string cacheKey, FindHit<T> findHit, TimeSpan expiresIn) {
             return Cache.SetAsync<ICollection<FindHit<T>>>(cacheKey, new[] { findHit }, expiresIn);
+        }
+    }
+
+    internal class SearchResponse<TDocument> : IResponse, IElasticsearchResponse where TDocument : class {
+        public IApiCallDetails ApiCall { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+
+        public string DebugInformation => throw new NotImplementedException();
+
+        public bool IsValid => throw new NotImplementedException();
+
+        public Exception OriginalException => throw new NotImplementedException();
+
+        public ServerError ServerError => throw new NotImplementedException();
+
+        AggregateDictionary Aggregations { get; }
+        bool TimedOut { get; }
+        bool TerminatedEarly { get; }
+        ISuggestDictionary<TDocument> Suggest { get; }
+        ShardStatistics Shards { get; }
+        string ScrollId { get; }
+        Profile Profile { get; }
+        long Took { get; }
+        string PointInTimeId { get; }
+        double MaxScore { get; }
+        IHitsMetadata<TDocument> HitsMetadata { get; }
+        IReadOnlyCollection<IHit<TDocument>> Hits { get; }
+        IReadOnlyCollection<FieldValues> Fields { get; }
+        IReadOnlyCollection<TDocument> Documents { get; }
+        ClusterStatistics Clusters { get; }
+        long NumberOfReducePhases { get; }
+        long Total { get; }
+
+        public bool TryGetServerErrorReason(out string reason) {
+            throw new NotImplementedException();
         }
     }
 }
