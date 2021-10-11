@@ -72,8 +72,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return null;
 
             options = ConfigureOptions(options.As<T>());
-            if (IsCacheEnabled && options.HasCacheKey())
-                throw new ArgumentException("Cache key can't be set when calling GetById");
+
+            // we don't have the parent id so we have to do a query
+            if (HasParent && id.Routing == null) {
+                var result = await FindOneAsync(NewQuery().Id(id), options).AnyContext();
+                return result?.Document;
+            }
 
             if (IsCacheEnabled && options.ShouldReadCache()) {
                 var value = await GetCachedFindHit(id).AnyContext();
@@ -85,24 +89,17 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
             }
 
-            FindHit<T> findHit;
-            if (!HasParent || id.Routing != null) {
-                var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
-                if (id.Routing != null)
-                    request.Routing = id.Routing;
-                var response = await _client.GetAsync<T>(request).AnyContext();
-                _logger.LogRequest(response, options.GetQueryLogLevel());
+            var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
+            if (id.Routing != null)
+                request.Routing = id.Routing;
+            var response = await _client.GetAsync<T>(request).AnyContext();
+            _logger.LogRequest(response, options.GetQueryLogLevel());
 
-                findHit = response.Found ? response.ToFindHit() : null;
-            } else {
-                // we don't have the parent id so we have to do a query
-                // TODO: Ensure this find one query is not cached.
-                findHit = await FindOneAsync(NewQuery().Id(id), options.Clone().DefaultCacheKey(id)).AnyContext();
-            }
+            var findHit = response.Found ? response.ToFindHit() : null;
 
             if (IsCacheEnabled && options.ShouldUseCache())
-                await AddDocumentsToCacheAsync(findHit ?? new FindHit<T>(id, null, 0), options).AnyContext();
-
+                await AddDocumentsToCacheAsync(findHit ?? new FindHit<T>(id, null, 0), options, false).AnyContext();
+            
             return ShouldReturnDocument(findHit?.Document, options) ? findHit?.Document : null;
         }
 
@@ -119,8 +116,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new NotSupportedException("Model type must implement IIdentity.");
 
             options = ConfigureOptions(options.As<T>());
-            if (IsCacheEnabled && options.HasCacheKey())
-                throw new ArgumentException("Cache key can't be set when calling GetByIds");
 
             var hits = new List<FindHit<T>>();
             if (IsCacheEnabled && options.ShouldReadCache())
@@ -159,7 +154,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             }
 
             if (IsCacheEnabled && options.ShouldUseCache())
-                await AddDocumentsToCacheAsync(hits, options).AnyContext();
+                await AddDocumentsToCacheAsync(hits, options, false).AnyContext();
 
             return hits.Where(h => h.Document != null && ShouldReturnDocument(h.Document, options)).Select(h => h.Document).ToList().AsReadOnly();
         }
@@ -397,7 +392,7 @@ namespace Foundatio.Repositories.Elasticsearch {
             result = response.Hits.Select(h => h.ToFindHit()).ToList();
 
             if (IsCacheEnabled && options.ShouldUseCache())
-                await AddDocumentsToCacheAsync(result, options).AnyContext();
+                await AddDocumentsToCacheAsync(result, options, options.GetConsistency(DefaultConsistency) == Consistency.Eventual).AnyContext();
 
             return result.FirstOrDefault();
         }
@@ -624,7 +619,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected async Task SetCachedQueryResultAsync<TResult>(ICommandOptions options, TResult result, string cachePrefix = null, string cacheSuffix = null) {
             if (!IsCacheEnabled || result == null || !options.ShouldUseCache())
                 return;
-
+            
             if (!options.HasCacheKey())
                 throw new ArgumentException("Cache key is required when enabling cache.", nameof(options));
 
@@ -713,24 +708,25 @@ namespace Foundatio.Repositories.Elasticsearch {
             return new FindHit<T>(idDocument?.Id, document, 0, version, routing);
         }
 
-        protected Task AddDocumentsToCacheAsync(T document, ICommandOptions options) {
-            return AddDocumentsToCacheAsync(new[] { document }, options);
+        protected Task AddDocumentsToCacheAsync(T document, ICommandOptions options, bool isDirtyRead) {
+            return AddDocumentsToCacheAsync(new[] { document }, options, isDirtyRead);
         }
 
-        protected Task AddDocumentsToCacheAsync(ICollection<T> documents, ICommandOptions options) {
-            return AddDocumentsToCacheAsync(documents.Select(ToFindHit).ToList(), options);
+        protected Task AddDocumentsToCacheAsync(ICollection<T> documents, ICommandOptions options, bool isDirtyRead) {
+            return AddDocumentsToCacheAsync(documents.Select(ToFindHit).ToList(), options, isDirtyRead);
         }
 
-        protected Task AddDocumentsToCacheAsync(FindHit<T> findHit, ICommandOptions options) {
-            return AddDocumentsToCacheAsync(new[] { findHit }, options);
+        protected Task AddDocumentsToCacheAsync(FindHit<T> findHit, ICommandOptions options, bool isDirtyRead) {
+            return AddDocumentsToCacheAsync(new[] { findHit }, options, isDirtyRead);
         }
 
-        protected virtual async Task AddDocumentsToCacheAsync(ICollection<FindHit<T>> findHits, ICommandOptions options) {
-            if (options.HasCacheKey()) {
-                // when caching by key, don't add documents by id as they may be out of sync due to eventual consistency
+        protected virtual async Task AddDocumentsToCacheAsync(ICollection<FindHit<T>> findHits, ICommandOptions options, bool isDirtyRead) {
+            if (options.HasCacheKey())
                 await Cache.SetAsync(options.GetCacheKey(), findHits, options.GetExpiresIn()).AnyContext();
+
+            // don't add dirty read documents by id as they may be out of sync due to eventual consistency
+            if (isDirtyRead)
                 return;
-            }
 
             var findHitsById = findHits
                 .Where(hit => hit?.Id != null)

@@ -64,8 +64,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 return;
 
             options = ConfigureOptions(options.As<T>());
-            if (IsCacheEnabled && options.HasCacheKey())
-                throw new ArgumentException("Cache key can't be set when calling AddAsync");
 
             await OnDocumentsAddingAsync(docs, options).AnyContext();
 
@@ -77,7 +75,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             await OnDocumentsAddedAsync(docs, options).AnyContext();
             if (IsCacheEnabled && options.ShouldUseCache())
-                await AddDocumentsToCacheAsync(docs, options).AnyContext();
+                await AddDocumentsToCacheAsync(docs, options, false).AnyContext();
         }
 
         protected virtual Task ValidateAndThrowAsync(T document) { return Task.CompletedTask; }
@@ -111,8 +109,6 @@ namespace Foundatio.Repositories.Elasticsearch {
                 throw new ArgumentException("Id must be set when calling Save.");
 
             options = ConfigureOptions(options.As<T>());
-            if (IsCacheEnabled && options.HasCacheKey())
-                throw new ArgumentException("Cache key can't be set when calling SaveAsync");
 
             var originalDocuments = await GetOriginalDocumentsAsync(ids, options).AnyContext();
             await OnDocumentsSavingAsync(docs, originalDocuments, options).AnyContext();
@@ -125,7 +121,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             await OnDocumentsSavedAsync(docs, originalDocuments, options).AnyContext();
             if (IsCacheEnabled && options.ShouldUseCache())
-                await AddDocumentsToCacheAsync(docs, options).AnyContext();
+                await AddDocumentsToCacheAsync(docs, options, false).AnyContext();
         }
 
         public Task PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options) {
