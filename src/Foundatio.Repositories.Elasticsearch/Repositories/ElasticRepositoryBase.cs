@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Elasticsearch.Net;
-using FluentValidation;
 using Nest;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Messaging;
@@ -24,12 +23,10 @@ using System.Linq.Expressions;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, ISearchableRepository<T> where T : class, IIdentity, new() {
-        protected readonly IValidator<T> _validator;
         protected readonly IMessagePublisher _messagePublisher;
         private readonly List<Lazy<Field>> _propertiesRequiredForRemove = new();
 
-        protected ElasticRepositoryBase(IIndex index, IValidator<T> validator = null) : base(index) {
-            _validator = validator;
+        protected ElasticRepositoryBase(IIndex index) : base(index) {
             _messagePublisher = index.Configuration.MessageBus;
             NotificationsEnabled = _messagePublisher != null;
 
@@ -72,9 +69,9 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             await OnDocumentsAddingAsync(docs, options).AnyContext();
 
-            if (_validator != null)
+            if (options.ShouldValidate())
                 foreach (var doc in docs)
-                    await _validator.ValidateAndThrowAsync(doc).AnyContext();
+                    await ValidateAndThrowAsync(doc).AnyContext();
 
             await IndexDocumentsAsync(docs, true, options).AnyContext();
 
@@ -82,6 +79,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (IsCacheEnabled && options.ShouldUseCache())
                 await AddDocumentsToCacheAsync(docs, options).AnyContext();
         }
+
+        protected virtual Task ValidateAndThrowAsync(T document) { return Task.CompletedTask; }
 
         public Task<T> SaveAsync(T document, CommandOptionsDescriptor<T> options) {
             return SaveAsync(document, options.Configure());
@@ -118,9 +117,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             var originalDocuments = await GetOriginalDocumentsAsync(ids, options).AnyContext();
             await OnDocumentsSavingAsync(docs, originalDocuments, options).AnyContext();
 
-            if (_validator != null)
+            if (options.ShouldValidate())
                 foreach (var doc in docs)
-                    await _validator.ValidateAndThrowAsync(doc).AnyContext();
+                    await ValidateAndThrowAsync(doc).AnyContext();
 
             await IndexDocumentsAsync(docs, false, options).AnyContext();
 
