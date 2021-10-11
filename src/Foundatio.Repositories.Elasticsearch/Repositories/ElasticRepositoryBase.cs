@@ -21,7 +21,6 @@ using Newtonsoft.Json.Linq;
 using Foundatio.Repositories.Options;
 using Microsoft.Extensions.Logging;
 using System.Linq.Expressions;
-using System.Threading;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, ISearchableRepository<T> where T : class, IIdentity, new() {
