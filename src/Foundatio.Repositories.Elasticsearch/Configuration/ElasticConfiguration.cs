@@ -23,7 +23,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
         protected readonly ILogger _logger;
         protected readonly ILockProvider _beginReindexLockProvider;
         protected readonly ILockProvider _lockProvider;
-        private readonly List<IIndex> _indexes = new List<IIndex>();
+        private readonly List<IIndex> _indexes = new();
         private readonly Lazy<IReadOnlyCollection<IIndex>> _frozenIndexes;
         private readonly Lazy<IElasticClient> _client;
         protected readonly bool _shouldDisposeCache;
@@ -104,7 +104,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
             if (_workItemQueue == null || _beginReindexLockProvider == null)
                 throw new InvalidOperationException("Must specify work item queue and lock provider in order to reindex.");
 
-            if (!(idx is IVersionedIndex versionedIndex))
+            if (idx is not IVersionedIndex versionedIndex)
                 return;
 
             int currentVersion = await versionedIndex.GetCurrentVersionAsync().AnyContext();

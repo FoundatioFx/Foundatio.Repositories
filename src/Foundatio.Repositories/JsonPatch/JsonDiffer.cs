@@ -42,8 +42,7 @@ namespace Foundatio.Repositories.JsonPatch {
             if (left.Type == JTokenType.Array) {
                 Operation prev = null;
                 foreach (var operation in ProcessArray(left, right, path, useIdToDetermineEquality)) {
-                    var add = operation as AddOperation;
-                    if (prev is RemoveOperation prevRemove && add != null && add.Path == prevRemove.Path) {
+                    if (prev is RemoveOperation prevRemove && operation is AddOperation add && add.Path == prevRemove.Path) {
                         yield return Replace(add.Path, "", add.Value);
                         prev = null;
                     } else {
@@ -147,7 +146,7 @@ namespace Foundatio.Repositories.JsonPatch {
         }
 
         private class MatchesKey : IEqualityComparer<KeyValuePair<string, JToken>> {
-            public static MatchesKey Instance = new MatchesKey();
+            public static MatchesKey Instance = new();
 
             public bool Equals(KeyValuePair<string, JToken> x, KeyValuePair<string, JToken> y) {
                 return x.Key.Equals(y.Key);

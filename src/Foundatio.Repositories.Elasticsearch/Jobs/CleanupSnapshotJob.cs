@@ -20,7 +20,6 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         protected readonly IElasticClient _client;
         protected readonly ILockProvider _lockProvider;
         protected readonly ILogger _logger;
-        private static readonly CultureInfo _enUS = new CultureInfo("en-US");
         private readonly ICollection<RepositoryMaxAge> _repositories = new List<RepositoryMaxAge>();
 
         public CleanupSnapshotJob(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory) {

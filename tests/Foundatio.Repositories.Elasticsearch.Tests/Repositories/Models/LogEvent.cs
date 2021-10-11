@@ -31,7 +31,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
         
         public override int GetHashCode() {
             unchecked {
-                var hashCode = (Id != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Id) : 0);
+                int hashCode = (Id != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Id) : 0);
                 hashCode = (hashCode * 397) ^ (CompanyId != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(CompanyId) : 0);
                 hashCode = (hashCode * 397) ^ (Message != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Message) : 0);
                 hashCode = (hashCode * 397) ^ Value;
@@ -59,7 +59,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
     public static class LogEventGenerator {
         public static readonly string DefaultCompanyId = ObjectId.GenerateNewId().ToString();
  
-        public static LogEvent Default => new LogEvent {
+        public static LogEvent Default => new() {
             Message = "Hello world",
             CompanyId = DefaultCompanyId,
             CreatedUtc = SystemClock.UtcNow

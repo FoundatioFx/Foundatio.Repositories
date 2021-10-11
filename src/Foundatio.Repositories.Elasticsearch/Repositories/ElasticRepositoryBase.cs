@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Elasticsearch.Net;
-using FluentValidation;
 using Nest;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Messaging;
@@ -21,16 +20,13 @@ using Newtonsoft.Json.Linq;
 using Foundatio.Repositories.Options;
 using Microsoft.Extensions.Logging;
 using System.Linq.Expressions;
-using System.Threading;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, ISearchableRepository<T> where T : class, IIdentity, new() {
-        protected readonly IValidator<T> _validator;
         protected readonly IMessagePublisher _messagePublisher;
-        private readonly List<Lazy<Field>> _propertiesRequiredForRemove = new List<Lazy<Field>>();
+        private readonly List<Lazy<Field>> _propertiesRequiredForRemove = new();
 
-        protected ElasticRepositoryBase(IIndex index, IValidator<T> validator = null) : base(index) {
-            _validator = validator;
+        protected ElasticRepositoryBase(IIndex index) : base(index) {
             _messagePublisher = index.Configuration.MessageBus;
             NotificationsEnabled = _messagePublisher != null;
 
@@ -71,9 +67,9 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             await OnDocumentsAddingAsync(docs, options).AnyContext();
 
-            if (_validator != null)
+            if (options.ShouldValidate())
                 foreach (var doc in docs)
-                    await _validator.ValidateAndThrowAsync(doc).AnyContext();
+                    await ValidateAndThrowAsync(doc).AnyContext();
 
             await IndexDocumentsAsync(docs, true, options).AnyContext();
 
@@ -81,6 +77,8 @@ namespace Foundatio.Repositories.Elasticsearch {
             if (IsCacheEnabled && options.ShouldUseCache())
                 await AddDocumentsToCacheAsync(docs, options, false).AnyContext();
         }
+
+        protected virtual Task ValidateAndThrowAsync(T document) { return Task.CompletedTask; }
 
         public Task<T> SaveAsync(T document, CommandOptionsDescriptor<T> options) {
             return SaveAsync(document, options.Configure());
@@ -115,9 +113,9 @@ namespace Foundatio.Repositories.Elasticsearch {
             var originalDocuments = await GetOriginalDocumentsAsync(ids, options).AnyContext();
             await OnDocumentsSavingAsync(docs, originalDocuments, options).AnyContext();
 
-            if (_validator != null)
+            if (options.ShouldValidate())
                 foreach (var doc in docs)
-                    await _validator.ValidateAndThrowAsync(doc).AnyContext();
+                    await ValidateAndThrowAsync(doc).AnyContext();
 
             await IndexDocumentsAsync(docs, false, options).AnyContext();
 
@@ -179,7 +177,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (id.Routing != null)
                     indexParameters.Routing = id.Routing;
                 
-                var updateResponse = await _client.LowLevel.IndexAsync<VoidResponse>(ElasticIndex.GetIndex(id), id.Value, PostData.String(target.ToString()), indexParameters, default(CancellationToken)).AnyContext();
+                var updateResponse = await _client.LowLevel.IndexAsync<VoidResponse>(ElasticIndex.GetIndex(id), id.Value, PostData.String(target.ToString()), indexParameters, default).AnyContext();
 
                 if (updateResponse.Success) {
                     _logger.LogRequest(updateResponse, options.GetQueryLogLevel());
@@ -955,10 +953,6 @@ namespace Foundatio.Repositories.Elasticsearch {
         protected bool NotificationsEnabled { get; set; }
         protected bool OriginalsEnabled { get; set; }
         public bool BatchNotifications { get; set; }
-
-        private Task SendNotificationsAsync(ChangeType changeType, ICommandOptions options) {
-            return SendNotificationsAsync(changeType, EmptyList, options);
-        }
 
         private Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<T> documents, ICommandOptions options) {
             return SendNotificationsAsync(changeType, documents.Select(d => new ModifiedDocument<T>(d, null)).ToList(), options);

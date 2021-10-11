@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,7 +10,7 @@ using Foundatio.Repositories.Extensions;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class ElasticQueryBuilder : IElasticQueryBuilder {
-        private readonly List<ElasticQueryBuilderRegistration> _registrations = new List<ElasticQueryBuilderRegistration>();
+        private readonly List<ElasticQueryBuilderRegistration> _registrations = new();
         private IElasticQueryBuilder[] _queryBuilders = null;
 
 
@@ -63,43 +64,60 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             Register(new ElasticQueryBuilderRegistration(builder, priority));
         }
 
-        public void RegisterBefore<T>(IElasticQueryBuilder builder) {
+        public void Replace<TOldQueryBuilder, TNewQueryBuilder>() where TOldQueryBuilder : IElasticQueryBuilder where TNewQueryBuilder : IElasticQueryBuilder, new() {
+            int priority = Unregister<TOldQueryBuilder>();
+            if (priority == -1)
+                priority = 0;
+            Register(new TNewQueryBuilder(), false, priority);
+        }
+
+        public void RegisterBefore<T>(IElasticQueryBuilder builder, bool replace = true) {
             int priority = 0;
             var referenceBuilder = _registrations.FirstOrDefault(v => typeof(T) == v.Builder.GetType());
             if (referenceBuilder != null)
                 priority = referenceBuilder.Priority - 1;
             
-            Register(new ElasticQueryBuilderRegistration(builder, priority));
+            Register(builder, replace, priority);
         }
 
-        public void RegisterAfter<T>(IElasticQueryBuilder builder) {
+        public void RegisterBefore<TTarget, TQueryBuilder>(bool replace = true) where TTarget : IElasticQueryBuilder where TQueryBuilder : IElasticQueryBuilder, new() {
+            RegisterBefore<TTarget>(new TQueryBuilder(), replace);
+        }
+
+        public void RegisterAfter<T>(IElasticQueryBuilder builder, bool replace = true) {
             int priority = 0;
             var referenceBuilder = _registrations.FirstOrDefault(v => typeof(T) == v.Builder.GetType());
             if (referenceBuilder != null)
                 priority = referenceBuilder.Priority + 1;
-            
-            Register(new ElasticQueryBuilderRegistration(builder, priority));
+
+            Register(builder, replace, priority);
         }
 
-        public bool Unregister<T>() where T : IElasticQueryBuilder {
+        public void RegisterAfter<TTarget, TQueryBuilder>(bool replace = true) where TTarget : IElasticQueryBuilder where TQueryBuilder : IElasticQueryBuilder, new() {
+            RegisterAfter<TTarget>(new TQueryBuilder(), replace);
+        }
+
+        public int Unregister<T>() where T : IElasticQueryBuilder {
             if (_queryBuilders != null)
                 throw new InvalidOperationException("Can not modify query builder registrations after first use.");
 
             int existing = _registrations.FindIndex(b => b.Builder.GetType() == typeof(T));
             if (existing < 0)
-                return false;
+                return -1;
 
             _registrations.RemoveAt(existing);
 
-            return true;
+            return existing;
+        }
+
+        public int GetPriority<T>() where T : IElasticQueryBuilder {
+            return _registrations.FindIndex(b => b.Builder.GetType() == typeof(T));
         }
 
         public void UseQueryParser(ElasticQueryParser parser) {
             Unregister<ExpressionQueryBuilder>();
             Register(new ParsedExpressionQueryBuilder(parser));
-
-            Unregister<AggregationsQueryBuilder>();
-            Register(new AggregationsQueryBuilder());
+            RegisterAfter<ParsedExpressionQueryBuilder, AggregationsQueryBuilder>();
         }
 
         public void UseAliases(QueryFieldResolver aliasMap) {
@@ -108,19 +126,25 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         }
 
         public void RegisterDefaults() {
+            Register<AddRuntimeFieldsToContextQueryBuilder>();
             Register<PageableQueryBuilder>();
             Register<FieldIncludesQueryBuilder>();
             Register<SortQueryBuilder>();
-            Register(new AggregationsQueryBuilder());
-            Register(new ParentQueryBuilder());
-            Register(new ChildQueryBuilder());
+            Register<AggregationsQueryBuilder>();
+            Register<ParentQueryBuilder>();
+            Register<ChildQueryBuilder>();
             Register<IdentityQueryBuilder>();
             Register<SoftDeletesQueryBuilder>();
             Register<DateRangeQueryBuilder>();
-            Register(new ExpressionQueryBuilder());
+            Register<ExpressionQueryBuilder>();
             Register<ElasticFilterQueryBuilder>();
             Register<FieldConditionsQueryBuilder>();
+            Register<RuntimeFieldsQueryBuilder>(Int32.MaxValue);
             Register<SearchAfterQueryBuilder>(Int32.MaxValue);
+        }
+
+        public ElasticQueryBuilderRegistration[] GetRegistrations() {
+            return _registrations.OrderBy(v => v.Priority).ToArray();
         }
 
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
@@ -131,7 +155,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 await builder.BuildAsync(ctx).AnyContext();
         }
 
-        private static readonly Lazy<ElasticQueryBuilder> _default = new Lazy<ElasticQueryBuilder>(() => new ElasticQueryBuilder());
+        private static readonly Lazy<ElasticQueryBuilder> _default = new(() => new ElasticQueryBuilder());
         public static ElasticQueryBuilder Default => _default.Value;
     }
     
@@ -145,5 +169,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         
         public IElasticQueryBuilder Builder { get; }
         public int Priority { get; }
+
+        public override string ToString() {
+            return $"Priority: {Priority} Type: {Builder.GetType().Name}";
+        }
     }
 }

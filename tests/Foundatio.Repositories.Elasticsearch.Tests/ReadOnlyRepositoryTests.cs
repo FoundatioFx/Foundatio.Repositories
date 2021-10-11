@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
+using Foundatio.Parsers;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
@@ -637,6 +637,83 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
+        public async Task GetAllWithAsyncSearchAsync() {
+            var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
+            Assert.NotNull(identity1?.Id);
+
+            var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
+            Assert.NotNull(identity2?.Id);
+
+            var results = await _identityRepository.GetAllAsync(o => o.AsyncResults());
+            Assert.NotNull(results);
+            Assert.Equal(2, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(identity1.Id, results.Documents.First().Id);
+            Assert.Equal(2, results.Total);
+
+            string asyncSearchId = results.GetAsyncSearchId();
+            Assert.Null(asyncSearchId);
+            Assert.False(results.GetIsPending());
+            Assert.False(results.GetIsRunning());
+
+            //results = await _identityRepository.GetAllAsync(o => o.AsyncSearchId(results.GetAsyncSearchId()));
+        }
+
+        [Fact]
+        public async Task FindWithRuntimeFieldsAsync() {
+            Log.MinimumLevel = LogLevel.Trace;
+
+            var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+            Assert.NotNull(employee1?.Id);
+
+            var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake", age: 3), o => o.ImmediateConsistency());
+            Assert.NotNull(employee2?.Id);
+
+            var results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedage:>20").RuntimeField("unmappedAge", ElasticRuntimeFieldType.Long));
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+        }
+
+        [Fact]
+        public async Task FindWithResolvedRuntimeFieldsAsync() {
+            Log.MinimumLevel = LogLevel.Trace;
+
+            var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+            Assert.NotNull(employee1?.Id);
+
+            var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake", age: 3), o => o.ImmediateConsistency());
+            Assert.NotNull(employee2?.Id);
+
+            var results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedcompanyname:" + employee1.CompanyName), o => o.RuntimeFieldResolver(f => String.Equals(f, "unmappedCompanyName", StringComparison.OrdinalIgnoreCase) ? Task.FromResult(new ElasticRuntimeField { Name = "unmappedCompanyName", FieldType = ElasticRuntimeFieldType.Keyword }) : Task.FromResult<ElasticRuntimeField>(null)));
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+        }
+
+        [Fact]
+        public async Task CanUseOptInRuntimeFieldResolving() {
+            Log.MinimumLevel = LogLevel.Trace;
+
+            var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+            Assert.NotNull(employee1?.Id);
+
+            var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake", age: 3), o => o.ImmediateConsistency());
+            Assert.NotNull(employee2?.Id);
+
+            var results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedemailaddress:" + employee1.UnmappedEmailAddress));
+            Assert.NotNull(results);
+            Assert.Equal(0, results.Documents.Count);
+
+            results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedemailaddress:" + employee1.UnmappedEmailAddress), o => o.EnableRuntimeFieldResolver());
+            Assert.NotNull(results);
+            Assert.Equal(1, results.Documents.Count);
+
+            results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedemailaddress:" + employee1.UnmappedEmailAddress), o => o.EnableRuntimeFieldResolver(false));
+            Assert.NotNull(results);
+            Assert.Equal(0, results.Documents.Count);
+        }
+
+        [Fact]
         public async Task FindWithSearchAfterPagingAsync() {
             Log.MinimumLevel = LogLevel.Trace;
 
@@ -662,7 +739,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(2, results.Total);
             Assert.Equal(employee2.Id, results.Documents.First().Id);
             Assert.False(results.HasMore);
-            var searchBeforeToken = results.GetSearchBeforeToken();
+            string searchBeforeToken = results.GetSearchBeforeToken();
             Assert.NotEmpty(searchBeforeToken);
             Assert.Null(results.GetSearchAfterToken());
 
@@ -812,7 +889,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             var chicagoNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, chicagoTimeZone);
             var asiaNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, asiaTimeZone);
 
-            _logger.LogInformation($"UTC: {utcNow.ToString("o")} Chicago: {chicagoNow.ToString("o")} Asia: {asiaNow.ToString("o")}");
+            _logger.LogInformation($"UTC: {utcNow:o} Chicago: {chicagoNow:o} Asia: {asiaNow:o}");
             
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: utcNow), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);

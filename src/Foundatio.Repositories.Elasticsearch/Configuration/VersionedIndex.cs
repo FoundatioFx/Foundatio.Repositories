@@ -234,7 +234,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration {
                 .Where(i => version < 0 || GetIndexVersion(i.Index) == version)
                 .Select(i => {
                     var indexDate = GetIndexDate(i.Index);
-                    var indexAliasName = GetIndexByDate(GetIndexDate(i.Index));
+                    string indexAliasName = GetIndexByDate(GetIndexDate(i.Index));
                     var aliasRecord = aliasResponse.Records.FirstOrDefault(r => r.Alias == indexAliasName);
 
                     int currentVersion = -1;
