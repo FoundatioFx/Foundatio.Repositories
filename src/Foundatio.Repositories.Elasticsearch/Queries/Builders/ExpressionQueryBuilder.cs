@@ -7,7 +7,6 @@ using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries;
 using Foundatio.Parsers.LuceneQueries.Extensions;
 using Foundatio.Parsers.LuceneQueries.Visitors;
-using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Options;
 using Nest;
@@ -83,7 +82,7 @@ namespace Foundatio.Repositories.Options {
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class FieldResolverQueryBuilder : IElasticQueryBuilder {
         private readonly QueryFieldResolver _aliasMap;
-        private readonly LuceneQueryParser _parser = new LuceneQueryParser();
+        private readonly LuceneQueryParser _parser = new();
 
         public FieldResolverQueryBuilder(QueryFieldResolver aliasMap) {
             _aliasMap = aliasMap;
@@ -120,8 +119,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 var result = _parser.Parse(sort);
                 TermToFieldVisitor.Run(result, ctx);
                 FieldResolverQueryVisitor.Run(result, _aliasMap, ctx);
-                var fields = result.GetReferencedFields();
-                // TODO: Check referenced fields against opt.AllowedSortFields
 
                 var sortFields = GetSortFieldsVisitor.Run(result, ctx).ToList();
 
@@ -133,7 +130,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public class ExpressionQueryBuilder : IElasticQueryBuilder {
-        private readonly LuceneQueryParser _parser = new LuceneQueryParser();
+        private readonly LuceneQueryParser _parser = new();
 
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
             string filter = ctx.Source.GetFilterExpression();
@@ -157,8 +154,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (!String.IsNullOrEmpty(sort)) {
                 var result = _parser.Parse(sort);
                 TermToFieldVisitor.Run(result, ctx);
-                var fields = result.GetReferencedFields();
-                // TODO: Check referenced fields against opt.AllowedSortFields
 
                 var sortFields = GetSortFieldsVisitor.Run(result, ctx).ToList();
 

@@ -32,7 +32,7 @@ namespace Foundatio.Repositories {
         public static T SearchAfterToken<T>(this T options, string searchAfterToken) where T : ICommandOptions {
             options.SearchAfterPaging();
             if (!String.IsNullOrEmpty(searchAfterToken)) {
-                var values = FindHitExtensions.DecodeSortToken(searchAfterToken);
+                object[] values = FindHitExtensions.DecodeSortToken(searchAfterToken);
                 options.Values.Set(SearchAfterKey, values);
             } else {
                 options.Values.Remove(SearchAfterKey);
@@ -55,7 +55,7 @@ namespace Foundatio.Repositories {
         public static T SearchBeforeToken<T>(this T options, string searchBeforeToken) where T : ICommandOptions {
             options.SearchAfterPaging();
             if (!String.IsNullOrEmpty(searchBeforeToken)) {
-                var values = FindHitExtensions.DecodeSortToken(searchBeforeToken);
+                object[] values = FindHitExtensions.DecodeSortToken(searchBeforeToken);
                 options.Values.Set(SearchBeforeKey, values);
             } else {
                 options.Values.Remove(SearchBeforeKey);
@@ -77,7 +77,7 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static bool HasSearchAfter(this ICommandOptions options) {
-            var sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchAfterKey);
+            object[] sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchAfterKey);
             return sorts != null && sorts.Length > 0;
         }
 
@@ -86,7 +86,7 @@ namespace Foundatio.Repositories.Options {
         }
 
         public static bool HasSearchBefore(this ICommandOptions options) {
-            var sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchBeforeKey);
+            object[] sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchBeforeKey);
             return sorts != null && sorts.Length > 0;
         }
     }
@@ -103,8 +103,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             var resolver = ctx.GetMappingResolver();
             string idField = resolver.GetResolvedField(Id) ?? "_id";
 
-            var searchRequest = ctx.Search as ISearchRequest;
-            if (searchRequest == null)
+            if (ctx.Search is not ISearchRequest searchRequest)
                 return Task.CompletedTask;
 
             searchRequest.Sort ??= new List<ISort>();

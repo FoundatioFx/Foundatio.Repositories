@@ -37,7 +37,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
     public static class IdentityGenerator {
         public static readonly string DefaultId = ObjectId.GenerateNewId().ToString();
 
-        public static Identity Default => new Identity {
+        public static Identity Default => new() {
             Id = DefaultId
         };
 

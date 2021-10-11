@@ -122,7 +122,7 @@ namespace Foundatio.Repositories.Elasticsearch {
 
             _logger.LogInformation("Reindex Task Id: {TaskId}", result.Task.FullyQualifiedId);
             _logger.LogRequest(result);
-            var totalDocs = result.Total;
+            long totalDocs = result.Total;
 
             bool taskSuccess = false;
             TaskReindexResult lastReindexResponse = null;

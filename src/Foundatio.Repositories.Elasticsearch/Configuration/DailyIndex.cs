@@ -23,8 +23,8 @@ using System.Collections.Concurrent;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration {
     public class DailyIndex : VersionedIndex {
-        protected static readonly CultureInfo EnUs = new CultureInfo("en-US");
-        private readonly List<IndexAliasAge> _aliases = new List<IndexAliasAge>();
+        protected static readonly CultureInfo EnUs = new("en-US");
+        private readonly List<IndexAliasAge> _aliases = new();
         private readonly Lazy<IReadOnlyCollection<IndexAliasAge>> _frozenAliases;
         private readonly ICacheClient _aliasCache;
         private TimeSpan? _maxIndexAge;

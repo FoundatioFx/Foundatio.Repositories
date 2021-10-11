@@ -21,9 +21,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
         public string Id { get; set; }
         public string CompanyId { get; set; }
         public string CompanyName { get; set; }
+        public string UnmappedCompanyName => CompanyName;
         public string Name { get; set; }
         public string EmailAddress { get; set; }
+        public string UnmappedEmailAddress => EmailAddress;
         public int Age { get; set; }
+        public int UnmappedAge => Age;
         public string Location { get; set; }
         public int YearsEmployed { get; set; }
         public DateTime LastReview { get; set; }
@@ -62,7 +65,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
 
         public override int GetHashCode() {
             unchecked {
-                var hashCode = (Id != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Id) : 0);
+                int hashCode = (Id != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Id) : 0);
                 hashCode = (hashCode * 397) ^ (EmailAddress != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(EmailAddress) : 0);
                 hashCode = (hashCode * 397) ^ (CompanyId != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(CompanyId) : 0);
                 hashCode = (hashCode * 397) ^ (CompanyName != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(CompanyName) : 0);
@@ -89,7 +92,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models {
     public static class EmployeeGenerator {
         public static readonly string DefaultCompanyId = ObjectId.GenerateNewId().ToString();
 
-        public static Employee Default => new Employee {
+        public static Employee Default => new() {
             Name = "Blake",
             EmailAddress = "blake@exceptionless.com",
             Age = 29,

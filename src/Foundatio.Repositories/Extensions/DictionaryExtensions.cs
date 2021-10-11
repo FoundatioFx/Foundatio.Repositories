@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -27,7 +27,34 @@ namespace Foundatio.Repositories.Extensions {
             if (value is string s)
                 return s;
 
-            return String.Empty;
+            return @default;
+        }
+
+        public static bool GetBoolean(this IEnumerable<KeyValuePair<string, object>> data, string name) {
+            return data.GetBoolean(name, false);
+        }
+
+        public static bool GetBoolean(this IEnumerable<KeyValuePair<string, object>> data, string name, bool @default) {
+            object value = null;
+            if (data is IDictionary<string, object> dictionary) {
+                if (!dictionary.TryGetValue(name, out value))
+                    return @default;
+            } else if (data is IReadOnlyDictionary<string, object> readOnlyDictionary) {
+                if (!readOnlyDictionary.TryGetValue(name, out value))
+                    return @default;
+            } else {
+                var d = data.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+                if (!d.TryGetValue(name, out value))
+                    return @default;
+            }
+
+            if (value is bool b)
+                return b;
+
+            if (Boolean.TryParse(value.ToString(), out var result))
+                return result;
+
+            return @default;
         }
 
         public static IDictionary<string, object> ToData<T>(this IEnumerable<KeyValuePair<string, object>> dictionary) where T: IAggregate {

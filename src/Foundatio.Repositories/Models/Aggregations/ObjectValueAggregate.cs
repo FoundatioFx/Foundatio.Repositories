@@ -16,8 +16,7 @@ namespace Foundatio.Repositories.Models {
                     return serializer.Deserialize<T>(jTokenValue.ToString());
             }
 
-            var jToken = Value as JToken;
-            return jToken != null
+            return Value is JToken jToken
                 ? jToken.ToObject<T>()
                 : (T)Convert.ChangeType(Value, typeof(T));
         }

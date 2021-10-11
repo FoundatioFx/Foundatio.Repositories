@@ -4,7 +4,7 @@ using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch {
     public struct ElasticDocumentVersion : IEquatable<ElasticDocumentVersion>, IComparable<ElasticDocumentVersion>, IComparable {
-        public static ElasticDocumentVersion Empty = new ElasticDocumentVersion();
+        public static ElasticDocumentVersion Empty = new();
         
         public ElasticDocumentVersion(long primaryTerm, long sequenceNumber) {
             PrimaryTerm = primaryTerm;
@@ -54,8 +54,8 @@ namespace Foundatio.Repositories.Elasticsearch {
         public static ElasticDocumentVersion Parse(string version) {
             if (String.IsNullOrEmpty(version))
                 return Empty;
-            
-            var parts = version.Split(':');
+
+            string[] parts = version.Split(':');
             if (parts.Length != 2)
                 return Empty;
             
@@ -69,7 +69,7 @@ namespace Foundatio.Repositories.Elasticsearch {
         public static implicit operator string(ElasticDocumentVersion version) => version.ToString();
 
         public int CompareTo(ElasticDocumentVersion other) {
-            var result = PrimaryTerm.CompareTo(other.PrimaryTerm);
+            int result = PrimaryTerm.CompareTo(other.PrimaryTerm);
             if (result != 0)
                 return result;
 
