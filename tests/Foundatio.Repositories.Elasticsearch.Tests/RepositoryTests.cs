@@ -739,7 +739,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name);
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Trace);
 
-            Assert.Equal(COUNT, await _dailyRepository.IncrementValueAsync(new string[0]));
+            Assert.Equal(COUNT, await _dailyRepository.IncrementValueAsync(Array.Empty<string>()));
         }
 
         [Fact]
@@ -756,7 +756,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Trace);
 
             var tasks = Enumerable.Range(1, 6).Select(async i => {
-                Assert.Equal(COUNT, await _dailyRepository.IncrementValueAsync(new string[0], i));
+                Assert.Equal(COUNT, await _dailyRepository.IncrementValueAsync(Array.Empty<string>(), i));
             });
 
             await Task.WhenAll(tasks);

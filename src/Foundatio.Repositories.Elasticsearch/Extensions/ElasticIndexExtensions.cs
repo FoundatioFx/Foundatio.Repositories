@@ -3,16 +3,142 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
+using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Options;
 using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticIndexExtensions {
-        public static FindResults<T> ToFindResults<T>(this Nest.ISearchResponse<T> response, int? limit = null) where T : class, new() {
-            var docs = response.Hits.Take(limit ?? Int32.MaxValue).ToFindHits().ToList();
-            var data = response.ScrollId != null ? new DataDictionary { { ElasticDataKeys.ScrollId, response.ScrollId } } : null;
-            return new FindResults<T>(docs, response.Total, response.ToAggregations(), null, data);
+        public static Nest.AsyncSearchSubmitDescriptor<T> ToAsyncSearchSubmitDescriptor<T>(this Nest.SearchDescriptor<T> searchDescriptor) where T : class, new() {
+            var asyncSearchDescriptor = new Nest.AsyncSearchSubmitDescriptor<T>();
+
+            // TODO: Delete results when we get result and it's marked as completed
+            // TODO: Add runtime fields copy in this method when it's available in NEST
+
+            var searchRequest = (Nest.ISearchRequest)searchDescriptor;
+            var asyncSearchRequest = (Nest.IAsyncSearchSubmitRequest)asyncSearchDescriptor;
+
+            asyncSearchRequest.RequestParameters.QueryString = searchRequest.RequestParameters.QueryString;
+            asyncSearchRequest.RequestParameters.RequestConfiguration = searchRequest.RequestParameters.RequestConfiguration;
+            asyncSearchDescriptor.Index(searchRequest.Index);
+            asyncSearchDescriptor.SequenceNumberPrimaryTerm(searchRequest.RequestParameters.SequenceNumberPrimaryTerm);
+            asyncSearchDescriptor.IgnoreUnavailable(searchRequest.RequestParameters.IgnoreUnavailable);
+            asyncSearchDescriptor.TrackTotalHits(searchRequest.RequestParameters.TrackTotalHits);
+
+            asyncSearchRequest.Aggregations = searchRequest.Aggregations;
+            asyncSearchRequest.Collapse = searchRequest.Collapse;
+            asyncSearchRequest.DocValueFields = searchRequest.DocValueFields;
+            asyncSearchRequest.Explain = searchRequest.Explain;
+            asyncSearchRequest.From = searchRequest.From;
+            asyncSearchRequest.Highlight = searchRequest.Highlight;
+            asyncSearchRequest.IndicesBoost = searchRequest.IndicesBoost;
+            asyncSearchRequest.MinScore = searchRequest.MinScore;
+            asyncSearchRequest.PostFilter = searchRequest.PostFilter;
+            asyncSearchRequest.Profile = searchRequest.Profile;
+            asyncSearchRequest.Query = searchRequest.Query;
+            asyncSearchRequest.Rescore = searchRequest.Rescore;
+            asyncSearchRequest.ScriptFields = searchRequest.ScriptFields;
+            asyncSearchRequest.SearchAfter = searchRequest.SearchAfter;
+            asyncSearchRequest.Size = searchRequest.Size;
+            asyncSearchRequest.Sort = searchRequest.Sort;
+            asyncSearchRequest.Source = searchRequest.Source;
+            asyncSearchRequest.StoredFields = searchRequest.StoredFields;
+            asyncSearchRequest.Suggest = searchRequest.Suggest;
+            asyncSearchRequest.TerminateAfter = searchRequest.TerminateAfter;
+            asyncSearchRequest.Timeout = searchRequest.Timeout;
+            asyncSearchRequest.TrackScores = searchRequest.TrackScores;
+            asyncSearchRequest.TrackTotalHits = searchRequest.TrackTotalHits;
+            asyncSearchRequest.Version = searchRequest.Version;
+            asyncSearchRequest.RuntimeFields = searchRequest.RuntimeFields;
+
+            return asyncSearchDescriptor;
+        }
+
+        public static FindResults<T> ToFindResults<T>(this Nest.ISearchResponse<T> response, ICommandOptions options) where T : class, new() {
+            if (!response.IsValid) {
+                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+                    return new FindResults<T>();
+
+                throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException);
+            }
+
+            int limit = options.GetLimit();
+            var docs = response.Hits.Take(limit).ToFindHits().ToList();
+
+            var data = new DataDictionary();
+            if (response.ScrollId != null)
+                data.Add(ElasticDataKeys.ScrollId, response.ScrollId);
+
+            var results = new FindResults<T>(docs, response.Total, response.ToAggregations(), null, data);
+            var protectedResults = (IFindResults<T>)results;
+            if (options.ShouldUseSnapshotPaging())
+                protectedResults.HasMore = response.Hits.Count >= limit;
+            else
+                protectedResults.HasMore = response.Hits.Count > limit || response.Hits.Count >= options.GetMaxLimit();
+
+            if (options.HasSearchAfter()) {
+                results.SetSearchBeforeToken();
+                if (results.HasMore)
+                    results.SetSearchAfterToken();
+            } else if (options.HasSearchBefore()) {
+                // reverse results
+                protectedResults.Reverse();
+                results.SetSearchAfterToken();
+                if (results.HasMore)
+                    results.SetSearchBeforeToken();
+            } else if (results.HasMore) {
+                results.SetSearchAfterToken();
+            }
+
+            protectedResults.Page = options.GetPage();
+
+            return results;
+        }
+
+        public static FindResults<T> ToFindResults<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options) where T : class, new() {
+            if (!response.IsValid) {
+                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+                    return new FindResults<T>();
+
+                throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException);
+            }
+
+            int limit = options.GetLimit();
+            var docs = response.Response.Hits.Take(limit).ToFindHits().ToList();
+
+            var data = new DataDictionary {
+                { ElasticDataKeys.AsyncSearchId, response.Id },
+                { ElasticDataKeys.IsRunning, response.IsRunning },
+                { ElasticDataKeys.IsPending, response.IsPartial }
+            };
+
+            var results = new FindResults<T>(docs, response.Response.Total, response.ToAggregations(), null, data);
+            var protectedResults = (IFindResults<T>)results;
+            if (options.ShouldUseSnapshotPaging())
+                protectedResults.HasMore = response.Response.Hits.Count >= limit;
+            else
+                protectedResults.HasMore = response.Response.Hits.Count > limit || response.Response.Hits.Count >= options.GetMaxLimit();
+
+            if (options.HasSearchAfter()) {
+                results.SetSearchBeforeToken();
+                if (results.HasMore)
+                    results.SetSearchAfterToken();
+            } else if (options.HasSearchBefore()) {
+                // reverse results
+                protectedResults.Reverse();
+                results.SetSearchAfterToken();
+                if (results.HasMore)
+                    results.SetSearchBeforeToken();
+            } else if (results.HasMore) {
+                results.SetSearchAfterToken();
+            }
+
+            protectedResults.Page = options.GetPage();
+
+            return results;
         }
 
         public static IEnumerable<FindHit<T>> ToFindHits<T>(this IEnumerable<Nest.IHit<T>> hits) where T : class {
@@ -101,14 +227,14 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
 
         private static readonly Lazy<Func<Nest.TopHitsAggregate, IList<Nest.LazyDocument>>> _getHits =
-            new Lazy<Func<Nest.TopHitsAggregate, IList<Nest.LazyDocument>>>(() => {
+            new(() => {
                 var hitsField = typeof(Nest.TopHitsAggregate).GetField("_hits", BindingFlags.GetField | BindingFlags.NonPublic | BindingFlags.Instance);
                 return agg => hitsField?.GetValue(agg) as IList<Nest.LazyDocument>;
             });
         
         public static IAggregate ToAggregate(this Nest.IAggregate aggregate) {
             if (aggregate is Nest.ValueAggregate valueAggregate) {
-                if (valueAggregate.Meta != null && valueAggregate.Meta.TryGetValue("@field_type", out var value)) {
+                if (valueAggregate.Meta != null && valueAggregate.Meta.TryGetValue("@field_type", out object value)) {
                     string type = value.ToString();
                     if (type == "date" && valueAggregate.Value.HasValue) {
                         return new ValueAggregate<DateTime> {
@@ -200,7 +326,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             var kind = DateTimeKind.Utc;
             long ticks = _epochTicks + ((long)valueAggregate.Value * TimeSpan.TicksPerMillisecond);
             
-            if (valueAggregate.Meta.TryGetValue("@timezone", out var value) && value != null) {
+            if (valueAggregate.Meta.TryGetValue("@timezone", out object value) && value != null) {
                 kind = DateTimeKind.Unspecified;
                 ticks -= Exceptionless.DateTimeExtensions.TimeUnit.Parse(value.ToString()).Ticks;
             }
@@ -222,7 +348,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             if (bucket is Nest.DateHistogramBucket dateHistogramBucket) {
                 bool hasTimezone = parentData != null && parentData.ContainsKey("@timezone");
                 var kind = hasTimezone ? DateTimeKind.Unspecified : DateTimeKind.Utc;
-                var ticks = _epochTicks + ((long)dateHistogramBucket.Key * TimeSpan.TicksPerMillisecond);
+                long ticks = _epochTicks + ((long)dateHistogramBucket.Key * TimeSpan.TicksPerMillisecond);
                 var date = GetDate(ticks, kind);
                 var data = new Dictionary<string, object> { { "@type", "datehistogram" } };
                 
@@ -281,6 +407,10 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
         public static IDictionary<string, IAggregate> ToAggregations<T>(this Nest.ISearchResponse<T> res) where T : class {
             return res.Aggregations.ToAggregations();
+        }
+
+        public static IDictionary<string, IAggregate> ToAggregations<T>(this Nest.IAsyncSearchResponse<T> res) where T : class {
+            return res.Response.Aggregations.ToAggregations();
         }
 
         public static Nest.PropertiesDescriptor<T> SetupDefaults<T>(this Nest.PropertiesDescriptor<T> pd) where T : class {

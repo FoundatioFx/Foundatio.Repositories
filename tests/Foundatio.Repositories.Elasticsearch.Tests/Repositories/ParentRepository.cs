@@ -14,14 +14,14 @@
              DocumentsChanging.AddHandler(OnDocumentsChanging);
          }
 
-         protected Task OnDocumentsChanging(object sender, DocumentsChangeEventArgs<Parent> args) {
+         protected static Task OnDocumentsChanging(object sender, DocumentsChangeEventArgs<Parent> args) {
              foreach (var doc in args.Documents.Select(d => d.Value).Cast<IParentChildDocument>())
                 doc.Discriminator = JoinField.Root<Parent>();
                      
              return Task.CompletedTask;
          }
 
-         protected Task OnBeforeQuery(object sender, BeforeQueryEventArgs<Parent> args) {
+         protected static Task OnBeforeQuery(object sender, BeforeQueryEventArgs<Parent> args) {
              args.Query.Discriminator("parent");
              return Task.CompletedTask;
          }

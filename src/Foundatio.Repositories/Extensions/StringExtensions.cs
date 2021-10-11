@@ -8,7 +8,7 @@ namespace Foundatio.Repositories.Extensions {
                 return path;
 
             var sb = new StringBuilder();
-            var parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+            string[] parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
             for (int i = 0; i < parts.Length; i++) {
                 if (parts[i].IsNumeric())
                     sb.Append("[").Append(parts[i]).Append("]");

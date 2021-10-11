@@ -9,6 +9,8 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Nest;
 using Foundatio.Parsers.ElasticQueries;
+using Foundatio.Parsers.LuceneQueries.Visitors;
+using Foundatio.Parsers;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes {
     public sealed class EmployeeIndex : Index<Employee> {
@@ -19,7 +21,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
         }
 
         public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map) {
-            return base.ConfigureIndexMapping(map
+            return map
                 .Dynamic(false)
                 .Properties(p => p
                     .SetupDefaults()
@@ -48,7 +50,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
                     .Nested<PeerReview>(f => f.Name(e => e.PeerReviews).Properties(p1 => p1
                         .Keyword(f2 => f2.Name(p2 => p2.ReviewerEmployeeId))
                         .Scalar(p3 => p3.Rating, f2 => f2.Name(p3 => p3.Rating))))
-                    ));
+                    );
         }
 
         protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
@@ -59,12 +61,21 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
 
         protected override void ConfigureQueryParser(ElasticQueryParserConfiguration config) {
             base.ConfigureQueryParser(config);
-            config.UseIncludes(i => ResolveIncludeAsync(i));
+            config.UseIncludes(ResolveIncludeAsync).UseOptInRuntimeFieldResolver(ResolveRuntimeFieldAsync);
         }
 
         private async Task<string> ResolveIncludeAsync(string name) {
             await Task.Delay(100);
             return "aliasedage:10";
+        }
+
+        private async Task<ElasticRuntimeField> ResolveRuntimeFieldAsync(string name) {
+            await Task.Delay(100);
+
+            if (name.Equals("unmappedEmailAddress", StringComparison.OrdinalIgnoreCase))
+                return new ElasticRuntimeField { Name = "unmappedEmailAddress" };
+            
+            return null;
         }
     }
 

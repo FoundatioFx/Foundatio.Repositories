@@ -20,7 +20,7 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs {
         private readonly IElasticClient _client;
         private readonly ILogger _logger;
         private readonly ILockProvider _lockProvider;
-        private static readonly CultureInfo _enUS = new CultureInfo("en-US");
+        private static readonly CultureInfo _enUS = new("en-US");
         private readonly ICollection<IndexMaxAge> _indexes = new List<IndexMaxAge>();
 
         public CleanupIndexesJob(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory) {

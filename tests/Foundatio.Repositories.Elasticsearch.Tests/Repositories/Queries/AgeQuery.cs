@@ -15,7 +15,7 @@ namespace Foundatio.Repositories {
         }
 
         public static T AgeRange<T>(this T query, int minAge, int maxAge) where T : IRepositoryQuery {
-            foreach (var age in Enumerable.Range(minAge, maxAge - minAge + 1))
+            foreach (int age in Enumerable.Range(minAge, maxAge - minAge + 1))
                 query.AddCollectionOptionValue(AgesKey, age);
 
             return query;

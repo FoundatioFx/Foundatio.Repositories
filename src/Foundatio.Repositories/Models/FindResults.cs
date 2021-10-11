@@ -9,10 +9,10 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Models {
     [DebuggerDisplay("Total: {Total} Documents: {Documents.Count} Hits: {Hits.Count} Aggs: {Aggregations.Count} Page: {Page} HasMore: {HasMore}")]
-    public class FindResults<T> : CountResult, IGetNextPage<T> where T : class {
+    public class FindResults<T> : CountResult, IFindResults<T> where T : class {
         public FindResults(IEnumerable<FindHit<T>> hits = null, long total = 0, IDictionary<string, IAggregate> aggregations = null, Func<FindResults<T>, Task<FindResults<T>>> getNextPage = null, IDictionary<string, object> data = null)
             : base(total, aggregations, data) {
-            ((IGetNextPage<T>)this).GetNextPageFunc = getNextPage;
+            ((IFindResults<T>)this).GetNextPageFunc = getNextPage;
             if (hits != null) {
                 Hits = new List<FindHit<T>>(hits).AsReadOnly();
                 Documents = Hits.Where(r => r.Document != null).Select(r => r.Document).ToList().AsReadOnly();
@@ -21,10 +21,19 @@ namespace Foundatio.Repositories.Models {
 
         [IgnoreDataMember]
         public IReadOnlyCollection<T> Documents { get; protected set; } = EmptyReadOnly<T>.Collection;
+
         public IReadOnlyCollection<FindHit<T>> Hits { get; protected set; } = EmptyReadOnly<FindHit<T>>.Collection;
-        public int Page { get; set; } = 1;
-        public bool HasMore { get; set; }
-        Func<FindResults<T>, Task<FindResults<T>>> IGetNextPage<T>.GetNextPageFunc { get; set; }
+        public int Page { get; protected set; } = 1;
+        public bool HasMore { get; protected set; }
+
+        int IFindResults<T>.Page { get => Page; set { Page = value; } }
+        bool IFindResults<T>.HasMore { get => HasMore; set { HasMore = value; } }
+        Func<FindResults<T>, Task<FindResults<T>>> IFindResults<T>.GetNextPageFunc { get; set; }
+
+        void IFindResults<T>.Reverse() {
+            Hits = Hits.Reverse().ToList().AsReadOnly();
+            Documents = Hits.Where(r => r.Document != null).Select(r => r.Document).ToList().AsReadOnly();
+        }
 
         public virtual async Task<bool> NextPageAsync() {
             if (!HasMore) {
@@ -36,7 +45,7 @@ namespace Foundatio.Repositories.Models {
                 return false;
             }
 
-            if (((IGetNextPage<T>)this).GetNextPageFunc == null) {
+            if (((IFindResults<T>)this).GetNextPageFunc == null) {
                 Page = -1;
                 Aggregations = EmptyReadOnly<string, IAggregate>.Dictionary;
                 Hits = EmptyReadOnly<FindHit<T>>.Collection;
@@ -46,7 +55,7 @@ namespace Foundatio.Repositories.Models {
                 return false;
             }
 
-            var results = await ((IGetNextPage<T>)this).GetNextPageFunc(this).AnyContext();
+            var results = await ((IFindResults<T>)this).GetNextPageFunc(this).AnyContext();
             if (results == null || results.Hits.Count == 0) {
                 Aggregations = EmptyReadOnly<string, IAggregate>.Dictionary;
                 Hits = EmptyReadOnly<FindHit<T>>.Collection;
@@ -69,12 +78,15 @@ namespace Foundatio.Repositories.Models {
         }
     }
 
-    public interface IGetNextPage<T> where T : class {
+    public interface IFindResults<T> where T : class {
+        int Page { get; set; }
+        bool HasMore { get; set; }
         Func<FindResults<T>, Task<FindResults<T>>> GetNextPageFunc { get; set; }
+        void Reverse();
     }
 
     public class CountResult : IHaveData {
-        public static readonly CountResult Empty = new CountResult();
+        public static readonly CountResult Empty = new();
         private AggregationsHelper _agg;
 
         public CountResult(long total = 0, IDictionary<string, IAggregate> aggregations = null, IDictionary<string, object> data = null) {
@@ -97,10 +109,14 @@ namespace Foundatio.Repositories.Models {
         public static implicit operator int(CountResult result) {
             return (int)result.Total;
         }
+
+        public override string ToString() {
+            return Total.ToString();
+        }
     }
 
     public class FindHit<T> : IHaveData {
-        public static readonly FindHit<T> Empty = new FindHit<T>(null, default, 0);
+        public static readonly FindHit<T> Empty = new(null, default, 0);
 
         public FindHit(string id, T document, double score, string version = null, string routing = null, IDictionary<string, object> data = null) {
             Id = id;

@@ -9,13 +9,14 @@ using Foundatio.Repositories.Options;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Parsers.LuceneQueries.Nodes;
+using Foundatio.Parsers;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public interface IElasticQueryBuilder {
         Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new();
     }
 
-    public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitorContext, IQueryVisitorContextWithFieldResolver, IQueryVisitorContextWithIncludeResolver where T : class, new() {
+    public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitorContext, IQueryVisitorContextWithFieldResolver, IQueryVisitorContextWithIncludeResolver, IQueryVisitorContextWithValidation where T : class, new() {
         public QueryBuilderContext(IRepositoryQuery source, ICommandOptions options, SearchDescriptor<T> search = null, IQueryBuilderContext parentContext = null) {
             Source = source;
             Options = options;
@@ -39,13 +40,17 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
         public QueryContainer Filter { get; set; }
         public SearchDescriptor<T> Search { get; }
         public IDictionary<string, object> Data { get; } = new Dictionary<string, object>();
-
+        public QueryValidationOptions ValidationOptions { get; set; }
+        public QueryValidationInfo ValidationInfo { get; set; }
         QueryFieldResolver IQueryVisitorContextWithFieldResolver.FieldResolver { get; set; }
         IncludeResolver IQueryVisitorContextWithIncludeResolver.IncludeResolver { get; set; }
         ElasticMappingResolver IElasticQueryVisitorContext.MappingResolver { get; set; }
+        ICollection<ElasticRuntimeField> IElasticQueryVisitorContext.RuntimeFields { get; } = new List<ElasticRuntimeField>();
+        bool? IElasticQueryVisitorContext.EnableRuntimeFieldResolver { get; set; }
+        RuntimeFieldResolver IElasticQueryVisitorContext.RuntimeFieldResolver { get; set; }
 
         GroupOperator IQueryVisitorContext.DefaultOperator { get; set; }
-        string IElasticQueryVisitorContext.DefaultTimeZone { get; set; }
+        Func<Task<string>> IElasticQueryVisitorContext.DefaultTimeZone { get; set; }
         bool IElasticQueryVisitorContext.UseScoring { get; set; }
         string[] IQueryVisitorContext.DefaultFields { get; set; }
         string IQueryVisitorContext.QueryType { get; set; }
@@ -70,17 +75,26 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     }
 
     public static class QueryBuilderContextExtensions {
-        public static void SetTimeZone(this IQueryBuilderContext context, string timeZone) {
-            var elasticContext = context as IElasticQueryVisitorContext;
-            if (elasticContext == null)
+        public static void SetTimeZone(this IQueryBuilderContext context, Func<Task<string>> timeZone) {
+            if (context is not IElasticQueryVisitorContext elasticContext)
                 throw new ArgumentException("Context must be of type IElasticQueryVisitorContext", nameof(context));
 
             elasticContext.DefaultTimeZone = timeZone;
         }
 
-        public static string GetTimeZone(this IQueryBuilderContext context) {
+        public static void SetTimeZone(this IQueryBuilderContext context, string timeZone) {
+            if (context is not IElasticQueryVisitorContext elasticContext)
+                throw new ArgumentException("Context must be of type IElasticQueryVisitorContext", nameof(context));
+
+            elasticContext.DefaultTimeZone = () => Task.FromResult(timeZone);
+        }
+
+        public static Task<string> GetTimeZoneAsync(this IQueryBuilderContext context) {
             var elasticContext = context as IElasticQueryVisitorContext;
-            return elasticContext?.DefaultTimeZone;
+            if (elasticContext?.DefaultTimeZone != null)
+                return elasticContext.DefaultTimeZone.Invoke();
+
+            return Task.FromResult<string>(null);
         }
     }
 
@@ -103,4 +117,4 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             search.Query(d => q);
         }
     }
-}
+} 

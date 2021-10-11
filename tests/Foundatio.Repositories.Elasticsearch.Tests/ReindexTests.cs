@@ -744,7 +744,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.True(existsResponse.ApiCall.Success);
                     Assert.True(existsResponse.Exists);
 
-                    var indexV1 = version1Index.GetVersionedIndex(utcNow, 1);
+                    string indexV1 = version1Index.GetVersionedIndex(utcNow, 1);
                     var mappingResponse = await _client.Indices.GetMappingAsync<Employee>(m => m.Index(indexV1));
                     _logger.LogRequest(mappingResponse);
                     Assert.True(mappingResponse.IsValid);
@@ -752,7 +752,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
                     Assert.NotNull(mappingsV1);
                     string version1Mappings = ToJson(mappingsV1);
 
-                    var indexV2 = version2Index.GetVersionedIndex(utcNow, 2);
+                    string indexV2 = version2Index.GetVersionedIndex(utcNow, 2);
                     existsResponse = await _client.Indices.ExistsAsync(indexV2);
                     _logger.LogRequest(existsResponse);
                     Assert.True(existsResponse.ApiCall.Success);
@@ -769,7 +769,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             }
         }
 
-        private string GetExpectedEmployeeDailyAliases(IIndex index, DateTime utcNow, DateTime indexDateUtc) {
+        private static string GetExpectedEmployeeDailyAliases(IIndex index, DateTime utcNow, DateTime indexDateUtc) {
             double totalDays = utcNow.Date.Subtract(indexDateUtc.Date).TotalDays;
             var aliases = new List<string> { index.Name, index.GetIndex(indexDateUtc) };
             if (totalDays <= 30)
