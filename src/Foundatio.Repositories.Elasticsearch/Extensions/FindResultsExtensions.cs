@@ -7,8 +7,8 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return results.Data.GetString(ElasticDataKeys.ScrollId, null);
         }
 
-        public static string GetAsyncSearchId(this IHaveData results) {
-            return results.Data.GetString(ElasticDataKeys.AsyncSearchId, null);
+        public static string GetAsyncQueryId(this IHaveData results) {
+            return results.Data.GetString(ElasticDataKeys.AsyncQueryId, null);
         }
 
         public static bool GetIsPending(this IHaveData results) {

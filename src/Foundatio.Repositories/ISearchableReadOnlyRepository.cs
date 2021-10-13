@@ -5,6 +5,12 @@ using Foundatio.Repositories.Models;
 namespace Foundatio.Repositories {
     public interface ISearchableReadOnlyRepository<T> : IReadOnlyRepository<T> where T : class, new() {
         /// <summary>
+        /// Remove the results of an async query
+        /// </summary>
+        /// <param name="queryId">The query id</param>
+        Task RemoveQueryAsync(string queryId);
+
+        /// <summary>
         /// Find documents using a query
         /// </summary>
         /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>

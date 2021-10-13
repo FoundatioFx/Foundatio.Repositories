@@ -15,9 +15,6 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         public static Nest.AsyncSearchSubmitDescriptor<T> ToAsyncSearchSubmitDescriptor<T>(this Nest.SearchDescriptor<T> searchDescriptor) where T : class, new() {
             var asyncSearchDescriptor = new Nest.AsyncSearchSubmitDescriptor<T>();
 
-            // TODO: Delete results when we get result and it's marked as completed
-            // TODO: Add runtime fields copy in this method when it's available in NEST
-
             var searchRequest = (Nest.ISearchRequest)searchDescriptor;
             var asyncSearchRequest = (Nest.IAsyncSearchSubmitRequest)asyncSearchDescriptor;
 
@@ -109,11 +106,15 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             int limit = options.GetLimit();
             var docs = response.Response.Hits.Take(limit).ToFindHits().ToList();
 
-            var data = new DataDictionary {
-                { ElasticDataKeys.AsyncSearchId, response.Id },
+            var data = new DataDictionary
+            {
+                { ElasticDataKeys.AsyncQueryId, response.Id },
                 { ElasticDataKeys.IsRunning, response.IsRunning },
                 { ElasticDataKeys.IsPending, response.IsPartial }
             };
+
+            if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
+                data.Remove(ElasticDataKeys.AsyncQueryId);
 
             var results = new FindResults<T>(docs, response.Response.Total, response.ToAggregations(), null, data);
             var protectedResults = (IFindResults<T>)results;

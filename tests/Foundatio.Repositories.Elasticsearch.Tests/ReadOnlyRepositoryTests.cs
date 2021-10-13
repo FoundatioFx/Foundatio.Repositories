@@ -637,14 +637,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetAllWithAsyncSearchAsync() {
+        public async Task GetAllWithAsyncQueryAsync() {
+            Log.MinimumLevel = LogLevel.Trace;
+
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
             Assert.NotNull(identity1?.Id);
 
             var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
             Assert.NotNull(identity2?.Id);
 
-            var results = await _identityRepository.GetAllAsync(o => o.AsyncResults());
+            var results = await _identityRepository.GetAllAsync(o => o.AsyncQuery(TimeSpan.FromMinutes(1)));
             Assert.NotNull(results);
             Assert.Equal(2, results.Documents.Count);
             Assert.Equal(1, results.Page);
@@ -652,12 +654,54 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(identity1.Id, results.Documents.First().Id);
             Assert.Equal(2, results.Total);
 
-            string asyncSearchId = results.GetAsyncSearchId();
-            Assert.Null(asyncSearchId);
+            string asyncQueryId = results.GetAsyncQueryId();
+            Assert.Null(asyncQueryId);
             Assert.False(results.GetIsPending());
             Assert.False(results.GetIsRunning());
 
-            //results = await _identityRepository.GetAllAsync(o => o.AsyncSearchId(results.GetAsyncSearchId()));
+            results = await _identityRepository.GetAllAsync(o => o.AsyncQuery(TimeSpan.Zero));
+            Assert.NotNull(results);
+            Assert.Equal(0, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Empty(results.Documents);
+            Assert.Equal(0, results.Total);
+
+            asyncQueryId = results.GetAsyncQueryId();
+            Assert.NotNull(asyncQueryId);
+            Assert.True(results.GetIsPending());
+            Assert.True(results.GetIsRunning());
+
+            results = await _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId, TimeSpan.FromMinutes(1)));
+            Assert.NotNull(results);
+            Assert.Equal(2, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(identity1.Id, results.Documents.First().Id);
+            Assert.Equal(2, results.Total);
+
+            asyncQueryId = results.GetAsyncQueryId();
+            Assert.NotNull(asyncQueryId);
+            Assert.False(results.GetIsPending());
+            Assert.False(results.GetIsRunning());
+
+            results = await _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId, TimeSpan.FromMinutes(1), true));
+            Assert.NotNull(results);
+            Assert.Equal(2, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(identity1.Id, results.Documents.First().Id);
+            Assert.Equal(2, results.Total);
+
+            Assert.Null(results.GetAsyncQueryId());
+            Assert.False(results.GetIsPending());
+            Assert.False(results.GetIsRunning());
+
+            results = await _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId));
+
+            await _identityRepository.RemoveQueryAsync(asyncQueryId);
+
+            await Assert.ThrowsAsync<ArgumentNullException>(() => _identityRepository.GetAllAsync(o => o.AsyncQueryId(null)));
         }
 
         [Fact]

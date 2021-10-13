@@ -287,8 +287,20 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
             }
 
-            if (options.HasAsyncSearchId()) {
-                var response = await _client.AsyncSearch.GetAsync<TResult>(options.GetAsyncSearchId()).AnyContext();
+            if (options.HasAsyncQueryId()) {
+                var queryId = options.GetAsyncQueryId();
+                if (String.IsNullOrEmpty(queryId))
+                    throw new ArgumentNullException("AsyncQueryId must not be null");
+
+                var response = await _client.AsyncSearch.GetAsync<TResult>(queryId, s => {
+                    if (options.HasAsyncQueryWaitTime())
+                        s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
+                    return s;
+                }).AnyContext();
+
+                if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
+                    await RemoveQueryAsync(queryId);
+
                 _logger.LogRequest(response, options.GetQueryLogLevel());
                 result = response.ToFindResults(options);
             } else if (options.HasSnapshotScrollId()) {
@@ -303,8 +315,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (query.ShouldOnlyHaveIds())
                     searchDescriptor.Source(false);
 
-                if (options.ShouldUseAsyncResults()) {
+                if (options.ShouldUseAsyncQuery()) {
                     var asyncSearchDescriptor = searchDescriptor.ToAsyncSearchSubmitDescriptor();
+
+                    if (options.HasAsyncQueryWaitTime())
+                        asyncSearchDescriptor.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
+
                     var response = await _client.AsyncSearch.SubmitAsync<TResult>(asyncSearchDescriptor).AnyContext();
                     _logger.LogRequest(response, options.GetQueryLogLevel());
                     result = response.ToFindResults(options);
@@ -328,6 +344,10 @@ namespace Foundatio.Repositories.Elasticsearch {
             ((IFindResults<TResult>)result).GetNextPageFunc = previousResults => GetNextPageFunc(previousResults, query, options);
 
             return result;
+        }
+
+        public Task RemoveQueryAsync(string queryId) {
+            return _client.AsyncSearch.DeleteAsync(queryId);
         }
 
         private async Task<FindResults<TResult>> GetNextPageFunc<TResult>(FindResults<TResult> previousResults, IRepositoryQuery query, ICommandOptions options) where TResult : class, new() {
@@ -549,6 +569,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 search.Index(String.Join(",", indices));
             if (HasVersion)
                 search.SequenceNumberPrimaryTerm(HasVersion);
+
+            if (options.HasQueryTimeout())
+                search.Timeout(new Time(options.GetQueryTimeout()).ToString());
 
             search.IgnoreUnavailable();
             search.TrackTotalHits();
