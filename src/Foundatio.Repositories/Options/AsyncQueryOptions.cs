@@ -33,6 +33,9 @@ namespace Foundatio.Repositories {
         internal const string AsyncQueryIdKey = "@AsyncQueryId";
         internal const string AsyncQueryAutoDeleteKey = "@AsyncQueryAutoDelete";
         public static T AsyncQueryId<T>(this T options, string id, TimeSpan? waitTime = null, bool autoDelete = false) where T : ICommandOptions {
+            if (String.IsNullOrEmpty(id))
+                return options;
+
             options.BuildOption(AsyncQueryIdKey, id);
 
             if (waitTime.HasValue)

@@ -697,11 +697,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.False(results.GetIsPending());
             Assert.False(results.GetIsRunning());
 
+            // getting query that doesn't exist returns empty (don't love it, but other things are doing similar)
             results = await _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId));
 
+            // removing query that does not exist to make sure it doesn't throw
             await _identityRepository.RemoveQueryAsync(asyncQueryId);
 
-            await Assert.ThrowsAsync<ArgumentNullException>(() => _identityRepository.GetAllAsync(o => o.AsyncQueryId(null)));
+            // setting to null is ignored
+            await _identityRepository.GetAllAsync(o => o.AsyncQueryId(null));
         }
 
         [Fact]
