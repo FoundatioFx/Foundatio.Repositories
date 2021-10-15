@@ -146,6 +146,42 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             return hits.Select(h => h.ToFindHit());
         }
 
+        public static CountResult ToCountResult<T>(this Nest.ISearchResponse<T> response, ICommandOptions options) where T : class, new() {
+            if (!response.IsValid) {
+                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+                    return new FindResults<T>();
+
+                throw new DocumentException(response.GetErrorMessage("Error while counting"), response.OriginalException);
+            }
+
+            var data = new DataDictionary();
+            if (response.ScrollId != null)
+                data.Add(ElasticDataKeys.ScrollId, response.ScrollId);
+
+            return new CountResult(response.Total, response.ToAggregations(), data);
+        }
+
+        public static CountResult ToCountResult<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options) where T : class, new() {
+            if (!response.IsValid) {
+                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+                    return new FindResults<T>();
+
+                throw new DocumentException(response.GetErrorMessage("Error while counting"), response.OriginalException);
+            }
+
+            var data = new DataDictionary
+            {
+                { ElasticDataKeys.AsyncQueryId, response.Id },
+                { ElasticDataKeys.IsRunning, response.IsRunning },
+                { ElasticDataKeys.IsPending, response.IsPartial }
+            };
+
+            if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
+                data.Remove(ElasticDataKeys.AsyncQueryId);
+
+            return new CountResult(response.Response.Total, response.ToAggregations(), data);
+        }
+
         public static FindHit<T> ToFindHit<T>(this Nest.GetResponse<T> hit) where T : class {
             var versionedDoc = hit.Source as IVersioned;
             if (versionedDoc != null)

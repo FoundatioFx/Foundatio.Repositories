@@ -338,7 +338,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     await _client.ClearScrollAsync(s => s.ScrollId(result.GetScrollId()));
             }
 
-            if (allowCaching)
+            if (allowCaching && !result.GetIsRunning())
                 await SetCachedQueryResultAsync(options, result, cacheSuffix: cacheSuffix).AnyContext();
             
             ((IFindResults<TResult>)result).GetNextPageFunc = previousResults => GetNextPageFunc(previousResults, query, options);
@@ -438,19 +438,21 @@ namespace Foundatio.Repositories.Elasticsearch {
             var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
             searchDescriptor.Size(0);
 
-            var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
+            if (options.ShouldUseAsyncQuery()) {
+                var asyncSearchDescriptor = searchDescriptor.ToAsyncSearchSubmitDescriptor();
 
-            if (response.IsValid) {
+                if (options.HasAsyncQueryWaitTime())
+                    asyncSearchDescriptor.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
+
+                var response = await _client.AsyncSearch.SubmitAsync<T>(asyncSearchDescriptor).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
+                result = response.ToCountResult(options);
             } else {
-                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
-                    return new CountResult();
-
-                throw new DocumentException(response.GetErrorMessage("Error getting document count"), response.OriginalException);
+                var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
+                result = response.ToCountResult(options);
             }
 
-            result = new CountResult(response.Total, response.ToAggregations());
-            if (IsCacheEnabled && options.ShouldUseCache())
+            if (IsCacheEnabled && options.ShouldUseCache() && !result.GetIsRunning())
                 await SetCachedQueryResultAsync(options, result, "count").AnyContext();
 
             return result;

@@ -12,11 +12,11 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         }
 
         public static bool GetIsPending(this IHaveData results) {
-            return results.Data.GetBoolean(ElasticDataKeys.IsPending);
+            return results.Data.GetBoolean(ElasticDataKeys.IsPending, false);
         }
 
         public static bool GetIsRunning(this IHaveData results) {
-            return results.Data.GetBoolean(ElasticDataKeys.IsRunning);
+            return results.Data.GetBoolean(ElasticDataKeys.IsRunning, false);
         }
     }
 }
