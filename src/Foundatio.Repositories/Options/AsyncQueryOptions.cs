@@ -20,7 +20,7 @@ namespace Foundatio.Repositories {
             return options.BuildOption(AsyncQueryEnabledKey, enabled);
         }
 
-        internal const string AsyncQueryWaitTimeKey = "@AsyncQueryTtl";
+        internal const string AsyncQueryWaitTimeKey = "@AsyncQueryWaitTime";
         public static T AsyncQueryWaitTime<T>(this T options, TimeSpan waitTime) where T : ICommandOptions {
             return options.BuildOption(AsyncQueryWaitTimeKey, waitTime);
         }
