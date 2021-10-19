@@ -338,7 +338,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                     await _client.ClearScrollAsync(s => s.ScrollId(result.GetScrollId()));
             }
 
-            if (allowCaching && !result.GetIsRunning())
+            if (allowCaching && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
                 await SetCachedQueryResultAsync(options, result, cacheSuffix: cacheSuffix).AnyContext();
             
             ((IFindResults<TResult>)result).GetNextPageFunc = previousResults => GetNextPageFunc(previousResults, query, options);
@@ -452,7 +452,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                 result = response.ToCountResult(options);
             }
 
-            if (IsCacheEnabled && options.ShouldUseCache() && !result.GetIsRunning())
+            if (IsCacheEnabled && options.ShouldUseCache() && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
                 await SetCachedQueryResultAsync(options, result, "count").AnyContext();
 
             return result;

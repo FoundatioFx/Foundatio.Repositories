@@ -6,6 +6,7 @@ using Exceptionless.DateTimeExtensions;
 using Foundatio.Parsers;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
@@ -656,8 +657,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             string asyncQueryId = results.GetAsyncQueryId();
             Assert.Null(asyncQueryId);
-            Assert.False(results.GetIsPending());
-            Assert.False(results.GetIsRunning());
+            Assert.False(results.IsAsyncQueryPartial());
+            Assert.False(results.IsAsyncQueryRunning());
 
             results = await _identityRepository.GetAllAsync(o => o.AsyncQuery(TimeSpan.Zero));
             Assert.NotNull(results);
@@ -669,8 +670,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             asyncQueryId = results.GetAsyncQueryId();
             Assert.NotNull(asyncQueryId);
-            Assert.True(results.GetIsPending());
-            Assert.True(results.GetIsRunning());
+            Assert.True(results.IsAsyncQueryPartial());
+            Assert.True(results.IsAsyncQueryRunning());
 
             results = await _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId, TimeSpan.FromMinutes(1)));
             Assert.NotNull(results);
@@ -682,8 +683,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
 
             asyncQueryId = results.GetAsyncQueryId();
             Assert.NotNull(asyncQueryId);
-            Assert.False(results.GetIsPending());
-            Assert.False(results.GetIsRunning());
+            Assert.False(results.IsAsyncQueryPartial());
+            Assert.False(results.IsAsyncQueryRunning());
 
             results = await _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId, TimeSpan.FromMinutes(1), true));
             Assert.NotNull(results);
@@ -694,8 +695,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(2, results.Total);
 
             Assert.Null(results.GetAsyncQueryId());
-            Assert.False(results.GetIsPending());
-            Assert.False(results.GetIsRunning());
+            Assert.False(results.IsAsyncQueryPartial());
+            Assert.False(results.IsAsyncQueryRunning());
 
             // getting query that doesn't exist returns empty (don't love it, but other things are doing similar)
             results = await _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId));

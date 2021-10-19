@@ -108,9 +108,6 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
     public static class ElasticDataKeys {
         public const string Index = "index";
         public const string ScrollId = "scrollid";
-        public const string AsyncQueryId = "asyncqueryid";
-        public const string IsRunning = "isrunning";
-        public const string IsPending = "ispending";
         public const string Sorts = "sorts";
         public const string SearchBeforeToken = nameof(SearchBeforeToken);
         public const string SearchAfterToken = nameof(SearchAfterToken);

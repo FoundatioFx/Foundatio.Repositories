@@ -108,13 +108,13 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
             var data = new DataDictionary
             {
-                { ElasticDataKeys.AsyncQueryId, response.Id },
-                { ElasticDataKeys.IsRunning, response.IsRunning },
-                { ElasticDataKeys.IsPending, response.IsPartial }
+                { AsyncQueryDataKeys.AsyncQueryId, response.Id },
+                { AsyncQueryDataKeys.IsRunning, response.IsRunning },
+                { AsyncQueryDataKeys.IsPartial, response.IsPartial }
             };
 
             if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
-                data.Remove(ElasticDataKeys.AsyncQueryId);
+                data.Remove(AsyncQueryDataKeys.AsyncQueryId);
 
             var results = new FindResults<T>(docs, response.Response.Total, response.ToAggregations(), null, data);
             var protectedResults = (IFindResults<T>)results;
@@ -171,13 +171,13 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
             var data = new DataDictionary
             {
-                { ElasticDataKeys.AsyncQueryId, response.Id },
-                { ElasticDataKeys.IsRunning, response.IsRunning },
-                { ElasticDataKeys.IsPending, response.IsPartial }
+                { AsyncQueryDataKeys.AsyncQueryId, response.Id },
+                { AsyncQueryDataKeys.IsRunning, response.IsRunning },
+                { AsyncQueryDataKeys.IsPartial, response.IsPartial }
             };
 
             if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
-                data.Remove(ElasticDataKeys.AsyncQueryId);
+                data.Remove(AsyncQueryDataKeys.AsyncQueryId);
 
             return new CountResult(response.Response.Total, response.ToAggregations(), data);
         }
