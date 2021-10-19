@@ -192,13 +192,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             return await ExistsAsync(q => q.Id(id), o => options.As<T>()).AnyContext();
         }
 
-        public Task<long> CountAsync(CommandOptionsDescriptor<T> options) {
+        public Task<CountResult> CountAsync(CommandOptionsDescriptor<T> options) {
             return CountAsync(options.Configure());
         }
 
-        public virtual async Task<long> CountAsync(ICommandOptions options = null) {
+        public virtual async Task<CountResult> CountAsync(ICommandOptions options = null) {
             var result = await CountAsync(NewQuery(), options).AnyContext();
-            return result.Total;
+            return result;
         }
 
         public Task InvalidateCacheAsync(T document) {
@@ -297,7 +297,7 @@ namespace Foundatio.Repositories.Elasticsearch {
                         s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
                     return s;
                 }).AnyContext();
-
+                
                 if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
                     await RemoveQueryAsync(queryId);
 
@@ -438,7 +438,23 @@ namespace Foundatio.Repositories.Elasticsearch {
             var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
             searchDescriptor.Size(0);
 
-            if (options.ShouldUseAsyncQuery()) {
+            if (options.HasAsyncQueryId()) {
+                var queryId = options.GetAsyncQueryId();
+                if (String.IsNullOrEmpty(queryId))
+                    throw new ArgumentNullException("AsyncQueryId must not be null");
+
+                var response = await _client.AsyncSearch.GetAsync<T>(queryId, s => {
+                    if (options.HasAsyncQueryWaitTime())
+                        s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
+                    return s;
+                }).AnyContext();
+
+                if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
+                    await RemoveQueryAsync(queryId);
+
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+                result = response.ToCountResult(options);
+            } else if(options.ShouldUseAsyncQuery()) {
                 var asyncSearchDescriptor = searchDescriptor.ToAsyncSearchSubmitDescriptor();
 
                 if (options.HasAsyncQueryWaitTime())

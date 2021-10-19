@@ -18,8 +18,8 @@ namespace Foundatio.Repositories {
         Task<bool> ExistsAsync(Id id, CommandOptionsDescriptor<T> options);
         Task<bool> ExistsAsync(Id id, ICommandOptions options = null);
 
-        Task<long> CountAsync(CommandOptionsDescriptor<T> options);
-        Task<long> CountAsync(ICommandOptions options = null);
+        Task<CountResult> CountAsync(CommandOptionsDescriptor<T> options);
+        Task<CountResult> CountAsync(ICommandOptions options = null);
 
         Task InvalidateCacheAsync(T document);
         Task InvalidateCacheAsync(IEnumerable<T> documents);
