@@ -6,6 +6,7 @@ using Exceptionless.DateTimeExtensions;
 using Foundatio.Parsers;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
@@ -698,7 +699,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.False(results.IsAsyncQueryRunning());
 
             // getting query that doesn't exist returns empty (don't love it, but other things are doing similar)
-            results = await _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId));
+            await Assert.ThrowsAsync<AsyncQueryNotFoundException>(() => _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId)));
 
             // removing query that does not exist to make sure it doesn't throw
             await _identityRepository.RemoveQueryAsync(asyncQueryId);

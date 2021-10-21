@@ -302,6 +302,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                     await RemoveQueryAsync(queryId);
 
                 _logger.LogRequest(response, options.GetQueryLogLevel());
+                if (!response.IsValid && response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+                    throw new AsyncQueryNotFoundException(queryId);
+
                 result = response.ToFindResults(options);
             } else if (options.HasSnapshotScrollId()) {
                 var response = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), options.GetSnapshotScrollId()).AnyContext();
