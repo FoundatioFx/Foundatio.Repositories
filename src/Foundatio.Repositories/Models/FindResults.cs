@@ -103,11 +103,11 @@ namespace Foundatio.Repositories.Models {
         public AggregationsHelper Aggs => _agg ?? (_agg = new AggregationsHelper(Aggregations));
 
         public static implicit operator long(CountResult result) {
-            return result.Total;
+            return result?.Total ?? 0;
         }
 
         public static implicit operator int(CountResult result) {
-            return (int)result.Total;
+            return (int)(result?.Total ?? 0);
         }
 
         public override string ToString() {

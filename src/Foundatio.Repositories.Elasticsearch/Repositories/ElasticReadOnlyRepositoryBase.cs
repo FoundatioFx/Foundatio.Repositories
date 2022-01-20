@@ -192,13 +192,13 @@ namespace Foundatio.Repositories.Elasticsearch {
             return await ExistsAsync(q => q.Id(id), o => options.As<T>()).AnyContext();
         }
 
-        public Task<long> CountAsync(CommandOptionsDescriptor<T> options) {
+        public Task<CountResult> CountAsync(CommandOptionsDescriptor<T> options) {
             return CountAsync(options.Configure());
         }
 
-        public virtual async Task<long> CountAsync(ICommandOptions options = null) {
+        public virtual async Task<CountResult> CountAsync(ICommandOptions options = null) {
             var result = await CountAsync(NewQuery(), options).AnyContext();
-            return result.Total;
+            return result;
         }
 
         public Task InvalidateCacheAsync(T document) {
@@ -287,9 +287,24 @@ namespace Foundatio.Repositories.Elasticsearch {
                 }
             }
 
-            if (options.HasAsyncSearchId()) {
-                var response = await _client.AsyncSearch.GetAsync<TResult>(options.GetAsyncSearchId()).AnyContext();
+            if (options.HasAsyncQueryId()) {
+                var queryId = options.GetAsyncQueryId();
+                if (String.IsNullOrEmpty(queryId))
+                    throw new ArgumentNullException("AsyncQueryId must not be null");
+
+                var response = await _client.AsyncSearch.GetAsync<TResult>(queryId, s => {
+                    if (options.HasAsyncQueryWaitTime())
+                        s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
+                    return s;
+                }).AnyContext();
+                
+                if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
+                    await RemoveQueryAsync(queryId);
+
                 _logger.LogRequest(response, options.GetQueryLogLevel());
+                if (!response.IsValid && response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+                    throw new AsyncQueryNotFoundException(queryId);
+
                 result = response.ToFindResults(options);
             } else if (options.HasSnapshotScrollId()) {
                 var response = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), options.GetSnapshotScrollId()).AnyContext();
@@ -303,8 +318,12 @@ namespace Foundatio.Repositories.Elasticsearch {
                 if (query.ShouldOnlyHaveIds())
                     searchDescriptor.Source(false);
 
-                if (options.ShouldUseAsyncResults()) {
+                if (options.ShouldUseAsyncQuery()) {
                     var asyncSearchDescriptor = searchDescriptor.ToAsyncSearchSubmitDescriptor();
+
+                    if (options.HasAsyncQueryWaitTime())
+                        asyncSearchDescriptor.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
+
                     var response = await _client.AsyncSearch.SubmitAsync<TResult>(asyncSearchDescriptor).AnyContext();
                     _logger.LogRequest(response, options.GetQueryLogLevel());
                     result = response.ToFindResults(options);
@@ -322,12 +341,16 @@ namespace Foundatio.Repositories.Elasticsearch {
                     await _client.ClearScrollAsync(s => s.ScrollId(result.GetScrollId()));
             }
 
-            if (allowCaching)
+            if (allowCaching && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
                 await SetCachedQueryResultAsync(options, result, cacheSuffix: cacheSuffix).AnyContext();
             
             ((IFindResults<TResult>)result).GetNextPageFunc = previousResults => GetNextPageFunc(previousResults, query, options);
 
             return result;
+        }
+
+        public Task RemoveQueryAsync(string queryId) {
+            return _client.AsyncSearch.DeleteAsync(queryId);
         }
 
         private async Task<FindResults<TResult>> GetNextPageFunc<TResult>(FindResults<TResult> previousResults, IRepositoryQuery query, ICommandOptions options) where TResult : class, new() {
@@ -418,19 +441,37 @@ namespace Foundatio.Repositories.Elasticsearch {
             var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
             searchDescriptor.Size(0);
 
-            var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
+            if (options.HasAsyncQueryId()) {
+                var queryId = options.GetAsyncQueryId();
+                if (String.IsNullOrEmpty(queryId))
+                    throw new ArgumentNullException("AsyncQueryId must not be null");
 
-            if (response.IsValid) {
+                var response = await _client.AsyncSearch.GetAsync<T>(queryId, s => {
+                    if (options.HasAsyncQueryWaitTime())
+                        s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
+                    return s;
+                }).AnyContext();
+
+                if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
+                    await RemoveQueryAsync(queryId);
+
                 _logger.LogRequest(response, options.GetQueryLogLevel());
-            } else {
-                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
-                    return new CountResult();
+                result = response.ToCountResult(options);
+            } else if(options.ShouldUseAsyncQuery()) {
+                var asyncSearchDescriptor = searchDescriptor.ToAsyncSearchSubmitDescriptor();
 
-                throw new DocumentException(response.GetErrorMessage("Error getting document count"), response.OriginalException);
+                if (options.HasAsyncQueryWaitTime())
+                    asyncSearchDescriptor.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
+
+                var response = await _client.AsyncSearch.SubmitAsync<T>(asyncSearchDescriptor).AnyContext();
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+                result = response.ToCountResult(options);
+            } else {
+                var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
+                result = response.ToCountResult(options);
             }
 
-            result = new CountResult(response.Total, response.ToAggregations());
-            if (IsCacheEnabled && options.ShouldUseCache())
+            if (IsCacheEnabled && options.ShouldUseCache() && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
                 await SetCachedQueryResultAsync(options, result, "count").AnyContext();
 
             return result;
@@ -549,6 +590,9 @@ namespace Foundatio.Repositories.Elasticsearch {
                 search.Index(String.Join(",", indices));
             if (HasVersion)
                 search.SequenceNumberPrimaryTerm(HasVersion);
+
+            if (options.HasQueryTimeout())
+                search.Timeout(new Time(options.GetQueryTimeout()).ToString());
 
             search.IgnoreUnavailable();
             search.TrackTotalHits();

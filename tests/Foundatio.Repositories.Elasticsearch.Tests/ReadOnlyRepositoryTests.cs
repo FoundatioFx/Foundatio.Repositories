@@ -6,6 +6,8 @@ using Exceptionless.DateTimeExtensions;
 using Foundatio.Parsers;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Exceptions;
+using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
@@ -637,14 +639,16 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
         }
 
         [Fact]
-        public async Task GetAllWithAsyncSearchAsync() {
+        public async Task GetAllWithAsyncQueryAsync() {
+            Log.MinimumLevel = LogLevel.Trace;
+
             var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
             Assert.NotNull(identity1?.Id);
 
             var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
             Assert.NotNull(identity2?.Id);
 
-            var results = await _identityRepository.GetAllAsync(o => o.AsyncResults());
+            var results = await _identityRepository.GetAllAsync(o => o.AsyncQuery(TimeSpan.FromMinutes(1)));
             Assert.NotNull(results);
             Assert.Equal(2, results.Documents.Count);
             Assert.Equal(1, results.Page);
@@ -652,12 +656,113 @@ namespace Foundatio.Repositories.Elasticsearch.Tests {
             Assert.Equal(identity1.Id, results.Documents.First().Id);
             Assert.Equal(2, results.Total);
 
-            string asyncSearchId = results.GetAsyncSearchId();
-            Assert.Null(asyncSearchId);
-            Assert.False(results.GetIsPending());
-            Assert.False(results.GetIsRunning());
+            string asyncQueryId = results.GetAsyncQueryId();
+            Assert.Null(asyncQueryId);
+            Assert.False(results.IsAsyncQueryPartial());
+            Assert.False(results.IsAsyncQueryRunning());
 
-            //results = await _identityRepository.GetAllAsync(o => o.AsyncSearchId(results.GetAsyncSearchId()));
+            results = await _identityRepository.GetAllAsync(o => o.AsyncQuery(TimeSpan.Zero));
+            Assert.NotNull(results);
+            Assert.Equal(0, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Empty(results.Documents);
+            Assert.Equal(0, results.Total);
+
+            asyncQueryId = results.GetAsyncQueryId();
+            Assert.NotNull(asyncQueryId);
+            Assert.True(results.IsAsyncQueryPartial());
+            Assert.True(results.IsAsyncQueryRunning());
+
+            results = await _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId, TimeSpan.FromMinutes(1)));
+            Assert.NotNull(results);
+            Assert.Equal(2, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(identity1.Id, results.Documents.First().Id);
+            Assert.Equal(2, results.Total);
+
+            Assert.Equal(asyncQueryId, results.GetAsyncQueryId());
+            Assert.False(results.IsAsyncQueryPartial());
+            Assert.False(results.IsAsyncQueryRunning());
+
+            results = await _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId, TimeSpan.FromMinutes(1), autoDelete: true));
+            Assert.NotNull(results);
+            Assert.Equal(2, results.Documents.Count);
+            Assert.Equal(1, results.Page);
+            Assert.False(results.HasMore);
+            Assert.Equal(identity1.Id, results.Documents.First().Id);
+            Assert.Equal(2, results.Total);
+
+            Assert.Null(results.GetAsyncQueryId());
+            Assert.False(results.IsAsyncQueryPartial());
+            Assert.False(results.IsAsyncQueryRunning());
+
+            // getting query that doesn't exist returns empty (don't love it, but other things are doing similar)
+            await Assert.ThrowsAsync<AsyncQueryNotFoundException>(() => _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId)));
+
+            // removing query that does not exist to make sure it doesn't throw
+            await _identityRepository.RemoveQueryAsync(asyncQueryId);
+
+            // setting to null is ignored
+            await _identityRepository.GetAllAsync(o => o.AsyncQueryId(null));
+        }
+
+        [Fact]
+        public async Task CountWithAsyncQueryAsync() {
+            Log.MinimumLevel = LogLevel.Trace;
+
+            var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
+            Assert.NotNull(identity1?.Id);
+
+            var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
+            Assert.NotNull(identity2?.Id);
+
+            var results = await _identityRepository.CountAsync(o => o.AsyncQuery(TimeSpan.FromMinutes(1)));
+            Assert.NotNull(results);
+            Assert.Equal(2, results);
+
+            string asyncQueryId = results.GetAsyncQueryId();
+            Assert.Null(asyncQueryId);
+            Assert.False(results.IsAsyncQueryPartial());
+            Assert.False(results.IsAsyncQueryRunning());
+
+            results = await _identityRepository.CountAsync(o => o.AsyncQuery(TimeSpan.Zero));
+            Assert.NotNull(results);
+            Assert.Equal(0, results);
+            Assert.Equal(0, results.Total);
+
+            asyncQueryId = results.GetAsyncQueryId();
+            Assert.NotNull(asyncQueryId);
+            Assert.True(results.IsAsyncQueryPartial());
+            Assert.True(results.IsAsyncQueryRunning());
+
+            results = await _identityRepository.CountAsync(o => o.AsyncQueryId(asyncQueryId, TimeSpan.FromMinutes(1)));
+            Assert.NotNull(results);
+            Assert.Equal(2, results);
+            Assert.Equal(2, results.Total);
+
+            Assert.Equal(asyncQueryId, results.GetAsyncQueryId());
+            Assert.False(results.IsAsyncQueryPartial());
+            Assert.False(results.IsAsyncQueryRunning());
+
+            results = await _identityRepository.CountAsync(o => o.AsyncQueryId(asyncQueryId, TimeSpan.FromMinutes(1), autoDelete: true));
+            Assert.NotNull(results);
+            Assert.Equal(2, results);
+            Assert.Equal(2, results.Total);
+
+            Assert.Null(results.GetAsyncQueryId());
+            Assert.False(results.IsAsyncQueryPartial());
+            Assert.False(results.IsAsyncQueryRunning());
+
+            // getting query that doesn't exist returns empty (don't love it, but other things are doing similar)
+            results = await _identityRepository.CountAsync(o => o.AsyncQueryId(asyncQueryId));
+
+            // removing query that does not exist to make sure it doesn't throw
+            await _identityRepository.RemoveQueryAsync(asyncQueryId);
+
+            // setting to null is ignored
+            await _identityRepository.GetAllAsync(o => o.AsyncQueryId(null));
         }
 
         [Fact]

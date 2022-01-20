@@ -15,9 +15,6 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
         public static Nest.AsyncSearchSubmitDescriptor<T> ToAsyncSearchSubmitDescriptor<T>(this Nest.SearchDescriptor<T> searchDescriptor) where T : class, new() {
             var asyncSearchDescriptor = new Nest.AsyncSearchSubmitDescriptor<T>();
 
-            // TODO: Delete results when we get result and it's marked as completed
-            // TODO: Add runtime fields copy in this method when it's available in NEST
-
             var searchRequest = (Nest.ISearchRequest)searchDescriptor;
             var asyncSearchRequest = (Nest.IAsyncSearchSubmitRequest)asyncSearchDescriptor;
 
@@ -109,11 +106,15 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
             int limit = options.GetLimit();
             var docs = response.Response.Hits.Take(limit).ToFindHits().ToList();
 
-            var data = new DataDictionary {
-                { ElasticDataKeys.AsyncSearchId, response.Id },
-                { ElasticDataKeys.IsRunning, response.IsRunning },
-                { ElasticDataKeys.IsPending, response.IsPartial }
+            var data = new DataDictionary
+            {
+                { AsyncQueryDataKeys.AsyncQueryId, response.Id },
+                { AsyncQueryDataKeys.IsRunning, response.IsRunning },
+                { AsyncQueryDataKeys.IsPartial, response.IsPartial }
             };
+
+            if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
+                data.Remove(AsyncQueryDataKeys.AsyncQueryId);
 
             var results = new FindResults<T>(docs, response.Response.Total, response.ToAggregations(), null, data);
             var protectedResults = (IFindResults<T>)results;
@@ -143,6 +144,42 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions {
 
         public static IEnumerable<FindHit<T>> ToFindHits<T>(this IEnumerable<Nest.IHit<T>> hits) where T : class {
             return hits.Select(h => h.ToFindHit());
+        }
+
+        public static CountResult ToCountResult<T>(this Nest.ISearchResponse<T> response, ICommandOptions options) where T : class, new() {
+            if (!response.IsValid) {
+                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+                    return new FindResults<T>();
+
+                throw new DocumentException(response.GetErrorMessage("Error while counting"), response.OriginalException);
+            }
+
+            var data = new DataDictionary();
+            if (response.ScrollId != null)
+                data.Add(ElasticDataKeys.ScrollId, response.ScrollId);
+
+            return new CountResult(response.Total, response.ToAggregations(), data);
+        }
+
+        public static CountResult ToCountResult<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options) where T : class, new() {
+            if (!response.IsValid) {
+                if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+                    return new FindResults<T>();
+
+                throw new DocumentException(response.GetErrorMessage("Error while counting"), response.OriginalException);
+            }
+
+            var data = new DataDictionary
+            {
+                { AsyncQueryDataKeys.AsyncQueryId, response.Id },
+                { AsyncQueryDataKeys.IsRunning, response.IsRunning },
+                { AsyncQueryDataKeys.IsPartial, response.IsPartial }
+            };
+
+            if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
+                data.Remove(AsyncQueryDataKeys.AsyncQueryId);
+
+            return new CountResult(response.Response.Total, response.ToAggregations(), data);
         }
 
         public static FindHit<T> ToFindHit<T>(this Nest.GetResponse<T> hit) where T : class {
