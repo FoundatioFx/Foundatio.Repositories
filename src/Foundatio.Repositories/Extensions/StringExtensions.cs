@@ -1,42 +1,42 @@
 ﻿using System;
 using System.Text;
 
-namespace Foundatio.Repositories.Extensions {
-    public static class StringExtensions {
-        public static string ToJTokenPath(this string path) {
-            if (path.StartsWith("$"))
-                return path;
+namespace Foundatio.Repositories.Extensions;
 
-            var sb = new StringBuilder();
-            string[] parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
-            for (int i = 0; i < parts.Length; i++) {
-                if (parts[i].IsNumeric())
-                    sb.Append("[").Append(parts[i]).Append("]");
-                else
-                    sb.Append(parts[i]);
+public static class StringExtensions {
+    public static string ToJTokenPath(this string path) {
+        if (path.StartsWith("$"))
+            return path;
 
-                if (i < parts.Length - 1 && !parts[i + 1].IsNumeric())
-                    sb.Append(".");
-            }
+        var sb = new StringBuilder();
+        string[] parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+        for (int i = 0; i < parts.Length; i++) {
+            if (parts[i].IsNumeric())
+                sb.Append("[").Append(parts[i]).Append("]");
+            else
+                sb.Append(parts[i]);
 
-            return sb.ToString();
+            if (i < parts.Length - 1 && !parts[i + 1].IsNumeric())
+                sb.Append(".");
         }
 
-        public static bool IsNumeric(this string value) {
-            if (String.IsNullOrEmpty(value))
-                return false;
+        return sb.ToString();
+    }
 
-            for (int i = 0; i < value.Length; i++) {
-                if (Char.IsNumber(value[i]))
-                    continue;
+    public static bool IsNumeric(this string value) {
+        if (String.IsNullOrEmpty(value))
+            return false;
 
-                if (i == 0 && value[i] == '-')
-                    continue;
+        for (int i = 0; i < value.Length; i++) {
+            if (Char.IsNumber(value[i]))
+                continue;
 
-                return false;
-            }
+            if (i == 0 && value[i] == '-')
+                continue;
 
-            return true;
+            return false;
         }
+
+        return true;
     }
 }

@@ -122,6 +122,9 @@ csharp_style_inlined_variable_declaration = true:suggestion
 # C# Formatting Rules         #
 ###############################
 
+# Namespace preferences
+csharp_style_namespace_declarations = file_scoped:warning
+
 # New line preferences
 csharp_new_line_before_open_brace = none
 csharp_new_line_before_else = false

@@ -1,23 +1,23 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace Foundatio.Repositories.JsonPatch {
-    public class ReplaceOperation : Operation {
-        public JToken Value { get; set; }
+namespace Foundatio.Repositories.JsonPatch;
 
-        public override void Write(JsonWriter writer) {
-            writer.WriteStartObject();
+public class ReplaceOperation : Operation {
+    public JToken Value { get; set; }
 
-            WriteOp(writer, "replace");
-            WritePath(writer, Path);
-            WriteValue(writer, Value);
+    public override void Write(JsonWriter writer) {
+        writer.WriteStartObject();
 
-            writer.WriteEndObject();
-        }
+        WriteOp(writer, "replace");
+        WritePath(writer, Path);
+        WriteValue(writer, Value);
 
-        public override void Read(JObject jOperation) {
-            Path = jOperation.Value<string>("path");
-            Value = jOperation.GetValue("value");
-        }
+        writer.WriteEndObject();
+    }
+
+    public override void Read(JObject jOperation) {
+        Path = jOperation.Value<string>("path");
+        Value = jOperation.GetValue("value");
     }
 }

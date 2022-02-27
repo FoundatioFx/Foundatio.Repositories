@@ -5,25 +5,24 @@
  using Foundatio.Repositories.Models;
  using Nest;
 
- namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories {
-     public interface IParentRepository : ISearchableRepository<Parent> {}
+ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories; 
+ public interface IParentRepository : ISearchableRepository<Parent> {}
 
-     public class ParentRepository : ElasticRepositoryBase<Parent>, IParentRepository {
-         public ParentRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.ParentChild) {
-             BeforeQuery.AddHandler(OnBeforeQuery);
-             DocumentsChanging.AddHandler(OnDocumentsChanging);
-         }
+ public class ParentRepository : ElasticRepositoryBase<Parent>, IParentRepository {
+     public ParentRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.ParentChild) {
+         BeforeQuery.AddHandler(OnBeforeQuery);
+         DocumentsChanging.AddHandler(OnDocumentsChanging);
+     }
 
-         protected static Task OnDocumentsChanging(object sender, DocumentsChangeEventArgs<Parent> args) {
-             foreach (var doc in args.Documents.Select(d => d.Value).Cast<IParentChildDocument>())
-                doc.Discriminator = JoinField.Root<Parent>();
-                     
-             return Task.CompletedTask;
-         }
+     protected static Task OnDocumentsChanging(object sender, DocumentsChangeEventArgs<Parent> args) {
+         foreach (var doc in args.Documents.Select(d => d.Value).Cast<IParentChildDocument>())
+            doc.Discriminator = JoinField.Root<Parent>();
+                 
+         return Task.CompletedTask;
+     }
 
-         protected static Task OnBeforeQuery(object sender, BeforeQueryEventArgs<Parent> args) {
-             args.Query.Discriminator("parent");
-             return Task.CompletedTask;
-         }
-    }
+     protected static Task OnBeforeQuery(object sender, BeforeQueryEventArgs<Parent> args) {
+         args.Query.Discriminator("parent");
+         return Task.CompletedTask;
+     }
 }

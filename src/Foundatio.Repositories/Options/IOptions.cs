@@ -4,179 +4,179 @@ using System.Collections.Generic;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
 
-namespace Foundatio.Repositories.Options {
-    public interface IOptions {
-        IOptionsDictionary Values { get; }
+namespace Foundatio.Repositories.Options;
+
+public interface IOptions {
+    IOptionsDictionary Values { get; }
+}
+
+public interface IOptionsDictionary : IEnumerable<KeyValuePair<string, object>> {
+    void Set(string name, object value);
+    bool Contains(string name);
+    bool Remove(string name);
+    T Get<T>(string name, T defaultValue = default);
+}
+
+public class OptionsDictionary : IOptionsDictionary {
+    protected readonly IDictionary<string, object> _options = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+
+    public void Set(string name, object value) {
+        _options[name] = value;
     }
 
-    public interface IOptionsDictionary : IEnumerable<KeyValuePair<string, object>> {
-        void Set(string name, object value);
-        bool Contains(string name);
-        bool Remove(string name);
-        T Get<T>(string name, T defaultValue = default);
+    public bool Contains(string name) {
+        return _options.ContainsKey(name);
     }
 
-    public class OptionsDictionary : IOptionsDictionary {
-        protected readonly IDictionary<string, object> _options = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+    public bool Remove(string name) {
+        return _options.Remove(name);
+    }
 
-        public void Set(string name, object value) {
-            _options[name] = value;
-        }
+    public T Get<T>(string name, T defaultValue) {
+        if (!_options.ContainsKey(name))
+            return defaultValue;
 
-        public bool Contains(string name) {
-            return _options.ContainsKey(name);
-        }
-
-        public bool Remove(string name) {
-            return _options.Remove(name);
-        }
-
-        public T Get<T>(string name, T defaultValue) {
-            if (!_options.ContainsKey(name))
-                return defaultValue;
-
-            object data = _options[name];
-            if (!(data is T)) {
-                try {
-                    return TypeHelper.ToType<T>(data);
-                } catch {
-                    throw new ArgumentException($"Option \"{name}\" is not compatible with the requested type \"{typeof(T).FullName}\".");
-                }
+        object data = _options[name];
+        if (!(data is T)) {
+            try {
+                return TypeHelper.ToType<T>(data);
+            } catch {
+                throw new ArgumentException($"Option \"{name}\" is not compatible with the requested type \"{typeof(T).FullName}\".");
             }
-
-            return (T)data;
         }
 
-        public IEnumerator<KeyValuePair<string, object>> GetEnumerator() {
-            return _options.GetEnumerator();
-        }
-
-        IEnumerator IEnumerable.GetEnumerator() {
-            return _options.GetEnumerator();
-        }
+        return (T)data;
     }
 
-    public abstract class OptionsBase : IOptions {
-        public IOptionsDictionary Values { get; internal set; } = new OptionsDictionary();
+    public IEnumerator<KeyValuePair<string, object>> GetEnumerator() {
+        return _options.GetEnumerator();
     }
 
-    public static class OptionsExtensions {
-        public static T BuildOption<T>(this T options, string name, object value) where T : IOptions {
-            if (options == null)
-                throw new ArgumentNullException(nameof(options));
+    IEnumerator IEnumerable.GetEnumerator() {
+        return _options.GetEnumerator();
+    }
+}
 
-            options.Values.Set(name, value);
-            return options;
-        }
+public abstract class OptionsBase : IOptions {
+    public IOptionsDictionary Values { get; internal set; } = new OptionsDictionary();
+}
 
-        public static T SafeGetOption<T>(this IOptions options, string name, T defaultValue = default) {
-            if (options == null)
-                return defaultValue;
+public static class OptionsExtensions {
+    public static T BuildOption<T>(this T options, string name, object value) where T : IOptions {
+        if (options == null)
+            throw new ArgumentNullException(nameof(options));
 
-            return options.Values.Get(name, defaultValue);
-        }
+        options.Values.Set(name, value);
+        return options;
+    }
 
-        public static bool SafeHasOption(this IOptions options, string name) {
-            if (options == null)
-                return false;
+    public static T SafeGetOption<T>(this IOptions options, string name, T defaultValue = default) {
+        if (options == null)
+            return defaultValue;
 
-            return options.Values.Contains(name);
-        }
+        return options.Values.Get(name, defaultValue);
+    }
 
-        public static ICollection<T> SafeGetCollection<T>(this IOptions options, string name) {
-            if (options == null)
-                return new List<T>();
+    public static bool SafeHasOption(this IOptions options, string name) {
+        if (options == null)
+            return false;
 
-            return options.Values.Get(name, new List<T>());
-        }
+        return options.Values.Contains(name);
+    }
 
-        public static TOptions AddCollectionOptionValue<TOptions, TValue>(this TOptions options, string name, TValue value) where TOptions : IOptions {
-            if (options == null)
-                throw new ArgumentNullException(nameof(options));
+    public static ICollection<T> SafeGetCollection<T>(this IOptions options, string name) {
+        if (options == null)
+            return new List<T>();
 
-            var setOption = options.SafeGetOption(name, new List<TValue>());
-            setOption.Add(value);
-            options.Values.Set(name, setOption);
+        return options.Values.Get(name, new List<T>());
+    }
 
-            return options;
-        }
+    public static TOptions AddCollectionOptionValue<TOptions, TValue>(this TOptions options, string name, TValue value) where TOptions : IOptions {
+        if (options == null)
+            throw new ArgumentNullException(nameof(options));
 
-        public static TOptions AddCollectionOptionValue<TOptions, TValue>(this TOptions options, string name, IEnumerable<TValue> values) where TOptions : IOptions {
-            if (options == null)
-                throw new ArgumentNullException(nameof(options));
+        var setOption = options.SafeGetOption(name, new List<TValue>());
+        setOption.Add(value);
+        options.Values.Set(name, setOption);
 
-            var setOption = options.SafeGetOption(name, new List<TValue>());
-            setOption.AddRange(values);
-            options.Values.Set(name, setOption);
+        return options;
+    }
 
-            return options;
-        }
+    public static TOptions AddCollectionOptionValue<TOptions, TValue>(this TOptions options, string name, IEnumerable<TValue> values) where TOptions : IOptions {
+        if (options == null)
+            throw new ArgumentNullException(nameof(options));
 
-        public static ISet<T> SafeGetSet<T>(this IOptions options, string name) {
-            if (options == null)
-                return new HashSet<T>();
+        var setOption = options.SafeGetOption(name, new List<TValue>());
+        setOption.AddRange(values);
+        options.Values.Set(name, setOption);
 
-            return options.Values.Get(name, new HashSet<T>());
-        }
+        return options;
+    }
 
-        public static T AddSetOptionValue<T>(this T options, string name, string value) where T : IOptions {
-            if (options == null)
-                throw new ArgumentNullException(nameof(options));
+    public static ISet<T> SafeGetSet<T>(this IOptions options, string name) {
+        if (options == null)
+            return new HashSet<T>();
 
-            var setOption = options.SafeGetOption(name, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-            setOption.Add(value);
-            options.Values.Set(name, setOption);
+        return options.Values.Get(name, new HashSet<T>());
+    }
 
-            return options;
-        }
+    public static T AddSetOptionValue<T>(this T options, string name, string value) where T : IOptions {
+        if (options == null)
+            throw new ArgumentNullException(nameof(options));
 
-        public static T AddSetOptionValue<T>(this T options, string name, IEnumerable<string> values) where T : IOptions {
-            if (options == null)
-                throw new ArgumentNullException(nameof(options));
+        var setOption = options.SafeGetOption(name, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        setOption.Add(value);
+        options.Values.Set(name, setOption);
 
-            var setOption = options.SafeGetOption(name, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-            setOption.AddRange(values);
-            options.Values.Set(name, setOption);
+        return options;
+    }
 
-            return options;
-        }
+    public static T AddSetOptionValue<T>(this T options, string name, IEnumerable<string> values) where T : IOptions {
+        if (options == null)
+            throw new ArgumentNullException(nameof(options));
 
-        public static T Clone<T>(this IOptions source) where T : IOptions, new() {
-            var clone = new T();
+        var setOption = options.SafeGetOption(name, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        setOption.AddRange(values);
+        options.Values.Set(name, setOption);
 
-            if (source != null)
-                foreach (var kvp in source.Values)
-                    clone.Values.Set(kvp.Key, kvp.Value);
+        return options;
+    }
 
-            return clone;
-        }
+    public static T Clone<T>(this IOptions source) where T : IOptions, new() {
+        var clone = new T();
 
-        public static ICommandOptions Clone(this ICommandOptions source) {
-            return source.Clone<CommandOptions>();
-        }
+        if (source != null)
+            foreach (var kvp in source.Values)
+                clone.Values.Set(kvp.Key, kvp.Value);
 
-        public static ICommandOptions<T> Clone<T>(this ICommandOptions<T> source) where T: class {
-            return source.Clone<CommandOptions<T>>();
-        }
+        return clone;
+    }
 
-        public static IRepositoryQuery Clone(this IRepositoryQuery source) {
-            return source.Clone<RepositoryQuery>();
-        }
+    public static ICommandOptions Clone(this ICommandOptions source) {
+        return source.Clone<CommandOptions>();
+    }
 
-        public static T MergeFrom<T>(this T target, IOptions source, bool overrideExisting = true) where T : IOptions {
-            if (target == null)
-                throw new ArgumentNullException(nameof(target));
+    public static ICommandOptions<T> Clone<T>(this ICommandOptions<T> source) where T: class {
+        return source.Clone<CommandOptions<T>>();
+    }
 
-            if (source == null)
-                return target;
+    public static IRepositoryQuery Clone(this IRepositoryQuery source) {
+        return source.Clone<RepositoryQuery>();
+    }
 
-            foreach (var kvp in source.Values) {
-                // TODO: Collection option values should get added to instead of replaced
-                if (overrideExisting || !target.Values.Contains(kvp.Key))
-                    target.Values.Set(kvp.Key, kvp.Value);
-            }
+    public static T MergeFrom<T>(this T target, IOptions source, bool overrideExisting = true) where T : IOptions {
+        if (target == null)
+            throw new ArgumentNullException(nameof(target));
 
+        if (source == null)
             return target;
+
+        foreach (var kvp in source.Values) {
+            // TODO: Collection option values should get added to instead of replaced
+            if (overrideExisting || !target.Values.Contains(kvp.Key))
+                target.Values.Set(kvp.Key, kvp.Value);
         }
+
+        return target;
     }
 }

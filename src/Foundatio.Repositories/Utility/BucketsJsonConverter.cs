@@ -4,61 +4,61 @@ using Foundatio.Repositories.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace Foundatio.Repositories.Utility {
-    public class BucketsJsonConverter : JsonConverter {
-        private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
-        
-        public override bool CanConvert(Type objectType) {
-            return typeof(IBucket).IsAssignableFrom(objectType);
-        }
+namespace Foundatio.Repositories.Utility;
 
-        public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer) {
-            var item = JObject.Load(reader);
-            var typeToken = item.SelectToken("Data.@type") ?? item.SelectToken("data.@type");
+public class BucketsJsonConverter : JsonConverter {
+    private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
+    
+    public override bool CanConvert(Type objectType) {
+        return typeof(IBucket).IsAssignableFrom(objectType);
+    }
 
-            IBucket value = null;
-            if (typeToken != null) {
-                string type = typeToken.Value<string>();
-                IDictionary<string, IAggregate> aggregations = null;
-                var aggregationsToken = item.SelectToken("Aggregations") ?? item.SelectToken("aggregations");
-                aggregations = aggregationsToken?.ToObject<IDictionary<string, IAggregate>>();
-                
-                switch (type) {
-                    case "datehistogram":
-                        var timeZoneToken = item.SelectToken("Data.@timezone") ?? item.SelectToken("data.@timezone");
-                        var kind = timeZoneToken != null ? DateTimeKind.Unspecified : DateTimeKind.Utc;
-                        var key = item.SelectToken("Key") ?? item.SelectToken("key");
-                        var date = new DateTime(_epochTicks + ((long)key * TimeSpan.TicksPerMillisecond), kind);
-                        
-                        value = new DateHistogramBucket(date, aggregations);
-                        break;
-                    case "range":
-                        value = new RangeBucket(aggregations);
-                        break;
-                    case "string":
-                        value = new KeyedBucket<string>(aggregations);
-                        break;
-                    case "double":
-                        value = new KeyedBucket<double>(aggregations);
-                        break;
-                    case "object":
-                        value = new KeyedBucket<object>(aggregations);
-                        break;
-                }
-            }
+    public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer) {
+        var item = JObject.Load(reader);
+        var typeToken = item.SelectToken("Data.@type") ?? item.SelectToken("data.@type");
 
-            if (value == null)
-                value = new KeyedBucket<object>();
-
-            serializer.Populate(item.CreateReader(), value);
+        IBucket value = null;
+        if (typeToken != null) {
+            string type = typeToken.Value<string>();
+            IDictionary<string, IAggregate> aggregations = null;
+            var aggregationsToken = item.SelectToken("Aggregations") ?? item.SelectToken("aggregations");
+            aggregations = aggregationsToken?.ToObject<IDictionary<string, IAggregate>>();
             
-            return value;
+            switch (type) {
+                case "datehistogram":
+                    var timeZoneToken = item.SelectToken("Data.@timezone") ?? item.SelectToken("data.@timezone");
+                    var kind = timeZoneToken != null ? DateTimeKind.Unspecified : DateTimeKind.Utc;
+                    var key = item.SelectToken("Key") ?? item.SelectToken("key");
+                    var date = new DateTime(_epochTicks + ((long)key * TimeSpan.TicksPerMillisecond), kind);
+                    
+                    value = new DateHistogramBucket(date, aggregations);
+                    break;
+                case "range":
+                    value = new RangeBucket(aggregations);
+                    break;
+                case "string":
+                    value = new KeyedBucket<string>(aggregations);
+                    break;
+                case "double":
+                    value = new KeyedBucket<double>(aggregations);
+                    break;
+                case "object":
+                    value = new KeyedBucket<object>(aggregations);
+                    break;
+            }
         }
 
-        public override bool CanWrite => false;
+        if (value == null)
+            value = new KeyedBucket<object>();
 
-        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer) {
-            throw new NotImplementedException();
-        }
+        serializer.Populate(item.CreateReader(), value);
+        
+        return value;
+    }
+
+    public override bool CanWrite => false;
+
+    public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer) {
+        throw new NotImplementedException();
     }
 }

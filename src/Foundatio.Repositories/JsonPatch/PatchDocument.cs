@@ -5,113 +5,113 @@ using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace Foundatio.Repositories.JsonPatch {
-    [JsonConverter(typeof(PatchDocumentConverter))]
-    public class PatchDocument {
-        private readonly List<Operation> _operations = new();
+namespace Foundatio.Repositories.JsonPatch;
 
-        public PatchDocument(params Operation[] operations) {
-            foreach (var operation in operations) {
-                AddOperation(operation);
-            }
+[JsonConverter(typeof(PatchDocumentConverter))]
+public class PatchDocument {
+    private readonly List<Operation> _operations = new();
+
+    public PatchDocument(params Operation[] operations) {
+        foreach (var operation in operations) {
+            AddOperation(operation);
         }
+    }
 
-        public List<Operation> Operations => _operations;
+    public List<Operation> Operations => _operations;
 
-        public void Add(string path, JToken value) {
-            Operations.Add(new AddOperation { Path = path, Value = value });
-        }
+    public void Add(string path, JToken value) {
+        Operations.Add(new AddOperation { Path = path, Value = value });
+    }
 
-        public void Replace(string path, JToken value) {
-            Operations.Add(new ReplaceOperation { Path = path, Value = value });
-        }
+    public void Replace(string path, JToken value) {
+        Operations.Add(new ReplaceOperation { Path = path, Value = value });
+    }
 
-        public void Remove(string path) {
-            Operations.Add(new RemoveOperation { Path = path });
-        }
+    public void Remove(string path) {
+        Operations.Add(new RemoveOperation { Path = path });
+    }
 
-        public void AddOperation(Operation operation) {
-            Operations.Add(operation);
-        }
+    public void AddOperation(Operation operation) {
+        Operations.Add(operation);
+    }
 
-        public static PatchDocument Load(Stream document) {
-            var reader = new StreamReader(document);
+    public static PatchDocument Load(Stream document) {
+        var reader = new StreamReader(document);
 
-            return Parse(reader.ReadToEnd());
-        }
+        return Parse(reader.ReadToEnd());
+    }
 
-        public static PatchDocument Load(JArray document) {
-            var root = new PatchDocument();
+    public static PatchDocument Load(JArray document) {
+        var root = new PatchDocument();
 
-            if (document == null)
-                return root;
-
-            foreach (var jOperation in document.Children().Cast<JObject>()) {
-                var op = Operation.Build(jOperation);
-                root.AddOperation(op);
-            }
-
+        if (document == null)
             return root;
+
+        foreach (var jOperation in document.Children().Cast<JObject>()) {
+            var op = Operation.Build(jOperation);
+            root.AddOperation(op);
         }
 
-        public static PatchDocument Parse(string jsondocument) {
-            var root = JToken.Parse(jsondocument) as JArray;
+        return root;
+    }
 
-            return Load(root);
+    public static PatchDocument Parse(string jsondocument) {
+        var root = JToken.Parse(jsondocument) as JArray;
+
+        return Load(root);
+    }
+
+    public static Operation CreateOperation(string op) {
+        switch (op) {
+            case "add":
+                return new AddOperation();
+            case "copy":
+                return new CopyOperation();
+            case "move":
+                return new MoveOperation();
+            case "remove":
+                return new RemoveOperation();
+            case "replace":
+                return new ReplaceOperation();
+            case "test":
+                return new TestOperation();
         }
+        return null;
+    }
 
-        public static Operation CreateOperation(string op) {
-            switch (op) {
-                case "add":
-                    return new AddOperation();
-                case "copy":
-                    return new CopyOperation();
-                case "move":
-                    return new MoveOperation();
-                case "remove":
-                    return new RemoveOperation();
-                case "replace":
-                    return new ReplaceOperation();
-                case "test":
-                    return new TestOperation();
-            }
-            return null;
-        }
+    public MemoryStream ToStream() {
+        var stream = new MemoryStream();
+        CopyToStream(stream);
+        stream.Flush();
+        stream.Position = 0;
+        return stream;
+    }
 
-        public MemoryStream ToStream() {
-            var stream = new MemoryStream();
-            CopyToStream(stream);
-            stream.Flush();
-            stream.Position = 0;
-            return stream;
-        }
+    public void CopyToStream(Stream stream, Formatting formatting = Formatting.Indented) {
+        var sw = new JsonTextWriter(new StreamWriter(stream)) {
+            Formatting = formatting
+        };
 
-        public void CopyToStream(Stream stream, Formatting formatting = Formatting.Indented) {
-            var sw = new JsonTextWriter(new StreamWriter(stream)) {
-                Formatting = formatting
-            };
+        sw.WriteStartArray();
 
-            sw.WriteStartArray();
+        foreach (var operation in Operations)
+            operation.Write(sw);
 
-            foreach (var operation in Operations)
-                operation.Write(sw);
+        sw.WriteEndArray();
 
-            sw.WriteEndArray();
+        sw.Flush();
+    }
 
-            sw.Flush();
-        }
+    public override string ToString() {
+        return ToString(Formatting.Indented);
+    }
 
-        public override string ToString() {
-            return ToString(Formatting.Indented);
-        }
-
-        public string ToString(Formatting formatting) {
-            using (var ms = new MemoryStream()) {
-                CopyToStream(ms, formatting);
-                ms.Position = 0;
-                using (StreamReader reader = new StreamReader(ms, Encoding.UTF8)) {
-                    return reader.ReadToEnd();
-                }
+    public string ToString(Formatting formatting) {
+        using (var ms = new MemoryStream()) {
+            CopyToStream(ms, formatting);
+            ms.Position = 0;
+            using (StreamReader reader = new StreamReader(ms, Encoding.UTF8)) {
+                return reader.ReadToEnd();
             }
         }
     }

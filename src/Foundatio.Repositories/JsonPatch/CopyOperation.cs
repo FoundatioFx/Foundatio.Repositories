@@ -1,23 +1,23 @@
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace Foundatio.Repositories.JsonPatch {
-    public class CopyOperation : Operation {
-        public string FromPath { get; set; }
+namespace Foundatio.Repositories.JsonPatch;
 
-        public override void Write(JsonWriter writer) {
-            writer.WriteStartObject();
+public class CopyOperation : Operation {
+    public string FromPath { get; set; }
 
-            WriteOp(writer, "copy");
-            WritePath(writer, Path);
-            WriteFromPath(writer, FromPath);
+    public override void Write(JsonWriter writer) {
+        writer.WriteStartObject();
 
-            writer.WriteEndObject();
-        }
+        WriteOp(writer, "copy");
+        WritePath(writer, Path);
+        WriteFromPath(writer, FromPath);
 
-        public override void Read(JObject jOperation) {
-            Path = jOperation.Value<string>("path");
-            FromPath = jOperation.Value<string>("from");
-        }
+        writer.WriteEndObject();
+    }
+
+    public override void Read(JObject jOperation) {
+        Path = jOperation.Value<string>("path");
+        FromPath = jOperation.Value<string>("from");
     }
 }

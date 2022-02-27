@@ -1,19 +1,19 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
-namespace Foundatio.Repositories.Models {
-    public class AggregationsHelper {
-        public IReadOnlyDictionary<string, IAggregate> Aggregations { get; protected internal set; } = EmptyReadOnly<string, IAggregate>.Dictionary;
+namespace Foundatio.Repositories.Models;
 
-        public AggregationsHelper() { }
+public class AggregationsHelper {
+    public IReadOnlyDictionary<string, IAggregate> Aggregations { get; protected internal set; } = EmptyReadOnly<string, IAggregate>.Dictionary;
 
-        protected AggregationsHelper(IDictionary<string, IAggregate> aggregations) {
-            Aggregations = aggregations != null ?
-                new Dictionary<string, IAggregate>(aggregations)
-                : EmptyReadOnly<string, IAggregate>.Dictionary;
-        }
+    public AggregationsHelper() { }
 
-        public AggregationsHelper(IReadOnlyDictionary<string, IAggregate> aggregations) {
-            Aggregations = aggregations ?? EmptyReadOnly<string, IAggregate>.Dictionary;
-        }
+    protected AggregationsHelper(IDictionary<string, IAggregate> aggregations) {
+        Aggregations = aggregations != null ?
+            new Dictionary<string, IAggregate>(aggregations)
+            : EmptyReadOnly<string, IAggregate>.Dictionary;
+    }
+
+    public AggregationsHelper(IReadOnlyDictionary<string, IAggregate> aggregations) {
+        Aggregations = aggregations ?? EmptyReadOnly<string, IAggregate>.Dictionary;
     }
 }

@@ -2,33 +2,33 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace Foundatio.Repositories.Migrations {
-    public abstract class MigrationBase : IMigration {
-        protected ILogger _logger;
+namespace Foundatio.Repositories.Migrations;
 
-        public MigrationBase() {}
+public abstract class MigrationBase : IMigration {
+    protected ILogger _logger;
 
-        public MigrationBase(ILoggerFactory loggerFactory) {
-            loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
-            _logger = loggerFactory.CreateLogger(GetType());
-        }
+    public MigrationBase() {}
 
-        public MigrationType MigrationType { get; protected set; } = MigrationType.Versioned;
+    public MigrationBase(ILoggerFactory loggerFactory) {
+        loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
+        _logger = loggerFactory.CreateLogger(GetType());
+    }
 
-        public virtual int? Version { get; protected set; } = null;
+    public MigrationType MigrationType { get; protected set; } = MigrationType.Versioned;
 
-        public bool RequiresOffline { get; protected set; } = false;
+    public virtual int? Version { get; protected set; } = null;
 
-        public virtual Task RunAsync() {
-            return Task.CompletedTask;
-        }
+    public bool RequiresOffline { get; protected set; } = false;
 
-        public virtual Task RunAsync(MigrationContext context) {
-            return RunAsync();
-        }
+    public virtual Task RunAsync() {
+        return Task.CompletedTask;
+    }
 
-        protected int CalculateProgress(long total, long completed, int startProgress = 0, int endProgress = 100) {
-            return startProgress + (int)((100 * (double)completed / total) * (((double)endProgress - startProgress) / 100));
-        }
+    public virtual Task RunAsync(MigrationContext context) {
+        return RunAsync();
+    }
+
+    protected int CalculateProgress(long total, long completed, int startProgress = 0, int endProgress = 100) {
+        return startProgress + (int)((100 * (double)completed / total) * (((double)endProgress - startProgress) / 100));
     }
 }

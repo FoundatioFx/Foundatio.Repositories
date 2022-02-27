@@ -7,39 +7,39 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Migrations;
 using Microsoft.Extensions.Logging;
 
-namespace Foundatio.Repositories.Elasticsearch.Jobs {
-    [Job(Description = "Runs any pending system migrations and reindexing tasks.", IsContinuous = false)]
-    public abstract class ElasticMigrationJobBase : JobBase {
-        protected readonly IElasticConfiguration _configuration;
-        protected readonly Lazy<MigrationManager> _migrationManager;
+namespace Foundatio.Repositories.Elasticsearch.Jobs;
 
-        public ElasticMigrationJobBase(MigrationManager migrationManager, IElasticConfiguration configuration, ILoggerFactory loggerFactory = null)
-            : base(loggerFactory) {
-            _migrationManager = new Lazy<MigrationManager>(() => {
-                Configure(migrationManager);
-                return migrationManager;
-            });
-            _configuration = configuration;
-        }
+[Job(Description = "Runs any pending system migrations and reindexing tasks.", IsContinuous = false)]
+public abstract class ElasticMigrationJobBase : JobBase {
+    protected readonly IElasticConfiguration _configuration;
+    protected readonly Lazy<MigrationManager> _migrationManager;
 
-        protected virtual void Configure(MigrationManager manager) {}
+    public ElasticMigrationJobBase(MigrationManager migrationManager, IElasticConfiguration configuration, ILoggerFactory loggerFactory = null)
+        : base(loggerFactory) {
+        _migrationManager = new Lazy<MigrationManager>(() => {
+            Configure(migrationManager);
+            return migrationManager;
+        });
+        _configuration = configuration;
+    }
 
-        public MigrationManager MigrationManager => _migrationManager.Value;
+    protected virtual void Configure(MigrationManager manager) {}
 
-        protected override async Task<JobResult> RunInternalAsync(JobContext context) {
-            await _configuration.ConfigureIndexesAsync(null, false).AnyContext();
+    public MigrationManager MigrationManager => _migrationManager.Value;
 
-            await _migrationManager.Value.RunMigrationsAsync().AnyContext();
+    protected override async Task<JobResult> RunInternalAsync(JobContext context) {
+        await _configuration.ConfigureIndexesAsync(null, false).AnyContext();
 
-            var tasks = _configuration.Indexes.OfType<IVersionedIndex>().Select(ReindexIfNecessary);
-            await Task.WhenAll(tasks).AnyContext();
+        await _migrationManager.Value.RunMigrationsAsync().AnyContext();
 
-            return JobResult.Success;
-        }
+        var tasks = _configuration.Indexes.OfType<IVersionedIndex>().Select(ReindexIfNecessary);
+        await Task.WhenAll(tasks).AnyContext();
 
-        private async Task ReindexIfNecessary(IVersionedIndex index) {
-            if (index.Version != await index.GetCurrentVersionAsync().AnyContext())
-                await index.ReindexAsync().AnyContext();
-        }
+        return JobResult.Success;
+    }
+
+    private async Task ReindexIfNecessary(IVersionedIndex index) {
+        if (index.Version != await index.GetCurrentVersionAsync().AnyContext())
+            await index.ReindexAsync().AnyContext();
     }
 }

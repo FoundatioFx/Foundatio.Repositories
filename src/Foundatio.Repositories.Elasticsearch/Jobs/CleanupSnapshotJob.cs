@@ -15,134 +15,134 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Nest;
 
-namespace Foundatio.Repositories.Elasticsearch.Jobs {
-    public class CleanupSnapshotJob : IJob {
-        protected readonly IElasticClient _client;
-        protected readonly ILockProvider _lockProvider;
-        protected readonly ILogger _logger;
-        private readonly ICollection<RepositoryMaxAge> _repositories = new List<RepositoryMaxAge>();
+namespace Foundatio.Repositories.Elasticsearch.Jobs;
 
-        public CleanupSnapshotJob(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory) {
-            _client = client;
-            _lockProvider = lockProvider;
-            _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
-        }
+public class CleanupSnapshotJob : IJob {
+    protected readonly IElasticClient _client;
+    protected readonly ILockProvider _lockProvider;
+    protected readonly ILogger _logger;
+    private readonly ICollection<RepositoryMaxAge> _repositories = new List<RepositoryMaxAge>();
 
-        public void AddRepository(string name, TimeSpan maxAge) {
-            _repositories.Add(new RepositoryMaxAge { Name = name, MaxAge = maxAge });
-        }
+    public CleanupSnapshotJob(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory) {
+        _client = client;
+        _lockProvider = lockProvider;
+        _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
+    }
 
-        public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default) {
-            _logger.LogInformation("Starting snapshot cleanup...");
-            if (_repositories.Count == 0)
-                _repositories.Add(new RepositoryMaxAge { Name = "data", MaxAge = TimeSpan.FromDays(3) });
+    public void AddRepository(string name, TimeSpan maxAge) {
+        _repositories.Add(new RepositoryMaxAge { Name = name, MaxAge = maxAge });
+    }
 
-            // need retries, need check for snapshot running, use cat for snapshot names
-            foreach (var repo in _repositories)
-                await DeleteOldSnapshotsAsync(repo.Name, repo.MaxAge, cancellationToken).AnyContext();
+    public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default) {
+        _logger.LogInformation("Starting snapshot cleanup...");
+        if (_repositories.Count == 0)
+            _repositories.Add(new RepositoryMaxAge { Name = "data", MaxAge = TimeSpan.FromDays(3) });
 
-            _logger.LogInformation("Finished snapshot cleanup.");
-            return JobResult.Success;
-        }
+        // need retries, need check for snapshot running, use cat for snapshot names
+        foreach (var repo in _repositories)
+            await DeleteOldSnapshotsAsync(repo.Name, repo.MaxAge, cancellationToken).AnyContext();
 
-        private async Task DeleteOldSnapshotsAsync(string repo, TimeSpan maxAge, CancellationToken cancellationToken) {
-            var sw = Stopwatch.StartNew();
-            var result = await _client.Snapshot.GetAsync(
-                repo,
-                "_all",
-                d => d.RequestConfiguration(r =>
-                    r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
-             sw.Stop();
-            _logger.LogRequest(result);
+        _logger.LogInformation("Finished snapshot cleanup.");
+        return JobResult.Success;
+    }
 
-            var snapshots = new List<SnapshotDate>();
-            if (result.IsValid && result.Snapshots != null)
-                snapshots = result.Snapshots?.Select(r => new SnapshotDate { Name = r.Name, Date = r.EndTime }).ToList();
+    private async Task DeleteOldSnapshotsAsync(string repo, TimeSpan maxAge, CancellationToken cancellationToken) {
+        var sw = Stopwatch.StartNew();
+        var result = await _client.Snapshot.GetAsync(
+            repo,
+            "_all",
+            d => d.RequestConfiguration(r =>
+                r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
+         sw.Stop();
+        _logger.LogRequest(result);
 
-            if (result.IsValid)
-                _logger.LogInformation("Retrieved list of {SnapshotCount} snapshots from {Repo} in {Duration:g}", snapshots.Count, repo, sw.Elapsed);
-            else
-                _logger.LogErrorRequest(result, "Failed to retrieve list of snapshots from {Repo} in {Duration:g}", repo, sw.Elapsed);
+        var snapshots = new List<SnapshotDate>();
+        if (result.IsValid && result.Snapshots != null)
+            snapshots = result.Snapshots?.Select(r => new SnapshotDate { Name = r.Name, Date = r.EndTime }).ToList();
 
-            if (snapshots.Count == 0)
-                return;
+        if (result.IsValid)
+            _logger.LogInformation("Retrieved list of {SnapshotCount} snapshots from {Repo} in {Duration:g}", snapshots.Count, repo, sw.Elapsed);
+        else
+            _logger.LogErrorRequest(result, "Failed to retrieve list of snapshots from {Repo} in {Duration:g}", repo, sw.Elapsed);
 
-            var oldestValidSnapshot = SystemClock.UtcNow.Subtract(maxAge);
-            var snapshotsToDelete = snapshots.Where(r => r.Date.IsBefore(oldestValidSnapshot)).OrderBy(s => s.Date).ToList();
-            if (snapshotsToDelete.Count == 0)
-                return;
+        if (snapshots.Count == 0)
+            return;
 
-            // log that we are seeing snapshots that should have been deleted already
-            var oldSnapshots = snapshots.Where(s => s.Date < oldestValidSnapshot.AddDays(-1)).Select(s => s.Name).ToList();
-            if (oldSnapshots.Count > 0)
-                _logger.LogError("Found old snapshots that should have been deleted: {SnapShots}", String.Join(", ", oldSnapshots));
+        var oldestValidSnapshot = SystemClock.UtcNow.Subtract(maxAge);
+        var snapshotsToDelete = snapshots.Where(r => r.Date.IsBefore(oldestValidSnapshot)).OrderBy(s => s.Date).ToList();
+        if (snapshotsToDelete.Count == 0)
+            return;
 
-            _logger.LogInformation("Selected {SnapshotCount} snapshots for deletion", snapshotsToDelete.Count);
+        // log that we are seeing snapshots that should have been deleted already
+        var oldSnapshots = snapshots.Where(s => s.Date < oldestValidSnapshot.AddDays(-1)).Select(s => s.Name).ToList();
+        if (oldSnapshots.Count > 0)
+            _logger.LogError("Found old snapshots that should have been deleted: {SnapShots}", String.Join(", ", oldSnapshots));
 
-            bool shouldContinue = true;
-            int batchSize = snapshotsToDelete.Count > 10 ? 25 : 1;
-            int batch = 0;
-            foreach (var snapshotBatch in snapshotsToDelete.Chunk(batchSize)) {
-                if (!shouldContinue) {
-                    _logger.LogInformation("Stopped deleted snapshots");
-                    break;
-                }
+        _logger.LogInformation("Selected {SnapshotCount} snapshots for deletion", snapshotsToDelete.Count);
 
-                batch++;
-                int snapshotCount = snapshotBatch.Count();
-                string snapshotNames = String.Join(",", snapshotBatch.Select(s => s.Name));
-
-                try {
-                    sw.Restart();
-                    await Run.WithRetriesAsync(async () => {
-                        _logger.LogInformation("Deleting {SnapshotCount} expired snapshot(s) from {Repo}: {SnapshotNames}", snapshotCount, repo, snapshotNames);
-
-                        var response = await _client.Snapshot.DeleteAsync(repo, snapshotNames, r => r.RequestConfiguration(c => c.RequestTimeout(TimeSpan.FromMinutes(5))), ct: cancellationToken).AnyContext();
-                        _logger.LogRequest(response);
-
-                        if (response.IsValid) {
-                            await OnSnapshotDeleted(snapshotNames, sw.Elapsed).AnyContext();
-                        } else {
-                            shouldContinue = await OnSnapshotDeleteFailure(snapshotNames, sw.Elapsed, response, null).AnyContext();
-                            if (shouldContinue)
-                                throw response.OriginalException ?? new ApplicationException($"Failed deleting snapshot(s) \"{snapshotNames}\"");
-                        }
-                    }, 5, TimeSpan.Zero, cancellationToken);
-                    sw.Stop();
-                } catch (Exception ex) {
-                    sw.Stop();
-                    shouldContinue = await OnSnapshotDeleteFailure(snapshotNames, sw.Elapsed, null, ex).AnyContext();
-                }
+        bool shouldContinue = true;
+        int batchSize = snapshotsToDelete.Count > 10 ? 25 : 1;
+        int batch = 0;
+        foreach (var snapshotBatch in snapshotsToDelete.Chunk(batchSize)) {
+            if (!shouldContinue) {
+                _logger.LogInformation("Stopped deleted snapshots");
+                break;
             }
 
-            await OnCompleted().AnyContext();
+            batch++;
+            int snapshotCount = snapshotBatch.Count();
+            string snapshotNames = String.Join(",", snapshotBatch.Select(s => s.Name));
+
+            try {
+                sw.Restart();
+                await Run.WithRetriesAsync(async () => {
+                    _logger.LogInformation("Deleting {SnapshotCount} expired snapshot(s) from {Repo}: {SnapshotNames}", snapshotCount, repo, snapshotNames);
+
+                    var response = await _client.Snapshot.DeleteAsync(repo, snapshotNames, r => r.RequestConfiguration(c => c.RequestTimeout(TimeSpan.FromMinutes(5))), ct: cancellationToken).AnyContext();
+                    _logger.LogRequest(response);
+
+                    if (response.IsValid) {
+                        await OnSnapshotDeleted(snapshotNames, sw.Elapsed).AnyContext();
+                    } else {
+                        shouldContinue = await OnSnapshotDeleteFailure(snapshotNames, sw.Elapsed, response, null).AnyContext();
+                        if (shouldContinue)
+                            throw response.OriginalException ?? new ApplicationException($"Failed deleting snapshot(s) \"{snapshotNames}\"");
+                    }
+                }, 5, TimeSpan.Zero, cancellationToken);
+                sw.Stop();
+            } catch (Exception ex) {
+                sw.Stop();
+                shouldContinue = await OnSnapshotDeleteFailure(snapshotNames, sw.Elapsed, null, ex).AnyContext();
+            }
         }
 
-        public virtual Task OnSnapshotDeleted(string snapshotName, TimeSpan duration) {
-            _logger.LogInformation("Completed delete snapshot(s) {SnapshotName} in {Duration:g}", snapshotName, duration);
-            return Task.CompletedTask;
-        }
+        await OnCompleted().AnyContext();
+    }
 
-        public virtual Task<bool> OnSnapshotDeleteFailure(string snapshotName, TimeSpan duration, DeleteSnapshotResponse response, Exception ex) {
-            _logger.LogErrorRequest(ex, response, "Failed to delete snapshot(s) {SnapshotName} after {Duration:g}", snapshotName, duration);
-            return Task.FromResult(true);
-        }
+    public virtual Task OnSnapshotDeleted(string snapshotName, TimeSpan duration) {
+        _logger.LogInformation("Completed delete snapshot(s) {SnapshotName} in {Duration:g}", snapshotName, duration);
+        return Task.CompletedTask;
+    }
 
-        public virtual Task OnCompleted() {
-            return Task.CompletedTask;
-        }
+    public virtual Task<bool> OnSnapshotDeleteFailure(string snapshotName, TimeSpan duration, DeleteSnapshotResponse response, Exception ex) {
+        _logger.LogErrorRequest(ex, response, "Failed to delete snapshot(s) {SnapshotName} after {Duration:g}", snapshotName, duration);
+        return Task.FromResult(true);
+    }
 
-        [DebuggerDisplay("{Name}")]
-        private class RepositoryMaxAge {
-            public string Name { get; set; }
-            public TimeSpan MaxAge { get; set; }
-        }
+    public virtual Task OnCompleted() {
+        return Task.CompletedTask;
+    }
 
-        [DebuggerDisplay("{Name} ({Date})")]
-        private class SnapshotDate {
-            public string Name { get; set; }
-            public DateTime Date { get; set; }
-        }
+    [DebuggerDisplay("{Name}")]
+    private class RepositoryMaxAge {
+        public string Name { get; set; }
+        public TimeSpan MaxAge { get; set; }
+    }
+
+    [DebuggerDisplay("{Name} ({Date})")]
+    private class SnapshotDate {
+        public string Name { get; set; }
+        public DateTime Date { get; set; }
     }
 }
 

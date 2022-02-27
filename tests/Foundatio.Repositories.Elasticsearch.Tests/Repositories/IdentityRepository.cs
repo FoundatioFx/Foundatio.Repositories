@@ -6,16 +6,16 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 
-namespace Foundatio.Repositories.Elasticsearch.Tests {
-    public interface IIdentityRepository : ISearchableRepository<Identity> { }
+namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-    public class IdentityRepository : ElasticRepositoryBase<Identity>, IIdentityRepository {
-        public IdentityRepository(MyAppElasticConfiguration configuration) : base(configuration.Identities) {}
-    }
+public interface IIdentityRepository : ISearchableRepository<Identity> { }
 
-    public class IdentityWithNoCachingRepository : IdentityRepository {
-        public IdentityWithNoCachingRepository(MyAppElasticConfiguration configuration) : base(configuration) {
-            DisableCache();
-        }
+public class IdentityRepository : ElasticRepositoryBase<Identity>, IIdentityRepository {
+    public IdentityRepository(MyAppElasticConfiguration configuration) : base(configuration.Identities) {}
+}
+
+public class IdentityWithNoCachingRepository : IdentityRepository {
+    public IdentityWithNoCachingRepository(MyAppElasticConfiguration configuration) : base(configuration) {
+        DisableCache();
     }
 }

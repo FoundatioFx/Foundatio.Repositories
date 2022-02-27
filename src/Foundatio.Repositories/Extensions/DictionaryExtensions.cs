@@ -4,107 +4,107 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using Foundatio.Repositories.Models;
 
-namespace Foundatio.Repositories.Extensions {
-    public static class DictionaryExtensions {
-        public static string GetString(this IEnumerable<KeyValuePair<string, object>> data, string name) {
-            return data.GetString(name, String.Empty);
+namespace Foundatio.Repositories.Extensions;
+
+public static class DictionaryExtensions {
+    public static string GetString(this IEnumerable<KeyValuePair<string, object>> data, string name) {
+        return data.GetString(name, String.Empty);
+    }
+
+    public static string GetString(this IEnumerable<KeyValuePair<string, object>> data, string name, string @default) {
+        object value = null;
+        if (data is IDictionary<string, object> dictionary) {
+            if (!dictionary.TryGetValue(name, out value))
+                return @default;
+        } else if (data is IReadOnlyDictionary<string, object> readOnlyDictionary) {
+            if (!readOnlyDictionary.TryGetValue(name, out value))
+                return @default;
+        } else {
+            var d = data.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+            if (!d.TryGetValue(name, out value))
+                return @default;
         }
 
-        public static string GetString(this IEnumerable<KeyValuePair<string, object>> data, string name, string @default) {
-            object value = null;
-            if (data is IDictionary<string, object> dictionary) {
-                if (!dictionary.TryGetValue(name, out value))
-                    return @default;
-            } else if (data is IReadOnlyDictionary<string, object> readOnlyDictionary) {
-                if (!readOnlyDictionary.TryGetValue(name, out value))
-                    return @default;
-            } else {
-                var d = data.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-                if (!d.TryGetValue(name, out value))
-                    return @default;
-            }
+        if (value is string s)
+            return s;
 
-            if (value is string s)
-                return s;
+        return @default;
+    }
 
-            return @default;
+    public static bool GetBoolean(this IEnumerable<KeyValuePair<string, object>> data, string name) {
+        return data.GetBoolean(name, false);
+    }
+
+    public static bool GetBoolean(this IEnumerable<KeyValuePair<string, object>> data, string name, bool @default) {
+        object value = null;
+        if (data is IDictionary<string, object> dictionary) {
+            if (!dictionary.TryGetValue(name, out value))
+                return @default;
+        } else if (data is IReadOnlyDictionary<string, object> readOnlyDictionary) {
+            if (!readOnlyDictionary.TryGetValue(name, out value))
+                return @default;
+        } else {
+            var d = data.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+            if (!d.TryGetValue(name, out value))
+                return @default;
         }
 
-        public static bool GetBoolean(this IEnumerable<KeyValuePair<string, object>> data, string name) {
-            return data.GetBoolean(name, false);
-        }
+        if (value is bool b)
+            return b;
 
-        public static bool GetBoolean(this IEnumerable<KeyValuePair<string, object>> data, string name, bool @default) {
-            object value = null;
-            if (data is IDictionary<string, object> dictionary) {
-                if (!dictionary.TryGetValue(name, out value))
-                    return @default;
-            } else if (data is IReadOnlyDictionary<string, object> readOnlyDictionary) {
-                if (!readOnlyDictionary.TryGetValue(name, out value))
-                    return @default;
-            } else {
-                var d = data.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-                if (!d.TryGetValue(name, out value))
-                    return @default;
-            }
+        if (Boolean.TryParse(value.ToString(), out var result))
+            return result;
 
-            if (value is bool b)
-                return b;
+        return @default;
+    }
 
-            if (Boolean.TryParse(value.ToString(), out var result))
-                return result;
+    public static IDictionary<string, object> ToData<T>(this IEnumerable<KeyValuePair<string, object>> dictionary) where T: IAggregate {
+        var dict = dictionary?
+            .Where(kvp => kvp.Key != "@field_type" && kvp.Key != "@timezone")
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
-            return @default;
-        }
+        string type = GetAggregateType(typeof(T));
+        if (dict == null && type != null)
+            dict = new Dictionary<string, object>();
 
-        public static IDictionary<string, object> ToData<T>(this IEnumerable<KeyValuePair<string, object>> dictionary) where T: IAggregate {
-            var dict = dictionary?
-                .Where(kvp => kvp.Key != "@field_type" && kvp.Key != "@timezone")
-                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+        if (type != null)
+            dict["@type"] = type;
 
-            string type = GetAggregateType(typeof(T));
-            if (dict == null && type != null)
-                dict = new Dictionary<string, object>();
+        return dict?.Count > 0 ? dict : null;
+    }
 
-            if (type != null)
-                dict["@type"] = type;
+    public static IReadOnlyDictionary<string, object> ToReadOnlyData<T>(this IEnumerable<KeyValuePair<string, object>> dictionary) where T : IAggregate {
+        return new ReadOnlyDictionary<string, object>(dictionary.ToData<T>());
+    }
 
-            return dict?.Count > 0 ? dict : null;
-        }
+    private static string GetAggregateType(Type type) {
+        if (type == typeof(BucketAggregate))
+            return "bucket";
 
-        public static IReadOnlyDictionary<string, object> ToReadOnlyData<T>(this IEnumerable<KeyValuePair<string, object>> dictionary) where T : IAggregate {
-            return new ReadOnlyDictionary<string, object>(dictionary.ToData<T>());
-        }
+        if (type == typeof(ExtendedStatsAggregate))
+            return "exstats";
 
-        private static string GetAggregateType(Type type) {
-            if (type == typeof(BucketAggregate))
-                return "bucket";
+        if (type == typeof(ObjectValueAggregate))
+            return "ovalue";
 
-            if (type == typeof(ExtendedStatsAggregate))
-                return "exstats";
+        if (type == typeof(PercentilesAggregate))
+            return "percentiles";
 
-            if (type == typeof(ObjectValueAggregate))
-                return "ovalue";
+        if (type == typeof(SingleBucketAggregate))
+            return "sbucket";
 
-            if (type == typeof(PercentilesAggregate))
-                return "percentiles";
+        if (type == typeof(StatsAggregate))
+            return "stats";
 
-            if (type == typeof(SingleBucketAggregate))
-                return "sbucket";
+        if (type == typeof(TopHitsAggregate))
+            return "tophits";
 
-            if (type == typeof(StatsAggregate))
-                return "stats";
+        if (type == typeof(ValueAggregate))
+            return "value";
 
-            if (type == typeof(TopHitsAggregate))
-                return "tophits";
+        if (type == typeof(ValueAggregate<DateTime>))
+            return "dvalue";
 
-            if (type == typeof(ValueAggregate))
-                return "value";
-
-            if (type == typeof(ValueAggregate<DateTime>))
-                return "dvalue";
-
-            return null;
-        }
+        return null;
     }
 }

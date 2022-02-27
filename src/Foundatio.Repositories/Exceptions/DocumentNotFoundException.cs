@@ -1,13 +1,13 @@
 ﻿using System;
 
-namespace Foundatio.Repositories.Exceptions {
-    public class DocumentNotFoundException : DocumentException {
-        public DocumentNotFoundException() { }
+namespace Foundatio.Repositories.Exceptions;
 
-        public DocumentNotFoundException(string id) : base($"Document \"{id}\" could not be found") {
-            Id = id;
-        }
+public class DocumentNotFoundException : DocumentException {
+    public DocumentNotFoundException() { }
 
-        public string Id { get; private set; }
+    public DocumentNotFoundException(string id) : base($"Document \"{id}\" could not be found") {
+        Id = id;
     }
+
+    public string Id { get; private set; }
 }

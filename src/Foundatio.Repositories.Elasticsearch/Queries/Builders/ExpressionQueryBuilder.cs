@@ -81,11 +81,11 @@ namespace Foundatio.Repositories.Options {
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class FieldResolverQueryBuilder : IElasticQueryBuilder {
-        private readonly QueryFieldResolver _aliasMap;
+        private readonly QueryFieldResolver _resolver;
         private readonly LuceneQueryParser _parser = new();
 
         public FieldResolverQueryBuilder(QueryFieldResolver aliasMap) {
-            _aliasMap = aliasMap;
+            _resolver = aliasMap;
         }
 
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
@@ -95,7 +95,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             if (!String.IsNullOrEmpty(filter)) {
                 var result = _parser.Parse(filter);
-                filter = GenerateQueryVisitor.Run(FieldResolverQueryVisitor.Run(result, _aliasMap, ctx), ctx);
+                filter = GenerateQueryVisitor.Run(FieldResolverQueryVisitor.Run(result, _resolver, ctx), ctx);
 
                 ctx.Filter &= new QueryStringQuery {
                     Query = filter,
@@ -106,7 +106,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             if (!String.IsNullOrEmpty(search)) {
                 var result = _parser.Parse(search);
-                search = GenerateQueryVisitor.Run(FieldResolverQueryVisitor.Run(result, _aliasMap, ctx), ctx);
+                search = GenerateQueryVisitor.Run(FieldResolverQueryVisitor.Run(result, _resolver, ctx), ctx);
 
                 ctx.Query &= new QueryStringQuery {
                     Query = search,
@@ -118,7 +118,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             if (!String.IsNullOrEmpty(sort)) {
                 var result = _parser.Parse(sort);
                 TermToFieldVisitor.Run(result, ctx);
-                FieldResolverQueryVisitor.Run(result, _aliasMap, ctx);
+                FieldResolverQueryVisitor.Run(result, _resolver, ctx);
 
                 var sortFields = GetSortFieldsVisitor.Run(result, ctx).ToList();
 

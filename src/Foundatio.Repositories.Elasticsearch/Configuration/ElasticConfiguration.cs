@@ -17,165 +17,165 @@ using Microsoft.Extensions.Logging.Abstractions;
 using System.Linq;
 using Foundatio.Utility;
 
-namespace Foundatio.Repositories.Elasticsearch.Configuration {
-    public class ElasticConfiguration: IElasticConfiguration {
-        protected readonly IQueue<WorkItemData> _workItemQueue;
-        protected readonly ILogger _logger;
-        protected readonly ILockProvider _beginReindexLockProvider;
-        protected readonly ILockProvider _lockProvider;
-        private readonly List<IIndex> _indexes = new();
-        private readonly Lazy<IReadOnlyCollection<IIndex>> _frozenIndexes;
-        private readonly Lazy<IElasticClient> _client;
-        protected readonly bool _shouldDisposeCache;
+namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
-        public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, ILoggerFactory loggerFactory = null) {
-            _workItemQueue = workItemQueue;
-            LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
-            _logger = LoggerFactory.CreateLogger(GetType());
-            Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { LoggerFactory = loggerFactory, CloneValues = true });
-            _lockProvider = new CacheLockProvider(Cache, messageBus, loggerFactory);
-            _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15));
-            _shouldDisposeCache = cacheClient == null;
-            MessageBus = messageBus ?? new InMemoryMessageBus(new InMemoryMessageBusOptions { LoggerFactory = loggerFactory });
-            _frozenIndexes = new Lazy<IReadOnlyCollection<IIndex>>(() => _indexes.AsReadOnly());
-            _client = new Lazy<IElasticClient>(CreateElasticClient);
-        }
+public class ElasticConfiguration: IElasticConfiguration {
+    protected readonly IQueue<WorkItemData> _workItemQueue;
+    protected readonly ILogger _logger;
+    protected readonly ILockProvider _beginReindexLockProvider;
+    protected readonly ILockProvider _lockProvider;
+    private readonly List<IIndex> _indexes = new();
+    private readonly Lazy<IReadOnlyCollection<IIndex>> _frozenIndexes;
+    private readonly Lazy<IElasticClient> _client;
+    protected readonly bool _shouldDisposeCache;
 
-        protected virtual IElasticClient CreateElasticClient() {
-            var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")));
-            ConfigureSettings(settings);
-            foreach (var index in Indexes)
-                index.ConfigureSettings(settings);
+    public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, ILoggerFactory loggerFactory = null) {
+        _workItemQueue = workItemQueue;
+        LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
+        _logger = LoggerFactory.CreateLogger(GetType());
+        Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { LoggerFactory = loggerFactory, CloneValues = true });
+        _lockProvider = new CacheLockProvider(Cache, messageBus, loggerFactory);
+        _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15));
+        _shouldDisposeCache = cacheClient == null;
+        MessageBus = messageBus ?? new InMemoryMessageBus(new InMemoryMessageBusOptions { LoggerFactory = loggerFactory });
+        _frozenIndexes = new Lazy<IReadOnlyCollection<IIndex>>(() => _indexes.AsReadOnly());
+        _client = new Lazy<IElasticClient>(CreateElasticClient);
+    }
 
-            return new ElasticClient(settings);
-        }
+    protected virtual IElasticClient CreateElasticClient() {
+        var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")));
+        ConfigureSettings(settings);
+        foreach (var index in Indexes)
+            index.ConfigureSettings(settings);
 
-        public virtual void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder) {}
+        return new ElasticClient(settings);
+    }
 
-        public virtual void ConfigureGlobalQueryParsers(ElasticQueryParserConfiguration config) {}
+    public virtual void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder) {}
 
-        protected virtual void ConfigureSettings(ConnectionSettings settings) {
-            settings.EnableTcpKeepAlive(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2));
-        }
+    public virtual void ConfigureGlobalQueryParsers(ElasticQueryParserConfiguration config) {}
 
-        protected virtual IConnectionPool CreateConnectionPool() {
-            return null;
-        }
+    protected virtual void ConfigureSettings(ConnectionSettings settings) {
+        settings.EnableTcpKeepAlive(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2));
+    }
 
-        public IElasticClient Client => _client.Value;
-        public ICacheClient Cache { get; }
-        public IMessageBus MessageBus { get; }
-        public ILoggerFactory LoggerFactory { get; }
-        public IReadOnlyCollection<IIndex> Indexes => _frozenIndexes.Value;
+    protected virtual IConnectionPool CreateConnectionPool() {
+        return null;
+    }
 
-        public void AddIndex(IIndex index) {
-            if (_frozenIndexes.IsValueCreated)
-                throw new InvalidOperationException("Can't add indexes after the list has been frozen.");
+    public IElasticClient Client => _client.Value;
+    public ICacheClient Cache { get; }
+    public IMessageBus MessageBus { get; }
+    public ILoggerFactory LoggerFactory { get; }
+    public IReadOnlyCollection<IIndex> Indexes => _frozenIndexes.Value;
 
-            _indexes.Add(index);
-        }
+    public void AddIndex(IIndex index) {
+        if (_frozenIndexes.IsValueCreated)
+            throw new InvalidOperationException("Can't add indexes after the list has been frozen.");
+
+        _indexes.Add(index);
+    }
+    
+    public IIndex GetIndex(string name) {
+        foreach (var index in Indexes)
+            if (index.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                return index;
+
+        return null;
+    }
+    
+    public Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true) {
+        if (indexes == null)
+            indexes = Indexes;
         
-        public IIndex GetIndex(string name) {
-            foreach (var index in Indexes)
-                if (index.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
-                    return index;
+        var tasks = new List<Task>();
+        foreach (var idx in indexes)
+            tasks.Add(ConfigureIndexInternalAsync(idx, beginReindexingOutdated));
 
-            return null;
-        }
-        
-        public Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true) {
-            if (indexes == null)
-                indexes = Indexes;
-            
-            var tasks = new List<Task>();
-            foreach (var idx in indexes)
-                tasks.Add(ConfigureIndexInternalAsync(idx, beginReindexingOutdated));
+        return Task.WhenAll(tasks);
+    }
 
-            return Task.WhenAll(tasks);
-        }
+    private async Task ConfigureIndexInternalAsync(IIndex idx, bool beginReindexingOutdated) {
+        await idx.ConfigureAsync().AnyContext();
+        await idx.MaintainAsync(includeOptionalTasks: false).AnyContext();
 
-        private async Task ConfigureIndexInternalAsync(IIndex idx, bool beginReindexingOutdated) {
-            await idx.ConfigureAsync().AnyContext();
-            await idx.MaintainAsync(includeOptionalTasks: false).AnyContext();
+        if (!beginReindexingOutdated)
+            return;
 
-            if (!beginReindexingOutdated)
-                return;
+        if (_workItemQueue == null || _beginReindexLockProvider == null)
+            throw new InvalidOperationException("Must specify work item queue and lock provider in order to reindex.");
 
-            if (_workItemQueue == null || _beginReindexLockProvider == null)
-                throw new InvalidOperationException("Must specify work item queue and lock provider in order to reindex.");
+        if (idx is not IVersionedIndex versionedIndex)
+            return;
 
-            if (idx is not IVersionedIndex versionedIndex)
-                return;
+        int currentVersion = await versionedIndex.GetCurrentVersionAsync().AnyContext();
+        if (versionedIndex.Version <= currentVersion)
+            return;
 
+        var reindexWorkItem = versionedIndex.CreateReindexWorkItem(currentVersion);
+        bool isReindexing = await _lockProvider.IsLockedAsync(String.Join(":", "reindex", reindexWorkItem.Alias,
+            reindexWorkItem.OldIndex, reindexWorkItem.NewIndex)).AnyContext();
+        if (isReindexing)
+            return;
+
+        // enqueue reindex to new version, only allowed every 15 minutes
+        string enqueueReindexLockName = String.Join(":", "enqueue-reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex);
+        await _beginReindexLockProvider.TryUsingAsync(enqueueReindexLockName, () => _workItemQueue.EnqueueAsync(reindexWorkItem), TimeSpan.Zero, new CancellationToken(true)).AnyContext();
+    }
+
+    public Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null) {
+        if (indexes == null)
+            indexes = Indexes;
+
+        var tasks = new List<Task>();
+        foreach (var idx in indexes)
+            tasks.Add(idx.MaintainAsync());
+
+        return Task.WhenAll(tasks);
+    }
+
+    public Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null) {
+        if (indexes == null)
+            indexes = Indexes;
+
+        var tasks = new List<Task>();
+        foreach (var idx in indexes)
+            tasks.Add(idx.DeleteAsync());
+
+        return Task.WhenAll(tasks);
+    }
+
+    public async Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func<int, string, Task> progressCallbackAsync = null) {
+        if (indexes == null)
+            indexes = Indexes;
+
+        var outdatedIndexes = new List<IVersionedIndex>();
+        foreach (var versionedIndex in indexes.OfType<IVersionedIndex>()) {
             int currentVersion = await versionedIndex.GetCurrentVersionAsync().AnyContext();
             if (versionedIndex.Version <= currentVersion)
-                return;
+                continue;
 
-            var reindexWorkItem = versionedIndex.CreateReindexWorkItem(currentVersion);
-            bool isReindexing = await _lockProvider.IsLockedAsync(String.Join(":", "reindex", reindexWorkItem.Alias,
-                reindexWorkItem.OldIndex, reindexWorkItem.NewIndex)).AnyContext();
-            if (isReindexing)
-                return;
-
-            // enqueue reindex to new version, only allowed every 15 minutes
-            string enqueueReindexLockName = String.Join(":", "enqueue-reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex);
-            await _beginReindexLockProvider.TryUsingAsync(enqueueReindexLockName, () => _workItemQueue.EnqueueAsync(reindexWorkItem), TimeSpan.Zero, new CancellationToken(true)).AnyContext();
+            outdatedIndexes.Add(versionedIndex);
         }
 
-        public Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null) {
-            if (indexes == null)
-                indexes = Indexes;
+        if (outdatedIndexes.Count == 0)
+            return;
 
-            var tasks = new List<Task>();
-            foreach (var idx in indexes)
-                tasks.Add(idx.MaintainAsync());
-
-            return Task.WhenAll(tasks);
-        }
-
-        public Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null) {
-            if (indexes == null)
-                indexes = Indexes;
-
-            var tasks = new List<Task>();
-            foreach (var idx in indexes)
-                tasks.Add(idx.DeleteAsync());
-
-            return Task.WhenAll(tasks);
-        }
-
-        public async Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func<int, string, Task> progressCallbackAsync = null) {
-            if (indexes == null)
-                indexes = Indexes;
-
-            var outdatedIndexes = new List<IVersionedIndex>();
-            foreach (var versionedIndex in indexes.OfType<IVersionedIndex>()) {
-                int currentVersion = await versionedIndex.GetCurrentVersionAsync().AnyContext();
-                if (versionedIndex.Version <= currentVersion)
-                    continue;
-
-                outdatedIndexes.Add(versionedIndex);
-            }
-
-            if (outdatedIndexes.Count == 0)
-                return;
-
-            foreach (var outdatedIndex in outdatedIndexes) {
-                try {
-                    await Run.WithRetriesAsync(() => outdatedIndex.ReindexAsync((progress, message) => progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask),
-                        logger: _logger).AnyContext();
-                } catch (Exception) {
-                    // unable to reindex after 5 retries, move to next index.
-                }
+        foreach (var outdatedIndex in outdatedIndexes) {
+            try {
+                await Run.WithRetriesAsync(() => outdatedIndex.ReindexAsync((progress, message) => progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask),
+                    logger: _logger).AnyContext();
+            } catch (Exception) {
+                // unable to reindex after 5 retries, move to next index.
             }
         }
+    }
 
-        public virtual void Dispose() {
-            if (_shouldDisposeCache)
-                Cache.Dispose();
+    public virtual void Dispose() {
+        if (_shouldDisposeCache)
+            Cache.Dispose();
 
-            foreach (var index in Indexes)
-                index.Dispose();
-        }
+        foreach (var index in Indexes)
+            index.Dispose();
     }
 }

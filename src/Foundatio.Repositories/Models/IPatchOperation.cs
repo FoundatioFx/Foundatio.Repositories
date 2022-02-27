@@ -2,35 +2,35 @@
 using System.Collections.Generic;
 using Foundatio.Repositories.JsonPatch;
 
-namespace Foundatio.Repositories.Models {
-    public interface IPatchOperation {}
+namespace Foundatio.Repositories.Models;
 
-    public class PartialPatch : IPatchOperation {
-        public PartialPatch(object document) {
-            Document = document ?? throw new ArgumentNullException(nameof(document));
-        }
+public interface IPatchOperation {}
 
-        public object Document { get; }
+public class PartialPatch : IPatchOperation {
+    public PartialPatch(object document) {
+        Document = document ?? throw new ArgumentNullException(nameof(document));
     }
 
-    public class JsonPatch : IPatchOperation {
-        public JsonPatch(PatchDocument patch) {
-            Patch = patch ?? throw new ArgumentNullException(nameof(patch));
-        }
+    public object Document { get; }
+}
 
-        public PatchDocument Patch { get; }
+public class JsonPatch : IPatchOperation {
+    public JsonPatch(PatchDocument patch) {
+        Patch = patch ?? throw new ArgumentNullException(nameof(patch));
     }
 
-    public class ScriptPatch : IPatchOperation {
-        public ScriptPatch(string script) {
-            if (String.IsNullOrEmpty(script))
-                throw new ArgumentNullException(nameof(script));
+    public PatchDocument Patch { get; }
+}
 
-            Script = script;
-        }
+public class ScriptPatch : IPatchOperation {
+    public ScriptPatch(string script) {
+        if (String.IsNullOrEmpty(script))
+            throw new ArgumentNullException(nameof(script));
 
-        public string Script { get; }
-        public Dictionary<string, object> Params { get; set; }
-        
+        Script = script;
     }
+
+    public string Script { get; }
+    public Dictionary<string, object> Params { get; set; }
+    
 }
