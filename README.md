@@ -1,4 +1,4 @@
-![Foundatio](https://raw.githubusercontent.com/FoundatioFx/Foundatio/master/media/foundatio.svg#gh-dark-mode-only)![Foundatio](https://raw.githubusercontent.com/FoundatioFx/Foundatio/master/media/foundatio.svg#gh-light-mode-only)
+![Foundatio](https://raw.githubusercontent.com/FoundatioFx/Foundatio/master/media/foundatio-dark-bg.svg#gh-dark-mode-only "Foundatio")![Foundatio](https://raw.githubusercontent.com/FoundatioFx/Foundatio/master/media/foundatio.svg#gh-light-mode-only "Foundatio")
 
 [![Build status](https://github.com/FoundatioFx/Foundatio.Repositories/workflows/Build/badge.svg)](https://github.com/FoundatioFx/Foundatio.Repositories/actions)
 [![NuGet Version](http://img.shields.io/nuget/v/Foundatio.Repositories.svg?style=flat)](https://www.nuget.org/packages/Foundatio.Repositories/)
