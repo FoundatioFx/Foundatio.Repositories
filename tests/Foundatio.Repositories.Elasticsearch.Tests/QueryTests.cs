@@ -7,6 +7,7 @@ using Foundatio.Utility;
 using Xunit;
 using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
+using Foundatio.Parsers.LuceneQueries;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -238,11 +239,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
         Assert.Equal(1, results.Total);
         Assert.True(results.Documents.All(d => d.Name == employeeEric.Name));
 
-        results = await _employeeRepository.FindAsync(q => q.SearchExpression("name:*"));
-        Assert.Equal(2, results.Total);
-        Assert.Equal(2, results.Hits.Sum(h => h.Score));
-
-        await Assert.ThrowsAsync<FormatException>(async () => {
+        await Assert.ThrowsAsync<QueryValidationException>(async () => {
             await _employeeRepository.FindAsync(q => q.SearchExpression("name:"));
         });
 
@@ -272,7 +269,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
         results = await _employeeRepository.FindAsync(q => q.SearchExpression("companyName:e*"));
         Assert.Equal(0, results.Total);
 
-        await Assert.ThrowsAsync<FormatException>(async () => {
+        await Assert.ThrowsAsync<QueryValidationException>(async () => {
             await _employeeRepository.FindAsync(q => q.SearchExpression("companyName:"));
         });
     }
