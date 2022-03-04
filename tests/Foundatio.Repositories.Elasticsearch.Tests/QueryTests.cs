@@ -44,7 +44,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
         Log.MinimumLevel = LogLevel.Trace;
 
         var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId), o => o.ImmediateConsistency());
-        var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+        var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20, name: "Eric J. Smith"), o => o.ImmediateConsistency());
 
         var results = await _employeeRepository.GetAllByCompanyAsync(employee1.CompanyId);
         Assert.Equal(1, results.Total);
@@ -63,8 +63,17 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
         Assert.Equal(1, await _employeeRepository.GetCountByCompanyAsync(employee1.CompanyId));
         await _employeeRepository.RemoveAsync(employee1, o => o.Cache().ImmediateConsistency());
 
-        var result = await  _employeeRepository.FindAsync(q => q.FieldCondition(e => e.Age, ComparisonOperator.Equals, 12));
+        var result = await  _employeeRepository.FindAsync(q => q.FieldEquals(e => e.Age, 12));
         Assert.Empty(result.Documents);
+
+        result = await _employeeRepository.FindAsync(q => q.FieldEquals(e => e.Name, "Eric J. Smith"));
+        Assert.Single(result.Documents);
+
+        result = await _employeeRepository.FindAsync(q => q.FieldEquals(e => e.Name, "Eric"));
+        Assert.Empty(result.Documents);
+
+        result = await _employeeRepository.FindAsync(q => q.FieldCondition(e => e.Name, ComparisonOperator.Contains, "Eric"));
+        Assert.Single(result.Documents);
 
         var query = new RepositoryQuery<Employee>();
         query.FieldEquals(e => e.Age, 12);
@@ -74,15 +83,31 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
         Assert.Equal(1, await _employeeRepository.CountAsync());
         Assert.Equal(0, await _employeeRepository.GetCountByCompanyAsync(employee1.CompanyId));
 
+        employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId), o => o.ImmediateConsistency());
+
         query = new RepositoryQuery<Employee>();
         query.FieldEquals(e => e.Name, null);
         result = await _employeeRepository.FindAsync(q => query);
         Assert.Single(result.Documents);
+        Assert.Null(result.Documents.Single().Name);
+
+        query = new RepositoryQuery<Employee>();
+        query.FieldEmpty(e => e.Name);
+        result = await _employeeRepository.FindAsync(q => query);
+        Assert.Single(result.Documents);
+        Assert.Null(result.Documents.Single().Name);
 
         query = new RepositoryQuery<Employee>();
         query.FieldNotEquals(e => e.Name, null);
         result = await _employeeRepository.FindAsync(q => query);
-        Assert.Empty(result.Documents);
+        Assert.Single(result.Documents);
+        Assert.NotNull(result.Documents.Single().Name);
+
+        query = new RepositoryQuery<Employee>();
+        query.FieldHasValue(e => e.Name);
+        result = await _employeeRepository.FindAsync(q => query);
+        Assert.Single(result.Documents);
+        Assert.NotNull(result.Documents.Single().Name);
     }
 
     [Fact]
