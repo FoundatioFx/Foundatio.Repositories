@@ -107,12 +107,10 @@ public class PatchDocument {
     }
 
     public string ToString(Formatting formatting) {
-        using (var ms = new MemoryStream()) {
-            CopyToStream(ms, formatting);
-            ms.Position = 0;
-            using (StreamReader reader = new StreamReader(ms, Encoding.UTF8)) {
-                return reader.ReadToEnd();
-            }
-        }
+        using var ms = new MemoryStream();
+        CopyToStream(ms, formatting);
+        ms.Position = 0;
+        using StreamReader reader = new StreamReader(ms, Encoding.UTF8);
+        return reader.ReadToEnd();
     }
 }
