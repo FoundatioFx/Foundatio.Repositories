@@ -993,6 +993,47 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
+    public async Task GetWithDateRangeFilterExpressionHonoringTimeZoneAsync() {
+        Log.MinimumLevel = LogLevel.Trace;
+        var chicagoTimeZone = TZConvert.GetTimeZoneInfo("America/Chicago");
+        var asiaTimeZone = TZConvert.GetTimeZoneInfo("Asia/Shanghai");
+        var utcNow = SystemClock.UtcNow;
+        var chicagoNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, chicagoTimeZone);
+        var asiaNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, asiaTimeZone);
+        _logger.LogInformation($"UTC: {utcNow:o} Chicago: {chicagoNow:o} Asia: {asiaNow:o}");
+
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: utcNow), o => o.ImmediateConsistency());
+        Assert.NotNull(employee?.Id);
+        var filter = $"next:[\"{utcNow.SubtractHours(1):o}\" TO \"{utcNow:o}\"]";
+        var results = await _employeeRepository.FindAsync(o => o.FilterExpression(filter));
+        _logger.LogInformation($"Count: {results.Total} - UTC range");
+        Assert.NotNull(results);
+        Assert.Equal(1, results.Documents.Count);
+        Assert.Equal(1, results.Page);
+        Assert.False(results.HasMore);
+        Assert.Equal(1, results.Total);
+
+        filter = $"next:[\"{chicagoNow.SubtractHours(1):o}\" TO \"{chicagoNow:o}\"]^\"America/Chicago\"";
+        results = await _employeeRepository.FindAsync(o => o.FilterExpression(filter));
+        _logger.LogInformation($"Count: {results.Total} - Chicago range");
+        Assert.NotNull(results);
+        Assert.Equal(1, results.Documents.Count);
+        Assert.Equal(1, results.Page);
+        Assert.False(results.HasMore);
+        Assert.Equal(1, results.Total);
+
+        filter = $"next:[\"{asiaNow.SubtractHours(1):o}\" TO \"{asiaNow:o}\"]^\"Asia/Shanghai\"";
+        results = await _employeeRepository.FindAsync(o => o.FilterExpression(filter));
+        _logger.LogInformation($"Count: {results.Total} - Asia range");
+        Assert.NotNull(results);
+        Assert.Equal(1, results.Documents.Count);
+        Assert.Equal(1, results.Page);
+        Assert.False(results.HasMore);
+        Assert.Equal(1, results.Total);
+    }
+
+
+    [Fact]
     public async Task GetWithDateRangeHonoringTimeZoneAsync() {
         Log.MinimumLevel = LogLevel.Trace;
 
