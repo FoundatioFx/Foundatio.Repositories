@@ -1,12 +1,13 @@
 ﻿using System;
+using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using Elasticsearch.Net;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Microsoft.Extensions.Logging;
 using Nest;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
@@ -24,7 +25,7 @@ public static class LoggerExtensions {
         var apiCall = elasticResponse?.ApiCall;
         if (apiCall?.RequestBodyInBytes != null) {
             string body = Encoding.UTF8.GetString(apiCall?.RequestBodyInBytes);
-            body = JsonUtility.NormalizeJsonString(body);
+            body = JsonUtility.Normalize(body);
 
             logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}\r\n{HttpBody}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri.PathAndQuery, body);
         } else {
@@ -51,65 +52,73 @@ public static class LoggerExtensions {
 }
 
 internal class JsonUtility {
-    public static string NormalizeJsonString(string json) {
-        if (String.IsNullOrEmpty(json))
-            return json;
+    public static string Normalize(string jsonStr) {
+        var reader = new Utf8JsonReader(Encoding.UTF8.GetBytes(jsonStr));
+        if (!JsonDocument.TryParseValue(ref reader, out var doc))
+            return jsonStr;
 
-        JObject parsedObject;
-        JObject normalizedObject;
-        
-        if (json.Contains("\n")) {
-            var sb = new StringBuilder();
-            
-            foreach (string line in json.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries)) {
-                try {
-                    parsedObject = JObject.Parse(line);
-                    normalizedObject = SortPropertiesAlphabetically(parsedObject);
-                    sb.AppendLine(JsonConvert.SerializeObject(normalizedObject, Formatting.Indented));
-                } catch {
-                    // just return the original json
-                    sb.AppendLine(line);
+        return Normalize(doc.RootElement);
+    }
+
+    public static string Normalize(JsonElement element) {
+        var ms = new MemoryStream();
+        var opts = new JsonWriterOptions {
+            Indented = true,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        };
+        using (var writer = new Utf8JsonWriter(ms, opts)) {
+            Write(element, writer);
+        }
+
+        var bytes = ms.ToArray();
+        var str = Encoding.UTF8.GetString(bytes);
+        return str;
+    }
+
+    private static void Write(JsonElement element, Utf8JsonWriter writer) {
+        switch (element.ValueKind) {
+            case JsonValueKind.Object:
+                writer.WriteStartObject();
+
+                foreach (var x in element.EnumerateObject().OrderBy(prop => prop.Name)) {
+                    writer.WritePropertyName(x.Name);
+                    Write(x.Value, writer);
                 }
-            }
 
-            return sb.ToString();
+                writer.WriteEndObject();
+                break;
+
+            case JsonValueKind.Array:
+                writer.WriteStartArray();
+                foreach (var x in element.EnumerateArray()) {
+                    Write(x, writer);
+                }
+                writer.WriteEndArray();
+                break;
+
+            case JsonValueKind.Number:
+                writer.WriteNumberValue(element.GetDouble());
+                break;
+
+            case JsonValueKind.String:
+                writer.WriteStringValue(element.GetString());
+                break;
+
+            case JsonValueKind.Null:
+                writer.WriteNullValue();
+                break;
+
+            case JsonValueKind.True:
+                writer.WriteBooleanValue(true);
+                break;
+
+            case JsonValueKind.False:
+                writer.WriteBooleanValue(false);
+                break;
+
+            default:
+                throw new NotImplementedException($"Kind: {element.ValueKind}");
+
         }
-        
-        parsedObject = JObject.Parse(json);
-        normalizedObject = SortPropertiesAlphabetically(parsedObject);
-        return JsonConvert.SerializeObject(normalizedObject, Formatting.Indented);
-    }
-
-    private static JObject SortPropertiesAlphabetically(JObject original) {
-        var result = new JObject();
-
-        foreach (var property in original.Properties().ToList().OrderBy(p => p.Name)) {
-            if (property.Value is JObject value) {
-                value = SortPropertiesAlphabetically(value);
-                result.Add(property.Name, value);
-            } else if (property.Value is JArray array) {
-                array = SortArrayAlphabetically(array);
-                result.Add(property.Name, array);
-            } else {
-                result.Add(property.Name, property.Value);
-            }
-        }
-
-        return result;
-    }
-
-    private static JArray SortArrayAlphabetically(JArray original) {
-        var result = new JArray();
-
-        foreach (var item in original) {
-            if (item is JObject value)
-                result.Add(SortPropertiesAlphabetically(value));
-            else if (item is JArray array)
-                result.Add(SortArrayAlphabetically(array));
-            else
-                result.Add(item);
-        }
-
-        return result;
     }
 }

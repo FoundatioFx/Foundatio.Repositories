@@ -4,7 +4,7 @@
     <ProjectReference Include="..\..\src\Foundatio.Repositories.Elasticsearch\Foundatio.Repositories.Elasticsearch.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Exceptionless.RandomData" Version="1.2.0" />
+    <PackageReference Include="Exceptionless.RandomData" Version="1.2.1" />
     <PackageReference Include="TimeZoneConverter" Version="5.0.0" />
   </ItemGroup>
 </Project>

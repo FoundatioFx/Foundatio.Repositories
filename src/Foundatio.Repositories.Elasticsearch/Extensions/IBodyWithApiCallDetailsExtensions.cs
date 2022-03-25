@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Text;
+using System.Text.Json;
 using Nest;
-using Newtonsoft.Json;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
@@ -11,6 +11,6 @@ internal static class IBodyWithApiCallDetailsExtensions {
             return default;
 
         string rawResponse = Encoding.UTF8.GetString(call.ApiCall.ResponseBodyInBytes);
-        return JsonConvert.DeserializeObject<T>(rawResponse);
+        return JsonSerializer.Deserialize<T>(rawResponse);
     }
 }

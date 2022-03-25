@@ -2,10 +2,11 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Nest;
-using Newtonsoft.Json;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
@@ -59,7 +60,7 @@ public static class FindHitExtensions {
         if (sorts == null || sorts.Length == 0)
             return null;
 
-        return Encode(JsonConvert.SerializeObject(sorts));
+        return Encode(JsonSerializer.Serialize(sorts));
     }
 
     public static ISort ReverseOrder(this ISort sort) {
@@ -80,7 +81,10 @@ public static class FindHitExtensions {
     }
 
     public static object[] DecodeSortToken(string sortToken) {
-        return JsonConvert.DeserializeObject<object[]>(Decode(sortToken));
+        var options = new JsonSerializerOptions();
+        options.Converters.Add(new ObjectConverter());
+        var tokens = JsonSerializer.Deserialize<object[]>(Decode(sortToken), options);
+        return tokens;
     }
 
     private static string Encode(string text) {
@@ -112,4 +116,20 @@ public static class ElasticDataKeys {
     public const string Sorts = "sorts";
     public const string SearchBeforeToken = nameof(SearchBeforeToken);
     public const string SearchAfterToken = nameof(SearchAfterToken);
+}
+
+public class ObjectConverter : JsonConverter<object> {
+    public override object Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) {
+        return reader.TokenType switch {
+            JsonTokenType.Number => reader.GetInt64(),
+            JsonTokenType.String => reader.GetString(),
+            JsonTokenType.True => reader.GetBoolean(),
+            JsonTokenType.False => reader.GetBoolean(),
+            _ => null
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, object value, JsonSerializerOptions options) {
+        throw new NotImplementedException();
+    }
 }
