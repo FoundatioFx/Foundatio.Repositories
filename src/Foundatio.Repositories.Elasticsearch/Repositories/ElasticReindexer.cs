@@ -132,6 +132,7 @@ public class ElasticReindexer {
         var sw = Stopwatch.StartNew();
         do {
             var status = await _client.Tasks.GetTaskAsync(result.Task, null, cancellationToken).AnyContext();
+            
             if (status.IsValid) {
                 _logger.LogRequest(status);
             } else {
@@ -354,5 +355,13 @@ public class ElasticReindexer {
         public long VersionConflicts { get; set; }
 
         public IReadOnlyCollection<BulkIndexByScrollFailure> Failures { get; set; }
+    }
+
+    private class BulkIndexByScrollFailure {
+        public Error Cause { get; set; }
+        public string Id { get; set; }
+        public string Index { get; set; }
+        public int Status { get; set; }
+        public string Type { get; set; }
     }
 }

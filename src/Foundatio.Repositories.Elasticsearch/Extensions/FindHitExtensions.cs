@@ -11,6 +11,12 @@ using Nest;
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 public static class FindHitExtensions {
+    private static JsonSerializerOptions _options;
+    static FindHitExtensions() {
+        _options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        _options.Converters.Add(new ObjectConverter());
+    }
+
     public static string GetIndex<T>(this FindHit<T> hit) {
         return hit?.Data?.GetString(ElasticDataKeys.Index);
     }
@@ -81,9 +87,7 @@ public static class FindHitExtensions {
     }
 
     public static object[] DecodeSortToken(string sortToken) {
-        var options = new JsonSerializerOptions();
-        options.Converters.Add(new ObjectConverter());
-        var tokens = JsonSerializer.Deserialize<object[]>(Decode(sortToken), options);
+        var tokens = JsonSerializer.Deserialize<object[]>(Decode(sortToken), _options);
         return tokens;
     }
 
