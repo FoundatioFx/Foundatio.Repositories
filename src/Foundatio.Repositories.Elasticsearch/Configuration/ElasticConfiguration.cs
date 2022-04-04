@@ -44,6 +44,7 @@ public class ElasticConfiguration: IElasticConfiguration {
 
     protected virtual IElasticClient CreateElasticClient() {
         var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")));
+        settings.EnableApiVersioningHeader();
         ConfigureSettings(settings);
         foreach (var index in Indexes)
             index.ConfigureSettings(settings);
