@@ -9,6 +9,7 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
     public override bool CanConvert(Type type) {
         return typeof(IAggregate).IsAssignableFrom(type);
     }
+
     public override IAggregate Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) {
         IAggregate value = null;
         
