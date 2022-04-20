@@ -479,7 +479,16 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase {
         Assert.Equal(10, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
         bucket = roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
         Assert.Equal(1, bucket.Total);
-        
+
+        string systemTextJson = System.Text.Json.JsonSerializer.Serialize(result);
+        Assert.Equal(json, systemTextJson);
+        roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(systemTextJson);
+        Assert.Equal(10, roundTripped.Total);
+        Assert.Equal(1, roundTripped.Aggregations.Count);
+        Assert.Equal(10, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
+        bucket = roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
+        Assert.Equal(1, bucket.Total);
+
         // TODO: Do we need to be able to roundtrip this? I think we need to for caching purposes.
 
         // tophits = bucket.Aggregations.TopHits();

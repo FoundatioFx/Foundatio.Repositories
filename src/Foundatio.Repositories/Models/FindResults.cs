@@ -21,6 +21,7 @@ public class FindResults<T> : CountResult, IFindResults<T> where T : class {
     }
 
     [IgnoreDataMember]
+    [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlyCollection<T> Documents { get; protected set; } = EmptyReadOnly<T>.Collection;
 
     public IReadOnlyCollection<FindHit<T>> Hits { get; protected set; } = EmptyReadOnly<FindHit<T>>.Collection;
@@ -90,17 +91,21 @@ public class CountResult : IHaveData {
     public static readonly CountResult Empty = new();
     private AggregationsHelper _agg;
 
+    public CountResult() : this(0, null, null) {
+
+    }
     public CountResult(long total = 0, IDictionary<string, IAggregate> aggregations = null, IDictionary<string, object> data = null) {
         Aggregations = aggregations == null ? EmptyReadOnly<string, IAggregate>.Dictionary : new Dictionary<string, IAggregate>(aggregations);
         Total = total;
         Data = data ?? new Dictionary<string, object>();
     }
 
-    public long Total { get; protected set; }
-    public IReadOnlyDictionary<string, IAggregate> Aggregations { get; protected set; }
-    public IDictionary<string, object> Data { get; protected set; }
+    public long Total { get; set; }
+    public IReadOnlyDictionary<string, IAggregate> Aggregations { get; set; }
+    public IDictionary<string, object> Data { get; set; }
 
     [IgnoreDataMember]
+    [System.Text.Json.Serialization.JsonIgnore]
     public AggregationsHelper Aggs => _agg ?? (_agg = new AggregationsHelper(Aggregations));
 
     public static implicit operator long(CountResult result) {
