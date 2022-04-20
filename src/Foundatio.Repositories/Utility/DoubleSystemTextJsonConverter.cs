@@ -2,7 +2,7 @@
 using System.Text.Json;
 
 namespace Foundatio.Repositories.Utility;
-public class DoubleJsonConverter : System.Text.Json.Serialization.JsonConverter<double> {
+public class DoubleSystemTextJsonConverter : System.Text.Json.Serialization.JsonConverter<double> {
     public override double Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) {
 
         throw new NotImplementedException();

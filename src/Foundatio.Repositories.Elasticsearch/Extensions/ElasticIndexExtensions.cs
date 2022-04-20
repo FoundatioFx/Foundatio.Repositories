@@ -439,15 +439,15 @@ public static class ElasticIndexExtensions {
         return null;
     }
 
-    public static IDictionary<string, IAggregate> ToAggregations(this IReadOnlyDictionary<string, Nest.IAggregate> aggregations) {
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this IReadOnlyDictionary<string, Nest.IAggregate> aggregations) {
         return aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate());
     }
 
-    public static IDictionary<string, IAggregate> ToAggregations<T>(this Nest.ISearchResponse<T> res) where T : class {
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this Nest.ISearchResponse<T> res) where T : class {
         return res.Aggregations.ToAggregations();
     }
 
-    public static IDictionary<string, IAggregate> ToAggregations<T>(this Nest.IAsyncSearchResponse<T> res) where T : class {
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this Nest.IAsyncSearchResponse<T> res) where T : class {
         return res.Response.Aggregations.ToAggregations();
     }
 

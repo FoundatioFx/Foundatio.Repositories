@@ -7,9 +7,10 @@ namespace Foundatio.Repositories.Models;
 [DebuggerDisplay("KeyAsString: {KeyAsString} Key: {Key} Total: {Total}")]
 public class KeyedBucket<T> : BucketBase {
     public KeyedBucket() { }
-    public KeyedBucket(IDictionary<string, IAggregate> aggregations) : base(aggregations) { }
+    public KeyedBucket(IReadOnlyDictionary<string, IAggregate> aggregations) : base(aggregations) { }
 
-    [System.Text.Json.Serialization.JsonConverter(typeof(KeyedBucketSystemTextJsonConverter))]
+    // NOTE: object values have been deserializad to json element (https://docs.microsoft.com/en-us/dotnet/standard/serialization/system-text-json-converters-how-to?pivots=dotnet-6-0#deserialize-inferred-types-to-object-properties)
+    [System.Text.Json.Serialization.JsonConverter(typeof(ObjectToInferredTypesSystemTextJsonConverter))]
     public T Key { get; set; }
     public string KeyAsString { get; set; }
     public long? Total { get; set; }

@@ -18,10 +18,9 @@ public class BucketsSystemTextJsonConverter : System.Text.Json.Serialization.Jso
         IBucket value = null;
         if (typeToken != null) {
 
-            IDictionary<string, IAggregate> aggregations = null;
+            IReadOnlyDictionary<string, IAggregate> aggregations = null;
             var aggregationsElement = GetProperty(element, "Aggregations");
-            //var aggregationJToken = JsonDocument.Parse(aggregationJToken);
-            aggregations = aggregationsElement?.Deserialize<IDictionary<string, IAggregate>>(options);
+            aggregations = aggregationsElement?.Deserialize<IReadOnlyDictionary<string, IAggregate>>(options);
 
             switch (typeToken) {
                 case "datehistogram":

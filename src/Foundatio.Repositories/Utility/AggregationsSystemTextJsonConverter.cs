@@ -51,8 +51,8 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
     }
 
     public override void Write(Utf8JsonWriter writer, IAggregate value, JsonSerializerOptions options) {
-
-        JsonSerializerOptions opt = new JsonSerializerOptions(options) { Converters = { new DoubleJsonConverter() } };
+        // NOTE: This fixes an issue where doubles were converted to ints (https://github.com/dotnet/runtime/issues/35195)
+        var opt = new JsonSerializerOptions(options) { Converters = { new DoubleSystemTextJsonConverter() } };
         JsonSerializer.Serialize(writer, value, value.GetType(), opt);
     }
     private string GetTokenType(JsonElement element) {
