@@ -6,7 +6,9 @@ namespace Foundatio.Repositories.Models;
 [DebuggerDisplay("Key: {Key} From: {FromAsString} To: {ToAsString} Total: {Total}")]
 public class RangeBucket : BucketBase {
     public RangeBucket() { }
-    public RangeBucket(IDictionary<string, IAggregate> aggregations) : base(aggregations) { }
+
+    [System.Text.Json.Serialization.JsonConstructor]
+    public RangeBucket(IReadOnlyDictionary<string, IAggregate> aggregations) : base(aggregations) { }
 
     public string Key { get; set; }
     public double? From { get; set; }

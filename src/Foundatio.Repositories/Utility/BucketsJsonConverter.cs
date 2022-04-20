@@ -20,9 +20,9 @@ public class BucketsJsonConverter : JsonConverter {
         IBucket value = null;
         if (typeToken != null) {
             string type = typeToken.Value<string>();
-            IDictionary<string, IAggregate> aggregations = null;
+            IReadOnlyDictionary<string, IAggregate> aggregations = null;
             var aggregationsToken = item.SelectToken("Aggregations") ?? item.SelectToken("aggregations");
-            aggregations = aggregationsToken?.ToObject<IDictionary<string, IAggregate>>();
+            aggregations = aggregationsToken?.ToObject<IReadOnlyDictionary<string, IAggregate>>();
             
             switch (type) {
                 case "datehistogram":

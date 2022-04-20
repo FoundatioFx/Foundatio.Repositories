@@ -11,7 +11,7 @@ namespace Foundatio.Repositories.Models;
 
 [DebuggerDisplay("Total: {Total} Documents: {Documents.Count} Hits: {Hits.Count} Aggs: {Aggregations.Count} Page: {Page} HasMore: {HasMore}")]
 public class FindResults<T> : CountResult, IFindResults<T> where T : class {
-    public FindResults(IEnumerable<FindHit<T>> hits = null, long total = 0, IDictionary<string, IAggregate> aggregations = null, Func<FindResults<T>, Task<FindResults<T>>> getNextPage = null, IDictionary<string, object> data = null)
+    public FindResults(IEnumerable<FindHit<T>> hits = null, long total = 0, IReadOnlyDictionary<string, IAggregate> aggregations = null, Func<FindResults<T>, Task<FindResults<T>>> getNextPage = null, IDictionary<string, object> data = null)
         : base(total, aggregations, data) {
         ((IFindResults<T>)this).GetNextPageFunc = getNextPage;
         if (hits != null) {
@@ -21,6 +21,7 @@ public class FindResults<T> : CountResult, IFindResults<T> where T : class {
     }
 
     [IgnoreDataMember]
+    [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlyCollection<T> Documents { get; protected set; } = EmptyReadOnly<T>.Collection;
 
     public IReadOnlyCollection<FindHit<T>> Hits { get; protected set; } = EmptyReadOnly<FindHit<T>>.Collection;
@@ -90,8 +91,8 @@ public class CountResult : IHaveData {
     public static readonly CountResult Empty = new();
     private AggregationsHelper _agg;
 
-    public CountResult(long total = 0, IDictionary<string, IAggregate> aggregations = null, IDictionary<string, object> data = null) {
-        Aggregations = aggregations == null ? EmptyReadOnly<string, IAggregate>.Dictionary : new Dictionary<string, IAggregate>(aggregations);
+    public CountResult(long total = 0, IReadOnlyDictionary<string, IAggregate> aggregations = null, IDictionary<string, object> data = null) {
+        Aggregations = aggregations ?? EmptyReadOnly<string, IAggregate>.Dictionary;
         Total = total;
         Data = data ?? new Dictionary<string, object>();
     }
@@ -101,6 +102,7 @@ public class CountResult : IHaveData {
     public IDictionary<string, object> Data { get; protected set; }
 
     [IgnoreDataMember]
+    [System.Text.Json.Serialization.JsonIgnore]
     public AggregationsHelper Aggs => _agg ?? (_agg = new AggregationsHelper(Aggregations));
 
     public static implicit operator long(CountResult result) {
