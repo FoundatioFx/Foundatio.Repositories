@@ -2,29 +2,32 @@
 using System.Collections.Generic;
 using System.Text.Json;
 using Foundatio.Repositories.Models;
-using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Utility;
 
 public class BucketsSystemTextJsonConverter : System.Text.Json.Serialization.JsonConverter<IBucket> {
+    private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
+    
     public override bool CanConvert(Type type) {
         return typeof(IBucket).IsAssignableFrom(type);
     }
-    private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
 
     public override IBucket Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) {
+        IBucket value = null;
+        
         var element = JsonElement.ParseValue(ref reader);
         string typeToken = GetDataToken(element, "@type");
-        IBucket value = null;
         if (typeToken != null) {
             switch (typeToken) {
                 case "datehistogram":
+                    string timeZoneToken = GetDataToken(element, "@timezone");
+                    var kind = timeZoneToken != null ? DateTimeKind.Unspecified : DateTimeKind.Utc;
+                    long key = GetProperty(element, "Key")?.GetInt64() ?? throw new InvalidOperationException();
+                    var date = new DateTime(_epochTicks + (key * TimeSpan.TicksPerMillisecond), kind);
+
                     var aggregationsElement = GetProperty(element, "Aggregations");
                     var aggregations = aggregationsElement?.Deserialize<IReadOnlyDictionary<string, IAggregate>>(options);
-                    var timeZoneToken = GetDataToken(element, "@timezone");
-                    var kind = timeZoneToken != null ? DateTimeKind.Unspecified : DateTimeKind.Utc;
-                    var key = GetProperty(element, "Key")?.GetInt64() ?? throw new InvalidOperationException();
-                    var date = new DateTime(_epochTicks + (key * TimeSpan.TicksPerMillisecond), kind);
+                    
                     value = new DateHistogramBucket(date, aggregations);
                     break;
                 case "range":
@@ -53,22 +56,19 @@ public class BucketsSystemTextJsonConverter : System.Text.Json.Serialization.Jso
     }
 
     private JsonElement? GetProperty(JsonElement element, string propertyName) {
-        if (element.TryGetProperty(propertyName, out var dataElement)) {
+        if (element.TryGetProperty(propertyName, out var dataElement))
             return dataElement;
-        }
-        if (element.TryGetProperty(propertyName.ToLower(), out dataElement)) {
+        
+        if (element.TryGetProperty(propertyName.ToLower(), out dataElement))
             return dataElement;
-        }
 
         return null;
     }
 
     private string GetDataToken(JsonElement element, string key) {
         var dataPropertyElement = GetProperty(element, "Data");
-
-        if (dataPropertyElement != null && dataPropertyElement.Value.TryGetProperty(key, out var typeElement)) {
+        if (dataPropertyElement != null && dataPropertyElement.Value.TryGetProperty(key, out var typeElement))
             return typeElement.ToString();
-        }
 
         return null;
     }

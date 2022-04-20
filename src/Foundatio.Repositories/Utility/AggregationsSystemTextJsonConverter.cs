@@ -10,9 +10,10 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
         return typeof(IAggregate).IsAssignableFrom(type);
     }
     public override IAggregate Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) {
+        IAggregate value = null;
+        
         var element = JsonElement.ParseValue(ref reader);
         string typeToken = GetTokenType(element);
-        IAggregate value = null;
         if (typeToken != null) {
             switch (typeToken) {
                 case "bucket":
@@ -45,24 +46,27 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
                     break;
             }
         }
+        
         if (value is null)
             value = element.Deserialize<ValueAggregate>(options);
+        
         return value;
     }
 
     public override void Write(Utf8JsonWriter writer, IAggregate value, JsonSerializerOptions options) {
-        // NOTE: This fixes an issue where doubles were converted to ints (https://github.com/dotnet/runtime/issues/35195)
-        var opt = new JsonSerializerOptions(options) { Converters = { new DoubleSystemTextJsonConverter() } };
-        JsonSerializer.Serialize(writer, value, value.GetType(), opt);
+        var serializerOptions = new JsonSerializerOptions(options) {
+            Converters = { new DoubleSystemTextJsonConverter() }
+        };
+        
+        JsonSerializer.Serialize(writer, value, value.GetType(), serializerOptions);
     }
     
     private JsonElement? GetProperty(JsonElement element, string propertyName) {
-        if (element.TryGetProperty(propertyName, out var dataElement)) {
+        if (element.TryGetProperty(propertyName, out var dataElement)) 
             return dataElement;
-        }
-        if (element.TryGetProperty(propertyName.ToLower(), out dataElement)) {
+        
+        if (element.TryGetProperty(propertyName.ToLower(), out dataElement)) 
             return dataElement;
-        }
 
         return null;
     }
@@ -70,9 +74,8 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
     private string GetTokenType(JsonElement element) {
         var dataPropertyElement = GetProperty(element, "Data");
 
-        if (dataPropertyElement != null && dataPropertyElement.Value.TryGetProperty("@type", out var typeElement)) {
+        if (dataPropertyElement != null && dataPropertyElement.Value.TryGetProperty("@type", out var typeElement))
             return typeElement.ToString();
-        }
 
         return null;
     }

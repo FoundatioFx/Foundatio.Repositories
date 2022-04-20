@@ -6,7 +6,7 @@ using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Utility;
 
-public class BucketsJsonConverter : JsonConverter {
+public class BucketsNewtonsoftJsonConverter : JsonConverter {
     private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
     
     public override bool CanConvert(Type objectType) {

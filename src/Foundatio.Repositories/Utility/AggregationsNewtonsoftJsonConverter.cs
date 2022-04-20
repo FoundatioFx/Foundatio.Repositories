@@ -5,7 +5,7 @@ using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Utility;
 
-public class AggregationsJsonConverter : JsonConverter {
+public class AggregationsNewtonsoftJsonConverter : JsonConverter {
     public override bool CanConvert(Type objectType) {
         return typeof(IAggregate).IsAssignableFrom(objectType);
     }
