@@ -55,20 +55,25 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
         var opt = new JsonSerializerOptions(options) { Converters = { new DoubleSystemTextJsonConverter() } };
         JsonSerializer.Serialize(writer, value, value.GetType(), opt);
     }
-    private string GetTokenType(JsonElement element) {
+    
+    private JsonElement? GetProperty(JsonElement element, string propertyName) {
+        if (element.TryGetProperty(propertyName, out var dataElement)) {
+            return dataElement;
+        }
+        if (element.TryGetProperty(propertyName.ToLower(), out dataElement)) {
+            return dataElement;
+        }
 
-        if (element.TryGetProperty("Data", out var dataElement)) {
-            if (dataElement.TryGetProperty("@type", out var typeElement)) {
-                return typeElement.ToString();
-            }
-            return null;
+        return null;
+    }
+
+    private string GetTokenType(JsonElement element) {
+        var dataPropertyElement = GetProperty(element, "Data");
+
+        if (dataPropertyElement != null && dataPropertyElement.Value.TryGetProperty("@type", out var typeElement)) {
+            return typeElement.ToString();
         }
-        if (element.TryGetProperty("data", out dataElement)) {
-            if (dataElement.TryGetProperty("@type", out var typeElement)) {
-                return typeElement.ToString();
-            }
-            return null;
-        }
+
         return null;
     }
 }

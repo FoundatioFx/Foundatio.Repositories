@@ -60,23 +60,17 @@ public class BucketsSystemTextJsonConverter : System.Text.Json.Serialization.Jso
         if (element.TryGetProperty(propertyName.ToLower(), out dataElement)) {
             return dataElement;
         }
+
         return null;
     }
 
     private string GetDataToken(JsonElement element, string key) {
+        var dataPropertyElement = GetProperty(element, "Data");
 
-        if (element.TryGetProperty("Data", out var dataElement)) {
-            if (dataElement.TryGetProperty(key, out var typeElement)) {
-                return typeElement.ToString();
-            }
-            return null;
+        if (dataPropertyElement != null && dataPropertyElement.Value.TryGetProperty(key, out var typeElement)) {
+            return typeElement.ToString();
         }
-        if (element.TryGetProperty("data", out dataElement)) {
-            if (dataElement.TryGetProperty(key, out var typeElement)) {
-                return typeElement.ToString();
-            }
-            return null;
-        }
+
         return null;
     }
 }
