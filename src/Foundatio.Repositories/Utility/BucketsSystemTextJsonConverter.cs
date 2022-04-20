@@ -17,13 +17,10 @@ public class BucketsSystemTextJsonConverter : System.Text.Json.Serialization.Jso
         string typeToken = GetDataToken(element, "@type");
         IBucket value = null;
         if (typeToken != null) {
-
-            IReadOnlyDictionary<string, IAggregate> aggregations = null;
-            var aggregationsElement = GetProperty(element, "Aggregations");
-            aggregations = aggregationsElement?.Deserialize<IReadOnlyDictionary<string, IAggregate>>(options);
-
             switch (typeToken) {
                 case "datehistogram":
+                    var aggregationsElement = GetProperty(element, "Aggregations");
+                    var aggregations = aggregationsElement?.Deserialize<IReadOnlyDictionary<string, IAggregate>>(options);
                     var timeZoneToken = GetDataToken(element, "@timezone");
                     var kind = timeZoneToken != null ? DateTimeKind.Unspecified : DateTimeKind.Utc;
                     var key = GetProperty(element, "Key")?.GetInt64() ?? throw new InvalidOperationException();
@@ -44,8 +41,10 @@ public class BucketsSystemTextJsonConverter : System.Text.Json.Serialization.Jso
                     break;
             }
         }
+
         if (value is null)
             value = element.Deserialize<KeyedBucket<object>>(options);
+
         return value;
     }
 
