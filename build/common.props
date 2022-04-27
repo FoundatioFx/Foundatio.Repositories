@@ -10,6 +10,7 @@
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <ReferenceFoundatioSource Condition="$(SolutionName.Contains('All')) Or !$(SolutionName.Contains('Foundatio'))">true</ReferenceFoundatioSource>
     <ReferenceFoundatioRepositoriesSource>false</ReferenceFoundatioRepositoriesSource>
+    <FoundatioProjectsDir>$(ProjectDir)..\..\..\..\Foundatio\</FoundatioProjectsDir>
     
     <Copyright>Copyright (c) 2022 Foundatio.  All rights reserved.</Copyright>
     <Authors>FoundatioFx</Authors>

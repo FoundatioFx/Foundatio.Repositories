@@ -4,7 +4,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="7.17.1" Condition="'$(ReferenceFoundatioRepositoriesSource)' == '' OR '$(ReferenceFoundatioRepositoriesSource)' == 'false'" />
-    <ProjectReference Include="..\..\..\Foundatio.Parsers\src\Foundatio.Parsers.ElasticQueries\Foundatio.Parsers.ElasticQueries.csproj" Condition="'$(ReferenceFoundatioRepositoriesSource)' == 'true'" />
+    <ProjectReference Include="$(FoundatioProjectsDir)Foundatio.Parsers\src\Foundatio.Parsers.ElasticQueries\Foundatio.Parsers.ElasticQueries.csproj" Condition="'$(ReferenceFoundatioRepositoriesSource)' == 'true'" />
     <ProjectReference Include="..\Foundatio.Repositories\Foundatio.Repositories.csproj" />
   </ItemGroup>
 </Project>

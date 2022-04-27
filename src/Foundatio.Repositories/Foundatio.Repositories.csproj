@@ -1,9 +1,9 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <PackageReference Include="Foundatio" Version="10.4.0" Condition="'$(ReferenceFoundatioSource)' == '' OR '$(ReferenceFoundatioSource)' == 'false'" />
-    <ProjectReference Include="..\..\..\Foundatio\src\Foundatio\Foundatio.csproj" Condition="'$(ReferenceFoundatioSource)' == 'true'" />
+    <ProjectReference Include="$(FoundatioProjectsDir)Foundatio\src\Foundatio\Foundatio.csproj" Condition="'$(ReferenceFoundatioSource)' == 'true'" />
     
     <PackageReference Include="Foundatio.JsonNet" Version="10.4.0" Condition="'$(ReferenceFoundatioSource)' == '' OR '$(ReferenceFoundatioSource)' == 'false'" />
-    <ProjectReference Include="..\..\..\Foundatio\src\Foundatio.JsonNet\Foundatio.JsonNet.csproj" Condition="'$(ReferenceFoundatioSource)' == 'true'" />
+    <ProjectReference Include="$(FoundatioProjectsDir)Foundatio\src\Foundatio.JsonNet\Foundatio.JsonNet.csproj" Condition="'$(ReferenceFoundatioSource)' == 'true'" />
   </ItemGroup>
 </Project>
