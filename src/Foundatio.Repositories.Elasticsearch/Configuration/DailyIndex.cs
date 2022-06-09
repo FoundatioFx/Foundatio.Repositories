@@ -190,7 +190,7 @@ public class DailyIndex : VersionedIndex {
         var utcEndOfDay = utcEnd.Value.EndOfDay();
         var period = utcEndOfDay - utcStartOfDay;
         if ((MaxIndexAge.HasValue && period > MaxIndexAge.Value) || period.GetTotalMonths() >= 3)
-            return new string[0];
+            return Array.Empty<string>();
 
         // TODO: Look up aliases that fit these ranges.
         var indices = new List<string>();

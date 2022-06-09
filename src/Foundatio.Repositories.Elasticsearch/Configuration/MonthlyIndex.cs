@@ -25,7 +25,7 @@ public class MonthlyIndex: DailyIndex {
         var utcEndOfDay = utcEnd.Value.EndOfDay();
         var period = utcEndOfDay - utcStartOfDay;
         if ((MaxIndexAge.HasValue && period > MaxIndexAge.Value) || period.GetTotalYears() > 1)
-            return new string[0];
+            return Array.Empty<string>();
 
         var utcEndOfMonth = utcEnd.Value.EndOfMonth();
 

@@ -23,7 +23,7 @@ public static class FindHitExtensions {
 
     public static object[] GetSorts<T>(this FindHit<T> hit) {
         if (hit == null || !hit.Data.TryGetValue(ElasticDataKeys.Sorts, out object sorts))
-            return new object[0];
+            return Array.Empty<object>();
 
         object[] sortsArray = sorts as object[];
         return sortsArray;
