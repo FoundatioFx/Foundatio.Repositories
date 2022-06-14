@@ -54,7 +54,7 @@
     },
     {
       "label": "docker: elasticsearch",
-      "command": "docker-compose up",
+      "command": "docker compose up",
       "type": "shell",
       "isBackground": true,
       "group": "test",
