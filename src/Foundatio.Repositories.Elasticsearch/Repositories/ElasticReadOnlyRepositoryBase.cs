@@ -74,6 +74,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         options = ConfigureOptions(options.As<T>());
 
+        await OnBeforeGetAsync(new Ids(id), options, typeof(T));
+
         // we don't have the parent id so we have to do a query
         if (HasParent && id.Routing == null) {
             var result = await FindOneAsync(NewQuery().Id(id), options).AnyContext();
@@ -117,6 +119,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             throw new NotSupportedException("Model type must implement IIdentity.");
 
         options = ConfigureOptions(options.As<T>());
+
+        await OnBeforeGetAsync(new Ids(idList), options, typeof(T));
 
         var hits = new List<FindHit<T>>();
         if (IsCacheEnabled && options.ShouldReadCache())
@@ -230,6 +234,15 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             return Cache.RemoveAllAsync(keys);
 
         return Task.CompletedTask;
+    }
+
+    public AsyncEvent<BeforeGetEventArgs<T>> BeforeGet { get; } = new AsyncEvent<BeforeGetEventArgs<T>>();
+
+    private async Task OnBeforeGetAsync(Ids ids, ICommandOptions options, Type resultType) {
+        if (BeforeGet == null || !BeforeGet.HasHandlers)
+            return;
+
+        await BeforeGet.InvokeAsync(this, new BeforeGetEventArgs<T>(ids, options, this, resultType)).AnyContext();
     }
 
     public AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; } = new AsyncEvent<BeforeQueryEventArgs<T>>();

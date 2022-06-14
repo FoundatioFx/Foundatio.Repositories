@@ -53,8 +53,13 @@ public class LogEvent : IIdentity, IHaveCreatedDate {
     public string CompanyId { get; set; }
     public string Message { get; set; }
     public int Value { get; set; }
+    public LogEventMeta Meta { get; set; }
     public DateTimeOffset Date { get; set; }
     public DateTime CreatedUtc { get; set; }
+}
+
+public class LogEventMeta {
+    public string Stuff { get; set; }
 }
 
 public static class LogEventGenerator {
@@ -66,13 +71,16 @@ public static class LogEventGenerator {
         CreatedUtc = SystemClock.UtcNow
     };
 
-    public static LogEvent Generate(string id = null, string companyId = null, string message = null, DateTime? createdUtc = null, DateTimeOffset? date = null) {
+    public static LogEvent Generate(string id = null, string companyId = null, string message = null, DateTime? createdUtc = null, DateTimeOffset? date = null, string stuff = null) {
         var created = createdUtc ?? RandomData.GetDateTime(SystemClock.UtcNow.StartOfMonth(), SystemClock.UtcNow);
         return new LogEvent {
             Id = id,
             Message = message ?? RandomData.GetAlphaString(),
             CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
             CreatedUtc = created,
+            Meta = new LogEventMeta {
+                Stuff = stuff,
+            },
             Date = date ?? created
         };
     }

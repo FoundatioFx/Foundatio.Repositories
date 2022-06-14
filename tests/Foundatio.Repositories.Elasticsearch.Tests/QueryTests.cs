@@ -143,11 +143,29 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanHandleIncludeWithWrongCasing() {
+    public async Task GetByCompanyWithIncludeMask() {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
         Assert.NotNull(log?.Id);
 
-        var results = await _dailyRepository.FindAsync(q => q.Include(e => e.Id).Include("CreatedUtc"));
+        var results = await _dailyRepository.FindAsync(q => q.Company(log.CompanyId));
+        Assert.Equal(1, results.Documents.Count);
+        Assert.Equal(log, results.Documents.First());
+
+        results = await _dailyRepository.FindAsync(q => q.Company(log.CompanyId).IncludeMask("iD,Createdutc"), o => o.QueryLogLevel(LogLevel.Warning));
+        Assert.Equal(1, results.Documents.Count);
+        var companyLog = results.Documents.First();
+        Assert.Equal(log.Id, companyLog.Id);
+        Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
+        Assert.Null(companyLog.Message);
+        Assert.Null(companyLog.CompanyId);
+    }
+
+    [Fact]
+    public async Task CanHandleIncludeWithWrongCasing() {
+        var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", stuff: "stuff"), o => o.ImmediateConsistency());
+        Assert.NotNull(log?.Id);
+
+        var results = await _dailyRepository.FindAsync(q => q.IncludeMask("meTa(sTuFf)  ,  CreaTedUtc"), o => o.Include(e => e.Id).QueryLogLevel(LogLevel.Warning));
         Assert.Equal(1, results.Documents.Count);
         var companyLog = results.Documents.First();
         Assert.Equal(log.Id, companyLog.Id);
@@ -176,6 +194,24 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
         Assert.NotEqual(log.CreatedUtc, companyLog.CreatedUtc);
 
         results = await _dailyRepository.FindAsync(q => q.Exclude("createdUtc"));
+        Assert.Equal(1, results.Documents.Count);
+        companyLog = results.Documents.First();
+        Assert.Equal(log.Id, companyLog.Id);
+        Assert.NotEqual(log.CreatedUtc, companyLog.CreatedUtc);
+    }
+
+    [Fact]
+    public async Task GetByCompanyWithExcludeMask() {
+        var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+        Assert.NotNull(log?.Id);
+
+        var results = await _dailyRepository.FindAsync(q => q.ExcludeMask("CREATEDUtc"), o => o.ExcludeMask("MessAge").QueryLogLevel(LogLevel.Warning));
+        Assert.Equal(1, results.Documents.Count);
+        var companyLog = results.Documents.First();
+        Assert.Equal(log.Id, companyLog.Id);
+        Assert.NotEqual(log.CreatedUtc, companyLog.CreatedUtc);
+
+        results = await _dailyRepository.FindAsync(q => q.Company(log.CompanyId).ExcludeMask("Createdutc"), o => o.QueryLogLevel(LogLevel.Warning));
         Assert.Equal(1, results.Documents.Count);
         companyLog = results.Documents.First();
         Assert.Equal(log.Id, companyLog.Id);

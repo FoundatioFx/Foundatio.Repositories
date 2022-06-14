@@ -22,7 +22,7 @@ public static class ResolverExtensions {
     }
 
     public static Field ResolveFieldName(this ElasticMappingResolver resolver, Field field) {
-        if (field.Name == null)
+        if (field?.Name == null)
             return field;
 
         return new Field(resolver.GetResolvedField(field.Name), field.Boost, field.Format);
