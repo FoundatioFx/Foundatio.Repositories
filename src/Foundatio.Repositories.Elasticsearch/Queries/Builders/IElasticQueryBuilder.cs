@@ -15,10 +15,10 @@ using Foundatio.Parsers.LuceneQueries;
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders;
 
 public interface IElasticQueryBuilder {
-    Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new();
+    Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class;
 }
 
-public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitorContext, IQueryVisitorContextWithFieldResolver, IQueryVisitorContextWithIncludeResolver, IQueryVisitorContextWithValidation where T : class, new() {
+public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitorContext, IQueryVisitorContextWithFieldResolver, IQueryVisitorContextWithIncludeResolver, IQueryVisitorContextWithValidation where T : class {
     public QueryBuilderContext(IRepositoryQuery source, ICommandOptions options, SearchDescriptor<T> search = null, IQueryBuilderContext parentContext = null) {
         Source = source;
         Options = options;
@@ -101,7 +101,7 @@ public static class QueryBuilderContextExtensions {
 }
 
 public static class ElasticQueryBuilderExtensions {
-    public static async Task<QueryContainer> BuildQueryAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, ICommandOptions options, SearchDescriptor<T> search) where T : class, new() {
+    public static async Task<QueryContainer> BuildQueryAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, ICommandOptions options, SearchDescriptor<T> search) where T : class {
         var ctx = new QueryBuilderContext<T>(query, options, search);
         await builder.BuildAsync(ctx).AnyContext();
 
@@ -111,7 +111,7 @@ public static class ElasticQueryBuilderExtensions {
         };
     }
 
-    public static async Task ConfigureSearchAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, ICommandOptions options, SearchDescriptor<T> search) where T : class, new() {
+    public static async Task ConfigureSearchAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, ICommandOptions options, SearchDescriptor<T> search) where T : class {
         if (search == null)
             throw new ArgumentNullException(nameof(search));
 

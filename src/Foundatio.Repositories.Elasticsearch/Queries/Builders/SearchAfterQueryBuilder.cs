@@ -96,7 +96,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class SearchAfterQueryBuilder : IElasticQueryBuilder {
         private const string Id = nameof(IIdentity.Id);
 
-        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class {
             if (!ctx.Options.ShouldUseSearchAfterPaging())
                 return Task.CompletedTask;
             

@@ -88,7 +88,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             _resolver = aliasMap;
         }
 
-        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class {
             string filter = ctx.Source.GetFilterExpression();
             string search = ctx.Source.GetSearchExpression();
             string sort = ctx.Source.GetSortExpression();
@@ -132,7 +132,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class ExpressionQueryBuilder : IElasticQueryBuilder {
         private readonly LuceneQueryParser _parser = new();
 
-        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class {
             string filter = ctx.Source.GetFilterExpression();
             string search = ctx.Source.GetSearchExpression();
             string sort = ctx.Source.GetSortExpression();
@@ -171,7 +171,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             _parser = parser ?? throw new ArgumentNullException(nameof(parser));
         }
 
-        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class {
             string filter = ctx.Source.GetFilterExpression();
             string search = ctx.Source.GetSearchExpression();
             string sort = ctx.Source.GetSortExpression();

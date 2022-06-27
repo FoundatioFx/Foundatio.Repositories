@@ -41,7 +41,7 @@ namespace Foundatio.Repositories.Options {
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class ChildQueryBuilder : IElasticQueryBuilder {
-        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class {
             var childQueries = ctx.Source.GetChildQueries();
             if (childQueries.Count == 0)
                 return;

@@ -4,7 +4,7 @@ using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories;
 
-public interface ISearchableRepository<T> : IRepository<T>, ISearchableReadOnlyRepository<T> where T : class, IIdentity, new() {
+public interface ISearchableRepository<T> : IRepository<T>, ISearchableReadOnlyRepository<T> where T : class, IIdentity {
     /// <summary>
     /// Patch all documents that match the query using the specified patch operation.
     /// </summary>
@@ -64,7 +64,7 @@ public interface ISearchableRepository<T> : IRepository<T>, ISearchableReadOnlyR
     /// <param name="processFunc">The function used to process each batch of documents.</param>
     /// <param name="options">Command options used to control things like paging, caching, etc</param>
     /// <returns></returns>
-    Task<long> BatchProcessAsAsync<TResult>(RepositoryQueryDescriptor<T> query, Func<FindResults<TResult>, Task<bool>> processFunc, CommandOptionsDescriptor<T> options = null) where TResult : class, new();
+    Task<long> BatchProcessAsAsync<TResult>(RepositoryQueryDescriptor<T> query, Func<FindResults<TResult>, Task<bool>> processFunc, CommandOptionsDescriptor<T> options = null) where TResult : class;
 
     /// <summary>
     /// Batch process all documents that match the query using the specified process function.
@@ -73,5 +73,5 @@ public interface ISearchableRepository<T> : IRepository<T>, ISearchableReadOnlyR
     /// <param name="processFunc">The function used to process each batch of documents.</param>
     /// <param name="options">Command options used to control things like paging, caching, etc</param>
     /// <returns></returns>
-    Task<long> BatchProcessAsAsync<TResult>(IRepositoryQuery query, Func<FindResults<TResult>, Task<bool>> processFunc, ICommandOptions options = null) where TResult : class, new();
+    Task<long> BatchProcessAsAsync<TResult>(IRepositoryQuery query, Func<FindResults<TResult>, Task<bool>> processFunc, ICommandOptions options = null) where TResult : class;
 }

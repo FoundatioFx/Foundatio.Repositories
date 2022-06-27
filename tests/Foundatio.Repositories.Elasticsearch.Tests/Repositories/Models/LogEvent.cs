@@ -8,81 +8,43 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 
-public class LogEvent : IIdentity, IHaveCreatedDate {
-    public string Id { get; set; }
-
-    protected bool Equals(LogEvent other) {
-        return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase) && 
-            String.Equals(CompanyId, other.CompanyId, StringComparison.InvariantCultureIgnoreCase) && 
-            String.Equals(Message, other.Message, StringComparison.InvariantCultureIgnoreCase) &&
-            Value == other.Value &&
-            Date.Equals(other.Date) &&
-            CreatedUtc.Equals(other.CreatedUtc);
-    }
-    
-    public override bool Equals(object obj) {
-        if (ReferenceEquals(null, obj))
-            return false;
-        if (ReferenceEquals(this, obj))
-            return true;
-        if (obj.GetType() != this.GetType())
-            return false;
-        return Equals((LogEvent)obj);
-    }
-    
-    public override int GetHashCode() {
-        unchecked {
-            int hashCode = (Id != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Id) : 0);
-            hashCode = (hashCode * 397) ^ (CompanyId != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(CompanyId) : 0);
-            hashCode = (hashCode * 397) ^ (Message != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Message) : 0);
-            hashCode = (hashCode * 397) ^ Value;
-            hashCode = (hashCode * 397) ^ Date.GetHashCode();
-            hashCode = (hashCode * 397) ^ CreatedUtc.GetHashCode();
-            return hashCode;
-        }
-    }
-
-    public static bool operator ==(LogEvent left, LogEvent right) {
-        return Equals(left, right);
-    }
-
-    public static bool operator !=(LogEvent left, LogEvent right) {
-        return !Equals(left, right);
-    }
-
-    public string CompanyId { get; set; }
-    public string Message { get; set; }
-    public int Value { get; set; }
-    public LogEventMeta Meta { get; set; }
-    public DateTimeOffset Date { get; set; }
-    public DateTime CreatedUtc { get; set; }
+public record LogEvent(
+    string Id,
+    string CompanyId,
+    string Message,
+    int Value,
+    LogEventMeta Meta,
+    DateTimeOffset Date,
+    DateTime CreatedUtc
+) : IIdentity, IHaveCreatedDate {
+    public string Id { get; set; } = Id;
+    public DateTime CreatedUtc { get; set; } = CreatedUtc;
 }
 
-public class LogEventMeta {
+public record LogEventMeta {
     public string Stuff { get; set; }
 }
 
 public static class LogEventGenerator {
     public static readonly string DefaultCompanyId = ObjectId.GenerateNewId().ToString();
 
-    public static LogEvent Default => new() {
-        Message = "Hello world",
-        CompanyId = DefaultCompanyId,
-        CreatedUtc = SystemClock.UtcNow
-    };
+    public static LogEvent Default {
+        get {
+            return new LogEvent(null, DefaultCompanyId, "Hello world", 0, new LogEventMeta(), SystemClock.OffsetNow, SystemClock.UtcNow);
+        }
+    }
 
     public static LogEvent Generate(string id = null, string companyId = null, string message = null, DateTime? createdUtc = null, DateTimeOffset? date = null, string stuff = null) {
         var created = createdUtc ?? RandomData.GetDateTime(SystemClock.UtcNow.StartOfMonth(), SystemClock.UtcNow);
-        return new LogEvent {
-            Id = id,
-            Message = message ?? RandomData.GetAlphaString(),
-            CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
-            CreatedUtc = created,
-            Meta = new LogEventMeta {
-                Stuff = stuff,
-            },
-            Date = date ?? created
-        };
+        return new LogEvent(
+            id,
+            companyId ?? ObjectId.GenerateNewId().ToString(),
+            message ?? RandomData.GetAlphaString(),
+            0,
+            new LogEventMeta { Stuff = stuff, },
+            date ?? created,
+            created
+        );
     }
     
     public static List<LogEvent> GenerateLogs(int count = 10) {

@@ -148,7 +148,7 @@ public class ElasticQueryBuilder : IElasticQueryBuilder {
         return _registrations.OrderBy(v => v.Priority).ToArray();
     }
 
-    public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+    public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class {
         if (_queryBuilders == null)
             Interlocked.CompareExchange(ref _queryBuilders, _registrations.OrderBy(v => v.Priority).Select(r => r.Builder).ToArray(), null);
         

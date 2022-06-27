@@ -2,7 +2,7 @@
 
 namespace Foundatio.Repositories.Models;
 
-public class BeforeQueryEventArgs<T> : EventArgs where T : class, new() {
+public class BeforeQueryEventArgs<T> : EventArgs where T : class {
     public BeforeQueryEventArgs(IRepositoryQuery query, ICommandOptions options, IReadOnlyRepository<T> repository, Type resultType) {
         Query = query;
         Options = options;

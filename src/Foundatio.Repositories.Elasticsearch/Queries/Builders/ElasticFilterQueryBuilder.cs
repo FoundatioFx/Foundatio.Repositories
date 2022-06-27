@@ -23,7 +23,7 @@ namespace Foundatio.Repositories.Options {
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class ElasticFilterQueryBuilder : IElasticQueryBuilder {
-        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class {
             var elasticFilters = ctx.Source.GetElasticFilters();
             if (elasticFilters.Count == 0)
                 return Task.CompletedTask;

@@ -85,7 +85,7 @@ namespace Foundatio.Repositories.Options {
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class DateRangeQueryBuilder : IElasticQueryBuilder {
-        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class {
             var dateRanges = ctx.Source.GetDateRanges();
             if (dateRanges.Count <= 0)
                 return Task.CompletedTask;

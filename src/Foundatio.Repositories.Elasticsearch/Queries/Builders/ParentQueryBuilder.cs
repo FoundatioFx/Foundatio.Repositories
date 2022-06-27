@@ -54,7 +54,7 @@ namespace Foundatio.Repositories.Options {
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class ParentQueryBuilder : IElasticQueryBuilder {
-        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class {
             var index = ctx.Options.GetElasticIndex();
 
             var parentId = ctx.Source.GetParentId();

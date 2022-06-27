@@ -26,7 +26,7 @@ namespace Foundatio.Repositories.Options {
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries {
     public class CompanyQueryBuilder : IElasticQueryBuilder {
-        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class {
             var companyIds = ctx.Source.GetCompanies();
             if (companyIds.Count <= 0)
                 return Task.CompletedTask;

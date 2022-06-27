@@ -2,7 +2,7 @@
 
 namespace Foundatio.Repositories.Models;
 
-public class BeforePublishEntityChangedEventArgs<T> : CancelEventArgs where T : class, IIdentity, new() {
+public class BeforePublishEntityChangedEventArgs<T> : CancelEventArgs where T : class, IIdentity {
     public BeforePublishEntityChangedEventArgs(IRepository<T> repository, EntityChanged message) {
         Repository = repository;
         Message = message;

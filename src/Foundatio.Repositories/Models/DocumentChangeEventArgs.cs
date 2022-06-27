@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace Foundatio.Repositories.Models;
 
-public class DocumentsChangeEventArgs<T> : EventArgs where T : class, IIdentity, new() {
+public class DocumentsChangeEventArgs<T> : EventArgs where T : class, IIdentity {
     public DocumentsChangeEventArgs(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, IRepository<T> repository, ICommandOptions options) {
         ChangeType = changeType;
         Documents = documents ?? EmptyReadOnly<ModifiedDocument<T>>.Collection;
@@ -17,7 +17,7 @@ public class DocumentsChangeEventArgs<T> : EventArgs where T : class, IIdentity,
     public ICommandOptions Options { get; private set; }
 }
 
-public class DocumentsEventArgs<T> : EventArgs where T : class, IIdentity, new() {
+public class DocumentsEventArgs<T> : EventArgs where T : class, IIdentity {
     public DocumentsEventArgs(IReadOnlyCollection<T> documents, IRepository<T> repository, ICommandOptions options) {
         Documents = documents ?? EmptyReadOnly<T>.Collection;
         Repository = repository;
@@ -29,7 +29,7 @@ public class DocumentsEventArgs<T> : EventArgs where T : class, IIdentity, new()
     public ICommandOptions Options { get; private set; }
 }
 
-public class ModifiedDocumentsEventArgs<T> : EventArgs where T : class, IIdentity, new() {
+public class ModifiedDocumentsEventArgs<T> : EventArgs where T : class, IIdentity {
     public ModifiedDocumentsEventArgs(IReadOnlyCollection<ModifiedDocument<T>> documents, IRepository<T> repository, ICommandOptions options) {
         Documents = documents ?? EmptyReadOnly<ModifiedDocument<T>>.Collection;
         Repository = repository;
@@ -41,7 +41,7 @@ public class ModifiedDocumentsEventArgs<T> : EventArgs where T : class, IIdentit
     public ICommandOptions Options { get; private set; }
 }
 
-public class ModifiedDocument<T> where T : class, new() {
+public class ModifiedDocument<T> where T : class {
     public ModifiedDocument(T value, T original) {
         Value = value;
         Original = original;

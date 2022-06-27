@@ -5,7 +5,7 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories;
 
-public interface IRepository<T> : IReadOnlyRepository<T> where T: class, IIdentity, new() {
+public interface IRepository<T> : IReadOnlyRepository<T> where T: class, IIdentity {
     Task<T> AddAsync(T document, CommandOptionsDescriptor<T> options);
     Task<T> AddAsync(T document, ICommandOptions options = null);
 

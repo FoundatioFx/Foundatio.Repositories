@@ -23,7 +23,7 @@ using System.Linq.Expressions;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
-public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, ISearchableRepository<T> where T : class, IIdentity, new() {
+public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, ISearchableRepository<T> where T : class, IIdentity {
     protected readonly IMessagePublisher _messagePublisher;
     private readonly List<Lazy<Field>> _propertiesRequiredForRemove = new();
 
@@ -640,12 +640,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return BatchProcessAsAsync(query, processFunc, options);
     }
 
-    public Task<long> BatchProcessAsAsync<TResult>(RepositoryQueryDescriptor<T> query, Func<FindResults<TResult>, Task<bool>> processFunc, CommandOptionsDescriptor<T> options = null) where TResult : class, new() {
+    public Task<long> BatchProcessAsAsync<TResult>(RepositoryQueryDescriptor<T> query, Func<FindResults<TResult>, Task<bool>> processFunc, CommandOptionsDescriptor<T> options = null) where TResult : class {
         return BatchProcessAsAsync<TResult>(query.Configure(), processFunc, options.Configure());
     }
 
     public virtual async Task<long> BatchProcessAsAsync<TResult>(IRepositoryQuery query, Func<FindResults<TResult>, Task<bool>> processFunc, ICommandOptions options = null)
-        where TResult : class, new() {
+        where TResult : class {
 
         if (processFunc == null)
             throw new ArgumentNullException(nameof(processFunc));

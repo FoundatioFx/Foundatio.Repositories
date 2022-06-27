@@ -33,7 +33,7 @@ namespace Foundatio.Repositories.Options {
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries {
     public class AgeQueryBuilder : IElasticQueryBuilder {
-        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class {
             var ages = ctx.Source.GetAges();
             if (ages.Count <= 0)
                 return Task.CompletedTask;

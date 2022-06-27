@@ -6,7 +6,7 @@ using Nest;
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders;
 
 public class SoftDeletesQueryBuilder : IElasticQueryBuilder {
-    public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+    public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class {
         // TODO: Figure out how to automatically add parent filter for soft deletes on queries that have a parent document type
 
         // dont add filter to child query system filters

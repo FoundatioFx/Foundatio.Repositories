@@ -300,7 +300,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
                 return Task.CompletedTask;
             });
 
-            log.CompanyId = ObjectId.GenerateNewId().ToString();
+            log = log with { CompanyId = ObjectId.GenerateNewId().ToString() };
             var result = await _dailyRepository.SaveAsync(log);
             Assert.Equal(log.CompanyId, result.CompanyId);
 
@@ -341,7 +341,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
                 return Task.CompletedTask;
             });
 
-            logEntry.CompanyId = ObjectId.GenerateNewId().ToString();
+            logEntry = logEntry with { CompanyId = ObjectId.GenerateNewId().ToString() };
             await _dailyRepository.SaveAsync(new List<LogEvent> { logEntry, addedLog });
 
             await notificationCountdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(2)).Token);
@@ -458,7 +458,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
 
         Assert.Equal(1, await _dailyRepository.CountAsync());
 
-        yesterdayLog.Message = "updated";
+        yesterdayLog = yesterdayLog with { Message = "updated" };
         await _dailyRepository.SaveAsync(yesterdayLog, o => o.ImmediateConsistency());
 
         Assert.Equal(1, await _dailyRepository.CountAsync());
@@ -559,8 +559,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         var logs = new List<LogEvent> { yesterdayLog, nowLog };
         await _dailyRepository.AddAsync(logs);
 
-        foreach (var logEvent in logs)
-            logEvent.Message = "updated";
+        for (int index = 0; index < logs.Count; index++) 
+            logs[index] = logs[index] with { Message = "updated" };
 
         await _dailyRepository.SaveAsync(logs);
 

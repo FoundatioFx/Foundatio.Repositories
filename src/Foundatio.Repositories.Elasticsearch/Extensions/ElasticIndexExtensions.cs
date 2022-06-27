@@ -13,7 +13,7 @@ using Foundatio.Utility;
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 public static class ElasticIndexExtensions {
-    public static Nest.AsyncSearchSubmitDescriptor<T> ToAsyncSearchSubmitDescriptor<T>(this Nest.SearchDescriptor<T> searchDescriptor) where T : class, new() {
+    public static Nest.AsyncSearchSubmitDescriptor<T> ToAsyncSearchSubmitDescriptor<T>(this Nest.SearchDescriptor<T> searchDescriptor) where T : class {
         var asyncSearchDescriptor = new Nest.AsyncSearchSubmitDescriptor<T>();
 
         var searchRequest = (Nest.ISearchRequest)searchDescriptor;
@@ -55,7 +55,7 @@ public static class ElasticIndexExtensions {
         return asyncSearchDescriptor;
     }
 
-    public static FindResults<T> ToFindResults<T>(this Nest.ISearchResponse<T> response, ICommandOptions options) where T : class, new() {
+    public static FindResults<T> ToFindResults<T>(this Nest.ISearchResponse<T> response, ICommandOptions options) where T : class {
         if (!response.IsValid) {
             if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                 return new FindResults<T>();
@@ -96,7 +96,7 @@ public static class ElasticIndexExtensions {
         return results;
     }
 
-    public static FindResults<T> ToFindResults<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options) where T : class, new() {
+    public static FindResults<T> ToFindResults<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options) where T : class {
         if (!response.IsValid) {
             if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                 return new FindResults<T>();
@@ -147,7 +147,7 @@ public static class ElasticIndexExtensions {
         return hits.Select(h => h.ToFindHit());
     }
 
-    public static CountResult ToCountResult<T>(this Nest.ISearchResponse<T> response, ICommandOptions options) where T : class, new() {
+    public static CountResult ToCountResult<T>(this Nest.ISearchResponse<T> response, ICommandOptions options) where T : class {
         if (!response.IsValid) {
             if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                 return new FindResults<T>();
@@ -162,7 +162,7 @@ public static class ElasticIndexExtensions {
         return new CountResult(response.Total, response.ToAggregations(), data);
     }
 
-    public static CountResult ToCountResult<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options) where T : class, new() {
+    public static CountResult ToCountResult<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options) where T : class {
         if (!response.IsValid) {
             if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                 return new FindResults<T>();

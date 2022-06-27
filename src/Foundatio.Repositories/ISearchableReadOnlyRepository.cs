@@ -4,7 +4,7 @@ using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories;
 
-public interface ISearchableReadOnlyRepository<T> : IReadOnlyRepository<T> where T : class, new() {
+public interface ISearchableReadOnlyRepository<T> : IReadOnlyRepository<T> where T : class {
     /// <summary>
     /// Remove the results of an async query
     /// </summary>
@@ -30,14 +30,14 @@ public interface ISearchableReadOnlyRepository<T> : IReadOnlyRepository<T> where
     /// </summary>
     /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
     /// <param name="options">Command options used to control things like paging, caching, etc</param>
-    Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) where TResult : class, new();
+    Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) where TResult : class;
 
     /// <summary>
     /// Find documents using a query and map the result to the specified model type
     /// </summary>
     /// <param name="query">A object containing filter criteria used to enforce any tenancy or other system level filters</param>
     /// <param name="options">Command options used to control things like paging, caching, etc</param>
-    Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions options = null) where TResult : class, new();
+    Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions options = null) where TResult : class;
 
     /// <summary>
     /// Find a single document using a query

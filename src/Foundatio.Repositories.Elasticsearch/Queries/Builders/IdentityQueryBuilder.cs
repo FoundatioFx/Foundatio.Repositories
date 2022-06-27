@@ -6,7 +6,7 @@ using Nest;
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders;
 
 public class IdentityQueryBuilder : IElasticQueryBuilder {
-    public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+    public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class {
         var ids = ctx.Source.GetIds();
         if (ids.Count > 0)
             ctx.Filter &= new IdsQuery { Values = ids.Select(id => new Nest.Id(id)) };

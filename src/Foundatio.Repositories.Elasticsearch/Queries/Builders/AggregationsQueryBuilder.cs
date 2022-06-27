@@ -24,7 +24,7 @@ namespace Foundatio.Repositories.Options {
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
     public class AggregationsQueryBuilder : IElasticQueryBuilder {
-        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class {
             var elasticIndex = ctx.Options.GetElasticIndex();
             if (elasticIndex?.QueryParser == null)
                 return;

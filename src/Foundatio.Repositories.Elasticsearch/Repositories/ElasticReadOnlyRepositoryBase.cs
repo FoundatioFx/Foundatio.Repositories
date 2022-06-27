@@ -21,7 +21,7 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
-public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepository<T> where T : class, new() {
+public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepository<T> where T : class {
     protected static readonly bool HasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
     protected static readonly bool HasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
     protected static readonly bool HasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
@@ -276,11 +276,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return FindAsAsync<T>(query, options);
     }
 
-    public Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) where TResult : class, new() {
+    public Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) where TResult : class {
         return FindAsAsync<TResult>(query.Configure(), options.Configure());
     }
 
-    public virtual async Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions options = null) where TResult : class, new() {
+    public virtual async Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions options = null) where TResult : class {
         options = ConfigureOptions(options.As<T>());
         bool useSnapshotPaging = options.ShouldUseSnapshotPaging();
         // don't use caching with snapshot paging.
@@ -367,7 +367,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return _client.AsyncSearch.DeleteAsync(queryId);
     }
 
-    private async Task<FindResults<TResult>> GetNextPageFunc<TResult>(FindResults<TResult> previousResults, IRepositoryQuery query, ICommandOptions options) where TResult : class, new() {
+    private async Task<FindResults<TResult>> GetNextPageFunc<TResult>(FindResults<TResult> previousResults, IRepositoryQuery query, ICommandOptions options) where TResult : class {
         if (previousResults == null)
             throw new ArgumentException(nameof(previousResults));
 
