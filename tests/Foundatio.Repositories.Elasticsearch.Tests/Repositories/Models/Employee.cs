@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using Exceptionless;
 using Exceptionless.DateTimeExtensions;
+using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 
@@ -17,7 +18,7 @@ public class PhoneInfo {
     public string Extension { get; set; }
 }
 
-public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes {
+public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes, IHaveCustomFields {
     public string Id { get; set; }
     public string CompanyId { get; set; }
     public string CompanyName { get; set; }
@@ -38,6 +39,8 @@ public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes {
     public PeerReview[] PeerReviews { get; set; }
     public Dictionary<string, object> Data { get; set; }
     public IList<PhoneInfo> PhoneNumbers { get; set; } = new List<PhoneInfo>();
+    public IDictionary<string, object> Idx { get; set; }
+    public IDictionary<string, object> CustomFields { get; set; }
 
     protected bool Equals(Employee other) {
         return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase) &&

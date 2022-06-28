@@ -9,6 +9,7 @@ using Foundatio.Jobs;
 using Foundatio.Messaging;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Microsoft.Extensions.Logging;
 using Nest;
@@ -23,6 +24,7 @@ public class MyAppElasticConfiguration : ElasticConfiguration {
         AddIndex(DailyLogEvents = new DailyLogEventIndex(this));
         AddIndex(MonthlyLogEvents = new MonthlyLogEventIndex(this));
         AddIndex(ParentChild = new ParentChildIndex(this));
+        AddIndex(CustomFieldDefinition = new CustomFieldDefinitionIndex(this));
     }
 
     protected override IConnectionPool CreateConnectionPool() {
@@ -69,4 +71,5 @@ public class MyAppElasticConfiguration : ElasticConfiguration {
     public DailyLogEventIndex DailyLogEvents { get; }
     public MonthlyLogEventIndex MonthlyLogEvents { get; }
     public ParentChildIndex ParentChild { get; }
+    public CustomFieldDefinitionIndex CustomFieldDefinition { get; }
 }

@@ -2,8 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Foundatio.Parsers;
-using Foundatio.Parsers.ElasticQueries.Visitors;
+using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
@@ -43,12 +42,38 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
     public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.Employees) {}
 
     public EmployeeRepository(IIndex employeeIndex) : base(employeeIndex) {
+        AddDefaultExclude("Idx");
+
+        DocumentsChanging.AddHandler((o, args) => {
+            // lookup mapping
+            // copy from data to idx
+            foreach (var doc in args.Documents) {
+                foreach (var customField in doc.Value.CustomFields) {
+                    // some sort of hook to do a transform
+
+                    // get mapping from service and use IndexType and IndexSlot
+                    doc.Value.Idx["{IndexType}+{IndexSlot}"] = customField.Value;
+                }
+            }
+
+            return Task.CompletedTask;
+        });
+
         DocumentsChanged.AddHandler((o, args) => {
             DocumentsChangedCount += args.Documents.Count;
             return Task.CompletedTask;
         });
 
         BeforeQuery.AddHandler((o, args) => {
+            // lookup mapping
+            // apply alias mapping to query
+
+            var idxFieldMap = new Dictionary<string, string>() {
+                { "Blah", "{IndexType}+{IndexSlot}" }
+            };
+
+            args.Options.QueryFieldResolver(idxFieldMap.ToHierarchicalFieldResolver());
+
             QueryCount++;
             return Task.CompletedTask;
         });
