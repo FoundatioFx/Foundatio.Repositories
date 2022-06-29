@@ -48,11 +48,16 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
             // lookup mapping
             // copy from data to idx
             foreach (var doc in args.Documents) {
-                foreach (var customField in doc.Value.CustomFields) {
-                    // some sort of hook to do a transform
+                if (doc.Value.CustomFields != null) {
+                    if (doc.Value.Idx == null)
+                        doc.Value.Idx = new Dictionary<string, object>();
 
-                    // get mapping from service and use IndexType and IndexSlot
-                    doc.Value.Idx["{IndexType}+{IndexSlot}"] = customField.Value;
+                    foreach (var customField in doc.Value.CustomFields) {
+                        // some sort of hook to do a transform
+
+                        // get mapping from service and use IndexType and IndexSlot
+                        doc.Value.Idx["{IndexType}+{IndexSlot}"] = customField.Value;
+                    }
                 }
             }
 
