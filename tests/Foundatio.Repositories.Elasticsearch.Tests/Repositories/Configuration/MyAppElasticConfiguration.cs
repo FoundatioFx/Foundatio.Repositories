@@ -24,7 +24,7 @@ public class MyAppElasticConfiguration : ElasticConfiguration {
         AddIndex(DailyLogEvents = new DailyLogEventIndex(this));
         AddIndex(MonthlyLogEvents = new MonthlyLogEventIndex(this));
         AddIndex(ParentChild = new ParentChildIndex(this));
-        AddIndex(CustomFieldDefinition = new CustomFieldDefinitionIndex(this, replicas: 0));
+        AddCustomFieldIndex(replicas: 0);
     }
 
     protected override IConnectionPool CreateConnectionPool() {
@@ -71,5 +71,4 @@ public class MyAppElasticConfiguration : ElasticConfiguration {
     public DailyLogEventIndex DailyLogEvents { get; }
     public MonthlyLogEventIndex MonthlyLogEvents { get; }
     public ParentChildIndex ParentChild { get; }
-    public CustomFieldDefinitionIndex CustomFieldDefinition { get; }
 }

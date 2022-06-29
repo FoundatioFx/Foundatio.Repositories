@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
 using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
@@ -456,6 +457,7 @@ public static class ElasticIndexExtensions {
         bool hasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
         bool hasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
         bool supportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(typeof(T));
+        bool hasCustomFields = typeof(IHaveCustomFields).IsAssignableFrom(typeof(T));
 
         if (hasIdentity)
             pd.Keyword(p => p.Name(d => ((IIdentity)d).Id));
@@ -468,6 +470,9 @@ public static class ElasticIndexExtensions {
 
         if (hasDates)
             pd.Date(p => p.Name(d => ((IHaveDates)d).UpdatedUtc)).FieldAlias(a => a.Path(p => ((IHaveDates)p).UpdatedUtc).Name("updated"));;
+
+        if (hasCustomFields)
+            pd.Object<object>(f => f.Name("idx").Dynamic());
 
         return pd;
     }

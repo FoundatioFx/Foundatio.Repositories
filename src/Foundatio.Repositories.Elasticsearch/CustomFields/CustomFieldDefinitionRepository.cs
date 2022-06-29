@@ -29,6 +29,25 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         DocumentsChanging.AddHandler(OnDocumentsChanging);
     }
 
+    public async Task<IDictionary<string, string>> GetFieldMapping(string entityType, string tenantKey) {
+        var fieldMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        var fields = await FindAsync(q => q
+            .FieldEquals(cf => cf.EntityType, entityType)
+            .FieldEquals(cf => cf.TenantKey, tenantKey)
+            .Include(cf => cf.Name)
+            .Include(cf => cf.IndexType)
+            .Include(cf => cf.IndexSlot),
+            o => o.PageLimit(1000));
+
+        do {
+            foreach (var customField in fields.Documents)
+                fieldMapping[customField.Name] = $"{customField.IndexType}-{customField.IndexSlot}";
+        } while (await fields.NextPageAsync());
+
+        return fieldMapping;
+    }
+
     public override async Task AddAsync(IEnumerable<CustomFieldDefinition> documents, ICommandOptions options = null) {
         var fieldScopes = documents.GroupBy(d => (d.EntityType, d.TenantKey, d.IndexType));
         var lockKeys = fieldScopes.Select(f => $"customfield:{f.Key.EntityType}:{f.Key.TenantKey}:{f.Key.IndexType}");

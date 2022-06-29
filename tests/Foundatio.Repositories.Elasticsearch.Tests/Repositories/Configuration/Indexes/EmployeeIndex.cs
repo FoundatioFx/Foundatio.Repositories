@@ -24,6 +24,11 @@ public sealed class EmployeeIndex : Index<Employee> {
     public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map) {
         return map
             .Dynamic(false)
+            .DynamicTemplates(dt => dt
+                .DynamicTemplate("idx_bool", t => t.Match("bool*").Mapping(m => m.Boolean(f => f)))
+                .DynamicTemplate("idx_number", t => t.Match("long*").Mapping(m => m.Number(f => f.Type(NumberType.Long))))
+                .DynamicTemplate("idx_date", t => t.Match("date*").Mapping(m => m.Date(f => f)))
+                .DynamicTemplate("idx_string", t => t.Match("string*").Mapping(m => m.Text(mp => mp.AddKeywordField()))))
             .Properties(p => p
                 .SetupDefaults()
                 .Text(f => f.Name("_all"))

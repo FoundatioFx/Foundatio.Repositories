@@ -39,29 +39,32 @@ public interface IEmployeeRepository : ISearchableRepository<Employee> {
 }
 
 public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepository {
-    public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.Employees) {}
+    public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration) : this(elasticConfiguration.Employees) {}
 
     public EmployeeRepository(IIndex employeeIndex) : base(employeeIndex) {
         AddDefaultExclude("Idx");
 
-        DocumentsChanging.AddHandler((o, args) => {
-            // lookup mapping
-            // copy from data to idx
-            foreach (var doc in args.Documents) {
-                if (doc.Value.CustomFields != null) {
-                    if (doc.Value.Idx == null)
-                        doc.Value.Idx = new Dictionary<string, object>();
+        DocumentsChanging.AddHandler(async (o, args) => {
+            var companyGroups = args.Documents.GroupBy(e => e.Value.CompanyId);
 
-                    foreach (var customField in doc.Value.CustomFields) {
-                        // some sort of hook to do a transform
+            foreach (var company in companyGroups) {
+                var companyFieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMapping(EntityTypeName, company.Key);
 
-                        // get mapping from service and use IndexType and IndexSlot
-                        doc.Value.Idx["{IndexType}+{IndexSlot}"] = customField.Value;
+                foreach (var doc in company) {
+                    if (doc.Value.CustomFields != null) {
+                        if (doc.Value.Idx == null)
+                            doc.Value.Idx = new Dictionary<string, object>();
+
+                        // TODO create dynamic templates
+
+                        foreach (var customField in doc.Value.CustomFields) {
+                            if (companyFieldMapping.TryGetValue(customField.Key, out var idxName)) {
+                                doc.Value.Idx[idxName] = customField.Value;
+                            }
+                        }
                     }
                 }
             }
-
-            return Task.CompletedTask;
         });
 
         DocumentsChanged.AddHandler((o, args) => {
@@ -69,18 +72,18 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
             return Task.CompletedTask;
         });
 
-        BeforeQuery.AddHandler((o, args) => {
-            // lookup mapping
-            // apply alias mapping to query
+        BeforeQuery.AddHandler(async (o, args) => {
+            var companies = args.Query.GetCompanies();
+            if (companies.Count != 1)
+                return;
 
-            var idxFieldMap = new Dictionary<string, string>() {
-                { "Blah", "{IndexType}+{IndexSlot}" }
-            };
+            var companyId = companies.Single();
 
-            args.Options.QueryFieldResolver(idxFieldMap.ToHierarchicalFieldResolver());
+            var companyFieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMapping(EntityTypeName, companyId);
+
+            args.Options.QueryFieldResolver(companyFieldMapping.ToHierarchicalFieldResolver("idx."));
 
             QueryCount++;
-            return Task.CompletedTask;
         });
     }
 

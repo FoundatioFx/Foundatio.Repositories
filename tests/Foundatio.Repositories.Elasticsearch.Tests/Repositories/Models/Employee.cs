@@ -39,8 +39,8 @@ public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes, 
     public PeerReview[] PeerReviews { get; set; }
     public Dictionary<string, object> Data { get; set; }
     public IList<PhoneInfo> PhoneNumbers { get; set; } = new List<PhoneInfo>();
-    public IDictionary<string, object> Idx { get; set; }
-    public IDictionary<string, object> CustomFields { get; set; }
+    public IDictionary<string, object> Idx { get; set; } = new Dictionary<string, object>();
+    public IDictionary<string, object> CustomFields { get; set; } = new Dictionary<string, object>();
 
     protected bool Equals(Employee other) {
         return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase) &&

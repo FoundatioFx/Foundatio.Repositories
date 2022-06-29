@@ -7,6 +7,7 @@ using Nest;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Parsers.ElasticQueries;
 using Microsoft.Extensions.Logging;
+using Foundatio.Repositories.Elasticsearch.CustomFields;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
@@ -16,6 +17,8 @@ public interface IElasticConfiguration : IDisposable {
     IMessageBus MessageBus { get; }
     ILoggerFactory LoggerFactory { get; }
     IReadOnlyCollection<IIndex> Indexes { get; }
+    CustomFieldDefinitionRepository CustomFieldDefinitionRepository { get; }
+
     IIndex GetIndex(string name);
     void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder);
     void ConfigureGlobalQueryParsers(ElasticQueryParserConfiguration config);

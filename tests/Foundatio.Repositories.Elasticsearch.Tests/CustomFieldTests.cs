@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Lock;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Microsoft.Extensions.Logging;
 using Xunit;
 using Xunit.Abstractions;
@@ -12,11 +13,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public sealed class CustomFieldTests : ElasticRepositoryTestBase {
     private readonly CustomFieldDefinitionRepository _customFieldDefinitionRepository;
+    private readonly IEmployeeRepository _employeeRepository;
     private readonly ILockProvider _lockProvider;
 
     public CustomFieldTests(ITestOutputHelper output) : base(output) {
         _lockProvider = new CacheLockProvider(_cache, _messageBus, Log);
-        _customFieldDefinitionRepository = new CustomFieldDefinitionRepository(_configuration.CustomFieldDefinition, _lockProvider);
+        _customFieldDefinitionRepository = _configuration.CustomFieldDefinitionRepository;
+        _employeeRepository = new EmployeeRepository(_configuration);
     }
 
     public override async Task InitializeAsync() {
@@ -106,5 +109,29 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
                 usedSlots.Add(doc.IndexSlot);
             }
         }
+    }
+
+    [Fact]
+    public async Task CanSearchByCustomField() {
+        var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+            EntityType = "Employee",
+            TenantKey = "1",
+            Name = "MyField1",
+            IndexType = "string"
+        });
+        Assert.Equal(1, customField.IndexSlot);
+
+        var employee = EmployeeGenerator.Generate(age: 19);
+        employee.CompanyId = "1";
+        employee.PhoneNumbers.Add(new PhoneInfo { Number = "214-222-2222" });
+        employee.CustomFields["MyField1"] = "hey";
+        await _employeeRepository.AddAsync(employee, o => o.ImmediateConsistency());
+
+        var results = await _employeeRepository.FindAsync(q => q.Company("1").FilterExpression("myfield1:hey"), o => o.QueryLogLevel(LogLevel.Information));
+        var employees = results.Documents.ToArray();
+        Assert.Single(employees);
+        Assert.Equal(19, employees[0].Age);
+        Assert.Single(employees[0].CustomFields);
+        Assert.Equal("hey", employees[0].CustomFields["MyField1"]);
     }
 }

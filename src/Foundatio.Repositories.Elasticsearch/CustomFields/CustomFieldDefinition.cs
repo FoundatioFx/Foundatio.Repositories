@@ -68,5 +68,15 @@ public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes 
 
 public interface IHaveCustomFields {
     IDictionary<string, object> Idx { get; set; }
+
+    // is this really what we want this to be called? data
+    // pulling these up to the top level in the serializer means we can never add any new top level properties
+    // without breaking people
+    // if we don't do that, do we really want people having to type "customfield.blah" in the script expressions?
+    // maybe a more generic term like "data" is better
     IDictionary<string, object> CustomFields { get; set; }
+
+    // need to be able to get tenant
+
+    // should we be using datadictionary
 }
