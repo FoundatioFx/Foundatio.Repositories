@@ -1,12 +1,10 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Foundatio.Caching;
 using Foundatio.Lock;
-using Foundatio.Messaging;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
-using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Microsoft.Extensions.Logging;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -31,7 +29,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
         var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
             EntityType = "Employee",
             TenantKey = "1",
-            Name = "Blah",
+            Name = "MyField1",
             IndexType = "string"
         });
         Assert.Equal(1, customField.IndexSlot);
@@ -39,7 +37,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
         customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
             EntityType = "Employee",
             TenantKey = "1",
-            Name = "Blah",
+            Name = "MyField2",
             IndexType = "string"
         });
         Assert.Equal(2, customField.IndexSlot);
@@ -47,7 +45,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
         customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
             EntityType = "Employee",
             TenantKey = "1",
-            Name = "Blah",
+            Name = "MyField3",
             IndexType = "string"
         });
         Assert.Equal(3, customField.IndexSlot);
@@ -55,16 +53,19 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
 
     [Fact]
     public async Task CanAddNewFieldsAndReserveSlotsConcurrently() {
-        await Parallel.ForEachAsync(Enumerable.Range(1, 1000), async (index, ct) => {
+        Log.SetLogLevel<CustomFieldDefinitionRepository>(LogLevel.Trace);
+
+        const int COUNT = 100;
+        await Parallel.ForEachAsync(Enumerable.Range(1, COUNT), async (index, ct) => {
             var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
                 EntityType = "Employee",
                 TenantKey = "1",
-                Name = "Blah",
+                Name = "MyField" + index,
                 IndexType = "string"
             });
 
             Assert.NotNull(customField);
-            Assert.InRange(customField.IndexSlot, 1, 1000);
+            Assert.InRange(customField.IndexSlot, 1, COUNT);
         });
 
         var usedSlots = new HashSet<int>();
@@ -74,6 +75,36 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
             usedSlots.Add(doc.IndexSlot);
         }
 
-        Assert.Equal(1000, usedSlots.Count);
+        Assert.Equal(COUNT, usedSlots.Count);
+    }
+
+    [Fact]
+    public async Task CanAddNewFieldsAndReserveSlotsConcurrentlyAcrossTenantsAndFieldTypes() {
+        Log.SetLogLevel<CustomFieldDefinitionRepository>(LogLevel.Information);
+
+        const int COUNT = 1000;
+        await Parallel.ForEachAsync(Enumerable.Range(1, COUNT), new ParallelOptions { MaxDegreeOfParallelism = 2 }, async (index, ct) => {
+            var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+                EntityType = "Employee",
+                TenantKey = index % 2 == 1 ? "1" : "2",
+                Name = "MyField" + index,
+                IndexType = index % 2 == 1 ? "number" : "string"
+            });
+
+            Assert.NotNull(customField);
+            Assert.InRange(customField.IndexSlot, 1, COUNT);
+        });
+
+        var customFields = await _customFieldDefinitionRepository.GetAllAsync(o => o.PageLimit(1000));
+        var fieldGroups = customFields.Documents.GroupBy(cf => (cf.TenantKey, cf.IndexType));
+
+        foreach (var fieldGroup in fieldGroups) {
+            var usedSlots = new List<int>();
+            foreach (var doc in fieldGroup) {
+                if (usedSlots.Contains(doc.IndexSlot))
+                    throw new ApplicationException($"Found duplicate slot {doc.IndexSlot} in {doc.TenantKey}:{doc.IndexType}");
+                usedSlots.Add(doc.IndexSlot);
+            }
+        }
     }
 }
