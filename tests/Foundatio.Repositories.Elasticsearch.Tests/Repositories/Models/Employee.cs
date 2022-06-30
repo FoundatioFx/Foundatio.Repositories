@@ -5,6 +5,7 @@ using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
+using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 
@@ -18,7 +19,7 @@ public class PhoneInfo {
     public string Extension { get; set; }
 }
 
-public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes, IHaveCustomFields {
+public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes, IHaveCustomFields<Employee> {
     public string Id { get; set; }
     public string CompanyId { get; set; }
     public string CompanyName { get; set; }
@@ -40,7 +41,11 @@ public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes, 
     public Dictionary<string, object> Data { get; set; }
     public IList<PhoneInfo> PhoneNumbers { get; set; } = new List<PhoneInfo>();
     public IDictionary<string, object> Idx { get; set; } = new Dictionary<string, object>();
-    public IDictionary<string, object> CustomFields { get; set; } = new Dictionary<string, object>();
+    public DataDictionary CustomFields { get; set; } = new DataDictionary();
+
+    public string GetTenantKey() {
+        return CompanyId;
+    }
 
     protected bool Equals(Employee other) {
         return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase) &&

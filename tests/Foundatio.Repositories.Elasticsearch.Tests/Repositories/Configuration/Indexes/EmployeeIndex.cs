@@ -9,13 +9,15 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Nest;
 using Foundatio.Parsers.ElasticQueries;
-using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Parsers;
+using Foundatio.Repositories.Elasticsearch.CustomFields;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 
 public sealed class EmployeeIndex : Index<Employee> {
-    public EmployeeIndex(IElasticConfiguration configuration): base(configuration, "employees") {}
+    public EmployeeIndex(IElasticConfiguration configuration): base(configuration, "employees") {
+        AddCustomFieldType(new StringCustomFieldType<Employee>());
+    }
 
     public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
         return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1).Analysis(a => a.AddSortNormalizer())));
@@ -24,11 +26,6 @@ public sealed class EmployeeIndex : Index<Employee> {
     public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map) {
         return map
             .Dynamic(false)
-            .DynamicTemplates(dt => dt
-                .DynamicTemplate("idx_bool", t => t.Match("bool*").Mapping(m => m.Boolean(f => f)))
-                .DynamicTemplate("idx_number", t => t.Match("long*").Mapping(m => m.Number(f => f.Type(NumberType.Long))))
-                .DynamicTemplate("idx_date", t => t.Match("date*").Mapping(m => m.Date(f => f)))
-                .DynamicTemplate("idx_string", t => t.Match("string*").Mapping(m => m.Text(mp => mp.AddKeywordField()))))
             .Properties(p => p
                 .SetupDefaults()
                 .Text(f => f.Name("_all"))

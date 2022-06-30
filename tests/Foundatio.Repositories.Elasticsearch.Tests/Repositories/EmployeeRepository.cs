@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
@@ -42,49 +41,24 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
     public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration) : this(elasticConfiguration.Employees) {}
 
     public EmployeeRepository(IIndex employeeIndex) : base(employeeIndex) {
-        AddDefaultExclude("Idx");
+        BeforeQuery.AddHandler((o, args) => {
+            QueryCount++;
 
-        DocumentsChanging.AddHandler(async (o, args) => {
-            var companyGroups = args.Documents.GroupBy(e => e.Value.CompanyId);
-
-            foreach (var company in companyGroups) {
-                var companyFieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMapping(EntityTypeName, company.Key);
-
-                foreach (var doc in company) {
-                    if (doc.Value.CustomFields != null) {
-                        if (doc.Value.Idx == null)
-                            doc.Value.Idx = new Dictionary<string, object>();
-
-                        // TODO create dynamic templates
-
-                        foreach (var customField in doc.Value.CustomFields) {
-                            if (companyFieldMapping.TryGetValue(customField.Key, out var idxName)) {
-                                doc.Value.Idx[idxName] = customField.Value;
-                            }
-                        }
-                    }
-                }
-            }
+            return Task.CompletedTask;
         });
 
         DocumentsChanged.AddHandler((o, args) => {
             DocumentsChangedCount += args.Documents.Count;
             return Task.CompletedTask;
         });
+    }
 
-        BeforeQuery.AddHandler(async (o, args) => {
-            var companies = args.Query.GetCompanies();
-            if (companies.Count != 1)
-                return;
+    protected override string GetTenantKey(IRepositoryQuery query) {
+        var companies = query.GetCompanies();
+        if (companies.Count != 1)
+            return null;
 
-            var companyId = companies.Single();
-
-            var companyFieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMapping(EntityTypeName, companyId);
-
-            args.Options.QueryFieldResolver(companyFieldMapping.ToHierarchicalFieldResolver("idx."));
-
-            QueryCount++;
-        });
+        return companies.Single();
     }
 
     public long DocumentsChangedCount { get; private set; }

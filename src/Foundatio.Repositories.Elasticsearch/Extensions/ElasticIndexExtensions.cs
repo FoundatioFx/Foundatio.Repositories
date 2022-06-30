@@ -457,7 +457,7 @@ public static class ElasticIndexExtensions {
         bool hasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
         bool hasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
         bool supportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(typeof(T));
-        bool hasCustomFields = typeof(IHaveCustomFields).IsAssignableFrom(typeof(T));
+        bool hasCustomFields = typeof(IHaveCustomFields<T>).IsAssignableFrom(typeof(T));
 
         if (hasIdentity)
             pd.Keyword(p => p.Name(d => ((IIdentity)d).Id));

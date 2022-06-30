@@ -20,6 +20,8 @@ using Newtonsoft.Json.Linq;
 using Foundatio.Repositories.Options;
 using Microsoft.Extensions.Logging;
 using System.Linq.Expressions;
+using Foundatio.Repositories.Elasticsearch.CustomFields;
+using Foundatio.Parsers.LuceneQueries.Visitors;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
@@ -34,6 +36,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         AddPropertyRequiredForRemove(_idField);
         if (HasCreatedDate)
             AddPropertyRequiredForRemove(e => ((IHaveCreatedDate)e).CreatedUtc);
+
+        if (HasCustomFields) {
+            AddDefaultExclude("Idx");
+            DocumentsChanging.AddHandler(OnCustomFieldsDocumentsChanging);
+            BeforeQuery.AddHandler(OnCustomFieldsBeforeQuery);
+        }
     }
 
     protected string DefaultPipeline { get; set; } = null;
@@ -696,7 +704,43 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     protected void AddPropertyRequiredForRemove(params Expression<Func<T, object>>[] objectPaths) {
         _propertiesRequiredForRemove.AddRange(objectPaths.Select(o => new Lazy<Field>(() => Infer.PropertyName(o))));
     }
-    
+
+    protected virtual async Task OnCustomFieldsBeforeQuery(object sender, BeforeQueryEventArgs<T> args) {
+        var tenantKey = GetTenantKey(args.Query);
+        if (String.IsNullOrEmpty(tenantKey))
+            return;
+
+        var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMapping(EntityTypeName, tenantKey);
+
+        args.Options.QueryFieldResolver(fieldMapping.ToHierarchicalFieldResolver("idx."));
+    }
+
+    protected virtual async Task OnCustomFieldsDocumentsChanging(object sender, DocumentsChangeEventArgs<T> args) {
+        var tenantGroups = args.Documents.Select(d => d.Value).OfType<IHaveCustomFields<T>>().GroupBy(e => e.GetTenantKey());
+
+        foreach (var tenant in tenantGroups) {
+            var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMapping(EntityTypeName, tenant.Key);
+
+            foreach (var doc in tenant) {
+                if (doc.CustomFields == null)
+                    continue;
+
+                if (doc.Idx == null)
+                    doc.Idx = new Dictionary<string, object>();
+
+                foreach (var customField in doc.CustomFields) {
+                    if (fieldMapping.TryGetValue(customField.Key, out string idxName)) {
+                        doc.Idx[idxName] = customField.Value;
+                    }
+                }
+            }
+        }
+    }
+
+    protected virtual string GetTenantKey(IRepositoryQuery query) {
+        return null;
+    }
+
     #region Events
 
     public AsyncEvent<DocumentsEventArgs<T>> DocumentsAdding { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
