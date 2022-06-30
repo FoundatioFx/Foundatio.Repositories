@@ -313,6 +313,7 @@ public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class {
         var mapping = (ITypeMapping)typeMappingDescriptor;
 
         var response = await Configuration.Client.Indices.PutMappingAsync<T>(m => {
+            m.Index(name);
             m.Properties(_ => new NestPromise<IProperties>(mapping.Properties));
             if (_customFieldTypes.Count > 0) {
                 m.DynamicTemplates(d => {

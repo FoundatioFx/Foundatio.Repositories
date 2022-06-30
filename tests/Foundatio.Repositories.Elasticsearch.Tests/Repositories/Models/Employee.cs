@@ -38,7 +38,7 @@ public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes, 
     public string Version { get; set; }
     public bool IsDeleted { get; set; }
     public PeerReview[] PeerReviews { get; set; }
-    public Dictionary<string, object> Data { get; set; }
+    public Dictionary<string, object> Data { get; set; } = new Dictionary<string, object>();
     public IList<PhoneInfo> PhoneNumbers { get; set; } = new List<PhoneInfo>();
     public IDictionary<string, object> Idx { get; set; } = new Dictionary<string, object>();
 
