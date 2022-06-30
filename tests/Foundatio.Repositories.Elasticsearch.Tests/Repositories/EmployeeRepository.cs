@@ -2,8 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Foundatio.Parsers;
-using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
@@ -40,18 +38,27 @@ public interface IEmployeeRepository : ISearchableRepository<Employee> {
 }
 
 public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepository {
-    public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.Employees) {}
+    public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration) : this(elasticConfiguration.Employees) {}
 
     public EmployeeRepository(IIndex employeeIndex) : base(employeeIndex) {
+        BeforeQuery.AddHandler((o, args) => {
+            QueryCount++;
+
+            return Task.CompletedTask;
+        });
+
         DocumentsChanged.AddHandler((o, args) => {
             DocumentsChangedCount += args.Documents.Count;
             return Task.CompletedTask;
         });
+    }
 
-        BeforeQuery.AddHandler((o, args) => {
-            QueryCount++;
-            return Task.CompletedTask;
-        });
+    protected override string GetTenantKey(IRepositoryQuery query) {
+        var companies = query.GetCompanies();
+        if (companies.Count != 1)
+            return null;
+
+        return companies.Single();
     }
 
     public long DocumentsChangedCount { get; private set; }

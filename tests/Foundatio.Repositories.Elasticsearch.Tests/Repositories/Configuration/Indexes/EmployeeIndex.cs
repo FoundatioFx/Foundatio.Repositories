@@ -9,13 +9,17 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Nest;
 using Foundatio.Parsers.ElasticQueries;
-using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Parsers;
+using Foundatio.Repositories.Elasticsearch.CustomFields;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 
 public sealed class EmployeeIndex : Index<Employee> {
-    public EmployeeIndex(IElasticConfiguration configuration): base(configuration, "employees") {}
+    public EmployeeIndex(IElasticConfiguration configuration): base(configuration, "employees") {
+        AddCustomFieldType(new StringCustomFieldType<Employee>());
+        AddCustomFieldType(new IntegerCustomFieldType<Employee>());
+        AddCustomFieldType(new BooleanCustomFieldType<Employee>());
+    }
 
     public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
         return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1).Analysis(a => a.AddSortNormalizer())));

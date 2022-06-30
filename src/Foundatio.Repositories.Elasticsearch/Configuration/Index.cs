@@ -16,6 +16,7 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Exceptions;
+using Foundatio.Repositories.Elasticsearch.CustomFields;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
@@ -292,9 +293,14 @@ public class Index : IIndex {
 
 public class Index<T> : Index, IIndex<T> where T : class {
     private readonly string _typeName = typeof(T).Name.ToLower();
+    private readonly IDictionary<string, ICustomFieldIndexType<T>> _customFieldTypes = new Dictionary<string, ICustomFieldIndexType<T>>();
 
     public Index(IElasticConfiguration configuration, string name = null) : base(configuration, name) {
         Name = name ?? _typeName;
+    }
+
+    protected void AddCustomFieldType(ICustomFieldIndexType<T> customFieldType) {
+        _customFieldTypes[customFieldType.Type] = customFieldType;
     }
 
     protected override ElasticMappingResolver CreateMappingResolver() {
@@ -307,7 +313,18 @@ public class Index<T> : Index, IIndex<T> where T : class {
 
     public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
         idx = base.ConfigureIndex(idx);
-        return idx.Map<T>(ConfigureIndexMapping);
+        return idx.Map<T>(f => {
+            if (_customFieldTypes.Count > 0) {
+                f.DynamicTemplates(d => {
+                    foreach (var customFieldType in _customFieldTypes.Values)
+                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
+
+                    return d;
+                });
+            }
+
+            return ConfigureIndexMapping(f);
+        });
     }
 
     protected override async Task UpdateIndexAsync(string name, Func<UpdateIndexSettingsDescriptor, UpdateIndexSettingsDescriptor> descriptor = null) {
@@ -317,7 +334,19 @@ public class Index<T> : Index, IIndex<T> where T : class {
         typeMappingDescriptor = ConfigureIndexMapping(typeMappingDescriptor);
         var mapping = (ITypeMapping)typeMappingDescriptor;
 
-        var response = await Configuration.Client.Indices.PutMappingAsync<T>(m => m.Properties(_ => new NestPromise<IProperties>(mapping.Properties))).AnyContext();
+        var response = await Configuration.Client.Indices.PutMappingAsync<T>(m => {
+            m.Properties(_ => new NestPromise<IProperties>(mapping.Properties));
+            if (_customFieldTypes.Count > 0) {
+                m.DynamicTemplates(d => {
+                    foreach (var customFieldType in _customFieldTypes.Values)
+                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
+
+                    return d;
+                });
+            }
+
+            return m;
+        }).AnyContext();
 
         if (response.IsValid)
             _logger.LogRequest(response);
