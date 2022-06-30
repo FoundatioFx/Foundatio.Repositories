@@ -30,6 +30,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
     }
 
     public async Task<IDictionary<string, string>> GetFieldMapping(string entityType, string tenantKey) {
+        // TODO: Need caching here
         var fieldMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         var fields = await FindAsync(q => q

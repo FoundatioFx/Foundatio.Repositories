@@ -59,7 +59,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
         Log.SetLogLevel<CustomFieldDefinitionRepository>(LogLevel.Trace);
 
         const int COUNT = 100;
-        await Parallel.ForEachAsync(Enumerable.Range(1, COUNT), async (index, ct) => {
+        await Parallel.ForEachAsync(Enumerable.Range(1, COUNT), new ParallelOptions { MaxDegreeOfParallelism = 2 }, async (index, ct) => {
             var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
                 EntityType = "Employee",
                 TenantKey = "1",

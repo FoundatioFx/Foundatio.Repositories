@@ -17,6 +17,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
 public sealed class EmployeeIndex : Index<Employee> {
     public EmployeeIndex(IElasticConfiguration configuration): base(configuration, "employees") {
         AddCustomFieldType(new StringCustomFieldType<Employee>());
+        AddCustomFieldType(new IntegerCustomFieldType<Employee>());
+        AddCustomFieldType(new BooleanCustomFieldType<Employee>());
     }
 
     public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {

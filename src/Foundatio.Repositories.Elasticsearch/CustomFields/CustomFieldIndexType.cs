@@ -20,3 +20,27 @@ public class StringCustomFieldType<T> : ICustomFieldIndexType<T> where T : class
         return map.Text(mp => mp.AddKeywordField());
     }
 }
+
+public class IntegerCustomFieldType<T> : ICustomFieldIndexType<T> where T : class {
+    public string Type => "int";
+
+    public Task<object> ToIdxValueAsync(object value) {
+        return Task.FromResult(value);
+    }
+
+    public virtual IProperty ConfigureMapping(SingleMappingSelector<T> map) {
+        return map.Number(mp => mp.Type(NumberType.Integer));
+    }
+}
+
+public class BooleanCustomFieldType<T> : ICustomFieldIndexType<T> where T : class {
+    public string Type => "bool";
+
+    public Task<object> ToIdxValueAsync(object value) {
+        return Task.FromResult(value);
+    }
+
+    public virtual IProperty ConfigureMapping(SingleMappingSelector<T> map) {
+        return map.Text(mp => mp.AddKeywordField());
+    }
+}

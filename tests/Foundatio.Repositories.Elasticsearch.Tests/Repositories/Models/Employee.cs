@@ -41,7 +41,7 @@ public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes, 
     public Dictionary<string, object> Data { get; set; }
     public IList<PhoneInfo> PhoneNumbers { get; set; } = new List<PhoneInfo>();
     public IDictionary<string, object> Idx { get; set; } = new Dictionary<string, object>();
-    public DataDictionary CustomFields { get; set; } = new DataDictionary();
+    public IDictionary<string, object> CustomFields { get; set; } = new DataDictionary();
 
     public string GetTenantKey() {
         return CompanyId;

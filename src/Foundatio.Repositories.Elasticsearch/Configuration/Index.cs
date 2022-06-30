@@ -334,7 +334,19 @@ public class Index<T> : Index, IIndex<T> where T : class {
         typeMappingDescriptor = ConfigureIndexMapping(typeMappingDescriptor);
         var mapping = (ITypeMapping)typeMappingDescriptor;
 
-        var response = await Configuration.Client.Indices.PutMappingAsync<T>(m => m.Properties(_ => new NestPromise<IProperties>(mapping.Properties))).AnyContext();
+        var response = await Configuration.Client.Indices.PutMappingAsync<T>(m => {
+            m.Properties(_ => new NestPromise<IProperties>(mapping.Properties));
+            if (_customFieldTypes.Count > 0) {
+                m.DynamicTemplates(d => {
+                    foreach (var customFieldType in _customFieldTypes.Values)
+                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
+
+                    return d;
+                });
+            }
+
+            return m;
+        }).AnyContext();
 
         if (response.IsValid)
             _logger.LogRequest(response);

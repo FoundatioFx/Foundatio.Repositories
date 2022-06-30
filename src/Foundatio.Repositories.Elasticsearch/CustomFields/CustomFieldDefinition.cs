@@ -68,6 +68,6 @@ public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes 
 
 public interface IHaveCustomFields<T> where T : class {
     IDictionary<string, object> Idx { get; set; }
-    DataDictionary CustomFields { get; set; }
+    IDictionary<string, object> CustomFields { get; set; }
     string GetTenantKey();
 }
