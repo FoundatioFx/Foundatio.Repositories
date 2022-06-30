@@ -12,7 +12,7 @@ using Xunit.Abstractions;
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public sealed class CustomFieldTests : ElasticRepositoryTestBase {
-    private readonly CustomFieldDefinitionRepository _customFieldDefinitionRepository;
+    private readonly ICustomFieldDefinitionRepository _customFieldDefinitionRepository;
     private readonly IEmployeeRepository _employeeRepository;
     private readonly ILockProvider _lockProvider;
 
@@ -124,14 +124,14 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
         var employee = EmployeeGenerator.Generate(age: 19);
         employee.CompanyId = "1";
         employee.PhoneNumbers.Add(new PhoneInfo { Number = "214-222-2222" });
-        employee.CustomFields["MyField1"] = "hey";
+        employee.Data["MyField1"] = "hey";
         await _employeeRepository.AddAsync(employee, o => o.ImmediateConsistency());
 
         var results = await _employeeRepository.FindAsync(q => q.Company("1").FilterExpression("myfield1:hey"), o => o.QueryLogLevel(LogLevel.Information));
         var employees = results.Documents.ToArray();
         Assert.Single(employees);
         Assert.Equal(19, employees[0].Age);
-        Assert.Single(employees[0].CustomFields);
-        Assert.Equal("hey", employees[0].CustomFields["MyField1"]);
+        Assert.Single(employees[0].Data);
+        Assert.Equal("hey", employees[0].Data["MyField1"]);
     }
 }

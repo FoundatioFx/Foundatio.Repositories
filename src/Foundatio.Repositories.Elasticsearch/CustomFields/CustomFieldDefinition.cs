@@ -48,7 +48,7 @@ public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes 
     /// <summary>
     /// Any additional custom data that needs to be associated to this custom field.
     /// </summary>
-    public DataDictionary Data { get; set; }
+    public IDictionary<string, object> Data { get; set; } = new Dictionary<string, object>();
 
     /// <summary>
     /// Date the custom field was last updated.
@@ -67,7 +67,7 @@ public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes 
 }
 
 public interface IHaveCustomFields<T> where T : class {
-    IDictionary<string, object> Idx { get; set; }
-    IDictionary<string, object> CustomFields { get; set; }
+    IDictionary<string, object> Idx { get; }
+    IDictionary<string, object> GetCustomFields();
     string GetTenantKey();
 }

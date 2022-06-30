@@ -14,7 +14,11 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
-public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomFieldDefinition> {
+public interface ICustomFieldDefinitionRepository : ISearchableRepository<CustomFieldDefinition> {
+    Task<IDictionary<string, string>> GetFieldMappingAsync(string entityType, string tenantKey);
+}
+
+public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomFieldDefinition>, ICustomFieldDefinitionRepository {
     private readonly ILockProvider _lockProvider;
     private readonly ICacheClient _cache;
 
@@ -29,7 +33,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         DocumentsChanging.AddHandler(OnDocumentsChanging);
     }
 
-    public async Task<IDictionary<string, string>> GetFieldMapping(string entityType, string tenantKey) {
+    public async Task<IDictionary<string, string>> GetFieldMappingAsync(string entityType, string tenantKey) {
         // TODO: Need caching here
         var fieldMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -47,6 +51,22 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         } while (await fields.NextPageAsync());
 
         return fieldMapping;
+    }
+
+    public Task<FindResults<CustomFieldDefinition>> FindByTenantAsync(string entityType, string tenantKey) {
+        return FindAsync(q => q.FieldEquals(cf => cf.EntityType, entityType).FieldEquals(cf => cf.TenantKey, tenantKey), o => o.PageLimit(1000));
+    }
+
+    public Task<CustomFieldDefinition> AddFieldAsync<TEntityType>(string tenantKey, string name, string indexType, string description = null, int displayOrder = 0, IDictionary<string, object> data = null) {
+        return AddAsync(new CustomFieldDefinition {
+            EntityType = typeof(TEntityType).Name,
+            TenantKey = tenantKey,
+            Name = name,
+            IndexType = indexType,
+            Description = description,
+            DisplayOrder = displayOrder,
+            Data = data ?? new Dictionary<string, object>()
+        });
     }
 
     public override async Task AddAsync(IEnumerable<CustomFieldDefinition> documents, ICommandOptions options = null) {

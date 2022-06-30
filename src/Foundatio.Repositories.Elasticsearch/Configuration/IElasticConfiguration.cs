@@ -17,7 +17,7 @@ public interface IElasticConfiguration : IDisposable {
     IMessageBus MessageBus { get; }
     ILoggerFactory LoggerFactory { get; }
     IReadOnlyCollection<IIndex> Indexes { get; }
-    CustomFieldDefinitionRepository CustomFieldDefinitionRepository { get; }
+    ICustomFieldDefinitionRepository CustomFieldDefinitionRepository { get; }
 
     IIndex GetIndex(string name);
     void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder);

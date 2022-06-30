@@ -710,7 +710,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (String.IsNullOrEmpty(tenantKey))
             return;
 
-        var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMapping(EntityTypeName, tenantKey);
+        var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenantKey);
 
         args.Options.QueryFieldResolver(fieldMapping.ToHierarchicalFieldResolver("idx."));
     }
@@ -719,16 +719,17 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         var tenantGroups = args.Documents.Select(d => d.Value).OfType<IHaveCustomFields<T>>().GroupBy(e => e.GetTenantKey());
 
         foreach (var tenant in tenantGroups) {
-            var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMapping(EntityTypeName, tenant.Key);
+            var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenant.Key);
 
             foreach (var doc in tenant) {
-                if (doc.CustomFields == null)
+                if (doc.Idx == null)
                     continue;
 
-                if (doc.Idx == null)
-                    doc.Idx = new Dictionary<string, object>();
+                var customFields = doc.GetCustomFields();
+                if (customFields == null)
+                    continue;
 
-                foreach (var customField in doc.CustomFields) {
+                foreach (var customField in customFields) {
                     if (fieldMapping.TryGetValue(customField.Key, out string idxName)) {
                         doc.Idx[idxName] = customField.Value;
                     }

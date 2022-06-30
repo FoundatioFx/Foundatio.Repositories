@@ -28,7 +28,7 @@ public class ElasticConfiguration: IElasticConfiguration {
     private readonly List<IIndex> _indexes = new();
     private readonly Lazy<IReadOnlyCollection<IIndex>> _frozenIndexes;
     private readonly Lazy<IElasticClient> _client;
-    private readonly Lazy<CustomFieldDefinitionRepository> _customFieldDefinitionRepository;
+    private readonly Lazy<ICustomFieldDefinitionRepository> _customFieldDefinitionRepository;
     protected readonly bool _shouldDisposeCache;
 
     public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, ILoggerFactory loggerFactory = null) {
@@ -41,7 +41,7 @@ public class ElasticConfiguration: IElasticConfiguration {
         _shouldDisposeCache = cacheClient == null;
         MessageBus = messageBus ?? new InMemoryMessageBus(new InMemoryMessageBusOptions { LoggerFactory = loggerFactory });
         _frozenIndexes = new Lazy<IReadOnlyCollection<IIndex>>(() => _indexes.AsReadOnly());
-        _customFieldDefinitionRepository = new Lazy<CustomFieldDefinitionRepository>(() => CreateCustomFieldDefinitionRepository());
+        _customFieldDefinitionRepository = new Lazy<ICustomFieldDefinitionRepository>(() => CreateCustomFieldDefinitionRepository());
         _client = new Lazy<IElasticClient>(CreateElasticClient);
     }
 
@@ -72,10 +72,10 @@ public class ElasticConfiguration: IElasticConfiguration {
     public IMessageBus MessageBus { get; }
     public ILoggerFactory LoggerFactory { get; }
     public IReadOnlyCollection<IIndex> Indexes => _frozenIndexes.Value;
-    public CustomFieldDefinitionRepository CustomFieldDefinitionRepository => _customFieldDefinitionRepository.Value;
+    public ICustomFieldDefinitionRepository CustomFieldDefinitionRepository => _customFieldDefinitionRepository.Value;
 
     private CustomFieldDefinitionIndex _customFieldDefinitionIndex = null;
-    private CustomFieldDefinitionRepository CreateCustomFieldDefinitionRepository() {
+    private ICustomFieldDefinitionRepository CreateCustomFieldDefinitionRepository() {
         if (_customFieldDefinitionIndex == null)
             return null;
 
