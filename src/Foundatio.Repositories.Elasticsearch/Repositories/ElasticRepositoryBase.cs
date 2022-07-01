@@ -711,7 +711,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return;
 
         var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenantKey);
-        var mapping = fieldMapping.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.IdxName, StringComparer.OrdinalIgnoreCase);
+        var mapping = fieldMapping.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.GetIdxName(), StringComparer.OrdinalIgnoreCase);
 
         args.Options.QueryFieldResolver(mapping.ToHierarchicalFieldResolver("idx."));
     }
@@ -725,7 +725,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             foreach (var doc in tenant) {
                 if (doc.Idx == null)
                     continue;
-
+                
                 var customFields = doc.GetCustomFields();
                 if (customFields == null)
                     continue;
@@ -735,7 +735,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         if (!ElasticIndex.CustomFieldTypes.TryGetValue(mapping.IndexType, out var fieldType))
                             continue;
 
-                        doc.Idx[mapping.IdxName] = await fieldType.TransformToIdxAsync(customField.Value);
+                        doc.Idx[mapping.GetIdxName()] = await fieldType.TransformToIdxAsync(customField.Value);
                     }
                 }
             }

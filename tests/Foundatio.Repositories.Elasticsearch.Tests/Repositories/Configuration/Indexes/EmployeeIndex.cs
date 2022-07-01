@@ -22,7 +22,7 @@ public sealed class EmployeeIndex : Index<Employee> {
     }
 
     public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
-        return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1).Analysis(a => a.AddSortNormalizer())));
+        return base.ConfigureIndex(idx.Settings(s => s.Setting("index.mapping.ignore_malformed", "true").NumberOfReplicas(0).NumberOfShards(1).Analysis(a => a.AddSortNormalizer())));
     }
 
     public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map) {

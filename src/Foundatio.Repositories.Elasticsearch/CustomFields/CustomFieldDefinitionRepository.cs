@@ -15,9 +15,26 @@ using Nest;
 namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
 public interface ICustomFieldDefinitionRepository : ISearchableRepository<CustomFieldDefinition> {
-    Task<IDictionary<string, (string IndexType, string IdxName)>> GetFieldMappingAsync(string entityType, string tenantKey);
+    Task<IDictionary<string, FieldIndexInfo>> GetFieldMappingAsync(string entityType, string tenantKey);
     Task<FindResults<CustomFieldDefinition>> FindByTenantAsync(string entityType, string tenantKey);
     Task<CustomFieldDefinition> AddFieldAsync(string entityType, string tenantKey, string name, string indexType, string description = null, int displayOrder = 0, IDictionary<string, object> data = null);
+}
+
+public class FieldIndexInfo {
+    public string IndexType { get; set; }
+    public int IndexSlot { get; set; }
+
+    private string _idxName = null;
+    public string GetIdxName() {
+        if (_idxName == null)
+            _idxName = $"{IndexType}-{IndexSlot}";
+
+        return _idxName;
+    }
+
+    public override string ToString() {
+        return GetIdxName();
+    }
 }
 
 public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomFieldDefinition>, ICustomFieldDefinitionRepository {
@@ -35,13 +52,13 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         DocumentsChanging.AddHandler(OnDocumentsChanging);
     }
 
-    public async Task<IDictionary<string, (string IndexType, string IdxName)>> GetFieldMappingAsync(string entityType, string tenantKey) {
+    public async Task<IDictionary<string, FieldIndexInfo>> GetFieldMappingAsync(string entityType, string tenantKey) {
         string cacheKey = $"mapping:{entityType}:{tenantKey}";
-        var cachedMapping = await Cache.GetAsync<Dictionary<string, (string IndexType, string IdxName)>>(cacheKey);
+        var cachedMapping = await Cache.GetAsync<Dictionary<string, FieldIndexInfo>>(cacheKey);
         if (cachedMapping.HasValue)
             return cachedMapping.Value;
 
-        var fieldMapping = new Dictionary<string, (string IndexType, string IdxName)>(StringComparer.OrdinalIgnoreCase);
+        var fieldMapping = new Dictionary<string, FieldIndexInfo>(StringComparer.OrdinalIgnoreCase);
 
         var fields = await FindAsync(q => q
             .FieldEquals(cf => cf.EntityType, entityType)
@@ -53,7 +70,10 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
 
         do {
             foreach (var customField in fields.Documents)
-                fieldMapping[customField.Name] = (customField.IndexType, $"{customField.IndexType}-{customField.IndexSlot}");
+                fieldMapping[customField.Name] = new FieldIndexInfo {
+                    IndexType = customField.IndexType,
+                    IndexSlot = customField.IndexSlot
+                };
         } while (await fields.NextPageAsync());
 
         await Cache.AddAsync(cacheKey, fieldMapping, TimeSpan.FromMinutes(15));
@@ -133,6 +153,9 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
             }
 
             foreach (var doc in fieldScope) {
+                if (doc.IndexSlot != 0)
+                    throw new DocumentValidationException("IndexSlot can't be assigned.");
+
                 if (usedNames.Contains(doc.Name))
                     throw new DocumentValidationException($"Custom field with name {doc.Name} already exists");
 
@@ -164,7 +187,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         return Task.CompletedTask;
     }
 
-    private Task OnDocumentsChanging(object source, DocumentsChangeEventArgs<CustomFieldDefinition> args) {
+    private async Task OnDocumentsChanging(object source, DocumentsChangeEventArgs<CustomFieldDefinition> args) {
         if (args.ChangeType == ChangeType.Saved) {
             foreach (var doc in args.Documents) {
                 if (doc.Original.EntityType != doc.Value.EntityType)
@@ -180,9 +203,14 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
                 if (doc.Original.Name != doc.Value.Name)
                     throw new DocumentValidationException("IndexSlot can't be changed.");
             }
+        } else if (args.ChangeType == ChangeType.Removed) {
+            foreach (var doc in args.Documents) {
+                string slotFieldScopeKey = $"customfield:{doc.Value.EntityType}:{doc.Value.TenantKey}:{doc.Value.IndexType}:slots";
+                string namesFieldScopeKey = $"customfield:{doc.Value.EntityType}:{doc.Value.TenantKey}:{doc.Value.IndexType}:names";
+                await _cache.ListAddAsync(slotFieldScopeKey, new[] { doc.Value.IndexSlot });
+                await _cache.ListRemoveAsync(namesFieldScopeKey, new[] { doc.Value.Name });
+            }
         }
-
-        return Task.CompletedTask;
     }
 
     protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<CustomFieldDefinition>> documents, ChangeType? changeType = null) {
