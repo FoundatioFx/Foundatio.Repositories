@@ -134,4 +134,12 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
         Assert.Single(employees[0].Data);
         Assert.Equal("hey", employees[0].Data["MyField1"]);
     }
+
+    // Test validation
+    // Test cache invalidation
+    // Wire up field type idx converter
+    // Expose const for index type on custom field types
+    // Remove idx data when removing custom field
+    // Move idx data when changing field type
+
 }

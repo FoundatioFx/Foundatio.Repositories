@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
+using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Nest;
 
@@ -14,6 +16,8 @@ public interface IIndex : IDisposable {
     ElasticMappingResolver MappingResolver { get; }
     ElasticQueryParser QueryParser { get; }
     IElasticConfiguration Configuration { get; }
+    IDictionary<string, ICustomFieldType> CustomFieldTypes { get; }
+
     void ConfigureSettings(ConnectionSettings settings);
     Task ConfigureAsync();
     Task EnsureIndexAsync(object target);

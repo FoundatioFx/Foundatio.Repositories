@@ -271,14 +271,9 @@ public class VersionedIndex : Index, IVersionedIndex {
 
 public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class {
     private readonly string _typeName = typeof(T).Name.ToLower();
-    private readonly IDictionary<string, ICustomFieldIndexType<T>> _customFieldTypes = new Dictionary<string, ICustomFieldIndexType<T>>();
 
     public VersionedIndex(IElasticConfiguration configuration, string name = null, int version = 1) : base(configuration, name, version) {
         Name = name ?? _typeName;
-    }
-
-    protected void AddCustomFieldType(ICustomFieldIndexType<T> customFieldType) {
-        _customFieldTypes[customFieldType.Type] = customFieldType;
     }
 
     protected override ElasticMappingResolver CreateMappingResolver() {
@@ -292,10 +287,10 @@ public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class {
     public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
         idx = base.ConfigureIndex(idx);
         return idx.Map<T>(f => {
-            if (_customFieldTypes.Count > 0) {
+            if (CustomFieldTypes.Count > 0) {
                 f.DynamicTemplates(d => {
-                    foreach (var customFieldType in _customFieldTypes.Values)
-                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
+                    foreach (var customFieldType in CustomFieldTypes.Values)
+                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
 
                     return d;
                 });
@@ -315,10 +310,10 @@ public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class {
         var response = await Configuration.Client.Indices.PutMappingAsync<T>(m => {
             m.Index(name);
             m.Properties(_ => new NestPromise<IProperties>(mapping.Properties));
-            if (_customFieldTypes.Count > 0) {
+            if (CustomFieldTypes.Count > 0) {
                 m.DynamicTemplates(d => {
-                    foreach (var customFieldType in _customFieldTypes.Values)
-                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
+                    foreach (var customFieldType in CustomFieldTypes.Values)
+                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
 
                     return d;
                 });

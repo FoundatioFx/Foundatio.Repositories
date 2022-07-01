@@ -51,14 +51,9 @@ public class MonthlyIndex: DailyIndex {
 
 public class MonthlyIndex<T> : MonthlyIndex where T : class {
     private readonly string _typeName = typeof(T).Name.ToLower();
-    private readonly IDictionary<string, ICustomFieldIndexType<T>> _customFieldTypes = new Dictionary<string, ICustomFieldIndexType<T>>();
 
     public MonthlyIndex(IElasticConfiguration configuration, string name = null, int version = 1, Func<object, DateTime> getDocumentDateUtc = null) : base(configuration, name, version, getDocumentDateUtc) {
         Name = name ?? _typeName;
-    }
-
-    protected void AddCustomFieldType(ICustomFieldIndexType<T> customFieldType) {
-        _customFieldTypes[customFieldType.Type] = customFieldType;
     }
 
     protected override ElasticMappingResolver CreateMappingResolver() {
@@ -72,10 +67,10 @@ public class MonthlyIndex<T> : MonthlyIndex where T : class {
     public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
         idx = base.ConfigureIndex(idx);
         return idx.Map<T>(f => {
-            if (_customFieldTypes.Count > 0) {
+            if (CustomFieldTypes.Count > 0) {
                 f.DynamicTemplates(d => {
-                    foreach (var customFieldType in _customFieldTypes.Values)
-                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
+                    foreach (var customFieldType in CustomFieldTypes.Values)
+                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
 
                     return d;
                 });

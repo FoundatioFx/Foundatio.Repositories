@@ -15,7 +15,9 @@ using Nest;
 namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
 public interface ICustomFieldDefinitionRepository : ISearchableRepository<CustomFieldDefinition> {
-    Task<IDictionary<string, string>> GetFieldMappingAsync(string entityType, string tenantKey);
+    Task<IDictionary<string, (string IndexType, string IdxName)>> GetFieldMappingAsync(string entityType, string tenantKey);
+    Task<FindResults<CustomFieldDefinition>> FindByTenantAsync(string entityType, string tenantKey);
+    Task<CustomFieldDefinition> AddFieldAsync(string entityType, string tenantKey, string name, string indexType, string description = null, int displayOrder = 0, IDictionary<string, object> data = null);
 }
 
 public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomFieldDefinition>, ICustomFieldDefinitionRepository {
@@ -33,9 +35,13 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         DocumentsChanging.AddHandler(OnDocumentsChanging);
     }
 
-    public async Task<IDictionary<string, string>> GetFieldMappingAsync(string entityType, string tenantKey) {
-        // TODO: Need caching here
-        var fieldMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    public async Task<IDictionary<string, (string IndexType, string IdxName)>> GetFieldMappingAsync(string entityType, string tenantKey) {
+        string cacheKey = $"mapping:{entityType}:{tenantKey}";
+        var cachedMapping = await Cache.GetAsync<Dictionary<string, (string IndexType, string IdxName)>>(cacheKey);
+        if (cachedMapping.HasValue)
+            return cachedMapping.Value;
+
+        var fieldMapping = new Dictionary<string, (string IndexType, string IdxName)>(StringComparer.OrdinalIgnoreCase);
 
         var fields = await FindAsync(q => q
             .FieldEquals(cf => cf.EntityType, entityType)
@@ -47,8 +53,10 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
 
         do {
             foreach (var customField in fields.Documents)
-                fieldMapping[customField.Name] = $"{customField.IndexType}-{customField.IndexSlot}";
+                fieldMapping[customField.Name] = (customField.IndexType, $"{customField.IndexType}-{customField.IndexSlot}");
         } while (await fields.NextPageAsync());
+
+        await Cache.AddAsync(cacheKey, fieldMapping, TimeSpan.FromMinutes(15));
 
         return fieldMapping;
     }
@@ -57,16 +65,20 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         return FindAsync(q => q.FieldEquals(cf => cf.EntityType, entityType).FieldEquals(cf => cf.TenantKey, tenantKey), o => o.PageLimit(1000));
     }
 
-    public Task<CustomFieldDefinition> AddFieldAsync<TEntityType>(string tenantKey, string name, string indexType, string description = null, int displayOrder = 0, IDictionary<string, object> data = null) {
-        return AddAsync(new CustomFieldDefinition {
-            EntityType = typeof(TEntityType).Name,
+    public Task<CustomFieldDefinition> AddFieldAsync(string entityType, string tenantKey, string name, string indexType, string description = null, int displayOrder = 0, IDictionary<string, object> data = null) {
+        var customField = new CustomFieldDefinition {
+            EntityType = entityType,
             TenantKey = tenantKey,
             Name = name,
             IndexType = indexType,
             Description = description,
-            DisplayOrder = displayOrder,
-            Data = data ?? new Dictionary<string, object>()
-        });
+            DisplayOrder = displayOrder
+        };
+
+        if (data != null)
+            customField.Data = data;
+
+        return AddAsync(customField);
     }
 
     public override async Task AddAsync(IEnumerable<CustomFieldDefinition> documents, ICommandOptions options = null) {
@@ -171,6 +183,12 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         }
 
         return Task.CompletedTask;
+    }
+
+    protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<CustomFieldDefinition>> documents, ChangeType? changeType = null) {
+        await base.InvalidateCacheAsync(documents, changeType);
+        var cacheKeys = documents.GroupBy(d => (d.Value.EntityType, d.Value.TenantKey)).Select(g => $"mapping:{g.Key.EntityType}:{g.Key.TenantKey}");
+        await Cache.RemoveAllAsync(cacheKeys);
     }
 }
 
