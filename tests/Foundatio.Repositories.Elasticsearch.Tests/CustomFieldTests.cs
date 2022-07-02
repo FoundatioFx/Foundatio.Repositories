@@ -239,6 +239,28 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
+    public async Task CanAutoCreateUnmappedCustomField() {
+        var fieldMapping = await _customFieldDefinitionRepository.GetFieldMappingAsync("Employee", "1");
+        Assert.DoesNotContain(fieldMapping, m => m.Key == "MyField1");
+
+        var employee = EmployeeGenerator.Generate(age: 19);
+        employee.CompanyId = "1";
+        employee.PhoneNumbers.Add(new PhoneInfo { Number = "214-222-2222" });
+        employee.Data["MyField1"] = "hey";
+        await _employeeRepository.AddAsync(employee, o => o.ImmediateConsistency());
+
+        fieldMapping = await _customFieldDefinitionRepository.GetFieldMappingAsync("Employee", "1");
+        Assert.Contains(fieldMapping, m => m.Key == "MyField1");
+
+        var results = await _employeeRepository.FindAsync(q => q.Company("1").FilterExpression("myfield1:hey"), o => o.QueryLogLevel(LogLevel.Information));
+        var employees = results.Documents.ToArray();
+        Assert.Single(employees);
+        Assert.Equal(19, employees[0].Age);
+        Assert.Single(employees[0].Data);
+        Assert.Equal("hey", employees[0].Data["MyField1"]);
+    }
+
+    [Fact]
     public async Task CanHandleWrongFieldValueType() {
         var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
             EntityType = "Employee",

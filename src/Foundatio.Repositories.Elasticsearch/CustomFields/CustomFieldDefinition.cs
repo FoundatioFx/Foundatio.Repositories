@@ -66,7 +66,7 @@ public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes 
     public bool IsDeleted { get; set; }
 }
 
-public interface IHaveCustomFields<T> where T : class {
+public interface IHaveCustomFields {
     IDictionary<string, object> Idx { get; }
     IDictionary<string, object> GetCustomFields();
     string GetTenantKey();

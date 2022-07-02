@@ -19,7 +19,7 @@ public class PhoneInfo {
     public string Extension { get; set; }
 }
 
-public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes, IHaveCustomFields<Employee> {
+public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes, IHaveCustomFields {
     public string Id { get; set; }
     public string CompanyId { get; set; }
     public string CompanyName { get; set; }
@@ -42,8 +42,8 @@ public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes, 
     public IList<PhoneInfo> PhoneNumbers { get; set; } = new List<PhoneInfo>();
     public IDictionary<string, object> Idx { get; set; } = new Dictionary<string, object>();
 
-    IDictionary<string, object> IHaveCustomFields<Employee>.GetCustomFields() => Data;
-    string IHaveCustomFields<Employee>.GetTenantKey() {
+    IDictionary<string, object> IHaveCustomFields.GetCustomFields() => Data;
+    string IHaveCustomFields.GetTenantKey() {
         return CompanyId;
     }
 

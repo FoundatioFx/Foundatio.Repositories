@@ -45,6 +45,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     }
 
     protected string DefaultPipeline { get; set; } = null;
+    protected bool AutoCreateCustomFields { get; set; } = false;
+
 
     #region IRepository
 
@@ -717,7 +719,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     }
 
     protected virtual async Task OnCustomFieldsDocumentsChanging(object sender, DocumentsChangeEventArgs<T> args) {
-        var tenantGroups = args.Documents.Select(d => d.Value).OfType<IHaveCustomFields<T>>().GroupBy(e => e.GetTenantKey());
+        var tenantGroups = args.Documents.Select(d => d.Value).OfType<IHaveCustomFields>().GroupBy(e => e.GetTenantKey());
 
         foreach (var tenant in tenantGroups) {
             var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenant.Key);
@@ -725,21 +727,39 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             foreach (var doc in tenant) {
                 if (doc.Idx == null)
                     continue;
-                
+
+                doc.Idx.Clear();
+
                 var customFields = doc.GetCustomFields();
                 if (customFields == null)
                     continue;
 
                 foreach (var customField in customFields) {
-                    if (fieldMapping.TryGetValue(customField.Key, out var mapping)) {
-                        if (!ElasticIndex.CustomFieldTypes.TryGetValue(mapping.IndexType, out var fieldType))
+                    if (!fieldMapping.TryGetValue(customField.Key, out var mapping)) {
+                        mapping = await HandleUnmappedCustomField(doc, customField.Key);
+                        if (mapping == null)
                             continue;
-
-                        doc.Idx[mapping.GetIdxName()] = await fieldType.TransformToIdxAsync(customField.Value);
                     }
+
+                    if (!ElasticIndex.CustomFieldTypes.TryGetValue(mapping.IndexType, out var fieldType))
+                        continue;
+
+                    doc.Idx[mapping.GetIdxName()] = await fieldType.TransformToIdxAsync(customField.Value);
                 }
             }
         }
+    }
+
+    protected virtual async Task<FieldIndexInfo> HandleUnmappedCustomField(IHaveCustomFields document, string name) {
+        if (!AutoCreateCustomFields)
+            return null;
+
+        var newField = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.AddFieldAsync(EntityTypeName, document.GetTenantKey(), name, StringFieldType.IndexType);
+
+        return new FieldIndexInfo {
+            IndexType = newField.IndexType,
+            IndexSlot = newField.IndexSlot
+        };
     }
 
     protected virtual string GetTenantKey(IRepositoryQuery query) {

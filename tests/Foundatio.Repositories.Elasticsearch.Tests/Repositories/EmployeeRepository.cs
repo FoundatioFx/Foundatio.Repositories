@@ -38,7 +38,9 @@ public interface IEmployeeRepository : ISearchableRepository<Employee> {
 }
 
 public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepository {
-    public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration) : this(elasticConfiguration.Employees) {}
+    public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration) : this(elasticConfiguration.Employees) {
+        AutoCreateCustomFields = true;
+    }
 
     public EmployeeRepository(IIndex employeeIndex) : base(employeeIndex) {
         BeforeQuery.AddHandler((o, args) => {
