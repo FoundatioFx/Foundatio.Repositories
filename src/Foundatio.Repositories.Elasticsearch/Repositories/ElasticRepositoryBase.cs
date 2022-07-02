@@ -741,8 +741,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                             continue;
                     }
 
-                    if (!ElasticIndex.CustomFieldTypes.TryGetValue(mapping.IndexType, out var fieldType))
+                    if (!ElasticIndex.CustomFieldTypes.TryGetValue(mapping.IndexType, out var fieldType)) {
+                        _logger.LogWarning("Field type {IndexType} is not configured for this index {IndexName} for custom field {CustomFieldName}", mapping.IndexType, ElasticIndex.Name, customField.Key);
                         continue;
+                    }
 
                     doc.Idx[mapping.GetIdxName()] = await fieldType.TransformToIdxAsync(customField.Value);
                 }

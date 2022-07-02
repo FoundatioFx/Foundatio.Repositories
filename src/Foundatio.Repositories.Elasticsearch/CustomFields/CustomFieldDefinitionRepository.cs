@@ -135,7 +135,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
 
                 do {
                     usedSlots.AddRange(existingFields.Documents.Select(d => d.IndexSlot));
-                    usedNames.AddRange(existingFields.Documents.Select(d => d.Name));
+                    usedNames.AddRange(existingFields.Documents.Where(d => !d.IsDeleted).Select(d => d.Name));
                 } while (await existingFields.NextPageAsync());
 
                 int slotBatchSize = fieldScope.Count() + 25;
@@ -202,6 +202,11 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
                     throw new DocumentValidationException("IndexType can't be changed.");
                 if (doc.Original.Name != doc.Value.Name)
                     throw new DocumentValidationException("IndexSlot can't be changed.");
+
+                if (doc.Value.IsDeleted) {
+                    string namesFieldScopeKey = $"customfield:{doc.Value.EntityType}:{doc.Value.TenantKey}:{doc.Value.IndexType}:names";
+                    await _cache.ListRemoveAsync(namesFieldScopeKey, new[] { doc.Value.Name });
+                }
             }
         } else if (args.ChangeType == ChangeType.Removed) {
             foreach (var doc in args.Documents) {
