@@ -39,13 +39,14 @@ public class Index : IIndex {
     }
 
     protected void AddStandardCustomFieldTypes() {
-        AddCustomFieldType(new BooleanFieldType());
-        AddCustomFieldType(new DoubleFieldType());
-        AddCustomFieldType(new FloatFieldType());
-        AddCustomFieldType(new IntegerFieldType());
-        AddCustomFieldType(new KeywordFieldType());
-        AddCustomFieldType(new LongFieldType());
-        AddCustomFieldType(new StringFieldType());
+        AddCustomFieldType<BooleanFieldType>();
+        AddCustomFieldType<DateFieldType>();
+        AddCustomFieldType<DoubleFieldType>();
+        AddCustomFieldType<FloatFieldType>();
+        AddCustomFieldType<IntegerFieldType>();
+        AddCustomFieldType<KeywordFieldType>();
+        AddCustomFieldType<LongFieldType>();
+        AddCustomFieldType<StringFieldType>();
     }
 
     protected void AddCustomFieldType(ICustomFieldType customFieldType) {
