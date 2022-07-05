@@ -458,6 +458,7 @@ public static class ElasticIndexExtensions {
         bool hasCreatedDate = typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T));
         bool supportsSoftDeletes = typeof(ISupportSoftDeletes).IsAssignableFrom(typeof(T));
         bool hasCustomFields = typeof(IHaveCustomFields).IsAssignableFrom(typeof(T));
+        bool hasVirtualCustomFields = typeof(IHaveVirtualCustomFields).IsAssignableFrom(typeof(T));
 
         if (hasIdentity)
             pd.Keyword(p => p.Name(d => ((IIdentity)d).Id));
@@ -471,7 +472,7 @@ public static class ElasticIndexExtensions {
         if (hasDates)
             pd.Date(p => p.Name(d => ((IHaveDates)d).UpdatedUtc)).FieldAlias(a => a.Path(p => ((IHaveDates)p).UpdatedUtc).Name("updated"));;
 
-        if (hasCustomFields)
+        if (hasCustomFields || hasVirtualCustomFields)
             pd.Object<object>(f => f.Name("idx").Dynamic());
 
         return pd;

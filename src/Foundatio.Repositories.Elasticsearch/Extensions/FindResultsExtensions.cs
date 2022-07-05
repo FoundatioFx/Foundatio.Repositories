@@ -1,5 +1,5 @@
 ﻿using Foundatio.Repositories.Extensions;
-using Foundatio.Repositories.Models;
+using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 

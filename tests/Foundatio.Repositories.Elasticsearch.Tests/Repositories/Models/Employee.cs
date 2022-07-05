@@ -5,7 +5,6 @@ using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
-using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 
@@ -38,11 +37,27 @@ public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes, 
     public string Version { get; set; }
     public bool IsDeleted { get; set; }
     public PeerReview[] PeerReviews { get; set; }
-    public Dictionary<string, object> Data { get; set; } = new Dictionary<string, object>();
     public IList<PhoneInfo> PhoneNumbers { get; set; } = new List<PhoneInfo>();
-    public IDictionary<string, object> Idx { get; set; } = new Dictionary<string, object>();
 
-    IDictionary<string, object> IHaveCustomFields.GetCustomFields() => Data;
+    public IDictionary<string, object> Idx { get; set; } = new Dictionary<string, object>();
+    public IDictionary<string, object> Data { get; set; } = new Dictionary<string, object>();
+
+    //IDictionary<string, object> IHaveVirtualCustomFields.GetCustomFields() {
+    //    return Data;
+    //}
+
+    //object IHaveVirtualCustomFields.GetCustomField(string name) {
+    //    return Data[name];
+    //}
+
+    //void IHaveVirtualCustomFields.SetCustomField(string name, object value) {
+    //    Data[name] = value;
+    //}
+
+    //void IHaveVirtualCustomFields.RemoveCustomField(string name) {
+    //    Data.Remove(name);
+    //}
+
     string IHaveCustomFields.GetTenantKey() {
         return CompanyId;
     }

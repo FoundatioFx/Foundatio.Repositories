@@ -719,24 +719,25 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     }
 
     protected virtual async Task OnCustomFieldsDocumentsChanging(object sender, DocumentsChangeEventArgs<T> args) {
-        var tenantGroups = args.Documents.Select(d => d.Value).OfType<IHaveCustomFields>().GroupBy(e => e.GetTenantKey());
+        var tenantGroups = args.Documents.Select(d => d.Value).GroupBy(e => GetDocumentTenantKey(e)).Where(g => g.Key != null).ToList();
 
         foreach (var tenant in tenantGroups) {
             var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenant.Key);
 
             foreach (var doc in tenant) {
-                if (doc.Idx == null)
+                var idx = GetDocumentIdx(doc);
+                if (idx == null)
                     continue;
 
-                doc.Idx.Clear();
+                idx.Clear();
 
-                var customFields = doc.GetCustomFields();
+                var customFields = GetDocumentCustomFields(doc);
                 if (customFields == null)
                     continue;
 
                 foreach (var customField in customFields) {
                     if (!fieldMapping.TryGetValue(customField.Key, out var mapping)) {
-                        mapping = await HandleUnmappedCustomField(doc, customField.Key);
+                        mapping = await HandleUnmappedCustomField(doc, customField.Key, customField.Value);
                         if (mapping == null)
                             continue;
                     }
@@ -746,21 +747,49 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         continue;
                     }
 
-                    doc.Idx[mapping.GetIdxName()] = await fieldType.TransformToIdxAsync(customField.Value);
+                    idx[mapping.GetIdxName()] = await fieldType.TransformToIdxAsync(customField.Value);
                 }
             }
         }
     }
 
-    protected virtual async Task<FieldIndexInfo> HandleUnmappedCustomField(IHaveCustomFields document, string name) {
+    protected virtual async Task<FieldIndexInfo> HandleUnmappedCustomField(T document, string name, object value) {
         if (!AutoCreateCustomFields)
             return null;
 
-        var newField = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.AddFieldAsync(EntityTypeName, document.GetTenantKey(), name, StringFieldType.IndexType);
+        var tenantKey = GetDocumentTenantKey(document);
+        if (String.IsNullOrEmpty(tenantKey))
+            return null;
+
+        var newField = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.AddFieldAsync(EntityTypeName, GetDocumentTenantKey(document), name, StringFieldType.IndexType);
 
         return new FieldIndexInfo {
             IndexType = newField.IndexType,
             IndexSlot = newField.IndexSlot
+        };
+    }
+
+    protected string GetDocumentTenantKey(T document) {
+        return document switch {
+            IHaveCustomFields f => f.GetTenantKey(),
+            IHaveVirtualCustomFields v => v.GetTenantKey(),
+            _ => null
+        };
+    }
+
+    protected IDictionary<string, object> GetDocumentCustomFields(T document) {
+        return document switch {
+            IHaveCustomFields f => f.Data,
+            IHaveVirtualCustomFields v => v.GetCustomFields(),
+            _ => null
+        };
+    }
+
+    protected IDictionary<string, object> GetDocumentIdx(T document) {
+        return document switch {
+            IHaveCustomFields f => f.Idx,
+            IHaveVirtualCustomFields v => v.Idx,
+            _ => null,
         };
     }
 
@@ -1118,7 +1147,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             ChangeType = changeType,
             Id = id,
             Type = EntityTypeName,
-            Data = new DataDictionary(data ?? new Dictionary<string, object>())
+            Data = new DataDictionary(data)
         }, delay);
     }
 

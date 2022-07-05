@@ -5,7 +5,7 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
-public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes {
+public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes, IHaveData {
     public string Id { get; set; }
 
     /// <summary>
@@ -66,8 +66,16 @@ public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes 
     public bool IsDeleted { get; set; }
 }
 
-public interface IHaveCustomFields {
-    IDictionary<string, object> Idx { get; }
+public interface IHaveVirtualCustomFields {
     IDictionary<string, object> GetCustomFields();
+    object GetCustomField(string name);
+    void SetCustomField(string name, object value);
+    void RemoveCustomField(string name);
+    IDictionary<string, object> Idx { get; }
+    string GetTenantKey();
+}
+
+public interface IHaveCustomFields : IHaveData {
+    IDictionary<string, object> Idx { get; }
     string GetTenantKey();
 }

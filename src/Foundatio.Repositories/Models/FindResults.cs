@@ -127,7 +127,7 @@ public class FindHit<T> : IHaveData {
         Score = score;
         Version = version;
         Routing = routing;
-        Data = data ?? new Dictionary<string, object>();
+        Data = new DataDictionary(data);
     }
 
     public T Document { get; }

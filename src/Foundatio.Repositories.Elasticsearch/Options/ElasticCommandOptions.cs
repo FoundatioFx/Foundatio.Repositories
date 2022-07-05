@@ -4,8 +4,8 @@ using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
-using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
+using Foundatio.Utility;
 
 namespace Foundatio.Repositories {
     public static class SetElasticOptionsExtensions {
