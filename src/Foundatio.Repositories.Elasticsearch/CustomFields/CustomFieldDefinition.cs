@@ -35,6 +35,19 @@ public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes,
     public int DisplayOrder { get; set; }
 
     /// <summary>
+    /// Sets the process mode for this custom field instance. Default is to only process the field when there is a value. <see cref="CustomFieldProcessMode.ProcessOnValue"/>
+    /// Can be set to <see cref="CustomFieldProcessMode.AlwaysProcess"/> in order to always run the <see cref="ICustomFieldType.ProcessValueAsync{T}(T, object, CustomFieldDefinition)"/>
+    /// even when a value is not present.
+    /// </summary>
+    public CustomFieldProcessMode ProcessMode { get; set; } = CustomFieldProcessMode.ProcessOnValue;
+
+    /// <summary>
+    /// Sets the order in which the custom field is processed. Custom fields in the <see cref="CustomFieldProcessMode.AlwaysProcess"/> mode will always
+    /// run after fields in <see cref="CustomFieldProcessMode.ProcessOnValue"/> mode.
+    /// </summary>
+    public int ProcessOrder { get; set; }
+
+    /// <summary>
     /// The type of index this custom field value should be stored in. (ie. string, number, float, address)
     /// </summary>
     public string IndexType { get; set; }
@@ -72,6 +85,11 @@ public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes,
 
         return _idxName;
     }
+}
+
+public enum CustomFieldProcessMode {
+    ProcessOnValue,
+    AlwaysProcess
 }
 
 public interface IHaveVirtualCustomFields {

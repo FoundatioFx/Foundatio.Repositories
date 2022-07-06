@@ -723,6 +723,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         foreach (var tenant in tenantGroups) {
             var fieldDefinitions = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenant.Key);
+            var processOnValueFields = fieldDefinitions.Where(f => f.Value.ProcessMode == CustomFieldProcessMode.ProcessOnValue).OrderBy(f => f.Value.ProcessOrder).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+            var alwaysProcessFields = fieldDefinitions.Where(f => f.Value.ProcessMode == CustomFieldProcessMode.AlwaysProcess).OrderBy(f => f.Value.ProcessOrder).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
             foreach (var doc in tenant) {
                 var idx = GetDocumentIdx(doc);
@@ -736,7 +738,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     continue;
 
                 foreach (var customField in customFields) {
-                    if (!fieldDefinitions.TryGetValue(customField.Key, out var fieldDefinition)) {
+                    if (!processOnValueFields.TryGetValue(customField.Key, out var fieldDefinition)) {
                         fieldDefinition = await HandleUnmappedCustomField(doc, customField.Key, customField.Value);
                         if (fieldDefinition == null)
                             continue;
@@ -749,10 +751,25 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     var result = await fieldType.ProcessValueAsync(doc, customField.Value, fieldDefinition);
                     SetDocumentCustomField(doc, customField.Key, result.Value);
-                    idx[fieldDefinition.GetIdxName()] = result.Idx;
+                    idx[fieldDefinition.GetIdxName()] = result.Idx ?? result.Value;
 
                     if (result.IsCustomFieldDefinitionModified)
                         await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(fieldDefinition);
+                }
+
+                foreach (var alwaysProcessField in alwaysProcessFields.Values) {
+                    if (!ElasticIndex.CustomFieldTypes.TryGetValue(alwaysProcessField.IndexType, out var fieldType)) {
+                        _logger.LogWarning("Field type {IndexType} is not configured for this index {IndexName} for custom field {CustomFieldName}", alwaysProcessField.IndexType, ElasticIndex.Name, alwaysProcessField.Name);
+                        continue;
+                    }
+
+                    var value = GetDocumentCustomField(doc, alwaysProcessField.Name);
+                    var result = await fieldType.ProcessValueAsync(doc, value, alwaysProcessField);
+                    SetDocumentCustomField(doc, alwaysProcessField.Name, result.Value);
+                    idx[alwaysProcessField.GetIdxName()] = result.Idx ?? result.Value;
+
+                    if (result.IsCustomFieldDefinitionModified)
+                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(alwaysProcessField);
                 }
             }
         }
@@ -794,6 +811,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 v.SetCustomField(name, value);
                 return;
         }
+    }
+
+    protected object GetDocumentCustomField(T document, string name) {
+        return document switch {
+            IHaveCustomFields f => f.Data.GetValueOrDefault(name),
+            IHaveVirtualCustomFields v => v.GetCustomField(name),
+            _ => null,
+        };
     }
 
     protected IDictionary<string, object> GetDocumentIdx(T document) {

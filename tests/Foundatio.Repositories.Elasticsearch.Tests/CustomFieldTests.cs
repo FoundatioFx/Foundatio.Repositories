@@ -281,6 +281,40 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
         Assert.Empty(employees);
     }
 
-    // Remove idx data when removing custom field
-    // Move idx data when changing field type
+    [Fact]
+    public async Task CanUseCalculatedFieldType() {
+        await _customFieldDefinitionRepository.AddAsync(new[] {
+            new CustomFieldDefinition {
+                EntityType = "Employee",
+                TenantKey = "1",
+                Name = "Field1",
+                IndexType = IntegerFieldType.IndexType
+            },
+            new CustomFieldDefinition {
+                EntityType = "Employee",
+                TenantKey = "1",
+                Name = "Field2",
+                IndexType = IntegerFieldType.IndexType
+            },
+            new CustomFieldDefinition {
+                EntityType = "Employee",
+                TenantKey = "1",
+                Name = "Calculated",
+                IndexType = CalculatedIntegerFieldType.IndexType,
+                ProcessMode = CustomFieldProcessMode.AlwaysProcess,
+                Data = new Dictionary<string, object> { { "Expression", "source.Data.Field1 + source.Data.Field2" } }
+            }
+        });
+
+        var employee = EmployeeGenerator.Generate(age: 19);
+        employee.CompanyId = "1";
+        employee.PhoneNumbers.Add(new PhoneInfo { Number = "214-222-2222" });
+        employee.Data["Field1"] = 1;
+        employee.Data["Field2"] = 2;
+        await _employeeRepository.AddAsync(employee, o => o.ImmediateConsistency());
+
+        var results = await _employeeRepository.FindAsync(q => q.Company("1").FilterExpression("calculated:3"), o => o.QueryLogLevel(LogLevel.Information));
+        var employees = results.Documents.ToArray();
+        Assert.Single(employees);
+    }
 }

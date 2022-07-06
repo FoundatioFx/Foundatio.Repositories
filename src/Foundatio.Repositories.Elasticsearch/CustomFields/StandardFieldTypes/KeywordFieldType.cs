@@ -7,8 +7,8 @@ public class KeywordFieldType : ICustomFieldType {
     public static string IndexType = "keyword";
     public string Type => IndexType;
 
-    public Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class {
-        return Task.FromResult(new ProcessFieldValueResult { Value = value, Idx = value });
+    public virtual Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class {
+        return Task.FromResult(new ProcessFieldValueResult { Value = value });
     }
 
     public virtual IProperty ConfigureMapping<T>(SingleMappingSelector<T> map) where T : class {

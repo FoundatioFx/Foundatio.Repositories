@@ -10,12 +10,18 @@ using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Nest;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers;
+using Foundatio.Repositories.Elasticsearch.CustomFields;
+using Foundatio.Serializer;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 
 public sealed class EmployeeIndex : Index<Employee> {
     public EmployeeIndex(IElasticConfiguration configuration): base(configuration, "employees") {
         AddStandardCustomFieldTypes();
+
+        // overrides the normal integer field type with one that supports expressions to calculate values
+        AddCustomFieldType(new CalculatedIntegerFieldType(new ScriptService(new SystemTextJsonSerializer(), NullLogger<ScriptService>.Instance)));
     }
 
     public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
