@@ -64,6 +64,14 @@ public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes,
     /// Whether this custom field has been soft deleted
     /// </summary>
     public bool IsDeleted { get; set; }
+
+    private string _idxName = null;
+    public string GetIdxName() {
+        if (_idxName == null)
+            _idxName = $"{IndexType}-{IndexSlot}";
+
+        return _idxName;
+    }
 }
 
 public interface IHaveVirtualCustomFields {

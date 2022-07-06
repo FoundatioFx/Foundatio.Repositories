@@ -7,8 +7,8 @@ public class StringFieldType : ICustomFieldType {
     public static string IndexType = "string";
     public string Type => IndexType;
 
-    public Task<object> TransformToIdxAsync(object value) {
-        return Task.FromResult(value);
+    public Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class {
+        return Task.FromResult(new ProcessFieldValueResult { Value = value, Idx = value });
     }
 
     public virtual IProperty ConfigureMapping<T>(SingleMappingSelector<T> map) where T : class {

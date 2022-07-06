@@ -722,7 +722,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         var tenantGroups = args.Documents.Select(d => d.Value).GroupBy(e => GetDocumentTenantKey(e)).Where(g => g.Key != null).ToList();
 
         foreach (var tenant in tenantGroups) {
-            var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenant.Key);
+            var fieldDefinitions = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenant.Key);
 
             foreach (var doc in tenant) {
                 var idx = GetDocumentIdx(doc);
@@ -736,24 +736,29 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     continue;
 
                 foreach (var customField in customFields) {
-                    if (!fieldMapping.TryGetValue(customField.Key, out var mapping)) {
-                        mapping = await HandleUnmappedCustomField(doc, customField.Key, customField.Value);
-                        if (mapping == null)
+                    if (!fieldDefinitions.TryGetValue(customField.Key, out var fieldDefinition)) {
+                        fieldDefinition = await HandleUnmappedCustomField(doc, customField.Key, customField.Value);
+                        if (fieldDefinition == null)
                             continue;
                     }
 
-                    if (!ElasticIndex.CustomFieldTypes.TryGetValue(mapping.IndexType, out var fieldType)) {
-                        _logger.LogWarning("Field type {IndexType} is not configured for this index {IndexName} for custom field {CustomFieldName}", mapping.IndexType, ElasticIndex.Name, customField.Key);
+                    if (!ElasticIndex.CustomFieldTypes.TryGetValue(fieldDefinition.IndexType, out var fieldType)) {
+                        _logger.LogWarning("Field type {IndexType} is not configured for this index {IndexName} for custom field {CustomFieldName}", fieldDefinition.IndexType, ElasticIndex.Name, customField.Key);
                         continue;
                     }
 
-                    idx[mapping.GetIdxName()] = await fieldType.TransformToIdxAsync(customField.Value);
+                    var result = await fieldType.ProcessValueAsync(doc, customField.Value, fieldDefinition);
+                    SetDocumentCustomField(doc, customField.Key, result.Value);
+                    idx[fieldDefinition.GetIdxName()] = result.Idx;
+
+                    if (result.IsCustomFieldDefinitionModified)
+                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(fieldDefinition);
                 }
             }
         }
     }
 
-    protected virtual async Task<FieldIndexInfo> HandleUnmappedCustomField(T document, string name, object value) {
+    protected virtual async Task<CustomFieldDefinition> HandleUnmappedCustomField(T document, string name, object value) {
         if (!AutoCreateCustomFields)
             return null;
 
@@ -761,12 +766,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (String.IsNullOrEmpty(tenantKey))
             return null;
 
-        var newField = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.AddFieldAsync(EntityTypeName, GetDocumentTenantKey(document), name, StringFieldType.IndexType);
-
-        return new FieldIndexInfo {
-            IndexType = newField.IndexType,
-            IndexSlot = newField.IndexSlot
-        };
+        return await ElasticIndex.Configuration.CustomFieldDefinitionRepository.AddFieldAsync(EntityTypeName, GetDocumentTenantKey(document), name, StringFieldType.IndexType);
     }
 
     protected string GetDocumentTenantKey(T document) {
@@ -783,6 +783,17 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             IHaveVirtualCustomFields v => v.GetCustomFields(),
             _ => null
         };
+    }
+
+    protected void SetDocumentCustomField(T document, string name, object value) {
+        switch (document) {
+            case IHaveCustomFields f:
+                f.Data[name] = value;
+                return;
+            case IHaveVirtualCustomFields v:
+                v.SetCustomField(name, value);
+                return;
+        }
     }
 
     protected IDictionary<string, object> GetDocumentIdx(T document) {

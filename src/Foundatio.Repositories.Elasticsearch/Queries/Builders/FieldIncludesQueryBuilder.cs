@@ -183,9 +183,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             var resolvedIncludes = resolver.GetResolvedFields(includes).ToArray();
 
-            if (resolvedIncludes.Length > 0)
-                ctx.Search.Source(s => s.Includes(i => i.Fields(resolvedIncludes)));
-
             // excludes
 
             var excludes = new HashSet<Field>();
@@ -202,7 +199,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
 
             var resolvedExcludes = resolver.GetResolvedFields(excludes).ToArray();
 
-            if (resolvedExcludes.Length > 0)
+            if (resolvedIncludes.Length > 0 && resolvedExcludes.Length > 0)
+                ctx.Search.Source(s => s.Includes(i => i.Fields(resolvedIncludes)).Excludes(i => i.Fields(resolvedExcludes)));
+            else if (resolvedIncludes.Length > 0)
+                ctx.Search.Source(s => s.Includes(i => i.Fields(resolvedIncludes)));
+            else if (resolvedExcludes.Length > 0)
                 ctx.Search.Source(s => s.Excludes(i => i.Fields(resolvedExcludes)));
 
             return Task.CompletedTask;

@@ -15,26 +15,9 @@ using Nest;
 namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
 public interface ICustomFieldDefinitionRepository : ISearchableRepository<CustomFieldDefinition> {
-    Task<IDictionary<string, FieldIndexInfo>> GetFieldMappingAsync(string entityType, string tenantKey);
+    Task<IDictionary<string, CustomFieldDefinition>> GetFieldMappingAsync(string entityType, string tenantKey);
     Task<FindResults<CustomFieldDefinition>> FindByTenantAsync(string entityType, string tenantKey);
     Task<CustomFieldDefinition> AddFieldAsync(string entityType, string tenantKey, string name, string indexType, string description = null, int displayOrder = 0, IDictionary<string, object> data = null);
-}
-
-public class FieldIndexInfo {
-    public string IndexType { get; set; }
-    public int IndexSlot { get; set; }
-
-    private string _idxName = null;
-    public string GetIdxName() {
-        if (_idxName == null)
-            _idxName = $"{IndexType}-{IndexSlot}";
-
-        return _idxName;
-    }
-
-    public override string ToString() {
-        return GetIdxName();
-    }
 }
 
 public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomFieldDefinition>, ICustomFieldDefinitionRepository {
@@ -52,28 +35,22 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         DocumentsChanging.AddHandler(OnDocumentsChanging);
     }
 
-    public async Task<IDictionary<string, FieldIndexInfo>> GetFieldMappingAsync(string entityType, string tenantKey) {
+    public async Task<IDictionary<string, CustomFieldDefinition>> GetFieldMappingAsync(string entityType, string tenantKey) {
         string cacheKey = $"mapping:{entityType}:{tenantKey}";
-        var cachedMapping = await Cache.GetAsync<Dictionary<string, FieldIndexInfo>>(cacheKey);
+        var cachedMapping = await Cache.GetAsync<Dictionary<string, CustomFieldDefinition>>(cacheKey);
         if (cachedMapping.HasValue)
             return cachedMapping.Value;
 
-        var fieldMapping = new Dictionary<string, FieldIndexInfo>(StringComparer.OrdinalIgnoreCase);
+        var fieldMapping = new Dictionary<string, CustomFieldDefinition>(StringComparer.OrdinalIgnoreCase);
 
         var fields = await FindAsync(q => q
             .FieldEquals(cf => cf.EntityType, entityType)
-            .FieldEquals(cf => cf.TenantKey, tenantKey)
-            .Include(cf => cf.Name)
-            .Include(cf => cf.IndexType)
-            .Include(cf => cf.IndexSlot),
+            .FieldEquals(cf => cf.TenantKey, tenantKey),
             o => o.PageLimit(1000));
 
         do {
             foreach (var customField in fields.Documents)
-                fieldMapping[customField.Name] = new FieldIndexInfo {
-                    IndexType = customField.IndexType,
-                    IndexSlot = customField.IndexSlot
-                };
+                fieldMapping[customField.Name] = customField;
         } while (await fields.NextPageAsync());
 
         await Cache.AddAsync(cacheKey, fieldMapping, TimeSpan.FromMinutes(15));
