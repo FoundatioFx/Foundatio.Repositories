@@ -567,7 +567,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected ScopedCacheClient Cache => _scopedCacheClient ?? new ScopedCacheClient(new NullCacheClient());
 
     private void SetCacheClient(ICacheClient cache) {
-        IsCacheEnabled = cache != null && !(cache is NullCacheClient);
+        IsCacheEnabled = cache != null && cache is not NullCacheClient;
         _scopedCacheClient = new ScopedCacheClient(cache ?? new NullCacheClient(), EntityTypeName);
     }
 

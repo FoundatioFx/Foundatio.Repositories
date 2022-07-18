@@ -155,6 +155,18 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
         Assert.Equal(2, customField.IndexSlot);
         mapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(Employee), "1");
         Assert.Contains(mapping.Keys, c => c == "MyField4");
+
+        await _customFieldDefinitionRepository.RemoveAllAsync(q => q.FieldEquals(d => d.EntityType, nameof(Employee)));
+
+        customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+            EntityType = nameof(Employee),
+            TenantKey = "1",
+            Name = "MyField2",
+            IndexType = "string"
+        });
+        Assert.Equal(1, customField.IndexSlot);
+        mapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(Employee), "1");
+        Assert.Contains(mapping.Keys, c => c == "MyField2");
     }
 
     [Fact]
