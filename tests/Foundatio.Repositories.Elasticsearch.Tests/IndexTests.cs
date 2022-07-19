@@ -110,6 +110,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
 
     [Fact]
     public async Task GetByDateBasedIndexAsync() {
+        Log.MinimumLevel = LogLevel.Trace;
+
         await _configuration.DailyLogEvents.ConfigureAsync();
             
         

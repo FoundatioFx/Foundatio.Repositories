@@ -217,9 +217,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (docs == null || docs.Any(d => d == null))
             throw new ArgumentNullException(nameof(documents));
 
-        if (!IsCacheEnabled)
-            return Task.CompletedTask;
-
         return InvalidateCacheAsync(docs.Select(d => new ModifiedDocument<T>(d, null)).ToList());
     }
 
@@ -484,6 +481,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             result = response.ToCountResult(options);
         } else {
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
+            _logger.LogRequest(response, options.GetQueryLogLevel());
             result = response.ToCountResult(options);
         }
 
@@ -579,7 +577,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected virtual Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>> documents, ChangeType? changeType = null) {
         var keysToRemove = new HashSet<string>();
 
-        if (HasIdentity && changeType != ChangeType.Added) {
+        if (IsCacheEnabled && HasIdentity && changeType != ChangeType.Added) {
             foreach (var document in documents) {
                 keysToRemove.Add(((IIdentity)document.Value).Id);
                 if (((IIdentity)document.Original)?.Id != null)
@@ -644,18 +642,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return returnSoftDeletes || !((ISupportSoftDeletes)document).IsDeleted;
     }
 
-    private Task RefreshForConsistency(IRepositoryQuery query, ICommandOptions options) {
-        // all docs are saved with immediate or wait consistency, no need to force a refresh
-        if (DefaultConsistency != Consistency.Eventual)
-            return Task.CompletedTask;
-
-        // if using immediate consistency, force a refresh before query
-        if (options.GetConsistency() == Consistency.Immediate) {
+    protected async Task RefreshForConsistency(IRepositoryQuery query, ICommandOptions options) {
+         // if not using eventual consistency, force a refresh
+        if (options.GetConsistency(DefaultConsistency) != Consistency.Eventual) {
             string[] indices = ElasticIndex.GetIndexesByQuery(query);
-            return _client.Indices.RefreshAsync(indices);
+            var response = await _client.Indices.RefreshAsync(indices);
+            _logger.LogRequest(response);
         }
-
-        return Task.CompletedTask;
     }
 
     protected async Task<TResult> GetCachedQueryResultAsync<TResult>(ICommandOptions options, string cachePrefix = null, string cacheSuffix = null) {

@@ -18,7 +18,7 @@ public class PhoneInfo {
     public string Extension { get; set; }
 }
 
-public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes, IHaveCustomFields {
+public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes {
     public string Id { get; set; }
     public string CompanyId { get; set; }
     public string CompanyName { get; set; }
@@ -39,28 +39,7 @@ public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes, 
     public PeerReview[] PeerReviews { get; set; }
     public IList<PhoneInfo> PhoneNumbers { get; set; } = new List<PhoneInfo>();
 
-    public IDictionary<string, object> Idx { get; set; } = new Dictionary<string, object>();
     public IDictionary<string, object> Data { get; set; } = new Dictionary<string, object>();
-
-    //IDictionary<string, object> IHaveVirtualCustomFields.GetCustomFields() {
-    //    return Data;
-    //}
-
-    //object IHaveVirtualCustomFields.GetCustomField(string name) {
-    //    return Data[name];
-    //}
-
-    //void IHaveVirtualCustomFields.SetCustomField(string name, object value) {
-    //    Data[name] = value;
-    //}
-
-    //void IHaveVirtualCustomFields.RemoveCustomField(string name) {
-    //    Data.Remove(name);
-    //}
-
-    string IHaveCustomFields.GetTenantKey() {
-        return CompanyId;
-    }
 
     protected bool Equals(Employee other) {
         return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase) &&
@@ -109,6 +88,30 @@ public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes, 
 
     public static bool operator !=(Employee left, Employee right) {
         return !Equals(left, right);
+    }
+}
+
+public class EmployeeWithCustomFields : Employee, IHaveCustomFields {
+    public IDictionary<string, object> Idx { get; set; } = new Dictionary<string, object>();
+
+    //IDictionary<string, object> IHaveVirtualCustomFields.GetCustomFields() {
+    //    return Data;
+    //}
+
+    //object IHaveVirtualCustomFields.GetCustomField(string name) {
+    //    return Data[name];
+    //}
+
+    //void IHaveVirtualCustomFields.SetCustomField(string name, object value) {
+    //    Data[name] = value;
+    //}
+
+    //void IHaveVirtualCustomFields.RemoveCustomField(string name) {
+    //    Data.Remove(name);
+    //}
+
+    string IHaveCustomFields.GetTenantKey() {
+        return CompanyId;
     }
 }
 
@@ -161,6 +164,63 @@ public static class EmployeeGenerator {
 
     public static List<Employee> GenerateEmployees(int count = 10, string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, string location = null, DateTime? lastReview = null, DateTimeOffset? nextReview = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
         var results = new List<Employee>(count);
+        for (int index = 0; index < count; index++)
+            results.Add(GenerateRandom(id, name, age, yearsEmployed, companyName, companyId, location, lastReview, nextReview, createdUtc, updatedUtc));
+
+        return results;
+    }
+}
+
+
+public static class EmployeeWithCustomFieldsGenerator {
+    public static readonly string DefaultCompanyId = ObjectId.GenerateNewId().ToString();
+
+    public static EmployeeWithCustomFields Default => new() {
+        Name = "Blake",
+        EmailAddress = "blake@exceptionless.com",
+        Age = 29,
+        YearsEmployed = 9,
+        CompanyName = "Exceptionless",
+        CompanyId = DefaultCompanyId
+    };
+
+    public static EmployeeWithCustomFields Generate(string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, string location = null, DateTime? lastReview = null, DateTimeOffset? nextReview = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
+        return new EmployeeWithCustomFields {
+            Id = id,
+            Name = name,
+            Age = age ?? RandomData.GetInt(18, 100),
+            YearsEmployed = yearsEmployed ?? RandomData.GetInt(0, 1),
+            CompanyName = companyName,
+            CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
+            LastReview = lastReview.GetValueOrDefault(),
+            NextReview = nextReview.GetValueOrDefault(),
+            CreatedUtc = createdUtc.GetValueOrDefault(),
+            UpdatedUtc = updatedUtc.GetValueOrDefault(),
+            Location = location ?? RandomData.GetCoordinate()
+        };
+    }
+
+    public static EmployeeWithCustomFields GenerateRandom(string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, string location = null, DateTime? lastReview = null, DateTimeOffset? nextReview = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
+        var employee = new EmployeeWithCustomFields {
+            Id = id,
+            Name = name ?? RandomData.GetAlphaString(),
+            Age = age ?? RandomData.GetInt(18, 100),
+            YearsEmployed = yearsEmployed ?? RandomData.GetInt(0, 40),
+            CompanyName = companyName ?? RandomData.GetAlphaString(),
+            CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
+            LastReview = lastReview ?? RandomData.GetDateTime(DateTime.Now.SubtractDays(365), DateTime.Now),
+            CreatedUtc = createdUtc ?? RandomData.GetDateTime(DateTime.Now.SubtractDays(365), DateTime.Now),
+            Location = location ?? RandomData.GetCoordinate()
+        };
+
+        employee.NextReview = nextReview ?? RandomData.GetDateTimeOffset(employee.NextReview, DateTime.Now);
+        employee.UpdatedUtc = updatedUtc ?? RandomData.GetDateTime(employee.CreatedUtc, DateTime.Now);
+
+        return employee;
+    }
+
+    public static List<EmployeeWithCustomFields> GenerateEmployees(int count = 10, string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, string location = null, DateTime? lastReview = null, DateTimeOffset? nextReview = null, DateTime? createdUtc = null, DateTime? updatedUtc = null) {
+        var results = new List<EmployeeWithCustomFields>(count);
         for (int index = 0; index < count; index++)
             results.Add(GenerateRandom(id, name, age, yearsEmployed, companyName, companyId, location, lastReview, nextReview, createdUtc, updatedUtc));
 

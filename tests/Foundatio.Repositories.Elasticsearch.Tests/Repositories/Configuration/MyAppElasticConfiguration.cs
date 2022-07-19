@@ -19,6 +19,7 @@ public class MyAppElasticConfiguration : ElasticConfiguration {
     public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, IMessageBus messageBus, ILoggerFactory loggerFactory) : base(workItemQueue, cacheClient, messageBus, loggerFactory) {
         AddIndex(Identities = new IdentityIndex(this));
         AddIndex(Employees = new EmployeeIndex(this));
+        AddIndex(EmployeeWithCustomFields = new EmployeeWithCustomFieldsIndex(this));
         AddIndex(MonthlyEmployees = new MonthlyEmployeeIndex(this, 1));
         AddIndex(DailyLogEvents = new DailyLogEventIndex(this));
         AddIndex(MonthlyLogEvents = new MonthlyLogEventIndex(this));
@@ -66,6 +67,7 @@ public class MyAppElasticConfiguration : ElasticConfiguration {
 
     public IdentityIndex Identities { get; }
     public EmployeeIndex Employees { get; }
+    public EmployeeWithCustomFieldsIndex EmployeeWithCustomFields { get; }
     public MonthlyEmployeeIndex MonthlyEmployees { get; }
     public DailyLogEventIndex DailyLogEvents { get; }
     public MonthlyLogEventIndex MonthlyLogEvents { get; }

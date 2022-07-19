@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -608,15 +608,23 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     public virtual async Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions options = null) {
         options = ConfigureOptions(options.As<T>());
-        if (IsCacheEnabled && options.ShouldUseCache(true)) {
+        bool hasRemoveListeners = DocumentsChanging.HasHandlers || DocumentsChanged.HasHandlers || DocumentsRemoving.HasHandlers || DocumentsRemoved.HasHandlers;
+        if (hasRemoveListeners || (IsCacheEnabled && options.ShouldUseCache(true))) {
             foreach (var field in _propertiesRequiredForRemove.Select(f => f.Value))
                 if (field != null && !query.GetIncludes().Contains(field))
                     query.Include(field);
 
+            if (!options.HasPageLimit())
+                options.PageLimit(1000);
+
+            var removeOptions = options.Clone();
+            if (removeOptions.GetConsistency() != Consistency.Eventual)
+                removeOptions.Consistency(Consistency.Eventual);
+
             return await BatchProcessAsync(query, async results => {
-                await RemoveAsync(results.Documents, options).AnyContext();
+                await RemoveAsync(results.Documents, removeOptions).AnyContext();
                 return true;
-            }, options.Clone()).AnyContext();
+            }, options).AnyContext();
         }
 
         var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(ElasticIndex.Name) {
@@ -664,11 +672,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             await ElasticIndex.EnsureIndexAsync(null).AnyContext();
 
         options = ConfigureOptions(options.As<T>());
-        options.SnapshotPaging();
+        if (!options.ShouldUseSnapshotPaging())
+            options.SearchAfterPaging();
         if (!options.HasPageLimit())
             options.PageLimit(500);
-        if (!options.HasSnapshotLifetime())
-            options.SnapshotPagingLifetime(TimeSpan.FromMinutes(5));
+
+        // do one refresh afterwards
+        bool shouldRefresh = options.GetConsistency() != Consistency.Eventual;
 
         long recordsProcessed = 0;
         var results = await FindAsAsync<TResult>(query, options).AnyContext();
@@ -676,14 +686,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             if (results.Hits.Count == 0)
                 break;
 
-            if (await processFunc(results).AnyContext()) {
-                recordsProcessed += results.Documents.Count;
-                continue;
+            if (!await processFunc(results).AnyContext()) {
+                _logger.LogTrace("Aborted batch processing.");
+                break;
             }
 
-            _logger.LogTrace("Aborted batch processing.");
-            break;
+            recordsProcessed += results.Documents.Count;
         } while (await results.NextPageAsync().AnyContext());
+
+        if (shouldRefresh)
+            await RefreshForConsistency(query, options).AnyContext();
 
         _logger.LogTrace("{0} records processed", recordsProcessed);
         return recordsProcessed;
@@ -949,8 +961,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     }
 
     private async Task OnDocumentsChangedAsync(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, ICommandOptions options) {
-        if (IsCacheEnabled)
-            await InvalidateCacheAsync(documents, changeType).AnyContext();
+        await InvalidateCacheAsync(documents, changeType).AnyContext();
         
         if (DocumentsChanged == null || !DocumentsChanged.HasHandlers)
             return;

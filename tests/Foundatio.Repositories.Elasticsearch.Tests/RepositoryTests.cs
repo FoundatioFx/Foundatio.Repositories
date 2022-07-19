@@ -1006,7 +1006,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         Log.SetLogLevel<IdentityWithNoCachingRepository>(LogLevel.Trace);
 
         var disposables = new List<IDisposable>(2);
-        var countdownEvent = new AsyncCountdownEvent(1);
+        var countdownEvent = new AsyncCountdownEvent(20);
 
         try {
             disposables.Add(_identityRepositoryWithNoCaching.DocumentsRemoving.AddSyncHandler((o, args) => {
@@ -1021,7 +1021,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
             sw.Stop();
             _logger.LogInformation($"Deleted {COUNT} documents in {sw.ElapsedMilliseconds}ms");
 
-            await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
+            await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(10)).Token);
             Assert.Equal(0, countdownEvent.CurrentCount);
 
             Assert.Equal(0, await _identityRepositoryWithNoCaching.CountAsync());
