@@ -516,11 +516,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }).AnyContext();
                 _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
 
-                // TODO: How to do retries for version conflicts that only happened in a couple of the doc
-
                 if (!bulkResult.IsValid) {
-                    _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
-                    return false;
+                    if (bulkResult.ItemsWithErrors.All(i => i.Status == 409)) {
+                        var ids = bulkResult.ItemsWithErrors.Where(i => i.Status == 409).Select(i => i.Id).ToArray();
+                        await PatchAsync(ids, operation, options);
+                    } else {
+                        _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
+                        return false;
+                    }
                 }
 
                 var updatedIds = results.Hits.Select(h => h.Id).ToList();
@@ -569,8 +572,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
 
                 if (!bulkResult.IsValid) {
-                    _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
-                    return false;
+                    if (bulkResult.ItemsWithErrors.All(i => i.Status == 409)) {
+                        var ids = bulkResult.ItemsWithErrors.Where(i => i.Status == 409).Select(i => i.Id).ToArray();
+                        await PatchAsync(ids, operation, options);
+                    } else {
+                        _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
+                        return false;
+                    }
                 }
 
                 var updatedIds = results.Hits.Select(h => h.Id).ToList();

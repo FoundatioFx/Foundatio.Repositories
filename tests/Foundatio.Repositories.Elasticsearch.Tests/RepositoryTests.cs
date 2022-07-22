@@ -698,6 +698,53 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
+    public async Task ConcurrentJsonPatchAllAsync() {
+        var resetEvent = new AutoResetEvent(false);
+        var cts = new CancellationTokenSource();
+
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false));
+        string employeeId = employee.Id;
+        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (i, ct) => {
+            var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
+            resetEvent.Set();
+            e.CompanyName = "Company " + i;
+            try {
+                await _employeeRepository.SaveAsync(e, o => o.Cache(false));
+                _logger.LogInformation("Set company {Iteration}", i);
+            } catch (VersionConflictDocumentException) {
+                _logger.LogInformation("Got version conflict {Iteration}", i);
+            }
+        });
+
+        _logger.LogInformation("Saving name");
+        resetEvent.WaitOne();
+        employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        resetEvent.WaitOne();
+        employee.Name = "Saved";
+        try {
+            await _employeeRepository.SaveAsync(employee, o => o.Cache(false));
+            _logger.LogInformation("Saved name");
+        } catch (VersionConflictDocumentException) {
+            _logger.LogInformation("Conflict attempting to save name");
+        }
+
+        resetEvent.WaitOne();
+        _logger.LogInformation("Patching name");
+        var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
+        await _employeeRepository.PatchAllAsync(q => q.Age(EmployeeGenerator.Default.Age), new JsonPatch(patch), o => o.ImmediateConsistency());
+        _logger.LogInformation("Done patching name");
+
+        cts.Cancel();
+        await Task.Delay(100);
+
+        employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
+        Assert.Equal("Patched", employee.Name);
+        _logger.LogInformation("Got employee with company {CompanyName}", employee.CompanyName);
+        Assert.NotEqual(EmployeeGenerator.Default.CompanyName, employee.CompanyName);
+    }
+
+    [Fact]
     public async Task PartialPatchAsync() {
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
         await _employeeRepository.PatchAsync(employee.Id, new PartialPatch(new { name = "Patched" }));
