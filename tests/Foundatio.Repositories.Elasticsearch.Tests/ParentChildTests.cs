@@ -66,7 +66,6 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase {
         var resultsWithRouting = await _childRepository.GetByIdsAsync(idsWithRouting);
         Assert.NotNull(resultsWithRouting);
         Assert.Equal(2, resultsWithRouting.Count);
-
     }
 
     [Fact]
