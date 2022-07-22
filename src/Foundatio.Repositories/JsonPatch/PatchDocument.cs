@@ -5,7 +5,7 @@ using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace Foundatio.Repositories.JsonPatch;
+namespace Foundatio.Repositories.Utility;
 
 [JsonConverter(typeof(PatchDocumentConverter))]
 public class PatchDocument {

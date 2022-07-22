@@ -4,7 +4,7 @@ using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace Foundatio.Repositories.JsonPatch;
+namespace Foundatio.Repositories.Utility;
 
 public class JsonDiffer {
     internal static string Extend(string path, string extension) {

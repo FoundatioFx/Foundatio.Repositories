@@ -2,7 +2,7 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace Foundatio.Repositories.JsonPatch;
+namespace Foundatio.Repositories.Utility;
 
 public class PatchDocumentConverter : JsonConverter {
     public override bool CanConvert(Type objectType) {

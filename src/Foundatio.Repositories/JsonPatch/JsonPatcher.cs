@@ -4,7 +4,7 @@ using System.Linq;
 using Foundatio.Repositories.Extensions;
 using Newtonsoft.Json.Linq;
 
-namespace Foundatio.Repositories.JsonPatch;
+namespace Foundatio.Repositories.Utility;
 
 public class JsonPatcher : AbstractPatcher<JToken> {
     protected override JToken Replace(ReplaceOperation operation, JToken target) {

@@ -106,6 +106,8 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase {
 
     [Fact]
     public async Task CanQueryByChild() {
+        Log.MinimumLevel = Microsoft.Extensions.Logging.LogLevel.Trace;
+
         var parent = ParentGenerator.Default;
         parent = await _parentRepository.AddAsync(parent, o => o.ImmediateConsistency());
         Assert.NotNull(parent?.Id);

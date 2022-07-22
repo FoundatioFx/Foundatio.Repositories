@@ -185,25 +185,32 @@ public static class ElasticIndexExtensions {
     }
 
     public static FindHit<T> ToFindHit<T>(this Nest.GetResponse<T> hit) where T : class {
+        var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
+        
         var versionedDoc = hit.Source as IVersioned;
         if (versionedDoc != null)
             versionedDoc.Version = hit.GetElasticVersion();
 
-        var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
-        return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, hit.Routing, data);
+        return new FindHit<T>(hit.Id, hit.Source, 0, hit.GetElasticVersion(), hit.Routing, data);
     }
 
     public static ElasticDocumentVersion GetElasticVersion<T>(this Nest.GetResponse<T> hit) where T : class {
         if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
             return ElasticDocumentVersion.Empty;
-        
+
+        if (hit.PrimaryTerm.Value == 0 && hit.SequenceNumber.Value == 0)
+            return ElasticDocumentVersion.Empty;
+
         return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SequenceNumber.Value);
     }
 
     public static ElasticDocumentVersion GetElasticVersion<T>(this Nest.IHit<T> hit) where T : class {
         if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
             return ElasticDocumentVersion.Empty;
-        
+
+        if (hit.PrimaryTerm.Value == 0 && hit.SequenceNumber.Value == 0)
+            return ElasticDocumentVersion.Empty;
+
         return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SequenceNumber.Value);
     }
 
@@ -243,24 +250,26 @@ public static class ElasticIndexExtensions {
     }
 
     public static FindHit<T> ToFindHit<T>(this Nest.IHit<T> hit) where T : class {
-        var versionedDoc = hit.Source as IVersioned;
-        if (versionedDoc != null && hit.PrimaryTerm.HasValue)
-            versionedDoc.Version = hit.GetElasticVersion();
-
         var data = new DataDictionary {
             { ElasticDataKeys.Index, hit.Index },
             { ElasticDataKeys.Sorts, hit.Sorts }
         };
-        return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), versionedDoc?.Version ?? null, hit.Routing, data);
+
+        var versionedDoc = hit.Source as IVersioned;
+        if (versionedDoc != null && hit.PrimaryTerm.HasValue)
+            versionedDoc.Version = hit.GetElasticVersion();
+
+        return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), hit.GetElasticVersion(), hit.Routing, data);
     }
 
     public static FindHit<T> ToFindHit<T>(this Nest.IMultiGetHit<T> hit) where T : class {
+        var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
+
         var versionedDoc = hit.Source as IVersioned;
         if (versionedDoc != null)
             versionedDoc.Version = hit.GetElasticVersion();
 
-        var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
-        return new FindHit<T>(hit.Id, hit.Source, 0, versionedDoc?.Version ?? null, hit.Routing, data);
+        return new FindHit<T>(hit.Id, hit.Source, 0, hit.GetElasticVersion(), hit.Routing, data);
     }
 
     private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;

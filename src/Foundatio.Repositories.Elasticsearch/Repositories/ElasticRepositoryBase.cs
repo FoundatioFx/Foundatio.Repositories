@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -12,7 +12,6 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
-using Foundatio.Repositories.JsonPatch;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Queries;
 using Foundatio.Utility;
@@ -22,6 +21,8 @@ using Microsoft.Extensions.Logging;
 using System.Linq.Expressions;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Parsers.LuceneQueries.Visitors;
+using Foundatio.Repositories.Utility;
+using System.IO;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
@@ -159,42 +160,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 request.Routing = id.Routing;
 
             var response = await _client.UpdateAsync(request).AnyContext();
+            _logger.LogRequest(response, options.GetQueryLogLevel());
 
-            if (response.IsValid) {
-                _logger.LogRequest(response, options.GetQueryLogLevel());
-            } else {
+            if (!response.IsValid)
                 throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
-            }
-        } else if (operation is Models.JsonPatch jsonOperation) {
-            var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
-            if (id.Routing != null)
-                request.Routing = id.Routing;
-
-            var response = await _client.LowLevel.GetAsync<GetResponse<IDictionary<string, object>>>(ElasticIndex.GetIndex(id), id.Value).AnyContext();
-            var jobject = JObject.FromObject(response.Source);
-            if (response.IsValid) {
-                _logger.LogRequest(response, options.GetQueryLogLevel());
-            } else {
-                throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
-            }
-
-            var target = (JToken)jobject;
-            new JsonPatcher().Patch(ref target, jsonOperation.Patch);
-
-            var indexParameters = new IndexRequestParameters {
-                Pipeline = DefaultPipeline,
-                Refresh = options.GetRefreshMode(DefaultConsistency)
-            };
-            if (id.Routing != null)
-                indexParameters.Routing = id.Routing;
-            
-            var updateResponse = await _client.LowLevel.IndexAsync<VoidResponse>(ElasticIndex.GetIndex(id), id.Value, PostData.String(target.ToString()), indexParameters, default).AnyContext();
-
-            if (updateResponse.Success) {
-                _logger.LogRequest(updateResponse, options.GetQueryLogLevel());
-            } else {
-                throw new DocumentException(updateResponse.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value} with {DefaultPipeline}"), updateResponse.OriginalException);
-            }
         } else if (operation is PartialPatch partialOperation) {
             // TODO: Figure out how to specify a pipeline here.
             var request = new UpdateRequest<T, object>(ElasticIndex.GetIndex(id), id.Value) {
@@ -206,12 +175,73 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             request.Refresh = options.GetRefreshMode(DefaultConsistency);
 
             var response = await _client.UpdateAsync(request).AnyContext();
+            _logger.LogRequest(response, options.GetQueryLogLevel());
 
-            if (response.IsValid) {
-                _logger.LogRequest(response, options.GetQueryLogLevel());
-            } else {
+            if (!response.IsValid)
                 throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
-            }
+        } else if (operation is JsonPatch jsonOperation) {
+            if (jsonOperation.Patch == null || jsonOperation.Patch.Operations.Count == 0)
+                return;
+
+            await Run.WithRetriesAsync(async () => {
+                var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
+                if (id.Routing != null)
+                    request.Routing = id.Routing;
+
+                var response = await _client.LowLevel.GetAsync<GetResponse<IDictionary<string, object>>>(ElasticIndex.GetIndex(id), id.Value).AnyContext();
+                var jobject = JObject.FromObject(response.Source);
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+                if (!response.IsValid)
+                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
+
+                var target = (JToken)jobject;
+                new JsonPatcher().Patch(ref target, jsonOperation.Patch);
+
+                var indexParameters = new IndexRequestParameters {
+                    Pipeline = DefaultPipeline,
+                    Refresh = options.GetRefreshMode(DefaultConsistency)
+                };
+                if (id.Routing != null)
+                    indexParameters.Routing = id.Routing;
+
+                if (HasVersion) {
+                    indexParameters.IfSequenceNumber = response.SequenceNumber;
+                    indexParameters.IfPrimaryTerm = response.PrimaryTerm;
+                }
+
+                var updateResponse = await _client.LowLevel.IndexAsync<VoidResponse>(ElasticIndex.GetIndex(id), id.Value, PostData.String(target.ToString()), indexParameters, default).AnyContext();
+                _logger.LogRequest(updateResponse, options.GetQueryLogLevel());
+
+                if (!updateResponse.Success) {
+                    if (response.ServerError?.Status == 409)
+                        throw new VersionConflictDocumentException(response.GetErrorMessage("Error saving document"), response.OriginalException);
+
+                    throw new DocumentException(response.GetErrorMessage("Error saving document"), response.OriginalException);
+                }
+            }, 10);
+        } else if (operation is ActionPatch<T> actionPatch) {
+            if (actionPatch.Actions == null || actionPatch.Actions.Count == 0)
+                return;
+
+            await Run.WithRetriesAsync(async () => {
+                var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
+                if (id.Routing != null)
+                    request.Routing = id.Routing;
+                var response = await _client.GetAsync<T>(request).AnyContext();
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+
+                if (!response.IsValid)
+                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
+
+                var versionedDoc = response.Source as IVersioned;
+                if (versionedDoc != null && response.PrimaryTerm.HasValue)
+                    versionedDoc.Version = response.GetElasticVersion();
+
+                foreach (var action in actionPatch.Actions)
+                    action?.Invoke(response.Source);
+
+                await IndexDocumentsAsync(new[] { response.Source }, false, options);
+            }, 10);
         } else {
             throw new ArgumentException("Unknown operation type", nameof(operation));
         }
@@ -245,7 +275,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return;
         }
 
-        if (operation is Models.JsonPatch) {
+        if (operation is JsonPatch) {
             await PatchAllAsync(NewQuery().Id(ids), operation, options).AnyContext();
             return;
         }
@@ -451,26 +481,31 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         options = ConfigureOptions(options.As<T>());
 
         long affectedRecords = 0;
-        if (operation is Models.JsonPatch jsonOperation) {
+        if (operation is JsonPatch jsonOperation) {
+            if (jsonOperation.Patch?.Operations == null || jsonOperation.Patch.Operations.Count == 0)
+                return 0;
+
             var patcher = new JsonPatcher();
-            affectedRecords += await BatchProcessAsAsync<JObject>(query, async results => {
+            affectedRecords += await BatchProcessAsync(query, async results => {
                 var bulkResult = await _client.BulkAsync(b => {
                     b.Refresh(options.GetRefreshMode(DefaultConsistency));
                     foreach (var h in results.Hits) {
-                        var target = h.Document as JToken;
+                        var json = _client.ConnectionSettings.SourceSerializer.SerializeToString(h.Document);
+                        var target = JToken.Parse(json);
                         patcher.Patch(ref target, jsonOperation.Patch);
+                        var doc = _client.ConnectionSettings.SourceSerializer.Deserialize<T>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToString())));
                         var elasticVersion = h.GetElasticVersion();
 
-                        b.Index<JObject>(i => {
-                            i.Document(target as JObject)
+                        b.Index<T>(i => {
+                            i.Document(doc)
                              .Id(h.Id)
                              .Routing(h.Routing)
                              .Index(h.GetIndex())
                              .Pipeline(DefaultPipeline);
 
                             if (HasVersion) {
-                                i.IfPrimaryTerm(elasticVersion.PrimaryTerm)
-                                 .IfSequenceNumber(elasticVersion.SequenceNumber);
+                                i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
+                                i.IfSequenceNumber(elasticVersion.SequenceNumber);
                             }
 
                             return i;
@@ -479,10 +514,61 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     return b;
                 }).AnyContext();
+                _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
 
-                if (bulkResult.IsValid) {
-                    _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
-                } else {
+                // TODO: How to do retries for version conflicts that only happened in a couple of the doc
+
+                if (!bulkResult.IsValid) {
+                    _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
+                    return false;
+                }
+
+                var updatedIds = results.Hits.Select(h => h.Id).ToList();
+                if (IsCacheEnabled)
+                    await Cache.RemoveAllAsync(updatedIds).AnyContext();
+
+                try {
+                    options.GetUpdatedIdsCallback()?.Invoke(updatedIds);
+                } catch (Exception ex) {
+                    _logger.LogError(ex, "Error calling updated ids callback.");
+                }
+
+                return true;
+            }, options.Clone()).AnyContext();
+        } else if (operation is ActionPatch<T> actionOperation) {
+            if (actionOperation.Actions == null || actionOperation.Actions.Count == 0)
+                return 0;
+
+            affectedRecords += await BatchProcessAsync(query, async results => {
+                var bulkResult = await _client.BulkAsync(b => {
+                    b.Refresh(options.GetRefreshMode(DefaultConsistency));
+                    foreach (var h in results.Hits) {
+                        foreach (var action in actionOperation.Actions)
+                            action?.Invoke(h.Document);
+
+                        var elasticVersion = h.GetElasticVersion();
+
+                        b.Index<T>(i => {
+                            i.Document(h.Document)
+                                .Id(h.Id)
+                                .Routing(h.Routing)
+                                .Index(h.GetIndex())
+                                .Pipeline(DefaultPipeline);
+
+                            if (HasVersion) {
+                                i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
+                                i.IfSequenceNumber(elasticVersion.SequenceNumber);
+                            }
+
+                            return i;
+                        });
+                    }
+
+                    return b;
+                }).AnyContext();
+                _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
+
+                if (!bulkResult.IsValid) {
                     _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
                     return false;
                 }
@@ -505,6 +591,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             if (scriptOperation == null && partialOperation == null)
                 throw new ArgumentException("Unknown operation type", nameof(operation));
 
+            // TODO: Check has doc change listeners
             if (!IsCacheEnabled && scriptOperation != null) {
                 var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", ElasticIndex.GetIndexesByQuery(query)))) {
                     Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext(),
@@ -677,9 +764,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (!options.HasPageLimit())
             options.PageLimit(500);
 
-        // do one refresh afterwards
-        bool shouldRefresh = options.GetConsistency() != Consistency.Eventual;
-
         long recordsProcessed = 0;
         var results = await FindAsAsync<TResult>(query, options).AnyContext();
         do {
@@ -694,7 +778,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             recordsProcessed += results.Documents.Count;
         } while (await results.NextPageAsync().AnyContext());
 
-        if (shouldRefresh)
+        if (options.GetConsistency() != Consistency.Eventual)
             await RefreshForConsistency(query, options).AnyContext();
 
         _logger.LogTrace("{0} records processed", recordsProcessed);
@@ -1013,10 +1097,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 return i;
             }).AnyContext();
+            _logger.LogRequest(response, options.GetQueryLogLevel());
 
-            if (response.IsValid) {
-                _logger.LogRequest(response, options.GetQueryLogLevel());
-            } else {
+            if (!response.IsValid) {
                 string message = $"Error {(isCreateOperation ? "adding" : "saving")} document";
                 if (isCreateOperation && response.ServerError?.Status == 409)
                     throw new DuplicateDocumentException(response.GetErrorMessage(message), response.OriginalException);
@@ -1055,6 +1138,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             bulkRequest.Refresh = options.GetRefreshMode(DefaultConsistency);
 
             var response = await _client.BulkAsync(bulkRequest).AnyContext();
+            _logger.LogRequest(response, options.GetQueryLogLevel());
 
             if (HasVersion) {
                 foreach (var hit in response.Items) {
@@ -1084,9 +1168,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
             }
 
-            if (response.IsValid) {
-                _logger.LogRequest(response, options.GetQueryLogLevel());
-            } else {
+            if (!response.IsValid) {
                 if (isCreateOperation && allErrors.Any(e => e.Status == 409))
                     throw new DuplicateDocumentException(response.GetErrorMessage("Error adding duplicate documents"), response.OriginalException);
                 else if (allErrors.Any(e => e.Status == 409))

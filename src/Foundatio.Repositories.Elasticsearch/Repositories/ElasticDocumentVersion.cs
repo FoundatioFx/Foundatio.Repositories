@@ -16,7 +16,7 @@ public struct ElasticDocumentVersion : IEquatable<ElasticDocumentVersion>, IComp
     public long SequenceNumber { get; }
     public bool IsEmpty => PrimaryTerm <= 0 && SequenceNumber <= 0;
     
-    public override string ToString() => String.Concat(PrimaryTerm.ToString(), ":", SequenceNumber.ToString());
+    public override string ToString() => $"{PrimaryTerm}:{SequenceNumber}";
 
     public override bool Equals(object obj) {
         if (obj is ElasticDocumentVersion version)

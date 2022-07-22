@@ -12,6 +12,9 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Microsoft.Extensions.Logging;
 using Nest;
+using Nest.JsonNetSerializer;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 
@@ -57,6 +60,17 @@ public class MyAppElasticConfiguration : ElasticConfiguration {
         }
 
         return false;
+    }
+
+    protected override IElasticClient CreateElasticClient() {
+        //var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")), sourceSerializer: (serializer, values) => new ElasticsearchJsonNetSerializer(serializer, values));
+        var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")));
+        settings.EnableApiVersioningHeader();
+        ConfigureSettings(settings);
+        foreach (var index in Indexes)
+            index.ConfigureSettings(settings);
+
+        return new ElasticClient(settings);
     }
 
     protected override void ConfigureSettings(ConnectionSettings settings) {

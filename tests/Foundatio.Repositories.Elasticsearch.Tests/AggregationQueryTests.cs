@@ -10,6 +10,8 @@ using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Xunit;
 using Xunit.Abstractions;
+using Nest;
+using System.IO;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -497,6 +499,43 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase {
         // Assert.Equal(1, employees.Count);
         // Assert.Equal(19, employees.First().Age);
         // Assert.Equal(1, employees.First().YearsEmployed);
+    }
+
+    [Fact]
+    public void CanDeserializeHit() {
+        string json = @"
+            {
+                ""_index"" : ""employees"",
+                ""_type"" : ""_doc"",
+                ""_id"" : ""53cc5800d3e0d1fed81452fd"",
+                ""_score"" : 0.0,
+                ""_source"" : {
+                    ""id"" : ""53cc5800d3e0d1fed81452fd"",
+                    ""companyId"" : ""62d982efd3e0d1fed81452f3"",
+                    ""companyName"" : null,
+                    ""unmappedCompanyName"" : null,
+                    ""name"" : null,
+                    ""emailAddress"" : null,
+                    ""unmappedEmailAddress"" : null,
+                    ""age"" : 45,
+                    ""unmappedAge"" : 45,
+                    ""location"" : ""20,20"",
+                    ""yearsEmployed"" : 8,
+                    ""lastReview"" : ""0001-01-01T00:00:00"",
+                    ""nextReview"" : ""0001-01-01T00:00:00+00:00"",
+                    ""createdUtc"" : ""2014-07-21T00:00:00Z"",
+                    ""updatedUtc"" : ""2022-07-21T16:46:39.6914481Z"",
+                    ""version"" : null,
+                    ""isDeleted"" : false,
+                    ""peerReviews"" : null,
+                    ""phoneNumbers"" : [ ],
+                    ""data"" : { }
+                }
+            }";
+
+        var employeeHit = _configuration.Client.SourceSerializer.Deserialize<IHit<Employee>>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(json)));
+        Assert.Equal("employees", employeeHit.Index);
+        Assert.Equal("62d982efd3e0d1fed81452f3", employeeHit.Source.CompanyId);
     }
 
     [Fact]

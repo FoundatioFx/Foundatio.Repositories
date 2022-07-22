@@ -1,4 +1,4 @@
-﻿namespace Foundatio.Repositories.JsonPatch;
+﻿namespace Foundatio.Repositories.Utility;
 
 public abstract class AbstractPatcher<TDoc> where TDoc : class {
     public virtual void Patch(ref TDoc target, PatchDocument document) {

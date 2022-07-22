@@ -1,7 +1,7 @@
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace Foundatio.Repositories.JsonPatch;
+namespace Foundatio.Repositories.Utility;
 
 public class RemoveOperation : Operation {
     public override void Write(JsonWriter writer) {

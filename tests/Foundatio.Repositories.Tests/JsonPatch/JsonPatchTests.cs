@@ -1,6 +1,6 @@
 ﻿using System;
 using System.IO;
-using Foundatio.Repositories.JsonPatch;
+using Foundatio.Repositories.Utility;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Xunit;
