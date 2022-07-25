@@ -165,6 +165,11 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
         return false;
     }
 
+    public static bool IsValid(string s) {
+        ObjectId objectId;
+        return TryParse(s, out objectId);
+    }
+
     public static void Unpack(byte[] bytes, out int timestamp, out int machine, out short pid, out int increment) {
         if (bytes == null) {
             throw new ArgumentNullException(nameof(bytes));
