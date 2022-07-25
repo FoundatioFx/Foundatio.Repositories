@@ -153,7 +153,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             // TODO: Figure out how to specify a pipeline here.
             var request = new UpdateRequest<T, T>(ElasticIndex.GetIndex(id), id.Value) {
                 Script = new InlineScript(scriptOperation.Script) { Params = scriptOperation.Params },
-                RetryOnConflict = 10,
+                RetryOnConflict = options.GetRetryCount(),
                 Refresh = options.GetRefreshMode(DefaultConsistency)
             };
             if (id.Routing != null)
@@ -168,7 +168,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             // TODO: Figure out how to specify a pipeline here.
             var request = new UpdateRequest<T, object>(ElasticIndex.GetIndex(id), id.Value) {
                 Doc = partialOperation.Document,
-                RetryOnConflict = 10
+                RetryOnConflict = options.GetRetryCount()
             };
             if (id.Routing != null)
                 request.Routing = id.Routing;
@@ -218,7 +218,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     throw new DocumentException(response.GetErrorMessage("Error saving document"), response.OriginalException);
                 }
-            }, 10);
+            }, options.GetRetryCount());
         } else if (operation is ActionPatch<T> actionPatch) {
             if (actionPatch.Actions == null || actionPatch.Actions.Count == 0)
                 return;
@@ -241,7 +241,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     action?.Invoke(response.Source);
 
                 await IndexDocumentsAsync(new[] { response.Source }, false, options);
-            }, 10);
+            }, options.GetRetryCount());
         } else {
             throw new ArgumentException("Unknown operation type", nameof(operation));
         }
@@ -295,7 +295,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         u.Id(id.Value)
                           .Index(ElasticIndex.GetIndex(id))
                           .Script(s => s.Source(scriptOperation.Script).Params(scriptOperation.Params))
-                          .RetriesOnConflict(10);
+                          .RetriesOnConflict(options.GetRetryCount());
 
                         if (id.Routing != null)
                             u.Routing(id.Routing);
