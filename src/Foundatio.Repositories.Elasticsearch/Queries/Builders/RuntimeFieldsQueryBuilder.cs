@@ -84,7 +84,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return Task.CompletedTask;
 
             // fields need to be added to the context from the query before this
-            if(elasticContext.RuntimeFields.Count > 0)
+            if (elasticContext.RuntimeFields.Count > 0)
                 ctx.Search.RuntimeFields<T>(f => {
                     foreach (var field in elasticContext.RuntimeFields)
                         f.RuntimeField(field.Name, GetFieldType(field.FieldType), d => {
