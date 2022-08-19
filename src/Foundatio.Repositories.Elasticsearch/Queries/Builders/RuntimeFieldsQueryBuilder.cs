@@ -84,13 +84,17 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
                 return Task.CompletedTask;
 
             // fields need to be added to the context from the query before this
-            foreach (var field in elasticContext.RuntimeFields)
-                ctx.Search.RuntimeFields<T>(f => f.RuntimeField(field.Name, GetFieldType(field.FieldType), d => {
-                    if (!String.IsNullOrEmpty(field.Script))
-                        d.Script(field.Script);
+            if (elasticContext.RuntimeFields.Count > 0)
+                ctx.Search.RuntimeFields<T>(f => {
+                    foreach (var field in elasticContext.RuntimeFields)
+                        f.RuntimeField(field.Name, GetFieldType(field.FieldType), d => {
+                            if (!String.IsNullOrEmpty(field.Script))
+                                d.Script(field.Script);
 
-                    return d;
-                }));
+                            return d;
+                        });
+                    return f;
+                });
 
             return Task.CompletedTask;
         }
