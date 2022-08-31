@@ -41,6 +41,7 @@ public sealed class EmployeeIndex : Index<Employee> {
                 .Keyword(f => f.Name(e => e.Id))
                 .Keyword(f => f.Name(e => e.EmailAddress))
                 .Keyword(f => f.Name(e => e.CompanyId))
+                .Keyword(f => f.Name(e => e.EmploymentType))
                 .Keyword(f => f.Name(e => e.CompanyName))
                 .Text(f => f.Name(e => e.Name).AddKeywordAndSortFields().CopyTo(c => c.Field("_all")))
                 .Scalar(f => f.Age, f => f.Name(e => e.Age))
