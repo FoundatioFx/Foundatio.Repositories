@@ -42,6 +42,20 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
+    public async Task CanSaveNonExistingAsync() {
+        var employee = EmployeeGenerator.Default;
+        Assert.Null(employee.Version);
+        employee.Id = ObjectId.GenerateNewId().ToString();
+
+        employee = await _employeeRepository.SaveAsync(employee, o => o.SkipVersionCheck());
+        Assert.NotNull(employee?.Id);
+        Assert.Equal("1:0", employee.Version);
+
+        var employee2 = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.Equal(employee, employee2);
+    }
+
+    [Fact]
     public async Task AddAndIgnoreHighVersionAsync() {
         var employee = EmployeeGenerator.Generate();
         employee.Version = "1:5";

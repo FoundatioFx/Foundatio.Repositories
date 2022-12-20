@@ -204,7 +204,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 if (id.Routing != null)
                     indexParameters.Routing = id.Routing;
 
-                if (HasVersion) {
+                if (HasVersion && !options.ShouldSkipVersionCheck()) {
                     indexParameters.IfSequenceNumber = response.SequenceNumber;
                     indexParameters.IfPrimaryTerm = response.PrimaryTerm;
                 }
@@ -1097,7 +1097,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 i.Index(ElasticIndex.GetIndex(document));
 
-                if (HasVersion && !isCreateOperation) {
+                if (HasVersion && !isCreateOperation && !options.ShouldSkipVersionCheck()) {
                     var elasticVersion = ((IVersioned)document).GetElasticVersion();
                     i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
                     i.IfSequenceNumber(elasticVersion.SequenceNumber);
@@ -1134,7 +1134,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 //baseOperation.Routing = GetParentIdFunc != null ? GetParentIdFunc(d) : d.Id;
                 baseOperation.Index = ElasticIndex.GetIndex(d);
 
-                if (HasVersion && !isCreateOperation) {
+                if (HasVersion && !isCreateOperation && !options.ShouldSkipVersionCheck()) {
                     var elasticVersion = ((IVersioned)d).GetElasticVersion();
                     indexOperation.IfSequenceNumber = elasticVersion.SequenceNumber;
                     indexOperation.IfPrimaryTerm = elasticVersion.PrimaryTerm;
