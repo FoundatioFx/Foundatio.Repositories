@@ -36,8 +36,8 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         DefaultConsistency = Consistency.Immediate;
 
         AddPropertyRequiredForRemove(d => d.EntityType, d => d.TenantKey, d => d.IndexType, d => d.IndexSlot);
-
-        DocumentsChanging.AddHandler(OnDocumentsChanging);
+        
+        DocumentsChanged.AddHandler(OnDocumentsChanged);
     }
 
     public async Task<IDictionary<string, CustomFieldDefinition>> GetFieldMappingAsync(string entityType, string tenantKey) {
@@ -117,8 +117,9 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
                     .FieldEquals(cf => cf.TenantKey, fieldScope.Key.TenantKey)
                     .FieldEquals(cf => cf.IndexType, fieldScope.Key.IndexType)
                     .Include(cf => cf.IndexSlot)
-                    .Include(cf => cf.Name),
-                    o => o.IncludeSoftDeletes().PageLimit(1000));
+                    .Include(cf => cf.Name)
+                    .Include(cf => cf.IsDeleted),
+                    o => o.IncludeSoftDeletes().PageLimit(1000).QueryLogLevel(Microsoft.Extensions.Logging.LogLevel.Information));
 
                 do {
                     usedSlots.AddRange(existingFields.Documents.Select(d => d.IndexSlot));
@@ -135,8 +136,8 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
                 }
 
                 _logger.LogTrace("Found {FieldCount} fields with {SlotCount} used slots for {FieldScope}", existingFields.Total, usedSlots.Count, slotFieldScopeKey);
-                await _cache.ListAddAsync(slotFieldScopeKey, availableSlots.ToArray(), TimeSpan.FromMinutes(15));
-                await _cache.ListAddAsync(namesFieldScopeKey, usedNames.ToArray(), TimeSpan.FromMinutes(15));
+                await _cache.ListAddAsync(slotFieldScopeKey, availableSlots.ToArray(), TimeSpan.FromMinutes(5));
+                await _cache.ListAddAsync(namesFieldScopeKey, usedNames.ToArray(), TimeSpan.FromMinutes(5));
             }
 
             foreach (var doc in fieldScope) {
@@ -149,8 +150,8 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
                 int availableSlot = availableSlots.Dequeue();
                 doc.IndexSlot = availableSlot;
 
-                await _cache.ListRemoveAsync(slotFieldScopeKey, new[] { availableSlot }, TimeSpan.FromMinutes(15));
-                await _cache.ListAddAsync(namesFieldScopeKey, new[] { doc.Name }, TimeSpan.FromMinutes(15));
+                await _cache.ListRemoveAsync(slotFieldScopeKey, new[] { availableSlot });
+                await _cache.ListAddAsync(namesFieldScopeKey, new[] { doc.Name });
                 _logger.LogTrace("New field {FieldName} using slot {IndexSlot} for {FieldScope}", doc.Name, doc.IndexSlot, slotFieldScopeKey);
             }
         }
@@ -174,7 +175,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         return Task.CompletedTask;
     }
 
-    private async Task OnDocumentsChanging(object source, DocumentsChangeEventArgs<CustomFieldDefinition> args) {
+    private async Task OnDocumentsChanged(object source, DocumentsChangeEventArgs<CustomFieldDefinition> args) {
         if (args.ChangeType == ChangeType.Saved) {
             foreach (var doc in args.Documents) {
                 if (doc.Original.EntityType != doc.Value.EntityType)
@@ -186,15 +187,15 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
 
                 if (doc.Value.IsDeleted) {
                     string namesFieldScopeKey = GetNamesFieldScopeCacheKey(doc.Value.EntityType, doc.Value.TenantKey, doc.Value.IndexType);
-                    await _cache.ListRemoveAsync(namesFieldScopeKey, new[] { doc.Value.Name }, TimeSpan.FromMinutes(15));
+                    await _cache.ListRemoveAsync(namesFieldScopeKey, new[] { doc.Value.Name });
                 }
             }
         } else if (args.ChangeType == ChangeType.Removed) {
             foreach (var doc in args.Documents) {
                 string slotFieldScopeKey = GetSlotFieldScopeCacheKey(doc.Value.EntityType, doc.Value.TenantKey, doc.Value.IndexType);
                 string namesFieldScopeKey = GetNamesFieldScopeCacheKey(doc.Value.EntityType, doc.Value.TenantKey, doc.Value.IndexType);
-                await _cache.ListAddAsync(slotFieldScopeKey, new[] { doc.Value.IndexSlot }, TimeSpan.FromMinutes(15));
-                await _cache.ListRemoveAsync(namesFieldScopeKey, new[] { doc.Value.Name }, TimeSpan.FromMinutes(15));
+                await _cache.ListAddAsync(slotFieldScopeKey, new[] { doc.Value.IndexSlot });
+                await _cache.ListRemoveAsync(namesFieldScopeKey, new[] { doc.Value.Name });
             }
         }
     }
@@ -204,15 +205,15 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
     }
 
     private string GetMappingCacheKey(string entityType, string tenantKey) {
-        return $"{entityType}:{tenantKey}";
+        return $"customfield:{entityType}:{tenantKey}";
     }
 
     private string GetSlotFieldScopeCacheKey(string entityType, string tenantKey, string indexType) {
-        return $"{entityType}:{tenantKey}:{indexType}:slots";
+        return $"customfield:{entityType}:{tenantKey}:{indexType}:slots";
     }
 
     private string GetNamesFieldScopeCacheKey(string entityType, string tenantKey, string indexType) {
-        return $"{entityType}:{tenantKey}:{indexType}:names";
+        return $"customfield:{entityType}:{tenantKey}:{indexType}:names";
     }
 
     protected override async Task InvalidateCacheByQueryAsync(IRepositoryQuery<CustomFieldDefinition> query) {
@@ -228,10 +229,15 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
 
     protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<CustomFieldDefinition>> documents, ChangeType? changeType = null) {
         await base.InvalidateCacheAsync(documents, changeType);
-        // TODO: How to handle empty documents list being a batch of documents were updated?
+
+        if (documents.Count == 0) {
+            await _cache.RemoveByPrefixAsync("customfield");
+            _logger.LogInformation("Cleared all custom field mappings from cache due to change {ChangeType}.", changeType);
+        }
+        
         var cacheKeys = documents.Select(d => GetMappingCacheKey(d.Value.EntityType, d.Value.TenantKey)).Distinct().ToList();
-        if (cacheKeys.Count > 0)
-            await _cache.RemoveAllAsync(cacheKeys);
+        foreach (var cacheKey in cacheKeys)
+            await _cache.RemoveByPrefixAsync(cacheKey);
     }
 }
 
