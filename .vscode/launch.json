@@ -5,7 +5,7 @@
    "version": "0.2.0",
    "configurations": [
         {
-            "name": ".NET Core Launch (console)",
+            "name": "Tests",
             "type": "coreclr",
             "request": "launch",
             "preLaunchTask": "build",
@@ -23,6 +23,34 @@
             "type": "coreclr",
             "request": "attach",
             "processId": "${command:pickProcess}"
-        }
-    ,]
+        },
+        {
+          "name": "Sample App",
+          "type": "coreclr",
+          "request": "launch",
+          "preLaunchTask": "build",
+          "program": "${workspaceFolder}/samples/Foundatio.SampleApp/bin/Debug/net7.0/Foundatio.SampleApp.dll",
+          "args": [],
+          "cwd": "${workspaceFolder}/samples/Foundatio.SampleApp",
+          "stopAtEntry": false,
+          // Enable launching a web browser when ASP.NET Core starts. For more information: https://aka.ms/VSCode-CS-LaunchJson-WebBrowser
+          "serverReadyAction": {
+              "action": "openExternally",
+              "pattern": "\\bNow listening on:\\s+(https?://\\S+)"
+          },
+          "env": {
+              "ASPNETCORE_ENVIRONMENT": "Development"
+          },
+          "sourceFileMap": {
+              "/Views": "${workspaceFolder}/samples/Foundatio.SampleApp/Views"
+          }
+      },
+      {
+          "type": "msedge",
+          "request": "launch",
+          "name": "Sample Client (Edge)",
+          "url": "https://localhost:3000",
+          "webRoot": "${workspaceFolder}/samples/Foundatio.SampleApp/ClientApp"
+      }
+    ]
 }

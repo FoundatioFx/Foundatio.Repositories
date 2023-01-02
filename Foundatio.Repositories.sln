@@ -26,11 +26,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Foundatio.Repositories.Elas
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Samples", "Samples", "{F242200E-7766-4556-8208-33A39CBCF42D}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Foundatio.SampleApp.Server", "samples\Foundatio.SampleApp\Server\Foundatio.SampleApp.Server.csproj", "{F5722872-ECBF-4EB1-86A4-C9681FD4052F}"
-EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Foundatio.SampleApp.Shared", "samples\Foundatio.SampleApp\Shared\Foundatio.SampleApp.Shared.csproj", "{761C81C5-793C-43A7-BA17-A9CF48135C88}"
-EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Foundatio.SampleApp.Client", "samples\Foundatio.SampleApp\Client\Foundatio.SampleApp.Client.csproj", "{82E8EB4B-E15C-40F4-901E-9FD4F0E4B21F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Foundatio.SampleApp", "samples\Foundatio.SampleApp\Foundatio.SampleApp.csproj", "{F5722872-ECBF-4EB1-86A4-C9681FD4052F}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -58,22 +54,12 @@ Global
 		{F5722872-ECBF-4EB1-86A4-C9681FD4052F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F5722872-ECBF-4EB1-86A4-C9681FD4052F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F5722872-ECBF-4EB1-86A4-C9681FD4052F}.Release|Any CPU.Build.0 = Release|Any CPU
-		{761C81C5-793C-43A7-BA17-A9CF48135C88}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{761C81C5-793C-43A7-BA17-A9CF48135C88}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{761C81C5-793C-43A7-BA17-A9CF48135C88}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{761C81C5-793C-43A7-BA17-A9CF48135C88}.Release|Any CPU.Build.0 = Release|Any CPU
-		{82E8EB4B-E15C-40F4-901E-9FD4F0E4B21F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{82E8EB4B-E15C-40F4-901E-9FD4F0E4B21F}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{82E8EB4B-E15C-40F4-901E-9FD4F0E4B21F}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{82E8EB4B-E15C-40F4-901E-9FD4F0E4B21F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{F5722872-ECBF-4EB1-86A4-C9681FD4052F} = {F242200E-7766-4556-8208-33A39CBCF42D}
-		{761C81C5-793C-43A7-BA17-A9CF48135C88} = {F242200E-7766-4556-8208-33A39CBCF42D}
-		{82E8EB4B-E15C-40F4-901E-9FD4F0E4B21F} = {F242200E-7766-4556-8208-33A39CBCF42D}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {5FF3CED9-4B93-4C46-8F1B-B5C7BC0F6DED}
