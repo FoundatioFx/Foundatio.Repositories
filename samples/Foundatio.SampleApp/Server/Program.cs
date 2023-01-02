@@ -1,3 +1,4 @@
+﻿using System.Text.Json;
 using Foundatio.Extensions.Hosting.Startup;
 using Foundatio.Repositories;
 using Foundatio.SampleApp.Server.Repositories;
@@ -56,9 +57,7 @@ app.MapGet("GameReviews", async (IGameReviewRepository gameReviewRepository, str
         .AggregationsExpression(aggs ?? "terms:category terms:tags"),
         o => o.PageNumber(page).PageLimit(limit).QueryLogLevel(LogLevel.Warning));
 
-    var result = GameReviewSearchResult.From(reviews);
-
-    return result;
+    return GameReviewSearchResult.From(reviews);
 });
 
 app.MapFallbackToFile("index.html");

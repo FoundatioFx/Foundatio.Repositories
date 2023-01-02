@@ -1,9 +1,123 @@
 ﻿@page "/"
+@using Foundatio.SampleApp.Shared
+@using System.Text;
+@inject HttpClient Http
 
-<PageTitle>Index</PageTitle>
+<PageTitle>Game Reviews</PageTitle>
 
-<h1>Hello, world!</h1>
+<h1>Game Reviews</h1>
 
-Welcome to your new app.
+<p>This component demonstrates fetching data from the server.</p>
 
-<SurveyPrompt Title="How is Blazor working for you?" />
+@if (gameReviews == null)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <input @bind="_search" />
+    <button @onclick="GetReviews">Search</button>
+
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Name</th>
+                <th>Category</th>
+                <th>Tags</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var review in gameReviews.Reviews)
+            {
+                <tr>
+                    <td>@review.CreatedUtc.ToShortDateString()</td>
+                    <td>@review.Name</td>
+                    <td>@review.Category</td>
+                    <td>@String.Join(",", review.Tags)</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <h3>Categories@(_categories.Count > 0 ? " (" + String.Join(",", _categories) + ")" : "")</h3>
+    @foreach (var category in gameReviews.CategoryCounts)
+    {
+        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => SetCategory(category.Name)">
+            @category.Name <span class="badge text-bg-primary">@category.Total</span>
+        </button>
+
+        <span>&nbsp;</span>
+    }
+
+    @if (_categories.Count > 0)
+    {
+        <button type="button" class="btn btn-secondary btn-sm" @onclick="() => SetCategory(String.Empty)">
+            Clear Filter
+        </button>
+    }
+
+    <h3>Tags@(_tags.Count > 0 ? " (" + String.Join(",", _tags) + ")" : "")</h3>
+    @foreach (var tag in gameReviews.TagCounts)
+    {
+        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => SetTag(tag.Name)">
+            @tag.Name <span class="badge text-bg-primary">@tag.Total</span>
+        </button>
+
+        <span>&nbsp;</span>
+    }
+
+    @if (_tags.Count > 0)
+    {
+        <button type="button" class="btn btn-secondary btn-sm" @onclick="() => SetTag(String.Empty)">
+            Clear Filter
+        </button>
+    }
+
+}
+
+@code {
+    private GameReviewSearchResult? gameReviews;
+    private string _search = string.Empty;
+    private HashSet<string> _categories = new HashSet<string>();
+    private HashSet<string> _tags = new HashSet<string>();
+
+    protected async Task SetCategory(string category)
+    {
+        if (String.IsNullOrEmpty(category))
+            _categories.Clear();
+        else
+            _categories.Add(category);
+
+        await GetReviews();
+    }
+
+    protected async Task SetTag(string tag)
+    {
+        if (String.IsNullOrEmpty(tag))
+            _tags.Clear();
+        else
+            _tags.Add(tag);
+
+        await GetReviews();
+    }
+
+    protected async Task GetReviews()
+    {
+        var filter = String.Empty;
+        if (_categories.Count > 0 && _tags.Count > 0)
+            filter = "(" + String.Join(" AND ", _categories.Select(c => "category:\"" + c + "\"")) + ") AND (" + String.Join(" AND ", _tags.Select(t => "tags:\"" + t + "\"")) + ")";
+        else if (_categories.Count > 0)
+            filter = String.Join(" AND ", _categories.Select(c => "category:\"" + c + "\""));
+        else if (_tags.Count > 0)
+            filter = String.Join(" AND ", _tags.Select(t => "tags:\"" + t + "\""));
+
+        var response = await Http.GetFromJsonAsync<GameReviewSearchResult>($"GameReviews?search={_search}&filter={filter}");
+        gameReviews = response;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await GetReviews();
+    }
+}
