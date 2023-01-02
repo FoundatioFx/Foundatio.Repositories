@@ -1,7 +1,7 @@
-﻿using System.Text.Json;
-using Foundatio.Extensions.Hosting.Startup;
+﻿using Foundatio.Extensions.Hosting.Startup;
 using Foundatio.Repositories;
 using Foundatio.SampleApp.Server.Repositories;
+using Foundatio.SampleApp.Server.Repositories.Configuration;
 using Foundatio.SampleApp.Shared;
 
 var builder = WebApplication.CreateBuilder(args);

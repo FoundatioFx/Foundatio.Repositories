@@ -2,12 +2,11 @@
 using Foundatio.Repositories;
 using Foundatio.SampleApp.Shared;
 
-namespace Foundatio.SampleApp.Server.Repositories
-{
-    public interface IGameReviewRepository : ISearchableRepository<GameReview> { }
+namespace Foundatio.SampleApp.Server.Repositories;
 
-    public class GameReviewRepository : ElasticRepositoryBase<GameReview>, IGameReviewRepository
-    {
-        public GameReviewRepository(SampleAppElasticConfiguration configuration) : base(configuration.GameReviews) { }
-    }
+public interface IGameReviewRepository : ISearchableRepository<GameReview> { }
+
+public class GameReviewRepository : ElasticRepositoryBase<GameReview>, IGameReviewRepository
+{
+    public GameReviewRepository(SampleAppElasticConfiguration configuration) : base(configuration.GameReviews) { }
 }
