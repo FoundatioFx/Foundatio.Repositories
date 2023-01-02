@@ -4,7 +4,7 @@
     <ProjectReference Include="..\..\src\Foundatio.Repositories.Elasticsearch\Foundatio.Repositories.Elasticsearch.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Exceptionless.RandomData" Version="1.2.1" />
+    <PackageReference Include="Exceptionless.RandomData" Version="1.2.2" />
     <PackageReference Include="Jint" Version="3.0.0-beta-2038" />
     <PackageReference Include="NEST.JsonNetSerializer" Version="7.17.5" />
     <PackageReference Include="TimeZoneConverter" Version="6.0.1" />
