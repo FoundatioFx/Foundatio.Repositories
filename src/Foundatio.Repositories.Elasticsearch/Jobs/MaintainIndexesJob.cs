@@ -48,7 +48,7 @@ public class MaintainIndexesJob : IJob {
     }
 
     public virtual Task<bool> OnFailure(TimeSpan duration, Exception ex) {
-        _logger.LogError(ex, "Failed to maintain indexes after {Duration:g}: {ErrorMessage}", duration, ex?.Message);
+        _logger.LogError(ex, "Failed to maintain indexes after {Duration:g}: {Message}", duration, ex?.Message);
         return Task.FromResult(true);
     }
 
