@@ -4,7 +4,7 @@ using Nest;
 namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
 public class FloatFieldType : ICustomFieldType {
-    public static string IndexType = "long";
+    public static string IndexType = "float";
     public string Type => IndexType;
 
     public virtual Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class {
