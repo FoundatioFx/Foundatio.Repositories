@@ -57,8 +57,12 @@ public class CleanupSnapshotJob : IJob {
         _logger.LogRequest(result);
 
         var snapshots = new List<SnapshotDate>();
-        if (result.IsValid && result.Snapshots != null)
-            snapshots = result.Snapshots?.Select(r => new SnapshotDate { Name = r.Name, Date = r.EndTime }).ToList();
+        if (result.IsValid && result.Snapshots != null) {
+            snapshots = result.Snapshots?
+                .Where(r => !String.Equals(r.State, "IN_PROGRESS"))
+                .Select(r => new SnapshotDate { Name = r.Name, Date = r.EndTime })
+                .ToList();
+        }
 
         if (result.IsValid)
             _logger.LogInformation("Retrieved list of {SnapshotCount} snapshots from {Repo} in {Duration:g}", snapshots.Count, repo, sw.Elapsed);
