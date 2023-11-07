@@ -947,11 +947,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         else if (HasCreatedDate)
             documents.OfType<IHaveCreatedDate>().SetCreatedDates();
 
-        documents.EnsureIds(ElasticIndex.CreateDocumentId);
-
         if (DocumentsAdding != null && DocumentsAdding.HasHandlers)
             await DocumentsAdding.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
-
+        
+        documents.EnsureIds(ElasticIndex.CreateDocumentId);
+        
         await OnDocumentsChangingAsync(ChangeType.Added, documents, options).AnyContext();
     }
 
