@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -27,6 +27,7 @@ public class MyAppElasticConfiguration : ElasticConfiguration {
         AddIndex(DailyLogEvents = new DailyLogEventIndex(this));
         AddIndex(MonthlyLogEvents = new MonthlyLogEventIndex(this));
         AddIndex(ParentChild = new ParentChildIndex(this));
+        AddIndex(MonthlyFileAccessHistory = new MonthlyFileAccessHistoryIndex(this));
         AddCustomFieldIndex(replicas: 0);
     }
 
@@ -86,4 +87,5 @@ public class MyAppElasticConfiguration : ElasticConfiguration {
     public DailyLogEventIndex DailyLogEvents { get; }
     public MonthlyLogEventIndex MonthlyLogEvents { get; }
     public ParentChildIndex ParentChild { get; }
+    public MonthlyFileAccessHistoryIndex MonthlyFileAccessHistory { get; }
 }
