@@ -7,18 +7,22 @@ using ILazyDocument = Foundatio.Repositories.Models.ILazyDocument;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
-public class ElasticLazyDocument : ILazyDocument {
+public class ElasticLazyDocument : ILazyDocument
+{
     private readonly Nest.ILazyDocument _inner;
     private IElasticsearchSerializer _requestResponseSerializer;
 
-    public ElasticLazyDocument(Nest.ILazyDocument inner) {
+    public ElasticLazyDocument(Nest.ILazyDocument inner)
+    {
         _inner = inner;
     }
 
     private static readonly Lazy<Func<Nest.ILazyDocument, IElasticsearchSerializer>> _getSerializer =
-        new(() => {
+        new(() =>
+        {
             var serializerField = typeof(Nest.LazyDocument).GetField("_requestResponseSerializer", BindingFlags.GetField | BindingFlags.NonPublic | BindingFlags.Instance);
-            return lazyDocument => {
+            return lazyDocument =>
+            {
                 var d = lazyDocument as Nest.LazyDocument;
                 if (d == null)
                     return null;
@@ -29,9 +33,11 @@ public class ElasticLazyDocument : ILazyDocument {
         });
 
     private static readonly Lazy<Func<Nest.ILazyDocument, byte[]>> _getBytes =
-        new(() => {
+        new(() =>
+        {
             var bytesProperty = typeof(Nest.LazyDocument).GetProperty("Bytes", BindingFlags.GetProperty | BindingFlags.NonPublic | BindingFlags.Instance);
-            return lazyDocument => {
+            return lazyDocument =>
+            {
                 var d = lazyDocument as Nest.LazyDocument;
                 if (d == null)
                     return null;
@@ -41,7 +47,8 @@ public class ElasticLazyDocument : ILazyDocument {
             };
         });
 
-    public T As<T>() where T : class {
+    public T As<T>() where T : class
+    {
         if (_requestResponseSerializer == null)
             _requestResponseSerializer = _getSerializer.Value(_inner);
 
@@ -50,7 +57,8 @@ public class ElasticLazyDocument : ILazyDocument {
         return hit?.Source;
     }
 
-    public object As(Type objectType) {
+    public object As(Type objectType)
+    {
         var hitType = typeof(IHit<>).MakeGenericType(objectType);
         return _inner.As(hitType);
     }

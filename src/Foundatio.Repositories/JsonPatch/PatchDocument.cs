@@ -8,46 +8,56 @@ using Newtonsoft.Json.Linq;
 namespace Foundatio.Repositories.Utility;
 
 [JsonConverter(typeof(PatchDocumentConverter))]
-public class PatchDocument {
+public class PatchDocument
+{
     private readonly List<Operation> _operations = new();
 
-    public PatchDocument(params Operation[] operations) {
-        foreach (var operation in operations) {
+    public PatchDocument(params Operation[] operations)
+    {
+        foreach (var operation in operations)
+        {
             AddOperation(operation);
         }
     }
 
     public List<Operation> Operations => _operations;
 
-    public void Add(string path, JToken value) {
+    public void Add(string path, JToken value)
+    {
         Operations.Add(new AddOperation { Path = path, Value = value });
     }
 
-    public void Replace(string path, JToken value) {
+    public void Replace(string path, JToken value)
+    {
         Operations.Add(new ReplaceOperation { Path = path, Value = value });
     }
 
-    public void Remove(string path) {
+    public void Remove(string path)
+    {
         Operations.Add(new RemoveOperation { Path = path });
     }
 
-    public void AddOperation(Operation operation) {
+    public void AddOperation(Operation operation)
+    {
         Operations.Add(operation);
     }
 
-    public static PatchDocument Load(Stream document) {
+    public static PatchDocument Load(Stream document)
+    {
         var reader = new StreamReader(document);
 
         return Parse(reader.ReadToEnd());
     }
 
-    public static PatchDocument Load(JArray document) {
+    public static PatchDocument Load(JArray document)
+    {
         var root = new PatchDocument();
 
         if (document == null)
             return root;
 
-        foreach (var jOperation in document.Children().Cast<JObject>()) {
+        foreach (var jOperation in document.Children().Cast<JObject>())
+        {
             var op = Operation.Build(jOperation);
             root.AddOperation(op);
         }
@@ -55,14 +65,17 @@ public class PatchDocument {
         return root;
     }
 
-    public static PatchDocument Parse(string jsondocument) {
+    public static PatchDocument Parse(string jsondocument)
+    {
         var root = JToken.Parse(jsondocument) as JArray;
 
         return Load(root);
     }
 
-    public static Operation CreateOperation(string op) {
-        switch (op) {
+    public static Operation CreateOperation(string op)
+    {
+        switch (op)
+        {
             case "add":
                 return new AddOperation();
             case "copy":
@@ -79,7 +92,8 @@ public class PatchDocument {
         return null;
     }
 
-    public MemoryStream ToStream() {
+    public MemoryStream ToStream()
+    {
         var stream = new MemoryStream();
         CopyToStream(stream);
         stream.Flush();
@@ -87,8 +101,10 @@ public class PatchDocument {
         return stream;
     }
 
-    public void CopyToStream(Stream stream, Formatting formatting = Formatting.Indented) {
-        var sw = new JsonTextWriter(new StreamWriter(stream)) {
+    public void CopyToStream(Stream stream, Formatting formatting = Formatting.Indented)
+    {
+        var sw = new JsonTextWriter(new StreamWriter(stream))
+        {
             Formatting = formatting
         };
 
@@ -102,11 +118,13 @@ public class PatchDocument {
         sw.Flush();
     }
 
-    public override string ToString() {
+    public override string ToString()
+    {
         return ToString(Formatting.Indented);
     }
 
-    public string ToString(Formatting formatting) {
+    public string ToString(Formatting formatting)
+    {
         using var ms = new MemoryStream();
         CopyToStream(ms, formatting);
         ms.Position = 0;

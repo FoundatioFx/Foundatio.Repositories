@@ -1,5 +1,5 @@
-﻿using Foundatio.Repositories.Elasticsearch;
-using Foundatio.Repositories;
+﻿using Foundatio.Repositories;
+using Foundatio.Repositories.Elasticsearch;
 using Foundatio.SampleApp.Shared;
 
 namespace Foundatio.SampleApp.Server.Repositories;

@@ -3,8 +3,10 @@ using System.Collections.Generic;
 
 namespace Foundatio.Repositories.Models;
 
-public class DocumentsChangeEventArgs<T> : EventArgs where T : class, IIdentity, new() {
-    public DocumentsChangeEventArgs(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, IRepository<T> repository, ICommandOptions options) {
+public class DocumentsChangeEventArgs<T> : EventArgs where T : class, IIdentity, new()
+{
+    public DocumentsChangeEventArgs(ChangeType changeType, IReadOnlyCollection<ModifiedDocument<T>> documents, IRepository<T> repository, ICommandOptions options)
+    {
         ChangeType = changeType;
         Documents = documents ?? EmptyReadOnly<ModifiedDocument<T>>.Collection;
         Repository = repository;
@@ -17,8 +19,10 @@ public class DocumentsChangeEventArgs<T> : EventArgs where T : class, IIdentity,
     public ICommandOptions Options { get; private set; }
 }
 
-public class DocumentsEventArgs<T> : EventArgs where T : class, IIdentity, new() {
-    public DocumentsEventArgs(IReadOnlyCollection<T> documents, IRepository<T> repository, ICommandOptions options) {
+public class DocumentsEventArgs<T> : EventArgs where T : class, IIdentity, new()
+{
+    public DocumentsEventArgs(IReadOnlyCollection<T> documents, IRepository<T> repository, ICommandOptions options)
+    {
         Documents = documents ?? EmptyReadOnly<T>.Collection;
         Repository = repository;
         Options = options;
@@ -29,8 +33,10 @@ public class DocumentsEventArgs<T> : EventArgs where T : class, IIdentity, new()
     public ICommandOptions Options { get; private set; }
 }
 
-public class ModifiedDocumentsEventArgs<T> : EventArgs where T : class, IIdentity, new() {
-    public ModifiedDocumentsEventArgs(IReadOnlyCollection<ModifiedDocument<T>> documents, IRepository<T> repository, ICommandOptions options) {
+public class ModifiedDocumentsEventArgs<T> : EventArgs where T : class, IIdentity, new()
+{
+    public ModifiedDocumentsEventArgs(IReadOnlyCollection<ModifiedDocument<T>> documents, IRepository<T> repository, ICommandOptions options)
+    {
         Documents = documents ?? EmptyReadOnly<ModifiedDocument<T>>.Collection;
         Repository = repository;
         Options = options;
@@ -41,8 +47,10 @@ public class ModifiedDocumentsEventArgs<T> : EventArgs where T : class, IIdentit
     public ICommandOptions Options { get; private set; }
 }
 
-public class ModifiedDocument<T> where T : class, new() {
-    public ModifiedDocument(T value, T original) {
+public class ModifiedDocument<T> where T : class, new()
+{
+    public ModifiedDocument(T value, T original)
+    {
         Value = value;
         Original = original;
     }

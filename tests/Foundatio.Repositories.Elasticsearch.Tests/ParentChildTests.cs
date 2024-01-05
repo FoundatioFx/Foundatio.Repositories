@@ -6,22 +6,26 @@ using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-public sealed class ParentChildTests : ElasticRepositoryTestBase {
+public sealed class ParentChildTests : ElasticRepositoryTestBase
+{
     private readonly IParentRepository _parentRepository;
     private readonly IChildRepository _childRepository;
 
-    public ParentChildTests(ITestOutputHelper output) : base(output) {
+    public ParentChildTests(ITestOutputHelper output) : base(output)
+    {
         _parentRepository = new ParentRepository(_configuration);
         _childRepository = new ChildRepository(_configuration);
     }
 
-    public override async Task InitializeAsync() {
+    public override async Task InitializeAsync()
+    {
         await base.InitializeAsync();
         await RemoveDataAsync();
     }
 
     [Fact]
-    public async Task Add() {
+    public async Task Add()
+    {
         var parent = ParentGenerator.Default;
         parent = await _parentRepository.AddAsync(parent, o => o.ImmediateConsistency());
         Assert.NotNull(parent?.Id);
@@ -38,7 +42,8 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task GetByIds() {
+    public async Task GetByIds()
+    {
         var parent1 = ParentGenerator.Generate();
         parent1 = await _parentRepository.AddAsync(parent1, o => o.ImmediateConsistency());
         Assert.NotNull(parent1?.Id);
@@ -69,7 +74,8 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task DeletedParentWillFilterChild() {
+    public async Task DeletedParentWillFilterChild()
+    {
         var parent = ParentGenerator.Default;
         parent = await _parentRepository.AddAsync(parent, o => o.ImmediateConsistency());
         Assert.NotNull(parent?.Id);
@@ -88,7 +94,8 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanQueryByParent() {
+    public async Task CanQueryByParent()
+    {
         var parent = ParentGenerator.Default;
         parent = await _parentRepository.AddAsync(parent);
         Assert.NotNull(parent?.Id);
@@ -104,7 +111,8 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanQueryByChild() {
+    public async Task CanQueryByChild()
+    {
         Log.MinimumLevel = Microsoft.Extensions.Logging.LogLevel.Trace;
 
         var parent = ParentGenerator.Default;
@@ -123,7 +131,8 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanDeleteParentChild() {
+    public async Task CanDeleteParentChild()
+    {
         var parent = ParentGenerator.Default;
         parent = await _parentRepository.AddAsync(parent, o => o.ImmediateConsistency());
         Assert.NotNull(parent?.Id);

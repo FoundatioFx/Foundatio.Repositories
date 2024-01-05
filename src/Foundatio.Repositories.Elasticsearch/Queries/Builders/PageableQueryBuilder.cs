@@ -3,12 +3,17 @@ using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders;
 
-public class PageableQueryBuilder : IElasticQueryBuilder {
-    public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+public class PageableQueryBuilder : IElasticQueryBuilder
+{
+    public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
+    {
         int limit = ctx.Options.GetLimit();
-        if (limit >= ctx.Options.GetMaxLimit() || ctx.Options.ShouldUseSnapshotPaging()) {
+        if (limit >= ctx.Options.GetMaxLimit() || ctx.Options.ShouldUseSnapshotPaging())
+        {
             ctx.Search.Size(limit);
-        } else {
+        }
+        else
+        {
             // add 1 to limit if not snapshot paging so we can know if we have more results
             ctx.Search.Size(limit + 1);
         }

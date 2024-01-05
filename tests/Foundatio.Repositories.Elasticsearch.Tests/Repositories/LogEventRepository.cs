@@ -9,7 +9,8 @@ using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-public interface ILogEventRepository : ISearchableRepository<LogEvent> {
+public interface ILogEventRepository : ISearchableRepository<LogEvent>
+{
     Task<FindResults<LogEvent>> GetByCompanyAsync(string company);
     Task<FindResults<LogEvent>> GetPartialByCompanyAsync(string company);
     Task<FindResults<LogEvent>> GetAllByCompanyAsync(string company);
@@ -19,37 +20,46 @@ public interface ILogEventRepository : ISearchableRepository<LogEvent> {
     Task<long> IncrementValueAsync(RepositoryQueryDescriptor<LogEvent> query, int value = 1);
 }
 
-public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent>, ILogEventRepository {
-    public DailyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.DailyLogEvents) {
+public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent>, ILogEventRepository
+{
+    public DailyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.DailyLogEvents)
+    {
     }
 
-    public DailyLogEventRepository(IIndex index) : base(index) {
+    public DailyLogEventRepository(IIndex index) : base(index)
+    {
     }
 
-    public Task<FindResults<LogEvent>> GetByCompanyAsync(string company) {
+    public Task<FindResults<LogEvent>> GetByCompanyAsync(string company)
+    {
         return FindAsync(q => q.Company(company));
     }
 
-    public Task<FindResults<LogEvent>> GetPartialByCompanyAsync(string company) {
+    public Task<FindResults<LogEvent>> GetPartialByCompanyAsync(string company)
+    {
         return FindAsync(q => q.Company(company).Include(e => e.Id).Include(l => l.CreatedUtc));
     }
 
-    public Task<FindResults<LogEvent>> GetAllByCompanyAsync(string company) {
+    public Task<FindResults<LogEvent>> GetAllByCompanyAsync(string company)
+    {
         return FindAsync(q => q.Company(company));
     }
 
-    public Task<CountResult> GetCountByCompanyAsync(string company) {
+    public Task<CountResult> GetCountByCompanyAsync(string company)
+    {
         return CountAsync(q => q.Company(company), o => o.CacheKey(company));
     }
-    
-    public Task<FindResults<LogEvent>> GetByDateRange(DateTime utcStart, DateTime utcEnd) {
+
+    public Task<FindResults<LogEvent>> GetByDateRange(DateTime utcStart, DateTime utcEnd)
+    {
         return FindAsync(q => q
             .DateRange(utcStart, utcEnd, InferField(e => e.CreatedUtc))
             .Index(utcStart, utcEnd)
         );
     }
-    
-    public async Task<long> IncrementValueAsync(string[] ids, int value = 1) {
+
+    public async Task<long> IncrementValueAsync(string[] ids, int value = 1)
+    {
         if (ids == null)
             throw new ArgumentNullException(nameof(ids));
 
@@ -61,7 +71,8 @@ public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent>, ILogEven
         return ids.Length;
     }
 
-    public Task<long> IncrementValueAsync(RepositoryQueryDescriptor<LogEvent> query, int value = 1) {
+    public Task<long> IncrementValueAsync(RepositoryQueryDescriptor<LogEvent> query, int value = 1)
+    {
         if (query == null)
             throw new ArgumentNullException(nameof(query));
 
@@ -69,19 +80,24 @@ public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent>, ILogEven
         return PatchAllAsync(query, new ScriptPatch(script), o => o.ImmediateConsistency(true));
     }
 
-    protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents, ChangeType? changeType = null) {
+    protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<LogEvent>> documents, ChangeType? changeType = null)
+    {
         await base.InvalidateCacheAsync(documents, changeType);
         await Cache.RemoveAllAsync(documents.Select(d => $"count:{d.Value.CompanyId}"));
     }
 }
 
-public class DailyLogEventWithNoCachingRepository : DailyLogEventRepository {
-    public DailyLogEventWithNoCachingRepository(MyAppElasticConfiguration configuration) : base(configuration) {
+public class DailyLogEventWithNoCachingRepository : DailyLogEventRepository
+{
+    public DailyLogEventWithNoCachingRepository(MyAppElasticConfiguration configuration) : base(configuration)
+    {
         DisableCache();
     }
 }
 
-public class MonthlyLogEventRepository : DailyLogEventRepository {
-    public MonthlyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.MonthlyLogEvents) {
+public class MonthlyLogEventRepository : DailyLogEventRepository
+{
+    public MonthlyLogEventRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.MonthlyLogEvents)
+    {
     }
 }

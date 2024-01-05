@@ -2,6 +2,7 @@
 
 namespace Foundatio.Repositories.Models;
 
-public class BucketedAggregation<T> {
+public class BucketedAggregation<T>
+{
     public IReadOnlyCollection<T> Buckets { get; set; } = EmptyReadOnly<T>.Collection;
 }

@@ -2,8 +2,9 @@
 
 namespace Foundatio.Repositories.Exceptions;
 
-public class DocumentValidationException : DocumentException {
+public class DocumentValidationException : DocumentException
+{
     public DocumentValidationException() { }
 
-    public DocumentValidationException(string message) : base(message) {}
+    public DocumentValidationException(string message) : base(message) { }
 }

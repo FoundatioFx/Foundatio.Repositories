@@ -4,7 +4,8 @@ using System.Diagnostics;
 namespace Foundatio.Repositories.Models;
 
 [DebuggerDisplay("Key: {Key} From: {FromAsString} To: {ToAsString} Total: {Total}")]
-public class RangeBucket : BucketBase {
+public class RangeBucket : BucketBase
+{
     public RangeBucket() { }
 
     [System.Text.Json.Serialization.JsonConstructor]

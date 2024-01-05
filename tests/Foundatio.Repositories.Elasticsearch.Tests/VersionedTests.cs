@@ -16,20 +16,24 @@ using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-public sealed class VersionedTests : ElasticRepositoryTestBase {
+public sealed class VersionedTests : ElasticRepositoryTestBase
+{
     private readonly IEmployeeRepository _employeeRepository;
 
-    public VersionedTests(ITestOutputHelper output) : base(output) {
+    public VersionedTests(ITestOutputHelper output) : base(output)
+    {
         _employeeRepository = new EmployeeRepository(_configuration);
     }
 
-    public override async Task InitializeAsync() {
+    public override async Task InitializeAsync()
+    {
         await base.InitializeAsync();
         await RemoveDataAsync();
     }
 
     [Fact]
-    public async Task AddAsync() {
+    public async Task AddAsync()
+    {
         var employee = EmployeeGenerator.Default;
         Assert.Null(employee.Version);
 
@@ -42,7 +46,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanSaveNonExistingAsync() {
+    public async Task CanSaveNonExistingAsync()
+    {
         var employee = EmployeeGenerator.Default;
         Assert.Null(employee.Version);
         employee.Id = ObjectId.GenerateNewId().ToString();
@@ -56,7 +61,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task AddAndIgnoreHighVersionAsync() {
+    public async Task AddAndIgnoreHighVersionAsync()
+    {
         var employee = EmployeeGenerator.Generate();
         employee.Version = "1:5";
 
@@ -68,7 +74,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task AddCollectionAsync() {
+    public async Task AddCollectionAsync()
+    {
         var employee = EmployeeGenerator.Default;
         Assert.Null(employee.Version);
 
@@ -83,7 +90,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task SaveAsync() {
+    public async Task SaveAsync()
+    {
         var employee = EmployeeGenerator.Default;
         Assert.Null(employee.Version);
 
@@ -109,7 +117,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
 
         Assert.Equal(employee, await _employeeRepository.GetByIdAsync(employee.Id));
 
-        var request = new UpdateRequest<Employee, Employee>(_configuration.Employees.Name, employee.Id) {
+        var request = new UpdateRequest<Employee, Employee>(_configuration.Employees.Name, employee.Id)
+        {
             Script = new InlineScript("ctx._source.version = 112:2"),
             Refresh = Refresh.True
         };
@@ -125,7 +134,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task SaveWithHigherVersionAsync() {
+    public async Task SaveWithHigherVersionAsync()
+    {
         var employee = EmployeeGenerator.Default;
         Assert.Null(employee.Version);
 
@@ -137,7 +147,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task SaveCollectionAsync() {
+    public async Task SaveCollectionAsync()
+    {
         var employee1 = EmployeeGenerator.Default;
         Assert.Null(employee1.Version);
 
@@ -169,7 +180,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task UpdateAllWithSinglePageOfDataAsync() {
+    public async Task UpdateAllWithSinglePageOfDataAsync()
+    {
         var utcNow = SystemClock.UtcNow;
         var employees = new List<Employee> {
             EmployeeGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),
@@ -185,7 +197,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
 
         var results = await _employeeRepository.GetAllByCompanyAsync("1");
         Assert.Equal(2, results.Documents.Count);
-        foreach (var document in results.Documents) {
+        foreach (var document in results.Documents)
+        {
             var originalDoc = employees.First(e => e.Id == document.Id);
             Assert.True(document.GetElasticVersion() > originalDoc.GetElasticVersion());
             Assert.Equal("1", document.CompanyId);
@@ -193,7 +206,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
         }
 
         results = await _employeeRepository.GetAllByCompanyAsync("2");
-        Assert.Equal(1, results.Documents.Count);
+        Assert.Single(results.Documents);
         Assert.Equal(employees.First(e => e.CompanyId == "2"), results.Documents.First());
 
         var company2Employees = results.Documents.ToList();
@@ -208,12 +221,14 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task UpdateAllWithNoDataAsync() {
+    public async Task UpdateAllWithNoDataAsync()
+    {
         Assert.Equal(0, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company"));
     }
 
     [Fact]
-    public async Task CanUsePagingAsync() {
+    public async Task CanUsePagingAsync()
+    {
         const int NUMBER_OF_EMPLOYEES = 1000;
         const int PAGE_SIZE = 100;
 
@@ -228,7 +243,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
 
         var viewedIds = new HashSet<string>();
         int pagedRecords = 0;
-        do {
+        do
+        {
             Assert.Equal(PAGE_SIZE, results.Documents.Count);
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
             Assert.DoesNotContain(results.Hits, h => viewedIds.Contains(h.Id));
@@ -243,7 +259,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanUsePagingWithCachingAsync() {
+    public async Task CanUsePagingWithCachingAsync()
+    {
         const int NUMBER_OF_EMPLOYEES = 100;
         const int PAGE_SIZE = 50;
 
@@ -280,7 +297,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanUseSnapshotPagingAsync() {
+    public async Task CanUseSnapshotPagingAsync()
+    {
         const int NUMBER_OF_EMPLOYEES = 100;
         const int PAGE_SIZE = 10;
 
@@ -297,7 +315,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
         var viewedIds = new HashSet<string>();
         var newEmployees = new List<Employee>();
         int pagedRecords = 0;
-        do {
+        do
+        {
             Assert.True(results.Documents.Count >= PAGE_SIZE);
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
             Assert.DoesNotContain(results.Hits, h => viewedIds.Contains(h.Id));
@@ -315,7 +334,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanUseSnapshotWithScrollIdAsync() {
+    public async Task CanUseSnapshotWithScrollIdAsync()
+    {
         const int NUMBER_OF_EMPLOYEES = 100;
         const int PAGE_SIZE = 10;
 
@@ -332,7 +352,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
         var viewedIds = new HashSet<string>();
         var newEmployees = new List<Employee>();
         int pagedRecords = 0;
-        do {
+        do
+        {
             Assert.True(results.Documents.Count >= PAGE_SIZE);
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
             Assert.DoesNotContain(results.Hits, h => viewedIds.Contains(h.Id));
@@ -352,7 +373,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanUsePagingWithOddNumberAsync() {
+    public async Task CanUsePagingWithOddNumberAsync()
+    {
         const int NUMBER_OF_EMPLOYEES = 67;
         const int PAGE_SIZE = 12;
         Log.MinimumLevel = LogLevel.Warning;
@@ -367,7 +389,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
 
         var viewedIds = new HashSet<string>();
         int pagedRecords = 0;
-        do {
+        do
+        {
             Assert.Equal(Math.Min(PAGE_SIZE, NUMBER_OF_EMPLOYEES - pagedRecords), results.Documents.Count);
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
             Assert.DoesNotContain(results.Hits, h => viewedIds.Contains(h.Id));
@@ -382,7 +405,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task UpdateAllWithPageLimitAsync() {
+    public async Task UpdateAllWithPageLimitAsync()
+    {
         const int NUMBER_OF_EMPLOYEES = 100;
         Log.MinimumLevel = LogLevel.Warning;
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
@@ -391,7 +415,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
 
         var results = await _employeeRepository.GetAllByCompanyAsync("1", o => o.PageLimit(NUMBER_OF_EMPLOYEES));
         Assert.Equal(NUMBER_OF_EMPLOYEES, results.Documents.Count);
-        foreach (var document in results.Documents) {
+        foreach (var document in results.Documents)
+        {
             var originalDoc = employees.First(e => e.Id == document.Id);
             Assert.True(document.GetElasticVersion() > originalDoc.GetElasticVersion());
             Assert.Equal("1", document.CompanyId);
@@ -400,7 +425,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task UpdateAllWithNoPageLimitAsync() {
+    public async Task UpdateAllWithNoPageLimitAsync()
+    {
         const int NUMBER_OF_EMPLOYEES = 100;
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
@@ -409,7 +435,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase {
 
         var results = await _employeeRepository.GetAllByCompanyAsync("1", o => o.PageLimit(NUMBER_OF_EMPLOYEES));
         Assert.Equal(NUMBER_OF_EMPLOYEES, results.Documents.Count);
-        foreach (var document in results.Documents) {
+        foreach (var document in results.Documents)
+        {
             var originalDoc = employees.First(e => e.Id == document.Id);
             Assert.True(document.GetElasticVersion() > originalDoc.GetElasticVersion());
             Assert.Equal("1", document.CompanyId);

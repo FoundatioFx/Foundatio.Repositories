@@ -5,7 +5,8 @@ using Foundatio.Repositories.Utility;
 namespace Foundatio.Repositories.Models;
 
 [DebuggerDisplay("KeyAsString: {KeyAsString} Key: {Key} Total: {Total}")]
-public class KeyedBucket<T> : BucketBase {
+public class KeyedBucket<T> : BucketBase
+{
     public KeyedBucket() { }
 
     [System.Text.Json.Serialization.JsonConstructor]

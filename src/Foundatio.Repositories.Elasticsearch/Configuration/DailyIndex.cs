@@ -1,30 +1,31 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
-using Nest;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Caching;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Options;
+using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
-using Foundatio.Repositories.Utility;
-using Foundatio.Repositories.Options;
-using Foundatio.Repositories.Models;
-using Foundatio.Repositories.Exceptions;
-using System.Collections.Concurrent;
-using Foundatio.Repositories.Elasticsearch.CustomFields;
+using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
-public class DailyIndex : VersionedIndex {
+public class DailyIndex : VersionedIndex
+{
     protected static readonly CultureInfo EnUs = new("en-US");
     private readonly List<IndexAliasAge> _aliases = new();
     private readonly Lazy<IReadOnlyCollection<IndexAliasAge>> _frozenAliases;
@@ -34,7 +35,8 @@ public class DailyIndex : VersionedIndex {
     protected readonly string[] _defaultIndexes;
 
     public DailyIndex(IElasticConfiguration configuration, string name, int version = 1, Func<object, DateTime> getDocumentDateUtc = null)
-        : base(configuration, name, version) {
+        : base(configuration, name, version)
+    {
         AddAlias(Name);
         _frozenAliases = new Lazy<IReadOnlyCollection<IndexAliasAge>>(() => _aliases.AsReadOnly());
         _aliasCache = new ScopedCacheClient(configuration.Cache, "alias");
@@ -43,15 +45,17 @@ public class DailyIndex : VersionedIndex {
         HasMultipleIndexes = true;
 
         if (_getDocumentDateUtc != null)
-            _getDocumentDateUtc = (document) => {
+            _getDocumentDateUtc = (document) =>
+            {
                 var date = getDocumentDateUtc(document);
                 return date != DateTime.MinValue ? date : DefaultDocumentDateFunc(document);
             };
         else
             _getDocumentDateUtc = DefaultDocumentDateFunc;
     }
-    
-    private readonly Func<object, DateTime> DefaultDocumentDateFunc = (document) => {
+
+    private readonly Func<object, DateTime> DefaultDocumentDateFunc = (document) =>
+    {
         return document switch
         {
             null => throw new ArgumentNullException(nameof(document)),
@@ -65,9 +69,11 @@ public class DailyIndex : VersionedIndex {
     /// <summary>
     /// This should never be be negative or less than the index time period (day or a month)
     /// </summary>
-    public TimeSpan? MaxIndexAge {
+    public TimeSpan? MaxIndexAge
+    {
         get => _maxIndexAge;
-        set {
+        set
+        {
             if (value.HasValue && value.Value <= TimeSpan.Zero)
                 throw new ArgumentException($"{nameof(MaxIndexAge)} cannot be negative. ");
 
@@ -77,14 +83,17 @@ public class DailyIndex : VersionedIndex {
 
     public bool DiscardExpiredIndexes { get; set; } = true;
 
-    protected virtual DateTime GetIndexExpirationDate(DateTime utcDate) {
+    protected virtual DateTime GetIndexExpirationDate(DateTime utcDate)
+    {
         return MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero ? utcDate.EndOfDay().SafeAdd(MaxIndexAge.Value) : DateTime.MaxValue;
     }
 
     public IReadOnlyCollection<IndexAliasAge> Aliases => _frozenAliases.Value;
 
-    public void AddAlias(string name, TimeSpan? maxAge = null) {
-        _aliases.Add(new IndexAliasAge {
+    public void AddAlias(string name, TimeSpan? maxAge = null)
+    {
+        _aliases.Add(new IndexAliasAge
+        {
             Name = name,
             MaxAge = maxAge ?? TimeSpan.MaxValue
         });
@@ -92,7 +101,8 @@ public class DailyIndex : VersionedIndex {
 
     public override Task ConfigureAsync() => Task.CompletedTask;
 
-    protected override async Task CreateAliasAsync(string index, string name) {
+    protected override async Task CreateAliasAsync(string index, string name)
+    {
         await base.CreateAliasAsync(index, name).AnyContext();
 
         var utcDate = GetIndexDate(index);
@@ -104,14 +114,16 @@ public class DailyIndex : VersionedIndex {
 
     protected string DateFormat { get; set; } = "yyyy.MM.dd";
 
-    public string GetVersionedIndex(DateTime utcDate, int? version = null) {
+    public string GetVersionedIndex(DateTime utcDate, int? version = null)
+    {
         if (version == null || version < 0)
             version = Version;
 
         return $"{Name}-v{version}-{utcDate.ToString(DateFormat)}";
     }
 
-    protected override DateTime GetIndexDate(string index) {
+    protected override DateTime GetIndexDate(string index)
+    {
         int version = GetIndexVersion(index);
         if (version < 0)
             version = Version;
@@ -123,7 +135,8 @@ public class DailyIndex : VersionedIndex {
     }
 
     private readonly Dictionary<DateTime, object> _ensuredDates = new();
-    protected async Task EnsureDateIndexAsync(DateTime utcDate) {
+    protected async Task EnsureDateIndexAsync(DateTime utcDate)
+    {
         utcDate = utcDate.Date;
         if (_ensuredDates.ContainsKey(utcDate))
             return;
@@ -134,12 +147,14 @@ public class DailyIndex : VersionedIndex {
 
         var expires = indexExpirationUtcDate < DateTime.MaxValue ? indexExpirationUtcDate : (DateTime?)null;
         string unversionedIndexAlias = GetIndexByDate(utcDate);
-        if (await _aliasCache.ExistsAsync(unversionedIndexAlias).AnyContext()) {
+        if (await _aliasCache.ExistsAsync(unversionedIndexAlias).AnyContext())
+        {
             _ensuredDates[utcDate] = null;
             return;
         }
 
-        if (await AliasExistsAsync(unversionedIndexAlias).AnyContext()) {
+        if (await AliasExistsAsync(unversionedIndexAlias).AnyContext())
+        {
             _ensuredDates[utcDate] = null;
             await _aliasCache.SetAsync(unversionedIndexAlias, unversionedIndexAlias, expires).AnyContext();
             return;
@@ -147,7 +162,8 @@ public class DailyIndex : VersionedIndex {
 
         // try creating the index.
         string index = GetVersionedIndex(utcDate);
-        await CreateIndexAsync(index, descriptor => {
+        await CreateIndexAsync(index, descriptor =>
+        {
             var aliasesDescriptor = new AliasesDescriptor().Alias(unversionedIndexAlias);
             foreach (var a in Aliases.Where(a => ShouldCreateAlias(utcDate, a)))
                 aliasesDescriptor.Alias(a.Name);
@@ -159,14 +175,16 @@ public class DailyIndex : VersionedIndex {
         await _aliasCache.SetAsync(unversionedIndexAlias, unversionedIndexAlias, expires).AnyContext();
     }
 
-    protected virtual bool ShouldCreateAlias(DateTime documentDateUtc, IndexAliasAge alias) {
+    protected virtual bool ShouldCreateAlias(DateTime documentDateUtc, IndexAliasAge alias)
+    {
         if (alias.MaxAge == TimeSpan.MaxValue)
             return true;
 
         return SystemClock.UtcNow.Date.SafeSubtract(alias.MaxAge) <= documentDateUtc.EndOfDay();
     }
 
-    public override async Task<int> GetCurrentVersionAsync() {
+    public override async Task<int> GetCurrentVersionAsync()
+    {
         var indexes = await GetIndexesAsync().AnyContext();
         if (indexes.Count == 0)
             return Version;
@@ -180,7 +198,8 @@ public class DailyIndex : VersionedIndex {
         return currentIndexes.Count > 0 ? currentIndexes.First() : Version;
     }
 
-    public virtual string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd) {
+    public virtual string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd)
+    {
         if (!utcStart.HasValue)
             utcStart = SystemClock.UtcNow;
 
@@ -201,11 +220,13 @@ public class DailyIndex : VersionedIndex {
         return indices.ToArray();
     }
 
-    public override Task DeleteAsync() {
+    public override Task DeleteAsync()
+    {
         return DeleteIndexAsync($"{Name}-v*");
     }
 
-    public override async Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null) {
+    public override async Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null)
+    {
         int currentVersion = await GetCurrentVersionAsync().AnyContext();
         if (currentVersion < 0 || currentVersion >= Version)
             return;
@@ -215,14 +236,16 @@ public class DailyIndex : VersionedIndex {
             return;
 
         var reindexer = new ElasticReindexer(Configuration.Client, _logger);
-        foreach (var index in indexes) {
+        foreach (var index in indexes)
+        {
             if (SystemClock.UtcNow > GetIndexExpirationDate(index.DateUtc))
                 continue;
 
             if (index.CurrentVersion > Version)
                 continue;
 
-            var reindexWorkItem = new ReindexWorkItem {
+            var reindexWorkItem = new ReindexWorkItem
+            {
                 OldIndex = index.Index,
                 NewIndex = GetVersionedIndex(GetIndexDate(index.Index), Version),
                 Alias = Name,
@@ -239,7 +262,8 @@ public class DailyIndex : VersionedIndex {
         }
     }
 
-    public override async Task MaintainAsync(bool includeOptionalTasks = true) {
+    public override async Task MaintainAsync(bool includeOptionalTasks = true)
+    {
         var indexes = await GetIndexesAsync().AnyContext();
         if (indexes.Count == 0)
             return;
@@ -250,21 +274,28 @@ public class DailyIndex : VersionedIndex {
             await DeleteOldIndexesAsync(indexes).AnyContext();
     }
 
-    protected virtual async Task UpdateAliasesAsync(IList<IndexInfo> indexes) {
+    protected virtual async Task UpdateAliasesAsync(IList<IndexInfo> indexes)
+    {
         if (indexes.Count == 0)
             return;
 
         var aliasDescriptor = new BulkAliasDescriptor();
-        foreach (var indexGroup in indexes.OrderBy(i => i.Version).GroupBy(i => i.DateUtc)) {
+        foreach (var indexGroup in indexes.OrderBy(i => i.Version).GroupBy(i => i.DateUtc))
+        {
             var indexExpirationDate = GetIndexExpirationDate(indexGroup.Key);
 
             // Ensure the current version is always set.
-            if (SystemClock.UtcNow < indexExpirationDate) {
+            if (SystemClock.UtcNow < indexExpirationDate)
+            {
                 var oldestIndex = indexGroup.First();
-                if (oldestIndex.CurrentVersion < 0) {
-                    try {
+                if (oldestIndex.CurrentVersion < 0)
+                {
+                    try
+                    {
                         await CreateAliasAsync(oldestIndex.Index, GetIndexByDate(indexGroup.Key)).AnyContext();
-                    } catch (Exception ex) {
+                    }
+                    catch (Exception ex)
+                    {
                         _logger.LogError(ex, "Error setting current index version. Will use oldest index version: {OldestIndexVersion}", oldestIndex.Version);
                     }
 
@@ -273,15 +304,18 @@ public class DailyIndex : VersionedIndex {
                 }
             }
 
-            foreach (var index in indexGroup) {
-                if (SystemClock.UtcNow >= indexExpirationDate || index.Version != index.CurrentVersion) {
+            foreach (var index in indexGroup)
+            {
+                if (SystemClock.UtcNow >= indexExpirationDate || index.Version != index.CurrentVersion)
+                {
                     foreach (var alias in Aliases)
                         aliasDescriptor = aliasDescriptor.Remove(r => r.Index(index.Index).Alias(alias.Name));
 
                     continue;
                 }
 
-                foreach (var alias in Aliases) {
+                foreach (var alias in Aliases)
+                {
                     if (ShouldCreateAlias(indexGroup.Key, alias))
                         aliasDescriptor = aliasDescriptor.Add(r => r.Index(index.Index).Alias(alias.Name));
                     else
@@ -292,9 +326,12 @@ public class DailyIndex : VersionedIndex {
 
         var response = await Configuration.Client.Indices.BulkAliasAsync(aliasDescriptor).AnyContext();
 
-        if (response.IsValid) {
+        if (response.IsValid)
+        {
             _logger.LogRequest(response);
-        } else {
+        }
+        else
+        {
             if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                 return;
 
@@ -302,23 +339,28 @@ public class DailyIndex : VersionedIndex {
         }
     }
 
-    protected virtual async Task DeleteOldIndexesAsync(IList<IndexInfo> indexes) {
+    protected virtual async Task DeleteOldIndexesAsync(IList<IndexInfo> indexes)
+    {
         if (indexes.Count == 0 || !MaxIndexAge.HasValue || MaxIndexAge <= TimeSpan.Zero)
             return;
 
         var sw = new Stopwatch();
-        foreach (var index in indexes.Where(i => SystemClock.UtcNow > GetIndexExpirationDate(i.DateUtc))) {
+        foreach (var index in indexes.Where(i => SystemClock.UtcNow > GetIndexExpirationDate(i.DateUtc)))
+        {
             sw.Restart();
-            try {
+            try
+            {
                 await DeleteIndexAsync(index.Index).AnyContext();
                 _logger.LogInformation("Deleted index {Index} of age {Age:g} in {Duration:g}", index.Index, SystemClock.UtcNow.Subtract(index.DateUtc), sw.Elapsed);
-            } catch (Exception) {}
+            }
+            catch (Exception) { }
 
             sw.Stop();
         }
     }
 
-    protected override async Task DeleteIndexAsync(string name) {
+    protected override async Task DeleteIndexAsync(string name)
+    {
         await base.DeleteIndexAsync(name).AnyContext();
 
         if (name.EndsWith("*"))
@@ -327,12 +369,14 @@ public class DailyIndex : VersionedIndex {
             await _aliasCache.RemoveAsync(GetIndexByDate(GetIndexDate(name))).AnyContext();
     }
 
-    public override string[] GetIndexesByQuery(IRepositoryQuery query) {
+    public override string[] GetIndexesByQuery(IRepositoryQuery query)
+    {
         var indexes = GetIndexes(query);
         return indexes.Count > 0 ? indexes.ToArray() : _defaultIndexes;
     }
 
-    private HashSet<string> GetIndexes(IRepositoryQuery query) {
+    private HashSet<string> GetIndexes(IRepositoryQuery query)
+    {
         var indexes = new HashSet<string>();
 
         var elasticIndexes = query.GetElasticIndexes();
@@ -347,18 +391,22 @@ public class DailyIndex : VersionedIndex {
         return indexes;
     }
 
-    protected override string GetIndexByDate(DateTime date) {
+    protected override string GetIndexByDate(DateTime date)
+    {
         return $"{Name}-{date.ToString(DateFormat)}";
     }
 
-    protected override ElasticMappingResolver CreateMappingResolver() {
+    protected override ElasticMappingResolver CreateMappingResolver()
+    {
         return ElasticMappingResolver.Create(GetLatestIndexMapping, Configuration.Client.Infer, _logger);
     }
 
-    protected ITypeMapping GetLatestIndexMapping() {
+    protected ITypeMapping GetLatestIndexMapping()
+    {
         string filter = $"{Name}-v{Version}-*";
         var catResponse = Configuration.Client.Cat.Indices(i => i.Pri().Index(Indices.Index((IndexName)filter)));
-        if (!catResponse.IsValid) {
+        if (!catResponse.IsValid)
+        {
             throw new RepositoryException(catResponse.GetErrorMessage($"Error getting latest index mapping {filter}"), catResponse.OriginalException);
         }
 
@@ -379,21 +427,24 @@ public class DailyIndex : VersionedIndex {
         return mapping;
     }
 
-    public override string GetIndex(object target) {
+    public override string GetIndex(object target)
+    {
         if (target == null)
             throw new ArgumentNullException(nameof(target));
 
         if (target is DateTime dt)
             return GetIndexByDate(dt);
 
-        if (target is Id id) {
+        if (target is Id id)
+        {
             if (!ObjectId.TryParse(id.Value, out var objectId))
                 throw new ArgumentException("Unable to parse ObjectId", nameof(id));
 
             return GetIndexByDate(objectId.CreationTime);
         }
 
-        if (target is ObjectId oid) {
+        if (target is ObjectId oid)
+        {
             return GetIndexByDate(oid.CreationTime);
         }
 
@@ -404,31 +455,36 @@ public class DailyIndex : VersionedIndex {
         return GetIndexByDate(date);
     }
 
-    public override string CreateDocumentId(object document) {
-        if (_getDocumentDateUtc != null) {
+    public override string CreateDocumentId(object document)
+    {
+        if (_getDocumentDateUtc != null)
+        {
             var date = _getDocumentDateUtc(document);
             if (date != DateTime.MinValue)
                 return ObjectId.GenerateNewId(date).ToString();
         }
-        
+
         return base.CreateDocumentId(document);
     }
 
-    public override Task EnsureIndexAsync(object target) {
+    public override Task EnsureIndexAsync(object target)
+    {
         if (target == null)
             throw new ArgumentNullException(nameof(target));
 
         if (target is DateTime dt)
             return EnsureDateIndexAsync(dt);
 
-        if (target is Id id) {
+        if (target is Id id)
+        {
             if (!ObjectId.TryParse(id.Value, out var objectId))
                 throw new ArgumentException("Unable to parse ObjectId", nameof(id));
 
             return EnsureDateIndexAsync(objectId.CreationTime);
         }
 
-        if (target is ObjectId oid) {
+        if (target is ObjectId oid)
+        {
             return EnsureDateIndexAsync(oid.CreationTime);
         }
 
@@ -440,32 +496,41 @@ public class DailyIndex : VersionedIndex {
     }
 
     [DebuggerDisplay("Name: {Name} Max Age: {MaxAge}")]
-    public class IndexAliasAge {
+    public class IndexAliasAge
+    {
         public string Name { get; set; }
         public TimeSpan MaxAge { get; set; }
     }
 }
 
-public class DailyIndex<T> : DailyIndex, IIndex<T> where T : class {
+public class DailyIndex<T> : DailyIndex, IIndex<T> where T : class
+{
     private readonly string _typeName = typeof(T).Name.ToLower();
 
-    public DailyIndex(IElasticConfiguration configuration, string name = null, int version = 1, Func<object, DateTime> getDocumentDateUtc = null) : base(configuration, name, version, getDocumentDateUtc) {
+    public DailyIndex(IElasticConfiguration configuration, string name = null, int version = 1, Func<object, DateTime> getDocumentDateUtc = null) : base(configuration, name, version, getDocumentDateUtc)
+    {
         Name = name ?? _typeName;
     }
 
-    protected override ElasticMappingResolver CreateMappingResolver() {
+    protected override ElasticMappingResolver CreateMappingResolver()
+    {
         return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMapping, _logger);
     }
-    
-    public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map) {
+
+    public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map)
+    {
         return map.AutoMap<T>().Properties(p => p.SetupDefaults());
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    {
         idx = base.ConfigureIndex(idx);
-        return idx.Map<T>(f => {
-            if (CustomFieldTypes.Count > 0) {
-                f.DynamicTemplates(d => {
+        return idx.Map<T>(f =>
+        {
+            if (CustomFieldTypes.Count > 0)
+            {
+                f.DynamicTemplates(d =>
+                {
                     foreach (var customFieldType in CustomFieldTypes.Values)
                         d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
 
@@ -477,20 +542,22 @@ public class DailyIndex<T> : DailyIndex, IIndex<T> where T : class {
         });
     }
 
-    public override void ConfigureSettings(ConnectionSettings settings) {
+    public override void ConfigureSettings(ConnectionSettings settings)
+    {
         settings.DefaultMappingFor<T>(d => d.IndexName(Name));
     }
-    
-    protected override string GetTimeStampField() {
-        if (typeof(IHaveDates).IsAssignableFrom(typeof(T))) 
+
+    protected override string GetTimeStampField()
+    {
+        if (typeof(IHaveDates).IsAssignableFrom(typeof(T)))
             return InferField(f => ((IHaveDates)f).UpdatedUtc);
-        
-        if (typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T))) 
+
+        if (typeof(IHaveCreatedDate).IsAssignableFrom(typeof(T)))
             return InferField(f => ((IHaveCreatedDate)f).CreatedUtc);
 
         return null;
     }
-    
+
     public Inferrer Infer => Configuration.Client.Infer;
     public string InferField(Expression<Func<T, object>> objectPath) => Infer.Field(objectPath);
     public string InferPropertyName(Expression<Func<T, object>> objectPath) => Infer.PropertyName(objectPath);

@@ -1,6 +1,7 @@
 ﻿namespace Foundatio.Repositories.Models;
 
-public interface IIdentity {
+public interface IIdentity
+{
     /// <summary>
     /// Unique id that identifies a document.
     /// </summary>

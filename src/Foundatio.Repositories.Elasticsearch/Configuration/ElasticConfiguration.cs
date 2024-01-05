@@ -1,26 +1,27 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
+using Elasticsearch.Net;
 using Foundatio.Caching;
 using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Messaging;
-using Foundatio.Queues;
-using Foundatio.Repositories.Extensions;
-using Nest;
-using System.Threading;
-using Elasticsearch.Net;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Parsers.ElasticQueries;
+using Foundatio.Queues;
+using Foundatio.Repositories.Elasticsearch.CustomFields;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Repositories.Extensions;
+using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using System.Linq;
-using Foundatio.Utility;
-using Foundatio.Repositories.Elasticsearch.CustomFields;
+using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
-public class ElasticConfiguration: IElasticConfiguration {
+public class ElasticConfiguration : IElasticConfiguration
+{
     protected readonly IQueue<WorkItemData> _workItemQueue;
     protected readonly ILogger _logger;
     protected readonly ILockProvider _beginReindexLockProvider;
@@ -31,7 +32,8 @@ public class ElasticConfiguration: IElasticConfiguration {
     private readonly Lazy<ICustomFieldDefinitionRepository> _customFieldDefinitionRepository;
     protected readonly bool _shouldDisposeCache;
 
-    public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, ILoggerFactory loggerFactory = null) {
+    public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, ILoggerFactory loggerFactory = null)
+    {
         _workItemQueue = workItemQueue;
         LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _logger = LoggerFactory.CreateLogger(GetType());
@@ -45,7 +47,8 @@ public class ElasticConfiguration: IElasticConfiguration {
         _client = new Lazy<IElasticClient>(CreateElasticClient);
     }
 
-    protected virtual IElasticClient CreateElasticClient() {
+    protected virtual IElasticClient CreateElasticClient()
+    {
         var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")));
         settings.EnableApiVersioningHeader();
         ConfigureSettings(settings);
@@ -55,15 +58,17 @@ public class ElasticConfiguration: IElasticConfiguration {
         return new ElasticClient(settings);
     }
 
-    public virtual void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder) {}
+    public virtual void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder) { }
 
-    public virtual void ConfigureGlobalQueryParsers(ElasticQueryParserConfiguration config) {}
+    public virtual void ConfigureGlobalQueryParsers(ElasticQueryParserConfiguration config) { }
 
-    protected virtual void ConfigureSettings(ConnectionSettings settings) {
+    protected virtual void ConfigureSettings(ConnectionSettings settings)
+    {
         settings.EnableTcpKeepAlive(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2));
     }
 
-    protected virtual IConnectionPool CreateConnectionPool() {
+    protected virtual IConnectionPool CreateConnectionPool()
+    {
         return null;
     }
 
@@ -75,37 +80,42 @@ public class ElasticConfiguration: IElasticConfiguration {
     public ICustomFieldDefinitionRepository CustomFieldDefinitionRepository => _customFieldDefinitionRepository.Value;
 
     private CustomFieldDefinitionIndex _customFieldDefinitionIndex = null;
-    private ICustomFieldDefinitionRepository CreateCustomFieldDefinitionRepository() {
+    private ICustomFieldDefinitionRepository CreateCustomFieldDefinitionRepository()
+    {
         if (_customFieldDefinitionIndex == null)
             return null;
 
         return new CustomFieldDefinitionRepository(_customFieldDefinitionIndex, _lockProvider);
     }
 
-    public void AddCustomFieldIndex(string name = "customfield", int replicas = 1) {
+    public void AddCustomFieldIndex(string name = "customfield", int replicas = 1)
+    {
         _customFieldDefinitionIndex = new CustomFieldDefinitionIndex(this, name, replicas);
         AddIndex(_customFieldDefinitionIndex);
     }
 
-    public void AddIndex(IIndex index) {
+    public void AddIndex(IIndex index)
+    {
         if (_frozenIndexes.IsValueCreated)
             throw new InvalidOperationException("Can't add indexes after the list has been frozen.");
 
         _indexes.Add(index);
     }
-    
-    public IIndex GetIndex(string name) {
+
+    public IIndex GetIndex(string name)
+    {
         foreach (var index in Indexes)
             if (index.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
                 return index;
 
         return null;
     }
-    
-    public Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true) {
+
+    public Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true)
+    {
         if (indexes == null)
             indexes = Indexes;
-        
+
         var tasks = new List<Task>();
         foreach (var idx in indexes)
             tasks.Add(ConfigureIndexInternalAsync(idx, beginReindexingOutdated));
@@ -113,7 +123,8 @@ public class ElasticConfiguration: IElasticConfiguration {
         return Task.WhenAll(tasks);
     }
 
-    private async Task ConfigureIndexInternalAsync(IIndex idx, bool beginReindexingOutdated) {
+    private async Task ConfigureIndexInternalAsync(IIndex idx, bool beginReindexingOutdated)
+    {
         await idx.ConfigureAsync().AnyContext();
         await idx.MaintainAsync(includeOptionalTasks: false).AnyContext();
 
@@ -141,7 +152,8 @@ public class ElasticConfiguration: IElasticConfiguration {
         await _beginReindexLockProvider.TryUsingAsync(enqueueReindexLockName, () => _workItemQueue.EnqueueAsync(reindexWorkItem), TimeSpan.Zero, new CancellationToken(true)).AnyContext();
     }
 
-    public Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null) {
+    public Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null)
+    {
         if (indexes == null)
             indexes = Indexes;
 
@@ -152,7 +164,8 @@ public class ElasticConfiguration: IElasticConfiguration {
         return Task.WhenAll(tasks);
     }
 
-    public Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null) {
+    public Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null)
+    {
         if (indexes == null)
             indexes = Indexes;
 
@@ -163,12 +176,14 @@ public class ElasticConfiguration: IElasticConfiguration {
         return Task.WhenAll(tasks);
     }
 
-    public async Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func<int, string, Task> progressCallbackAsync = null) {
+    public async Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func<int, string, Task> progressCallbackAsync = null)
+    {
         if (indexes == null)
             indexes = Indexes;
 
         var outdatedIndexes = new List<IVersionedIndex>();
-        foreach (var versionedIndex in indexes.OfType<IVersionedIndex>()) {
+        foreach (var versionedIndex in indexes.OfType<IVersionedIndex>())
+        {
             int currentVersion = await versionedIndex.GetCurrentVersionAsync().AnyContext();
             if (versionedIndex.Version <= currentVersion)
                 continue;
@@ -179,17 +194,22 @@ public class ElasticConfiguration: IElasticConfiguration {
         if (outdatedIndexes.Count == 0)
             return;
 
-        foreach (var outdatedIndex in outdatedIndexes) {
-            try {
+        foreach (var outdatedIndex in outdatedIndexes)
+        {
+            try
+            {
                 await Run.WithRetriesAsync(() => outdatedIndex.ReindexAsync((progress, message) => progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask),
                     logger: _logger).AnyContext();
-            } catch (Exception) {
+            }
+            catch (Exception)
+            {
                 // unable to reindex after 5 retries, move to next index.
             }
         }
     }
 
-    public virtual void Dispose() {
+    public virtual void Dispose()
+    {
         if (_shouldDisposeCache)
             Cache.Dispose();
 

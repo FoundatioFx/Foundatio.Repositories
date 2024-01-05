@@ -1,30 +1,33 @@
-﻿using System.Threading.Tasks;
+﻿using System;
+using System.Linq;
+using System.Threading.Tasks;
+using Foundatio.Caching;
+using Foundatio.Lock;
+using Foundatio.Messaging;
+using Foundatio.Repositories.Migrations;
+using Foundatio.Utility;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
-using Foundatio.Repositories.Migrations;
-using Microsoft.Extensions.DependencyInjection;
-using Foundatio.Lock;
-using Foundatio.Caching;
-using Foundatio.Messaging;
-using System.Linq;
-using System;
-using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-public sealed class MigrationTests : ElasticRepositoryTestBase {
+public sealed class MigrationTests : ElasticRepositoryTestBase
+{
     private MigrationIndex _migrationIndex;
     private MigrationManager _migrationManager;
     private MigrationStateRepository _migrationStateRepository;
     private ILockProvider _lockProvider;
     private IServiceProvider _serviceProvider;
 
-    public MigrationTests(ITestOutputHelper output) : base(output) {
+    public MigrationTests(ITestOutputHelper output) : base(output)
+    {
         Log.SetLogLevel<MigrationStateRepository>(LogLevel.Trace);
     }
 
-    public override async Task InitializeAsync() {
+    public override async Task InitializeAsync()
+    {
         await base.InitializeAsync();
         _migrationIndex = new MigrationIndex(_configuration);
         await _migrationIndex.DeleteAsync();
@@ -48,7 +51,8 @@ public sealed class MigrationTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task WillIgnoreVersionedMigrationWithoutVersion() {
+    public async Task WillIgnoreVersionedMigrationWithoutVersion()
+    {
         _migrationManager.AddMigration<VersionedWithoutVersionMigration>();
 
         var migrationStatus = await _migrationManager.GetMigrationStatus();
@@ -57,7 +61,8 @@ public sealed class MigrationTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task WillSetVersionToLatestIfNoMigrationsRun() {
+    public async Task WillSetVersionToLatestIfNoMigrationsRun()
+    {
         // no existing migrations, should add doc with latest version
         _migrationManager.AddMigration<Version3Migration>();
 
@@ -79,8 +84,10 @@ public sealed class MigrationTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanRunPendingMigration() {
-        await _migrationStateRepository.AddAsync(new MigrationState {
+    public async Task CanRunPendingMigration()
+    {
+        await _migrationStateRepository.AddAsync(new MigrationState
+        {
             Id = "1",
             Version = 1,
             MigrationType = MigrationType.Versioned,
@@ -111,8 +118,10 @@ public sealed class MigrationTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanRunRepeatableMigration() {
-        await _migrationStateRepository.AddAsync(new MigrationState {
+    public async Task CanRunRepeatableMigration()
+    {
+        await _migrationStateRepository.AddAsync(new MigrationState
+        {
             Id = "1",
             Version = 1,
             MigrationType = MigrationType.Versioned,
@@ -173,8 +182,10 @@ public sealed class MigrationTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanHandleFailingMigration() {
-        await _migrationStateRepository.AddAsync(new MigrationState {
+    public async Task CanHandleFailingMigration()
+    {
+        await _migrationStateRepository.AddAsync(new MigrationState
+        {
             Id = "1",
             Version = 1,
             MigrationType = MigrationType.Versioned,
@@ -208,8 +219,10 @@ public sealed class MigrationTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task WillRetryFailingMigration() {
-        await _migrationStateRepository.AddAsync(new MigrationState {
+    public async Task WillRetryFailingMigration()
+    {
+        await _migrationStateRepository.AddAsync(new MigrationState
+        {
             Id = "1",
             Version = 1,
             MigrationType = MigrationType.Versioned,
@@ -257,47 +270,60 @@ public sealed class MigrationTests : ElasticRepositoryTestBase {
     }
 }
 
-public class VersionedWithoutVersionMigration : MigrationBase {
-    public override Task RunAsync(MigrationContext context) {
+public class VersionedWithoutVersionMigration : MigrationBase
+{
+    public override Task RunAsync(MigrationContext context)
+    {
         throw new System.NotImplementedException();
     }
 }
 
-public class Version1Migration : MigrationBase {
-    public Version1Migration() {
+public class Version1Migration : MigrationBase
+{
+    public Version1Migration()
+    {
         MigrationType = MigrationType.Versioned;
         Version = 1;
     }
 
-    public override Task RunAsync(MigrationContext context) {
+    public override Task RunAsync(MigrationContext context)
+    {
         return Task.Delay(100);
     }
 }
 
-public class Version2Migration : MigrationBase {
-    public Version2Migration() {
+public class Version2Migration : MigrationBase
+{
+    public Version2Migration()
+    {
         MigrationType = MigrationType.Versioned;
         Version = 2;
     }
 
-    public override Task RunAsync(MigrationContext context) {
+    public override Task RunAsync(MigrationContext context)
+    {
         return Task.Delay(100);
     }
 }
 
-public class Version3Migration : MigrationBase {
-    public Version3Migration() {
+public class Version3Migration : MigrationBase
+{
+    public Version3Migration()
+    {
         MigrationType = MigrationType.Versioned;
         Version = 3;
     }
 
-    public override Task RunAsync(MigrationContext context) {
+    public override Task RunAsync(MigrationContext context)
+    {
         return Task.Delay(100);
     }
 }
 
-public class FailingMigration : MigrationBase {
-    public FailingMigration() {
+public class FailingMigration : MigrationBase
+{
+    public FailingMigration()
+    {
         MigrationType = MigrationType.Versioned;
         Version = 3;
     }
@@ -305,15 +331,18 @@ public class FailingMigration : MigrationBase {
     public int Attempts { get; set; }
 
 #pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
-    public override async Task RunAsync(MigrationContext context) {
+    public override async Task RunAsync(MigrationContext context)
+    {
 #pragma warning restore CS1998 // Async method lacks 'await' operators and will run synchronously
         Attempts++;
         throw new ApplicationException("Boom");
     }
 }
 
-public class FailingResumableMigration : MigrationBase {
-    public FailingResumableMigration() {
+public class FailingResumableMigration : MigrationBase
+{
+    public FailingResumableMigration()
+    {
         MigrationType = MigrationType.VersionedAndResumable;
         Version = 3;
     }
@@ -321,7 +350,8 @@ public class FailingResumableMigration : MigrationBase {
     public int Attempts { get; set; }
 
 #pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
-    public override async Task RunAsync(MigrationContext context) {
+    public override async Task RunAsync(MigrationContext context)
+    {
 #pragma warning restore CS1998 // Async method lacks 'await' operators and will run synchronously
         Attempts++;
         if (Attempts <= 3)
@@ -329,18 +359,22 @@ public class FailingResumableMigration : MigrationBase {
     }
 }
 
-public class RepeatableMigration : MigrationBase {
-    public RepeatableMigration() {
+public class RepeatableMigration : MigrationBase
+{
+    public RepeatableMigration()
+    {
         MigrationType = MigrationType.Repeatable;
     }
 
-    public void SetVersion(int? version) {
+    public void SetVersion(int? version)
+    {
         Version = version;
     }
 
     public int Runs { get; set; }
 
-    public override Task RunAsync(MigrationContext context) {
+    public override Task RunAsync(MigrationContext context)
+    {
         Runs++;
         return Task.CompletedTask;
     }

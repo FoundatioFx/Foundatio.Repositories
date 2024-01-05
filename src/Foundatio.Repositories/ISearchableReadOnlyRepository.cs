@@ -4,7 +4,8 @@ using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories;
 
-public interface ISearchableReadOnlyRepository<T> : IReadOnlyRepository<T> where T : class, new() {
+public interface ISearchableReadOnlyRepository<T> : IReadOnlyRepository<T> where T : class, new()
+{
     /// <summary>
     /// Remove the results of an async query
     /// </summary>

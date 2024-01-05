@@ -11,51 +11,60 @@ using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-public sealed class CustomFieldTests : ElasticRepositoryTestBase {
+public sealed class CustomFieldTests : ElasticRepositoryTestBase
+{
     private readonly ICustomFieldDefinitionRepository _customFieldDefinitionRepository;
     private readonly IEmployeeWithCustomFieldsRepository _employeeRepository;
 
-    public CustomFieldTests(ITestOutputHelper output) : base(output) {
+    public CustomFieldTests(ITestOutputHelper output) : base(output)
+    {
         _customFieldDefinitionRepository = _configuration.CustomFieldDefinitionRepository;
         _employeeRepository = new EmployeeWithCustomFieldsRepository(_configuration);
     }
 
-    public override async Task InitializeAsync() {
+    public override async Task InitializeAsync()
+    {
         await base.InitializeAsync();
         await RemoveDataAsync();
     }
 
     [Fact]
-    public async Task WillValidate() {
-        await Assert.ThrowsAsync<DocumentValidationException>(() => _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+    public async Task WillValidate()
+    {
+        await Assert.ThrowsAsync<DocumentValidationException>(() => _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
             //EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField1",
             IndexType = "string"
         }));
 
-        await Assert.ThrowsAsync<DocumentValidationException>(() => _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+        await Assert.ThrowsAsync<DocumentValidationException>(() => _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
             EntityType = nameof(EmployeeWithCustomFields),
             //TenantKey = "1",
             Name = "MyField1",
             IndexType = "string"
         }));
 
-        await Assert.ThrowsAsync<DocumentValidationException>(() => _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+        await Assert.ThrowsAsync<DocumentValidationException>(() => _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             //Name = "MyField1",
             IndexType = "string"
         }));
 
-        await Assert.ThrowsAsync<DocumentValidationException>(() => _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+        await Assert.ThrowsAsync<DocumentValidationException>(() => _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField1",
             //IndexType = "string"
         }));
 
-        await Assert.ThrowsAsync<DocumentValidationException>(() => _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+        await Assert.ThrowsAsync<DocumentValidationException>(() => _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField1",
@@ -65,8 +74,10 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanAddNewFieldsAndReserveSlots() {
-        var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+    public async Task CanAddNewFieldsAndReserveSlots()
+    {
+        var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField1",
@@ -76,7 +87,8 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
         var mapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
         Assert.Contains(mapping.Keys, c => c == "MyField1");
 
-        customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+        customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField2",
@@ -86,7 +98,8 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
         mapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
         Assert.Contains(mapping.Keys, c => c == "MyField2");
 
-        customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+        customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField3",
@@ -98,8 +111,10 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanUseDeletedSlotAndName() {
-        var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+    public async Task CanUseDeletedSlotAndName()
+    {
+        var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField1",
@@ -109,7 +124,8 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
         var mapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
         Assert.Contains(mapping.Keys, c => c == "MyField1");
 
-        var customField2 = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+        var customField2 = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField2",
@@ -119,7 +135,8 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
         mapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
         Assert.Contains(mapping.Keys, c => c == "MyField2");
 
-        customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+        customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField3",
@@ -134,7 +151,8 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
         mapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
         Assert.DoesNotContain(mapping.Keys, c => c == "MyField2");
 
-        customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+        customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField2",
@@ -146,7 +164,8 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
 
         await _customFieldDefinitionRepository.RemoveAsync(customField2);
 
-        customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+        customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField4",
@@ -158,7 +177,8 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
 
         await _customFieldDefinitionRepository.RemoveAllAsync(q => q.FieldEquals(d => d.EntityType, nameof(EmployeeWithCustomFields)));
 
-        customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+        customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField2",
@@ -170,12 +190,15 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanAddNewFieldsAndReserveSlotsConcurrently() {
+    public async Task CanAddNewFieldsAndReserveSlotsConcurrently()
+    {
         Log.SetLogLevel<CustomFieldDefinitionRepository>(LogLevel.Trace);
 
         const int COUNT = 100;
-        await Parallel.ForEachAsync(Enumerable.Range(1, COUNT), new ParallelOptions { MaxDegreeOfParallelism = 2 }, async (index, ct) => {
-            var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+        await Parallel.ForEachAsync(Enumerable.Range(1, COUNT), new ParallelOptions { MaxDegreeOfParallelism = 2 }, async (index, ct) =>
+        {
+            var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+            {
                 EntityType = nameof(EmployeeWithCustomFields),
                 TenantKey = "1",
                 Name = "MyField" + index,
@@ -188,7 +211,8 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
 
         var usedSlots = new HashSet<int>();
         var customFields = await _customFieldDefinitionRepository.GetAllAsync(o => o.PageLimit(1000));
-        foreach (var doc in customFields.Documents) {
+        foreach (var doc in customFields.Documents)
+        {
             Assert.DoesNotContain(doc.IndexSlot, usedSlots);
             usedSlots.Add(doc.IndexSlot);
         }
@@ -197,12 +221,15 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanAddNewFieldsAndReserveSlotsConcurrentlyAcrossTenantsAndFieldTypes() {
+    public async Task CanAddNewFieldsAndReserveSlotsConcurrentlyAcrossTenantsAndFieldTypes()
+    {
         Log.SetLogLevel<CustomFieldDefinitionRepository>(LogLevel.Information);
 
         const int COUNT = 1000;
-        await Parallel.ForEachAsync(Enumerable.Range(1, COUNT), new ParallelOptions { MaxDegreeOfParallelism = 2 }, async (index, ct) => {
-            var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+        await Parallel.ForEachAsync(Enumerable.Range(1, COUNT), new ParallelOptions { MaxDegreeOfParallelism = 2 }, async (index, ct) =>
+        {
+            var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+            {
                 EntityType = nameof(EmployeeWithCustomFields),
                 TenantKey = index % 2 == 1 ? "1" : "2",
                 Name = "MyField" + index,
@@ -216,9 +243,11 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
         var customFields = await _customFieldDefinitionRepository.GetAllAsync(o => o.PageLimit(1000));
         var fieldGroups = customFields.Documents.GroupBy(cf => (cf.TenantKey, cf.IndexType));
 
-        foreach (var fieldGroup in fieldGroups) {
+        foreach (var fieldGroup in fieldGroups)
+        {
             var usedSlots = new List<int>();
-            foreach (var doc in fieldGroup) {
+            foreach (var doc in fieldGroup)
+            {
                 if (usedSlots.Contains(doc.IndexSlot))
                     throw new ApplicationException($"Found duplicate slot {doc.IndexSlot} in {doc.TenantKey}:{doc.IndexType}");
                 usedSlots.Add(doc.IndexSlot);
@@ -227,8 +256,10 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanSearchByCustomField() {
-        var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+    public async Task CanSearchByCustomField()
+    {
+        var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField1",
@@ -251,7 +282,8 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanAutoCreateUnmappedCustomField() {
+    public async Task CanAutoCreateUnmappedCustomField()
+    {
         var fieldMapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
         Assert.DoesNotContain(fieldMapping, m => m.Key == "MyField1");
 
@@ -273,8 +305,10 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanHandleWrongFieldValueType() {
-        var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition {
+    public async Task CanHandleWrongFieldValueType()
+    {
+        var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField1",
@@ -294,7 +328,8 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanUseCalculatedFieldType() {
+    public async Task CanUseCalculatedFieldType()
+    {
         await _customFieldDefinitionRepository.AddAsync(new[] {
             new CustomFieldDefinition {
                 EntityType = nameof(EmployeeWithCustomFields),

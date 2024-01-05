@@ -10,26 +10,33 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Options;
 using Nest;
 
-namespace Foundatio.Repositories {
-    public static class FieldIncludesQueryExtensions {
+namespace Foundatio.Repositories
+{
+    public static class FieldIncludesQueryExtensions
+    {
         internal const string IncludesKey = "@Includes";
-        public static T Include<T>(this T query, Field field) where T : IRepositoryQuery {
+        public static T Include<T>(this T query, Field field) where T : IRepositoryQuery
+        {
             return query.AddCollectionOptionValue(IncludesKey, field);
         }
 
-        public static T Include<T>(this T query, IEnumerable<Field> fields) where T : IRepositoryQuery {
+        public static T Include<T>(this T query, IEnumerable<Field> fields) where T : IRepositoryQuery
+        {
             return query.AddCollectionOptionValue(IncludesKey, fields);
         }
 
-        public static IRepositoryQuery Include<T>(this IRepositoryQuery query, Expression<Func<T, object>> objectPath) {
+        public static IRepositoryQuery Include<T>(this IRepositoryQuery query, Expression<Func<T, object>> objectPath)
+        {
             return query.AddCollectionOptionValue<IRepositoryQuery, Field>(IncludesKey, objectPath);
         }
 
-        public static IRepositoryQuery<T> Include<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath) where T: class {
+        public static IRepositoryQuery<T> Include<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath) where T : class
+        {
             return query.AddCollectionOptionValue<IRepositoryQuery<T>, Field>(IncludesKey, objectPath);
         }
 
-        public static IRepositoryQuery<T> Include<T>(this IRepositoryQuery<T> query, params Expression<Func<T, object>>[] objectPaths) where T : class {
+        public static IRepositoryQuery<T> Include<T>(this IRepositoryQuery<T> query, params Expression<Func<T, object>>[] objectPaths) where T : class
+        {
             foreach (var objectPath in objectPaths)
                 query.Include(objectPath);
 
@@ -37,24 +44,29 @@ namespace Foundatio.Repositories {
         }
 
         internal const string IncludesMaskKey = "@IncludesMask";
-        public static T IncludeMask<T>(this T options, string maskExpression) where T : IRepositoryQuery {
+        public static T IncludeMask<T>(this T options, string maskExpression) where T : IRepositoryQuery
+        {
             return options.BuildOption(IncludesMaskKey, maskExpression);
         }
 
         internal const string ExcludesKey = "@Excludes";
-        public static T Exclude<T>(this T query, Field field) where T : IRepositoryQuery {
+        public static T Exclude<T>(this T query, Field field) where T : IRepositoryQuery
+        {
             return query.AddCollectionOptionValue(ExcludesKey, field);
         }
 
-        public static T Exclude<T>(this T query, IEnumerable<Field> fields) where T : IRepositoryQuery {
+        public static T Exclude<T>(this T query, IEnumerable<Field> fields) where T : IRepositoryQuery
+        {
             return query.AddCollectionOptionValue(ExcludesKey, fields);
         }
 
-        public static IRepositoryQuery<T> Exclude<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath) where T : class {
+        public static IRepositoryQuery<T> Exclude<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath) where T : class
+        {
             return query.AddCollectionOptionValue<IRepositoryQuery<T>, Field>(ExcludesKey, objectPath);
         }
 
-        public static IRepositoryQuery<T> Exclude<T>(this IRepositoryQuery<T> query, params Expression<Func<T, object>>[] objectPaths) where T : class {
+        public static IRepositoryQuery<T> Exclude<T>(this IRepositoryQuery<T> query, params Expression<Func<T, object>>[] objectPaths) where T : class
+        {
             foreach (var objectPath in objectPaths)
                 query.Exclude(objectPath);
 
@@ -62,30 +74,37 @@ namespace Foundatio.Repositories {
         }
 
         internal const string ExcludesMaskKey = "@ExcludesMask";
-        public static T ExcludeMask<T>(this T options, string maskExpression) where T : IRepositoryQuery {
+        public static T ExcludeMask<T>(this T options, string maskExpression) where T : IRepositoryQuery
+        {
             return options.BuildOption(ExcludesMaskKey, maskExpression);
         }
     }
 
-    public static class FieldIncludesCommandExtensions {
+    public static class FieldIncludesCommandExtensions
+    {
         internal const string IncludesKey = "@Includes";
-        public static T Include<T>(this T options, Field field) where T : ICommandOptions {
+        public static T Include<T>(this T options, Field field) where T : ICommandOptions
+        {
             return options.AddCollectionOptionValue(IncludesKey, field);
         }
 
-        public static T Include<T>(this T options, IEnumerable<Field> fields) where T : ICommandOptions {
+        public static T Include<T>(this T options, IEnumerable<Field> fields) where T : ICommandOptions
+        {
             return options.AddCollectionOptionValue(IncludesKey, fields);
         }
 
-        public static ICommandOptions Include<T>(this ICommandOptions options, Expression<Func<T, object>> objectPath) {
+        public static ICommandOptions Include<T>(this ICommandOptions options, Expression<Func<T, object>> objectPath)
+        {
             return options.AddCollectionOptionValue<ICommandOptions, Field>(IncludesKey, objectPath);
         }
 
-        public static ICommandOptions<T> Include<T>(this ICommandOptions<T> options, Expression<Func<T, object>> objectPath) where T : class {
+        public static ICommandOptions<T> Include<T>(this ICommandOptions<T> options, Expression<Func<T, object>> objectPath) where T : class
+        {
             return options.AddCollectionOptionValue<ICommandOptions<T>, Field>(IncludesKey, objectPath);
         }
 
-        public static ICommandOptions<T> Include<T>(this ICommandOptions<T> options, params Expression<Func<T, object>>[] objectPaths) where T : class {
+        public static ICommandOptions<T> Include<T>(this ICommandOptions<T> options, params Expression<Func<T, object>>[] objectPaths) where T : class
+        {
             foreach (var objectPath in objectPaths)
                 options.Include(objectPath);
 
@@ -93,24 +112,29 @@ namespace Foundatio.Repositories {
         }
 
         internal const string IncludesMaskKey = "@IncludesMask";
-        public static T IncludeMask<T>(this T options, string maskExpression) where T : ICommandOptions {
+        public static T IncludeMask<T>(this T options, string maskExpression) where T : ICommandOptions
+        {
             return options.BuildOption(IncludesMaskKey, maskExpression);
         }
 
         internal const string ExcludesKey = "@Excludes";
-        public static T Exclude<T>(this T options, Field field) where T : ICommandOptions {
+        public static T Exclude<T>(this T options, Field field) where T : ICommandOptions
+        {
             return options.AddCollectionOptionValue(ExcludesKey, field);
         }
 
-        public static T Exclude<T>(this T options, IEnumerable<Field> fields) where T : ICommandOptions {
+        public static T Exclude<T>(this T options, IEnumerable<Field> fields) where T : ICommandOptions
+        {
             return options.AddCollectionOptionValue(ExcludesKey, fields);
         }
 
-        public static ICommandOptions<T> Exclude<T>(this ICommandOptions<T> options, Expression<Func<T, object>> objectPath) where T : class {
+        public static ICommandOptions<T> Exclude<T>(this ICommandOptions<T> options, Expression<Func<T, object>> objectPath) where T : class
+        {
             return options.AddCollectionOptionValue<ICommandOptions<T>, Field>(ExcludesKey, objectPath);
         }
 
-        public static ICommandOptions<T> Exclude<T>(this ICommandOptions<T> options, params Expression<Func<T, object>>[] objectPaths) where T : class {
+        public static ICommandOptions<T> Exclude<T>(this ICommandOptions<T> options, params Expression<Func<T, object>>[] objectPaths) where T : class
+        {
             foreach (var objectPath in objectPaths)
                 options.Exclude(objectPath);
 
@@ -118,53 +142,68 @@ namespace Foundatio.Repositories {
         }
 
         internal const string ExcludesMaskKey = "@ExcludesMask";
-        public static T ExcludeMask<T>(this T options, string maskExpression) where T : ICommandOptions {
+        public static T ExcludeMask<T>(this T options, string maskExpression) where T : ICommandOptions
+        {
             return options.BuildOption(ExcludesMaskKey, maskExpression);
         }
     }
 }
 
-namespace Foundatio.Repositories.Options {
-    public static class ReadFieldIncludesQueryExtensions {
-        public static ICollection<Field> GetIncludes(this IRepositoryQuery options) {
+namespace Foundatio.Repositories.Options
+{
+    public static class ReadFieldIncludesQueryExtensions
+    {
+        public static ICollection<Field> GetIncludes(this IRepositoryQuery options)
+        {
             return options.SafeGetCollection<Field>(FieldIncludesQueryExtensions.IncludesKey);
         }
 
-        public static string GetIncludeMask(this IRepositoryQuery options) {
+        public static string GetIncludeMask(this IRepositoryQuery options)
+        {
             return options.SafeGetOption<string>(FieldIncludesQueryExtensions.IncludesMaskKey);
         }
 
-        public static ICollection<Field> GetExcludes(this IRepositoryQuery options) {
+        public static ICollection<Field> GetExcludes(this IRepositoryQuery options)
+        {
             return options.SafeGetCollection<Field>(FieldIncludesQueryExtensions.ExcludesKey);
         }
 
-        public static string GetExcludeMask(this IRepositoryQuery options) {
+        public static string GetExcludeMask(this IRepositoryQuery options)
+        {
             return options.SafeGetOption<string>(FieldIncludesQueryExtensions.ExcludesMaskKey);
         }
     }
 
-    public static class ReadFieldIncludesCommandExtensions {
-        public static ICollection<Field> GetIncludes(this ICommandOptions options) {
+    public static class ReadFieldIncludesCommandExtensions
+    {
+        public static ICollection<Field> GetIncludes(this ICommandOptions options)
+        {
             return options.SafeGetCollection<Field>(FieldIncludesCommandExtensions.IncludesKey);
         }
 
-        public static string GetIncludeMask(this ICommandOptions options) {
+        public static string GetIncludeMask(this ICommandOptions options)
+        {
             return options.SafeGetOption<string>(FieldIncludesCommandExtensions.IncludesMaskKey);
         }
 
-        public static ICollection<Field> GetExcludes(this ICommandOptions options) {
+        public static ICollection<Field> GetExcludes(this ICommandOptions options)
+        {
             return options.SafeGetCollection<Field>(FieldIncludesCommandExtensions.ExcludesKey);
         }
 
-        public static string GetExcludeMask(this ICommandOptions options) {
+        public static string GetExcludeMask(this ICommandOptions options)
+        {
             return options.SafeGetOption<string>(FieldIncludesCommandExtensions.ExcludesMaskKey);
         }
     }
 }
 
-namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
-    public class FieldIncludesQueryBuilder : IElasticQueryBuilder {
-        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
+{
+    public class FieldIncludesQueryBuilder : IElasticQueryBuilder
+    {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
+        {
             var resolver = ctx.GetMappingResolver();
 
             // includes
@@ -172,7 +211,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders {
             var includes = new HashSet<Field>();
             includes.AddRange(ctx.Source.GetIncludes());
             includes.AddRange(ctx.Options.GetIncludes());
-            
+
             var queryIncludeMask = ctx.Source.GetIncludeMask();
             if (!String.IsNullOrEmpty(queryIncludeMask))
                 includes.AddRange(FieldIncludeParser.ParseFieldPaths(queryIncludeMask).Select(f => (Field)f));

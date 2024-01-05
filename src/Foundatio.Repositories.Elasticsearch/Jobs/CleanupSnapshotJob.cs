@@ -17,23 +17,27 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs;
 
-public class CleanupSnapshotJob : IJob {
+public class CleanupSnapshotJob : IJob
+{
     protected readonly IElasticClient _client;
     protected readonly ILockProvider _lockProvider;
     protected readonly ILogger _logger;
     private readonly ICollection<RepositoryMaxAge> _repositories = new List<RepositoryMaxAge>();
 
-    public CleanupSnapshotJob(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory) {
+    public CleanupSnapshotJob(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory)
+    {
         _client = client;
         _lockProvider = lockProvider;
         _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
     }
 
-    public void AddRepository(string name, TimeSpan maxAge) {
+    public void AddRepository(string name, TimeSpan maxAge)
+    {
         _repositories.Add(new RepositoryMaxAge { Name = name, MaxAge = maxAge });
     }
 
-    public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default) {
+    public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default)
+    {
         _logger.LogInformation("Starting snapshot cleanup...");
         if (_repositories.Count == 0)
             _repositories.Add(new RepositoryMaxAge { Name = "data", MaxAge = TimeSpan.FromDays(3) });
@@ -46,18 +50,20 @@ public class CleanupSnapshotJob : IJob {
         return JobResult.Success;
     }
 
-    private async Task DeleteOldSnapshotsAsync(string repo, TimeSpan maxAge, CancellationToken cancellationToken) {
+    private async Task DeleteOldSnapshotsAsync(string repo, TimeSpan maxAge, CancellationToken cancellationToken)
+    {
         var sw = Stopwatch.StartNew();
         var result = await _client.Snapshot.GetAsync(
             repo,
             "_all",
             d => d.RequestConfiguration(r =>
                 r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
-         sw.Stop();
+        sw.Stop();
         _logger.LogRequest(result);
 
         var snapshots = new List<SnapshotDate>();
-        if (result.IsValid && result.Snapshots != null) {
+        if (result.IsValid && result.Snapshots != null)
+        {
             snapshots = result.Snapshots?
                 .Where(r => !String.Equals(r.State, "IN_PROGRESS"))
                 .Select(r => new SnapshotDate { Name = r.Name, Date = r.EndTime })
@@ -87,8 +93,10 @@ public class CleanupSnapshotJob : IJob {
         bool shouldContinue = true;
         int batchSize = snapshotsToDelete.Count > 10 ? 25 : 1;
         int batch = 0;
-        foreach (var snapshotBatch in snapshotsToDelete.Chunk(batchSize)) {
-            if (!shouldContinue) {
+        foreach (var snapshotBatch in snapshotsToDelete.Chunk(batchSize))
+        {
+            if (!shouldContinue)
+            {
                 _logger.LogInformation("Stopped deleted snapshots");
                 break;
             }
@@ -97,24 +105,31 @@ public class CleanupSnapshotJob : IJob {
             int snapshotCount = snapshotBatch.Count();
             string snapshotNames = String.Join(",", snapshotBatch.Select(s => s.Name));
 
-            try {
+            try
+            {
                 sw.Restart();
-                await Run.WithRetriesAsync(async () => {
+                await Run.WithRetriesAsync(async () =>
+                {
                     _logger.LogInformation("Deleting {SnapshotCount} expired snapshot(s) from {Repo}: {SnapshotNames}", snapshotCount, repo, snapshotNames);
 
                     var response = await _client.Snapshot.DeleteAsync(repo, snapshotNames, r => r.RequestConfiguration(c => c.RequestTimeout(TimeSpan.FromMinutes(5))), ct: cancellationToken).AnyContext();
                     _logger.LogRequest(response);
 
-                    if (response.IsValid) {
+                    if (response.IsValid)
+                    {
                         await OnSnapshotDeleted(snapshotNames, sw.Elapsed).AnyContext();
-                    } else {
+                    }
+                    else
+                    {
                         shouldContinue = await OnSnapshotDeleteFailure(snapshotNames, sw.Elapsed, response, null).AnyContext();
                         if (shouldContinue)
                             throw response.OriginalException ?? new ApplicationException($"Failed deleting snapshot(s) \"{snapshotNames}\"");
                     }
                 }, 5, TimeSpan.Zero, cancellationToken);
                 sw.Stop();
-            } catch (Exception ex) {
+            }
+            catch (Exception ex)
+            {
                 sw.Stop();
                 shouldContinue = await OnSnapshotDeleteFailure(snapshotNames, sw.Elapsed, null, ex).AnyContext();
             }
@@ -123,28 +138,33 @@ public class CleanupSnapshotJob : IJob {
         await OnCompleted().AnyContext();
     }
 
-    public virtual Task OnSnapshotDeleted(string snapshotName, TimeSpan duration) {
+    public virtual Task OnSnapshotDeleted(string snapshotName, TimeSpan duration)
+    {
         _logger.LogInformation("Completed delete snapshot(s) {SnapshotName} in {Duration:g}", snapshotName, duration);
         return Task.CompletedTask;
     }
 
-    public virtual Task<bool> OnSnapshotDeleteFailure(string snapshotName, TimeSpan duration, DeleteSnapshotResponse response, Exception ex) {
+    public virtual Task<bool> OnSnapshotDeleteFailure(string snapshotName, TimeSpan duration, DeleteSnapshotResponse response, Exception ex)
+    {
         _logger.LogErrorRequest(ex, response, "Failed to delete snapshot(s) {SnapshotName} after {Duration:g}", snapshotName, duration);
         return Task.FromResult(true);
     }
 
-    public virtual Task OnCompleted() {
+    public virtual Task OnCompleted()
+    {
         return Task.CompletedTask;
     }
 
     [DebuggerDisplay("{Name}")]
-    private class RepositoryMaxAge {
+    private class RepositoryMaxAge
+    {
         public string Name { get; set; }
         public TimeSpan MaxAge { get; set; }
     }
 
     [DebuggerDisplay("{Name} ({Date})")]
-    private class SnapshotDate {
+    private class SnapshotDate
+    {
         public string Name { get; set; }
         public DateTime Date { get; set; }
     }

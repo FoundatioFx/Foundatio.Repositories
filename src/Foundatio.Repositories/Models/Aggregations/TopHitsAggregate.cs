@@ -4,17 +4,20 @@ using System.Linq;
 
 namespace Foundatio.Repositories.Models;
 
-public class TopHitsAggregate : MetricAggregateBase {
-	private readonly IList<ILazyDocument> _hits;
-    
-	public long Total { get; set; }
-	public double? MaxScore { get; set; }
+public class TopHitsAggregate : MetricAggregateBase
+{
+    private readonly IList<ILazyDocument> _hits;
 
-	public TopHitsAggregate(IList<ILazyDocument> hits) {
-		_hits = hits ?? new List<ILazyDocument>();
-	}
+    public long Total { get; set; }
+    public double? MaxScore { get; set; }
 
-    public IReadOnlyCollection<T> Documents<T>() where T : class {
+    public TopHitsAggregate(IList<ILazyDocument> hits)
+    {
+        _hits = hits ?? new List<ILazyDocument>();
+    }
+
+    public IReadOnlyCollection<T> Documents<T>() where T : class
+    {
         return _hits.Select(h => h.As<T>()).ToList();
     }
 }

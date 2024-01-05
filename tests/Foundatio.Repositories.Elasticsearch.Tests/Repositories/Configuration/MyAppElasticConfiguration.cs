@@ -18,8 +18,10 @@ using Newtonsoft.Json.Serialization;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 
-public class MyAppElasticConfiguration : ElasticConfiguration {
-    public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, IMessageBus messageBus, ILoggerFactory loggerFactory) : base(workItemQueue, cacheClient, messageBus, loggerFactory) {
+public class MyAppElasticConfiguration : ElasticConfiguration
+{
+    public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, IMessageBus messageBus, ILoggerFactory loggerFactory) : base(workItemQueue, cacheClient, messageBus, loggerFactory)
+    {
         AddIndex(Identities = new IdentityIndex(this));
         AddIndex(Employees = new EmployeeIndex(this));
         AddIndex(EmployeeWithCustomFields = new EmployeeWithCustomFieldsIndex(this));
@@ -31,16 +33,20 @@ public class MyAppElasticConfiguration : ElasticConfiguration {
         AddCustomFieldIndex(replicas: 0);
     }
 
-    protected override IConnectionPool CreateConnectionPool() {
+    protected override IConnectionPool CreateConnectionPool()
+    {
         string connectionString = null;
         bool fiddlerIsRunning = Process.GetProcessesByName("fiddler").Length > 0;
 
         var servers = new List<Uri>();
-        if (!String.IsNullOrEmpty(connectionString)) {
+        if (!String.IsNullOrEmpty(connectionString))
+        {
             servers.AddRange(
                 connectionString.Split(',')
                     .Select(url => new Uri(fiddlerIsRunning ? url.Replace("localhost", "ipv4.fiddler") : url)));
-        } else {
+        }
+        else
+        {
             servers.Add(new Uri($"http://{(fiddlerIsRunning ? "ipv4.fiddler" : "elastic.localtest.me")}:9200"));
             if (IsPortOpen(9201))
                 servers.Add(new Uri($"http://{(fiddlerIsRunning ? "ipv4.fiddler" : "localhost")}:9201"));
@@ -51,11 +57,13 @@ public class MyAppElasticConfiguration : ElasticConfiguration {
         return new StaticConnectionPool(servers);
     }
 
-    private static bool IsPortOpen(int port) {
+    private static bool IsPortOpen(int port)
+    {
         var ipGlobalProperties = IPGlobalProperties.GetIPGlobalProperties();
         var tcpConnInfoArray = ipGlobalProperties.GetActiveTcpListeners();
 
-        foreach (var endpoint in tcpConnInfoArray) {
+        foreach (var endpoint in tcpConnInfoArray)
+        {
             if (endpoint.Port == port)
                 return true;
         }
@@ -63,7 +71,8 @@ public class MyAppElasticConfiguration : ElasticConfiguration {
         return false;
     }
 
-    protected override IElasticClient CreateElasticClient() {
+    protected override IElasticClient CreateElasticClient()
+    {
         //var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")), sourceSerializer: (serializer, values) => new ElasticsearchJsonNetSerializer(serializer, values));
         var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")));
         settings.EnableApiVersioningHeader();
@@ -74,7 +83,8 @@ public class MyAppElasticConfiguration : ElasticConfiguration {
         return new ElasticClient(settings);
     }
 
-    protected override void ConfigureSettings(ConnectionSettings settings) {
+    protected override void ConfigureSettings(ConnectionSettings settings)
+    {
         // only do this in test and dev mode
         settings.DisableDirectStreaming().PrettyJson();
         base.ConfigureSettings(settings);

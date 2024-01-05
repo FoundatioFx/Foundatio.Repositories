@@ -1,21 +1,24 @@
 ﻿using System.Linq;
 using System.Threading.Tasks;
+using Foundatio.Parsers.ElasticQueries.Visitors;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Xunit;
+using Nest;
 using Xunit;
 using Xunit.Abstractions;
-using Foundatio.Xunit;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Foundatio.Parsers.ElasticQueries.Visitors;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-public sealed class RuntimeFieldsQueryBuilderTests : TestWithLoggingBase {
-    public RuntimeFieldsQueryBuilderTests(ITestOutputHelper output) : base(output) {
+public sealed class RuntimeFieldsQueryBuilderTests : TestWithLoggingBase
+{
+    public RuntimeFieldsQueryBuilderTests(ITestOutputHelper output) : base(output)
+    {
     }
 
     [Fact]
-    public async Task BuildAsync_MultipleFields() {
+    public async Task BuildAsync_MultipleFields()
+    {
         var queryBuilder = new RuntimeFieldsQueryBuilder();
         var query = new RepositoryQuery<Employee>();
         string runtimeField1 = "One", runtimeField2 = "Two";

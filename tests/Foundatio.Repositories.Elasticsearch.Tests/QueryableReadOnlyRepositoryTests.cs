@@ -7,20 +7,24 @@ using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-public sealed class QueryableReadOnlyRepositoryTests : ElasticRepositoryTestBase {
+public sealed class QueryableReadOnlyRepositoryTests : ElasticRepositoryTestBase
+{
     private readonly IEmployeeRepository _employeeRepository;
 
-    public QueryableReadOnlyRepositoryTests(ITestOutputHelper output) : base(output) {
+    public QueryableReadOnlyRepositoryTests(ITestOutputHelper output) : base(output)
+    {
         _employeeRepository = new EmployeeRepository(_configuration);
     }
 
-    public override async Task InitializeAsync() {
+    public override async Task InitializeAsync()
+    {
         await base.InitializeAsync();
         await RemoveDataAsync();
     }
 
     [Fact]
-    public async Task SortByNumberAsync() {
+    public async Task SortByNumberAsync()
+    {
         await _employeeRepository.AddAsync(new List<Employee> {
             EmployeeGenerator.Generate(age: 19),
             EmployeeGenerator.Generate(age: 9),
@@ -47,7 +51,8 @@ public sealed class QueryableReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task SearchByObjectWithAlias() {
+    public async Task SearchByObjectWithAlias()
+    {
         var employee = EmployeeGenerator.Generate(age: 19);
         employee.PhoneNumbers.Add(new PhoneInfo { Number = "214-222-2222" });
         await _employeeRepository.AddAsync(employee, o => o.ImmediateConsistency());
@@ -60,7 +65,8 @@ public sealed class QueryableReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task SortByTextWithKeywordFieldAsync() {
+    public async Task SortByTextWithKeywordFieldAsync()
+    {
         await _employeeRepository.AddAsync(new List<Employee> {
             EmployeeGenerator.Generate(name: "Blake"),
             EmployeeGenerator.Generate(name: "Eric"),
@@ -87,7 +93,8 @@ public sealed class QueryableReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task SearchByQueryWithIncludesAnAliases() {
+    public async Task SearchByQueryWithIncludesAnAliases()
+    {
         var employees = EmployeeGenerator.GenerateEmployees(age: 10);
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
@@ -96,7 +103,8 @@ public sealed class QueryableReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task SearchByAnalyzedTextFieldAsync() {
+    public async Task SearchByAnalyzedTextFieldAsync()
+    {
         await _employeeRepository.AddAsync(new List<Employee> {
             EmployeeGenerator.Generate(age: 19, name: "Blake Niemyjski")
         }, o => o.ImmediateConsistency());

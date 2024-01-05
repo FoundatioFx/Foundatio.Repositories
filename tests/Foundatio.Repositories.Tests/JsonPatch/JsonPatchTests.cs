@@ -7,9 +7,11 @@ using Xunit;
 
 namespace Foundatio.Repositories.Tests.JsonPatch;
 
-public class JsonPatchTests {
+public class JsonPatchTests
+{
     [Fact]
-    public void Add_an_array_element() {
+    public void Add_an_array_element()
+    {
 
         var sample = GetSample2();
 
@@ -27,7 +29,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void Add_an_array_element_to_non_existent_property() {
+    public void Add_an_array_element_to_non_existent_property()
+    {
 
         var sample = GetSample2();
 
@@ -45,7 +48,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void Remove_array_item_by_matching() {
+    public void Remove_array_item_by_matching()
+    {
 
         var sample = JToken.Parse(@"{
     'books': [
@@ -77,7 +81,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void Remove_array_item_by_value() {
+    public void Remove_array_item_by_value()
+    {
 
         var sample = JToken.Parse(@"{ 'tags': [ 'tag1', 'tag2', 'tag3' ] }");
 
@@ -112,7 +117,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void Add_an_non_existing_member_property() {
+    public void Add_an_non_existing_member_property()
+    {
         var sample = GetSample2();
 
         var patchDocument = new PatchDocument();
@@ -128,7 +134,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void Copy_array_element() {
+    public void Copy_array_element()
+    {
         var sample = GetSample2();
 
         var patchDocument = new PatchDocument();
@@ -145,7 +152,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void Copy_property() {
+    public void Copy_property()
+    {
         var sample = GetSample2();
 
         var patchDocument = new PatchDocument();
@@ -163,7 +171,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void Move_property() {
+    public void Move_property()
+    {
         var sample = GetSample2();
 
         var patchDocument = new PatchDocument();
@@ -180,7 +189,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void Move_array_element() {
+    public void Move_array_element()
+    {
         var sample = GetSample2();
 
         var patchDocument = new PatchDocument();
@@ -197,7 +207,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void CreateEmptyPatch() {
+    public void CreateEmptyPatch()
+    {
         var sample = GetSample2();
         string sampletext = sample.ToString();
 
@@ -208,7 +219,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void TestExample1() {
+    public void TestExample1()
+    {
         var targetDoc = JToken.Parse("{ 'foo': 'bar'}");
         var patchDoc = PatchDocument.Parse(@"[
                                                     { 'op': 'add', 'path': '/baz', 'value': 'qux' }
@@ -222,7 +234,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void SerializePatchDocument() {
+    public void SerializePatchDocument()
+    {
         var patchDoc = new PatchDocument(
             new TestOperation { Path = "/a/b/c", Value = new JValue("foo") },
             new RemoveOperation { Path = "/a/b/c" },
@@ -246,7 +259,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void Remove_a_property() {
+    public void Remove_a_property()
+    {
         var sample = GetSample2();
 
         var patchDocument = new PatchDocument();
@@ -260,7 +274,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void Remove_an_array_element() {
+    public void Remove_an_array_element()
+    {
         var sample = GetSample2();
 
         var patchDocument = new PatchDocument();
@@ -275,7 +290,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void Remove_an_array_element_with_numbered_custom_fields() {
+    public void Remove_an_array_element_with_numbered_custom_fields()
+    {
         var sample = JToken.Parse(@"{
     'data': {
         '2017PropertyOne' : '2017 property one value',
@@ -301,7 +317,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void Replace_a_property_value_with_a_new_value() {
+    public void Replace_a_property_value_with_a_new_value()
+    {
         var sample = GetSample2();
 
         var patchDocument = new PatchDocument();
@@ -315,7 +332,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void Replace_non_existant_property() {
+    public void Replace_non_existant_property()
+    {
         var sample = JToken.Parse(@"{ ""data"": {} }");
 
         var patchDocument = new PatchDocument();
@@ -362,7 +380,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void Replace_a_property_value_with_an_object() {
+    public void Replace_a_property_value_with_an_object()
+    {
         var sample = GetSample2();
 
         var patchDocument = new PatchDocument();
@@ -377,7 +396,8 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void Replace_multiple_property_values_with_jsonpath() {
+    public void Replace_multiple_property_values_with_jsonpath()
+    {
 
         var sample = JToken.Parse(@"{
     'books': [
@@ -411,19 +431,21 @@ public class JsonPatchTests {
     }
 
     [Fact]
-    public void SyncValuesWithRemovesAndReplaces() {
+    public void SyncValuesWithRemovesAndReplaces()
+    {
         const string operations = "[{\"op\":\"remove\",\"path\":\"/data/Address/full_address\"},{\"op\":\"remove\",\"path\":\"/data/Address/longitude\"},{\"op\":\"remove\",\"path\":\"/data/Address/latitude\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo_locality\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo_level2\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo_level1\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo_country\"},{\"op\":\"remove\",\"path\":\"/data/Address/normalized_geo_hash\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo_hash\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo\"},{\"op\":\"replace\",\"path\":\"/data/Address/country\",\"value\":\"US\"},{\"op\":\"replace\",\"path\":\"/data/Address/postal_code\",\"value\":\"54173\"},{\"op\":\"replace\",\"path\":\"/data/Address/state\",\"value\":\"Wi\"},{\"op\":\"replace\",\"path\":\"/data/Address/city\",\"value\":\"Suamico\"},{\"op\":\"remove\",\"path\":\"/data/Address/address2\"},{\"op\":\"replace\",\"path\":\"/data/Address/address1\",\"value\":\"100 Main Street\"}]";
-        
+
         var patchDocument = JsonConvert.DeserializeObject<PatchDocument>(operations);
         var token = JToken.Parse("{ \"data\": { \"Address\": { \"address1\": null, \"address2\": null, \"city\": \"e\", \"state\": null, \"postal_code\": null, \"country\": null, \"geo\": null, \"geo_hash\": null, \"normalized_geo_hash\": null, \"geo_country\": null, \"geo_level1\": null, \"geo_level2\": null, \"geo_locality\": null, \"latitude\": null, \"longitude\": null, \"full_address\": null } } }");
-        
+
         new JsonPatcher().Patch(ref token, patchDocument);
-        
+
         Assert.Equal("{\"data\":{\"Address\":{\"address1\":\"100 Main Street\",\"city\":\"Suamico\",\"state\":\"Wi\",\"postal_code\":\"54173\",\"country\":\"US\"}}}", token.ToString(Formatting.None));
     }
 
     [Fact]
-    public void Test_a_value() {
+    public void Test_a_value()
+    {
         var sample = GetSample2();
 
         var patchDocument = new PatchDocument();
@@ -431,14 +453,16 @@ public class JsonPatchTests {
 
         patchDocument.AddOperation(new TestOperation { Path = pointer, Value = new JValue("Billy Burton") });
 
-        Assert.Throws<InvalidOperationException>(() => {
+        Assert.Throws<InvalidOperationException>(() =>
+        {
             var patcher = new JsonPatcher();
             patcher.Patch(ref sample, patchDocument);
         });
     }
-    
+
     [Fact]
-    public void Can_replace_existing_boolean() {
+    public void Can_replace_existing_boolean()
+    {
         var sample = JToken.FromObject(new MyConfigClass { RequiresConfiguration = true });
 
         var patchDocument = new PatchDocument();
@@ -446,11 +470,12 @@ public class JsonPatchTests {
 
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
-        
+
         Assert.False(sample.ToObject<MyConfigClass>().RequiresConfiguration);
     }
 
-    public static JToken GetSample2() {
+    public static JToken GetSample2()
+    {
         return JToken.Parse(@"{
     'books': [
         {
@@ -466,6 +491,7 @@ public class JsonPatchTests {
     }
 }
 
-public class MyConfigClass {
+public class MyConfigClass
+{
     public bool RequiresConfiguration { get; set; }
 }

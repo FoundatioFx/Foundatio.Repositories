@@ -3,15 +3,16 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Foundatio.Caching;
 using Foundatio.Messaging;
-using Nest;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Parsers.ElasticQueries;
-using Microsoft.Extensions.Logging;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Microsoft.Extensions.Logging;
+using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
-public interface IElasticConfiguration : IDisposable {
+public interface IElasticConfiguration : IDisposable
+{
     IElasticClient Client { get; }
     ICacheClient Cache { get; }
     IMessageBus MessageBus { get; }

@@ -2,10 +2,12 @@
 
 namespace Foundatio.Repositories.Models;
 
-public interface IHaveDates : IHaveCreatedDate {
+public interface IHaveDates : IHaveCreatedDate
+{
     DateTime UpdatedUtc { get; set; }
 }
 
-public interface IHaveCreatedDate {
+public interface IHaveCreatedDate
+{
     DateTime CreatedUtc { get; set; }
 }

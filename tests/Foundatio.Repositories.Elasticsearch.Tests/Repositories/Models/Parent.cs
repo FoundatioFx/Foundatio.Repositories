@@ -5,7 +5,8 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 
-public class Parent : IParentChildDocument, IHaveDates, ISupportSoftDeletes {
+public class Parent : IParentChildDocument, IHaveDates, ISupportSoftDeletes
+{
     public string Id { get; set; }
     string IParentChildDocument.ParentId { get; set; }
     JoinField IParentChildDocument.Discriminator { get; set; }
@@ -15,12 +16,14 @@ public class Parent : IParentChildDocument, IHaveDates, ISupportSoftDeletes {
     public bool IsDeleted { get; set; }
 }
 
-public static class ParentGenerator {
+public static class ParentGenerator
+{
     public static readonly string DefaultId = ObjectId.GenerateNewId().ToString();
 
     public static Parent Default => new() { Id = DefaultId };
 
-    public static Parent Generate(string id = null) {
+    public static Parent Generate(string id = null)
+    {
         return new Parent { Id = id };
     }
 }

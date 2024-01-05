@@ -1,32 +1,36 @@
-﻿using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
-using System;
+﻿using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
+using Foundatio.Parsers.LuceneQueries;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Utility;
 using Xunit;
 using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
-using Foundatio.Parsers.LuceneQueries;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-public sealed class QueryTests : ElasticRepositoryTestBase {
+public sealed class QueryTests : ElasticRepositoryTestBase
+{
     private readonly ILogEventRepository _dailyRepository;
     private readonly IEmployeeRepository _employeeRepository;
 
-    public QueryTests(ITestOutputHelper output) : base(output) {
+    public QueryTests(ITestOutputHelper output) : base(output)
+    {
         _dailyRepository = new DailyLogEventRepository(_configuration);
         _employeeRepository = new EmployeeRepository(_configuration);
     }
 
-    public override async Task InitializeAsync() {
+    public override async Task InitializeAsync()
+    {
         await base.InitializeAsync();
         await RemoveDataAsync();
     }
 
     [Fact]
-    public async Task GetByAgeAsync() {
+    public async Task GetByAgeAsync()
+    {
         var employee19 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19), o => o.ImmediateConsistency());
         var employee20 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
 
@@ -40,7 +44,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task GetByCompanyAsync() {
+    public async Task GetByCompanyAsync()
+    {
         Log.MinimumLevel = LogLevel.Trace;
 
         var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId), o => o.ImmediateConsistency());
@@ -63,7 +68,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
         Assert.Equal(1, await _employeeRepository.GetCountByCompanyAsync(employee1.CompanyId));
         await _employeeRepository.RemoveAsync(employee1, o => o.Cache().ImmediateConsistency());
 
-        var result = await  _employeeRepository.FindAsync(q => q.FieldEquals(e => e.Age, 12));
+        var result = await _employeeRepository.FindAsync(q => q.FieldEquals(e => e.Age, 12));
         Assert.Empty(result.Documents);
 
         result = await _employeeRepository.FindAsync(q => q.FieldEquals(e => e.Name, "Eric J. Smith"));
@@ -86,9 +91,9 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
 
         var query = new RepositoryQuery<Employee>();
         query.FieldEquals(e => e.Age, 12);
-        result = await  _employeeRepository.FindAsync(q => query);
+        result = await _employeeRepository.FindAsync(q => query);
         Assert.Empty(result.Documents);
-        
+
         Assert.Equal(1, await _employeeRepository.CountAsync());
         Assert.Equal(0, await _employeeRepository.GetCountByCompanyAsync(employee1.CompanyId));
 
@@ -120,7 +125,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task GetByMissingFieldAsync() {
+    public async Task GetByMissingFieldAsync()
+    {
         var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: EmployeeGenerator.DefaultCompanyId), o => o.ImmediateConsistency());
         var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyName: "Acme", name: "blake", companyId: EmployeeGenerator.DefaultCompanyId), o => o.ImmediateConsistency());
 
@@ -134,16 +140,17 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task GetByCompanyWithIncludedFields() {
+    public async Task GetByCompanyWithIncludedFields()
+    {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
         Assert.NotNull(log?.Id);
 
         var results = await _dailyRepository.FindAsync(q => q.Company(log.CompanyId));
-        Assert.Equal(1, results.Documents.Count);
+        Assert.Single(results.Documents);
         Assert.Equal(log, results.Documents.First());
-        
+
         results = await _dailyRepository.FindAsync(q => q.Company(log.CompanyId).Include(e => e.Id).Include(l => l.CreatedUtc));
-        Assert.Equal(1, results.Documents.Count);
+        Assert.Single(results.Documents);
         var companyLog = results.Documents.First();
         Assert.Equal(log.Id, companyLog.Id);
         Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
@@ -152,16 +159,17 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task GetByCompanyWithIncludeMask() {
+    public async Task GetByCompanyWithIncludeMask()
+    {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
         Assert.NotNull(log?.Id);
 
         var results = await _dailyRepository.FindAsync(q => q.Company(log.CompanyId));
-        Assert.Equal(1, results.Documents.Count);
+        Assert.Single(results.Documents);
         Assert.Equal(log, results.Documents.First());
 
         results = await _dailyRepository.FindAsync(q => q.Company(log.CompanyId).IncludeMask("iD,Createdutc"), o => o.QueryLogLevel(LogLevel.Warning));
-        Assert.Equal(1, results.Documents.Count);
+        Assert.Single(results.Documents);
         var companyLog = results.Documents.First();
         Assert.Equal(log.Id, companyLog.Id);
         Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
@@ -170,12 +178,13 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanHandleIncludeWithWrongCasing() {
+    public async Task CanHandleIncludeWithWrongCasing()
+    {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", stuff: "stuff"), o => o.ImmediateConsistency());
         Assert.NotNull(log?.Id);
 
         var results = await _dailyRepository.FindAsync(q => q.IncludeMask("meTa(sTuFf)  ,  CreaTedUtc"), o => o.Include(e => e.Id).QueryLogLevel(LogLevel.Warning));
-        Assert.Equal(1, results.Documents.Count);
+        Assert.Single(results.Documents);
         var companyLog = results.Documents.First();
         Assert.Equal(log.Id, companyLog.Id);
         Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
@@ -183,7 +192,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
         Assert.Null(companyLog.CompanyId);
 
         results = await _dailyRepository.FindAsync(q => q.Include(e => e.Id).Include("createdUtc"), o => o.QueryLogLevel(LogLevel.Warning));
-        Assert.Equal(1, results.Documents.Count);
+        Assert.Single(results.Documents);
         companyLog = results.Documents.First();
         Assert.Equal(log.Id, companyLog.Id);
         Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
@@ -192,30 +201,32 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanHandleExcludeWithWrongCasing() {
+    public async Task CanHandleExcludeWithWrongCasing()
+    {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
         Assert.NotNull(log?.Id);
 
         var results = await _dailyRepository.FindAsync(q => q.Exclude("CreatedUtc"));
-        Assert.Equal(1, results.Documents.Count);
+        Assert.Single(results.Documents);
         var companyLog = results.Documents.First();
         Assert.Equal(log.Id, companyLog.Id);
         Assert.NotEqual(log.CreatedUtc, companyLog.CreatedUtc);
 
         results = await _dailyRepository.FindAsync(q => q.Exclude("createdUtc"));
-        Assert.Equal(1, results.Documents.Count);
+        Assert.Single(results.Documents);
         companyLog = results.Documents.First();
         Assert.Equal(log.Id, companyLog.Id);
         Assert.NotEqual(log.CreatedUtc, companyLog.CreatedUtc);
     }
 
     [Fact]
-    public async Task CanHandleIncludeAndExclude() {
+    public async Task CanHandleIncludeAndExclude()
+    {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", stuff: "stuff"), o => o.ImmediateConsistency());
         Assert.NotNull(log?.Id);
 
         var results = await _dailyRepository.FindAsync(q => q.Exclude(e => e.Date).Include(e => e.Id).Include("createdUtc"), o => o.QueryLogLevel(LogLevel.Warning));
-        Assert.Equal(1, results.Documents.Count);
+        Assert.Single(results.Documents);
         var companyLog = results.Documents.First();
         Assert.Equal(log.Id, companyLog.Id);
         Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
@@ -225,56 +236,59 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task GetByCompanyWithExcludeMask() {
+    public async Task GetByCompanyWithExcludeMask()
+    {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
         Assert.NotNull(log?.Id);
 
         var results = await _dailyRepository.FindAsync(q => q.ExcludeMask("CREATEDUtc"), o => o.ExcludeMask("MessAge").QueryLogLevel(LogLevel.Warning));
-        Assert.Equal(1, results.Documents.Count);
+        Assert.Single(results.Documents);
         var companyLog = results.Documents.First();
         Assert.Equal(log.Id, companyLog.Id);
         Assert.NotEqual(log.CreatedUtc, companyLog.CreatedUtc);
 
         results = await _dailyRepository.FindAsync(q => q.Company(log.CompanyId).ExcludeMask("Createdutc"), o => o.QueryLogLevel(LogLevel.Warning));
-        Assert.Equal(1, results.Documents.Count);
+        Assert.Single(results.Documents);
         companyLog = results.Documents.First();
         Assert.Equal(log.Id, companyLog.Id);
         Assert.NotEqual(log.CreatedUtc, companyLog.CreatedUtc);
     }
 
     [Fact]
-    public async Task GetByCreatedDate() {
+    public async Task GetByCreatedDate()
+    {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", createdUtc: SystemClock.UtcNow), o => o.ImmediateConsistency());
         Assert.NotNull(log?.Id);
 
         var results = await _dailyRepository.GetByDateRange(SystemClock.UtcNow.SubtractDays(1), SystemClock.UtcNow.AddDays(1));
         Assert.Equal(log, results.Documents.Single());
-        
+
         results = await _dailyRepository.GetByDateRange(SystemClock.UtcNow.SubtractDays(1), DateTime.MaxValue);
         Assert.Equal(log, results.Documents.Single());
-        
+
         results = await _dailyRepository.GetByDateRange(DateTime.MinValue, SystemClock.UtcNow.AddDays(1));
         Assert.Equal(log, results.Documents.Single());
-        
+
         results = await _dailyRepository.GetByDateRange(DateTime.MinValue, DateTime.MaxValue);
         Assert.Equal(log, results.Documents.Single());
-        
+
         results = await _dailyRepository.GetByDateRange(SystemClock.UtcNow.AddDays(1), DateTime.MaxValue);
         Assert.Empty(results.Documents);
     }
 
     [Fact]
-    public async Task GetAgeByFilter() {
+    public async Task GetAgeByFilter()
+    {
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId), o => o.ImmediateConsistency());
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
 
         var results = await _employeeRepository.FindAsync(q => q.FilterExpression("age:19"));
         Assert.Equal(1, results.Total);
         Assert.True(results.Documents.All(d => d.Age == 19));
-        
+
         results = await _employeeRepository.FindAsync(q => q.FilterExpression("age:>18 AND age:<=19"));
         Assert.Equal(1, results.Total);
-        
+
         results = await _employeeRepository.FindAsync(q => q.FilterExpression("age:[18..19]"));
         Assert.Equal(1, results.Total);
 
@@ -284,7 +298,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
 
         results = await _employeeRepository.FindAsync(q => q.FilterExpression("age:<19"));
         Assert.Equal(0, results.Total);
-        
+
         results = await _employeeRepository.FindAsync(q => q.FilterExpression("_missing_:age"));
         Assert.Equal(0, results.Total);
 
@@ -293,7 +307,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task GetWithNoField() {
+    public async Task GetWithNoField()
+    {
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId, name: "Blake Niemyjski"), o => o.ImmediateConsistency());
 
         var results = await _employeeRepository.FindAsync(q => q.FilterExpression("blake"));
@@ -305,7 +320,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
     /// Name field is Analyzed
     /// </summary>
     [Fact]
-    public async Task GetNameByFilter() {
+    public async Task GetNameByFilter()
+    {
         var employeeEric = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith"), o => o.ImmediateConsistency());
         var employeeBlake = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake Niemyjski"), o => o.ImmediateConsistency());
 
@@ -324,7 +340,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
         Assert.Equal(1, results.Total);
         Assert.True(results.Documents.All(d => d.Name == employeeEric.Name));
 
-        await Assert.ThrowsAsync<QueryValidationException>(async () => {
+        await Assert.ThrowsAsync<QueryValidationException>(async () =>
+        {
             await _employeeRepository.FindAsync(q => q.SearchExpression("name:"));
         });
 
@@ -337,7 +354,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
     /// Company field is NotAnalyzed
     /// </summary>
     [Fact]
-    public async Task GetCompanyByFilter() {
+    public async Task GetCompanyByFilter()
+    {
         var employeeEric = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith", companyName: "Exceptionless Test Company"), o => o.ImmediateConsistency());
         var employeeBlake = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake Niemyjski", companyName: "Exceptionless"), o => o.ImmediateConsistency());
 
@@ -354,13 +372,15 @@ public sealed class QueryTests : ElasticRepositoryTestBase {
         results = await _employeeRepository.FindAsync(q => q.SearchExpression("companyName:e*"));
         Assert.Equal(0, results.Total);
 
-        await Assert.ThrowsAsync<QueryValidationException>(async () => {
+        await Assert.ThrowsAsync<QueryValidationException>(async () =>
+        {
             await _employeeRepository.FindAsync(q => q.SearchExpression("companyName:"));
         });
     }
 
     [Fact]
-    public async Task GetByEmailAddressFilter() {
+    public async Task GetByEmailAddressFilter()
+    {
         var findResult = await _employeeRepository.GetByEmailAddressAsync(EmployeeGenerator.Default.EmailAddress);
         Assert.Null(findResult);
         Assert.Equal(1, _cache.Writes);

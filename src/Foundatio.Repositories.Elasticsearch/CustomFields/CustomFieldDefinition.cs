@@ -5,7 +5,8 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
-public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes, IHaveData {
+public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes, IHaveData
+{
     public string Id { get; set; }
 
     /// <summary>
@@ -57,7 +58,7 @@ public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes,
     /// type in order to keep dynamic indexes in Elasticsearch from exploding.
     /// </summary>
     public int IndexSlot { get; set; }
-    
+
     /// <summary>
     /// Any additional custom data that needs to be associated to this custom field.
     /// </summary>
@@ -79,7 +80,8 @@ public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes,
     public bool IsDeleted { get; set; }
 
     private string _idxName = null;
-    public string GetIdxName() {
+    public string GetIdxName()
+    {
         if (_idxName == null)
             _idxName = $"{IndexType}-{IndexSlot}";
 
@@ -87,12 +89,14 @@ public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes,
     }
 }
 
-public enum CustomFieldProcessMode {
+public enum CustomFieldProcessMode
+{
     ProcessOnValue,
     AlwaysProcess
 }
 
-public interface IHaveVirtualCustomFields {
+public interface IHaveVirtualCustomFields
+{
     IDictionary<string, object> GetCustomFields();
     object GetCustomField(string name);
     void SetCustomField(string name, object value);
@@ -101,7 +105,8 @@ public interface IHaveVirtualCustomFields {
     string GetTenantKey();
 }
 
-public interface IHaveCustomFields : IHaveData {
+public interface IHaveCustomFields : IHaveData
+{
     IDictionary<string, object> Idx { get; }
     string GetTenantKey();
 }

@@ -4,7 +4,8 @@ using System.Diagnostics;
 namespace Foundatio.Repositories.Models;
 
 [DebuggerDisplay("Total: {Total}")]
-public class SingleBucketAggregate : BucketAggregateBase {
+public class SingleBucketAggregate : BucketAggregateBase
+{
     public SingleBucketAggregate() { }
     public SingleBucketAggregate(IReadOnlyDictionary<string, IAggregate> aggregations) : base(aggregations) { }
 

@@ -5,17 +5,20 @@ using Nest;
 
 namespace Foundatio.SampleApp.Server.Repositories.Indexes;
 
-public sealed class GameReviewIndex : VersionedIndex<GameReview> {
-    public GameReviewIndex(IElasticConfiguration configuration) : base(configuration, "gamereview", version: 1) {}
+public sealed class GameReviewIndex : VersionedIndex<GameReview>
+{
+    public GameReviewIndex(IElasticConfiguration configuration) : base(configuration, "gamereview", version: 1) { }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    {
         return base.ConfigureIndex(idx.Settings(s => s
             .Analysis(a => a.AddSortNormalizer())
             .NumberOfReplicas(0)
             .NumberOfShards(1)));
     }
 
-    public override TypeMappingDescriptor<GameReview> ConfigureIndexMapping(TypeMappingDescriptor<GameReview> map) {
+    public override TypeMappingDescriptor<GameReview> ConfigureIndexMapping(TypeMappingDescriptor<GameReview> map)
+    {
         // adding new fields will automatically update the index mapping
         // changing existing fields requires a new index version and a reindex
         return map

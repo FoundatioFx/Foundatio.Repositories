@@ -1,7 +1,9 @@
 ﻿namespace Foundatio.Repositories;
 
-public static class RepositoryQueryDescriptorExtensions {
-    public static IRepositoryQuery<T> Configure<T>(this RepositoryQueryDescriptor<T> configure) where T : class {
+public static class RepositoryQueryDescriptorExtensions
+{
+    public static IRepositoryQuery<T> Configure<T>(this RepositoryQueryDescriptor<T> configure) where T : class
+    {
         IRepositoryQuery<T> o = new RepositoryQuery<T>();
         if (configure != null)
             o = configure(o);
@@ -9,7 +11,8 @@ public static class RepositoryQueryDescriptorExtensions {
         return o;
     }
 
-    public static IRepositoryQuery Configure(this RepositoryQueryDescriptor configure) {
+    public static IRepositoryQuery Configure(this RepositoryQueryDescriptor configure)
+    {
         IRepositoryQuery o = new RepositoryQuery();
         if (configure != null)
             o = configure(o);

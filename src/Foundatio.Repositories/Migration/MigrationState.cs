@@ -3,7 +3,8 @@ using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Migrations;
 
-public class MigrationState : IIdentity {
+public class MigrationState : IIdentity
+{
     public string Id { get; set; }
     public MigrationType MigrationType { get; set; }
     public int Version { get; set; }

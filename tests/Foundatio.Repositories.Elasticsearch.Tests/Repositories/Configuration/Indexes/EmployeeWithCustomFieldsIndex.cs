@@ -2,29 +2,32 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Foundatio.Parsers;
+using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Nest;
-using Foundatio.Parsers.ElasticQueries;
-using Foundatio.Parsers;
-using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Serializer;
 using Microsoft.Extensions.Logging.Abstractions;
+using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 
-public sealed class EmployeeWithCustomFieldsIndex : VersionedIndex<EmployeeWithCustomFields> {
-    public EmployeeWithCustomFieldsIndex(IElasticConfiguration configuration): base(configuration, "employees-customfields") {
+public sealed class EmployeeWithCustomFieldsIndex : VersionedIndex<EmployeeWithCustomFields>
+{
+    public EmployeeWithCustomFieldsIndex(IElasticConfiguration configuration) : base(configuration, "employees-customfields")
+    {
         AddStandardCustomFieldTypes();
 
         // overrides the normal integer field type with one that supports expressions to calculate values
         AddCustomFieldType(new CalculatedIntegerFieldType(new ScriptService(new SystemTextJsonSerializer(), NullLogger<ScriptService>.Instance)));
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    {
         return base.ConfigureIndex(idx.Settings(s => s
             .Setting("index.mapping.ignore_malformed", "true")
             .NumberOfReplicas(0)
@@ -32,7 +35,8 @@ public sealed class EmployeeWithCustomFieldsIndex : VersionedIndex<EmployeeWithC
             .Analysis(a => a.AddSortNormalizer())));
     }
 
-    public override TypeMappingDescriptor<EmployeeWithCustomFields> ConfigureIndexMapping(TypeMappingDescriptor<EmployeeWithCustomFields> map) {
+    public override TypeMappingDescriptor<EmployeeWithCustomFields> ConfigureIndexMapping(TypeMappingDescriptor<EmployeeWithCustomFields> map)
+    {
         return map
             .Dynamic(false)
             .Properties(p => p
@@ -65,28 +69,32 @@ public sealed class EmployeeWithCustomFieldsIndex : VersionedIndex<EmployeeWithC
                 );
     }
 
-    protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
+    protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder)
+    {
         builder.Register<AgeQueryBuilder>();
         builder.Register<CompanyQueryBuilder>();
         builder.Register<EmailAddressQueryBuilder>();
     }
 
-    protected override void ConfigureQueryParser(ElasticQueryParserConfiguration config) {
+    protected override void ConfigureQueryParser(ElasticQueryParserConfiguration config)
+    {
         base.ConfigureQueryParser(config);
         config.UseIncludes(ResolveIncludeAsync).UseOptInRuntimeFieldResolver(ResolveRuntimeFieldAsync);
     }
 
-    private async Task<string> ResolveIncludeAsync(string name) {
+    private async Task<string> ResolveIncludeAsync(string name)
+    {
         await Task.Delay(100);
         return "aliasedage:10";
     }
 
-    private async Task<ElasticRuntimeField> ResolveRuntimeFieldAsync(string name) {
+    private async Task<ElasticRuntimeField> ResolveRuntimeFieldAsync(string name)
+    {
         await Task.Delay(100);
 
         if (name.Equals("unmappedEmailAddress", StringComparison.OrdinalIgnoreCase))
             return new ElasticRuntimeField { Name = "unmappedEmailAddress" };
-        
+
         return null;
     }
 }

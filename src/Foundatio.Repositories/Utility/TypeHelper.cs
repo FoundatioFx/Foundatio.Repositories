@@ -4,13 +4,19 @@ using System.Reflection;
 
 namespace Foundatio.Repositories.Utility;
 
-public static class TypeHelper {
-    public static T ToType<T>(object value) {
+public static class TypeHelper
+{
+    public static T ToType<T>(object value)
+    {
         Type targetType = typeof(T);
-        if (value == null) {
-            try {
+        if (value == null)
+        {
+            try
+            {
                 return (T)Convert.ChangeType(value, targetType);
-            } catch {
+            }
+            catch
+            {
                 throw new ArgumentNullException(nameof(value));
             }
         }
@@ -22,9 +28,11 @@ public static class TypeHelper {
             return (T)value;
 
         TypeInfo targetTypeInfo = targetType.GetTypeInfo();
-        if (targetTypeInfo.IsEnum && (value is string || valueType.GetTypeInfo().IsEnum)) {
+        if (targetTypeInfo.IsEnum && (value is string || valueType.GetTypeInfo().IsEnum))
+        {
             // attempt to match enum by name.
-            if (TryEnumIsDefined<T>(targetType, value.ToString())) {
+            if (TryEnumIsDefined<T>(targetType, value.ToString()))
+            {
                 object parsedValue = Enum.Parse(targetType, value.ToString(), false);
                 return (T)parsedValue;
             }
@@ -36,32 +44,40 @@ public static class TypeHelper {
         if (targetTypeInfo.IsEnum && IsNumeric(valueType))
             return (T)Enum.ToObject(targetType, value);
 
-        if (converter.CanConvertFrom(valueType)) {
+        if (converter.CanConvertFrom(valueType))
+        {
             object convertedValue = converter.ConvertFrom(value);
             return (T)convertedValue;
         }
 
         if (!(value is IConvertible))
             throw new ArgumentException($"An incompatible value specified.  Target Type: {targetType.FullName} Value Type: {value.GetType().FullName}", nameof(value));
-        try {
+        try
+        {
             object convertedValue = Convert.ChangeType(value, targetType);
             return (T)convertedValue;
-        } catch (Exception e) {
+        }
+        catch (Exception e)
+        {
             throw new ArgumentException($"An incompatible value specified.  Target Type: {targetType.FullName} Value Type: {value.GetType().FullName}", nameof(value), e);
         }
     }
 
-    private static bool TryEnumIsDefined<T>(Type type, object value) {
+    private static bool TryEnumIsDefined<T>(Type type, object value)
+    {
         // Catch any casting errors that can occur or if 0 is not defined as a default value.
-        try {
+        try
+        {
             if (value is T && Enum.IsDefined(type, (T)value))
                 return true;
-        } catch (Exception) { }
+        }
+        catch (Exception) { }
 
         return false;
     }
 
-    private static bool IsNumeric(Type type) {
+    private static bool IsNumeric(Type type)
+    {
         if (type.IsArray)
             return false;
 
@@ -78,7 +94,8 @@ public static class TypeHelper {
             type == UInt64Type)
             return true;
 
-        switch (Type.GetTypeCode(type)) {
+        switch (Type.GetTypeCode(type))
+        {
             case TypeCode.Byte:
             case TypeCode.Decimal:
             case TypeCode.Double:

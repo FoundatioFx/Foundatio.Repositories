@@ -2,10 +2,12 @@
 
 namespace Foundatio.Repositories.Exceptions;
 
-public class DocumentNotFoundException : DocumentException {
+public class DocumentNotFoundException : DocumentException
+{
     public DocumentNotFoundException() { }
 
-    public DocumentNotFoundException(string id) : base($"Document \"{id}\" could not be found") {
+    public DocumentNotFoundException(string id) : base($"Document \"{id}\" could not be found")
+    {
         Id = id;
     }
 

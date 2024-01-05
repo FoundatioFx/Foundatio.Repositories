@@ -6,10 +6,13 @@ using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Utility;
 
-public class JsonPatcher : AbstractPatcher<JToken> {
-    protected override JToken Replace(ReplaceOperation operation, JToken target) {
+public class JsonPatcher : AbstractPatcher<JToken>
+{
+    protected override JToken Replace(ReplaceOperation operation, JToken target)
+    {
         var tokens = target.SelectPatchTokens(operation.Path).ToList();
-        if (tokens.Count == 0) {
+        if (tokens.Count == 0)
+        {
             string[] parts = operation.Path.Split('/');
             string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
             string propertyName = parts.LastOrDefault();
@@ -22,7 +25,8 @@ public class JsonPatcher : AbstractPatcher<JToken> {
             return target;
         }
 
-        foreach (var token in tokens) {
+        foreach (var token in tokens)
+        {
             if (token.Parent != null)
                 token.Replace(operation.Value);
             else // root object
@@ -32,19 +36,25 @@ public class JsonPatcher : AbstractPatcher<JToken> {
         return target;
     }
 
-    protected override void Add(AddOperation operation, JToken target) {
+    protected override void Add(AddOperation operation, JToken target)
+    {
         string[] parts = operation.Path.Split('/');
         string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
         string propertyName = parts.LastOrDefault();
 
-        if (propertyName == "-") {
+        if (propertyName == "-")
+        {
             var array = target.SelectOrCreatePatchArrayToken(parentPath) as JArray;
             array?.Add(operation.Value);
-        } else if (propertyName.IsNumeric()) {
+        }
+        else if (propertyName.IsNumeric())
+        {
             var array = target.SelectOrCreatePatchArrayToken(parentPath) as JArray;
             if (Int32.TryParse(propertyName, out int index))
                 array?.Insert(index, operation.Value);
-        } else {
+        }
+        else
+        {
             var parent = target.SelectOrCreatePatchToken(parentPath) as JObject;
             var property = parent?.Property(propertyName);
             if (property == null)
@@ -54,21 +64,27 @@ public class JsonPatcher : AbstractPatcher<JToken> {
         }
     }
 
-    protected override void Remove(RemoveOperation operation, JToken target) {
+    protected override void Remove(RemoveOperation operation, JToken target)
+    {
         var tokens = target.SelectPatchTokens(operation.Path).ToList();
         if (tokens.Count == 0)
             return;
 
-        foreach (var token in tokens) {
-            if (token.Parent is JProperty) {
+        foreach (var token in tokens)
+        {
+            if (token.Parent is JProperty)
+            {
                 token.Parent.Remove();
-            } else {
+            }
+            else
+            {
                 token.Remove();
             }
         }
     }
 
-    protected override void Move(MoveOperation operation, JToken target) {
+    protected override void Move(MoveOperation operation, JToken target)
+    {
         if (operation.Path.StartsWith(operation.FromPath))
             throw new ArgumentException("To path cannot be below from path");
 
@@ -77,29 +93,36 @@ public class JsonPatcher : AbstractPatcher<JToken> {
         Add(new AddOperation { Path = operation.Path, Value = token }, target);
     }
 
-    protected override void Test(TestOperation operation, JToken target) {
+    protected override void Test(TestOperation operation, JToken target)
+    {
         var existingValue = target.SelectPatchToken(operation.Path);
-        if (!existingValue.Equals(target)) {
+        if (!existingValue.Equals(target))
+        {
             throw new InvalidOperationException("Value at " + operation.Path + " does not match.");
         }
     }
 
-    protected override void Copy(CopyOperation operation, JToken target) {
+    protected override void Copy(CopyOperation operation, JToken target)
+    {
         var token = target.SelectPatchToken(operation.FromPath);  // Do I need to clone this?
         Add(new AddOperation { Path = operation.Path, Value = token }, target);
     }
 }
 
-public static class JTokenExtensions {
-    public static JToken SelectPatchToken(this JToken token, string path) {
+public static class JTokenExtensions
+{
+    public static JToken SelectPatchToken(this JToken token, string path)
+    {
         return token.SelectToken(path.ToJTokenPath());
     }
 
-    public static IEnumerable<JToken> SelectPatchTokens(this JToken token, string path) {
+    public static IEnumerable<JToken> SelectPatchTokens(this JToken token, string path)
+    {
         return token.SelectTokens(path.ToJTokenPath());
     }
 
-    public static JToken SelectOrCreatePatchToken(this JToken token, string path) {
+    public static JToken SelectOrCreatePatchToken(this JToken token, string path)
+    {
         var result = token.SelectToken(path.ToJTokenPath());
         if (result != null)
             return result;
@@ -109,13 +132,17 @@ public static class JTokenExtensions {
             return null;
 
         JToken current = token;
-        for (int i = 0; i < parts.Length; i++) {
+        for (int i = 0; i < parts.Length; i++)
+        {
             string part = parts[i];
             var partToken = current.SelectPatchToken(part);
-            if (partToken == null) {
+            if (partToken == null)
+            {
                 if (current is JObject partObject)
                     current = partObject[part] = new JObject();
-            } else {
+            }
+            else
+            {
                 current = partToken;
             }
         }
@@ -123,7 +150,8 @@ public static class JTokenExtensions {
         return current;
     }
 
-    public static JToken SelectOrCreatePatchArrayToken(this JToken token, string path) {
+    public static JToken SelectOrCreatePatchArrayToken(this JToken token, string path)
+    {
         var result = token.SelectToken(path.ToJTokenPath());
         if (result != null)
             return result;
@@ -133,15 +161,20 @@ public static class JTokenExtensions {
             return null;
 
         JToken current = token;
-        for (int i = 0; i < parts.Length; i++) {
+        for (int i = 0; i < parts.Length; i++)
+        {
             string part = parts[i];
             var partToken = current.SelectPatchToken(part);
-            if (partToken == null) {
-                if (current is JObject partObject) {
+            if (partToken == null)
+            {
+                if (current is JObject partObject)
+                {
                     bool isLastPart = i == parts.Length - 1;
                     current = partObject[part] = isLastPart ? new JArray() : new JObject();
                 }
-            } else {
+            }
+            else
+            {
                 current = partToken;
             }
         }

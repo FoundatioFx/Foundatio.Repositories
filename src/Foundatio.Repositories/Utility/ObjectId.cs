@@ -9,7 +9,8 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Utility;
 
-public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertible {
+public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertible
+{
     private static readonly int __staticMachine;
     private static readonly short __staticPid;
     private static int __staticIncrement;
@@ -20,25 +21,32 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
     private readonly short _pid;
     private readonly int _increment;
 
-    static ObjectId() {
+    static ObjectId()
+    {
         __staticMachine = (GetMachineHash() + AppDomain.CurrentDomain.Id) & 0x00ffffff;
         __staticIncrement = (new Random()).Next();
 
-        try {
+        try
+        {
             __staticPid = (short)GetCurrentProcessId();
-        } catch (SecurityException) {
+        }
+        catch (SecurityException)
+        {
             __staticPid = 0;
         }
     }
 
-    public ObjectId(byte[] bytes) {
-        if (bytes == null) {
+    public ObjectId(byte[] bytes)
+    {
+        if (bytes == null)
+        {
             throw new ArgumentNullException(nameof(bytes));
         }
         Unpack(bytes, out _timestamp, out _machine, out _pid, out _increment);
     }
 
-    internal ObjectId(byte[] bytes, int index) {
+    internal ObjectId(byte[] bytes, int index)
+    {
         _timestamp = (bytes[index] << 24) | (bytes[index + 1] << 16) | (bytes[index + 2] << 8) | bytes[index + 3];
         _machine = (bytes[index + 4] << 16) | (bytes[index + 5] << 8) | bytes[index + 6];
         _pid = (short)((bytes[index + 7] << 8) | bytes[index + 8]);
@@ -47,11 +55,14 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
 
     public ObjectId(DateTime timestamp, int machine, short pid, int increment) : this(GetTimestampFromDateTime(timestamp), machine, pid, increment) { }
 
-    public ObjectId(int timestamp, int machine, short pid, int increment) {
-        if ((machine & 0xff000000) != 0) {
+    public ObjectId(int timestamp, int machine, short pid, int increment)
+    {
+        if ((machine & 0xff000000) != 0)
+        {
             throw new ArgumentOutOfRangeException(nameof(machine), "The machine value must be between 0 and 16777215 (it must fit in 3 bytes).");
         }
-        if ((increment & 0xff000000) != 0) {
+        if ((increment & 0xff000000) != 0)
+        {
             throw new ArgumentOutOfRangeException(nameof(increment), "The increment value must be between 0 and 16777215 (it must fit in 3 bytes).");
         }
 
@@ -61,8 +72,10 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
         _increment = increment;
     }
 
-    public ObjectId(string value) {
-        if (value == null) {
+    public ObjectId(string value)
+    {
+        if (value == null)
+        {
             throw new ArgumentNullException(nameof(value));
         }
         Unpack(Utils.ParseHexString(value), out _timestamp, out _machine, out _pid, out _increment);
@@ -80,48 +93,60 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
 
     public DateTime CreationTime => __unixEpoch.AddSeconds(_timestamp);
 
-    public static bool operator <(ObjectId lhs, ObjectId rhs) {
+    public static bool operator <(ObjectId lhs, ObjectId rhs)
+    {
         return lhs.CompareTo(rhs) < 0;
     }
 
-    public static bool operator <=(ObjectId lhs, ObjectId rhs) {
+    public static bool operator <=(ObjectId lhs, ObjectId rhs)
+    {
         return lhs.CompareTo(rhs) <= 0;
     }
 
-    public static bool operator ==(ObjectId lhs, ObjectId rhs) {
+    public static bool operator ==(ObjectId lhs, ObjectId rhs)
+    {
         return lhs.Equals(rhs);
     }
 
-    public static bool operator !=(ObjectId lhs, ObjectId rhs) {
+    public static bool operator !=(ObjectId lhs, ObjectId rhs)
+    {
         return !(lhs == rhs);
     }
 
-    public static bool operator >=(ObjectId lhs, ObjectId rhs) {
+    public static bool operator >=(ObjectId lhs, ObjectId rhs)
+    {
         return lhs.CompareTo(rhs) >= 0;
     }
 
-    public static bool operator >(ObjectId lhs, ObjectId rhs) {
+    public static bool operator >(ObjectId lhs, ObjectId rhs)
+    {
         return lhs.CompareTo(rhs) > 0;
     }
 
-    public static ObjectId GenerateNewId() {
+    public static ObjectId GenerateNewId()
+    {
         return GenerateNewId(GetTimestampFromDateTime(SystemClock.UtcNow));
     }
 
-    public static ObjectId GenerateNewId(DateTime timestamp) {
+    public static ObjectId GenerateNewId(DateTime timestamp)
+    {
         return GenerateNewId(GetTimestampFromDateTime(timestamp));
     }
 
-    public static ObjectId GenerateNewId(int timestamp) {
+    public static ObjectId GenerateNewId(int timestamp)
+    {
         int increment = Interlocked.Increment(ref __staticIncrement) & 0x00ffffff; // only use low order 3 bytes
         return new ObjectId(timestamp, __staticMachine, __staticPid, increment);
     }
 
-    public static byte[] Pack(int timestamp, int machine, short pid, int increment) {
-        if ((machine & 0xff000000) != 0) {
+    public static byte[] Pack(int timestamp, int machine, short pid, int increment)
+    {
+        if ((machine & 0xff000000) != 0)
+        {
             throw new ArgumentOutOfRangeException(nameof(machine), "The machine value must be between 0 and 16777215 (it must fit in 3 bytes).");
         }
-        if ((increment & 0xff000000) != 0) {
+        if ((increment & 0xff000000) != 0)
+        {
             throw new ArgumentOutOfRangeException(nameof(increment), "The increment value must be between 0 and 16777215 (it must fit in 3 bytes).");
         }
 
@@ -141,21 +166,29 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
         return bytes;
     }
 
-    public static ObjectId Parse(string s) {
-        if (s == null) {
+    public static ObjectId Parse(string s)
+    {
+        if (s == null)
+        {
             throw new ArgumentNullException(nameof(s));
         }
-        if (TryParse(s, out var objectId)) {
+        if (TryParse(s, out var objectId))
+        {
             return objectId;
-        } else {
+        }
+        else
+        {
             string message = $"'{s}' is not a valid 24 digit hex string.";
             throw new FormatException(message);
         }
     }
 
-    public static bool TryParse(string s, out ObjectId objectId) {
-        if (s != null && s.Length == 24) {
-            if (Utils.TryParseHexString(s, out byte[] bytes)) {
+    public static bool TryParse(string s, out ObjectId objectId)
+    {
+        if (s != null && s.Length == 24)
+        {
+            if (Utils.TryParseHexString(s, out byte[] bytes))
+            {
                 objectId = new ObjectId(bytes);
                 return true;
             }
@@ -165,16 +198,20 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
         return false;
     }
 
-    public static bool IsValid(string s) {
+    public static bool IsValid(string s)
+    {
         ObjectId objectId;
         return TryParse(s, out objectId);
     }
 
-    public static void Unpack(byte[] bytes, out int timestamp, out int machine, out short pid, out int increment) {
-        if (bytes == null) {
+    public static void Unpack(byte[] bytes, out int timestamp, out int machine, out short pid, out int increment)
+    {
+        if (bytes == null)
+        {
             throw new ArgumentNullException(nameof(bytes));
         }
-        if (bytes.Length != 12) {
+        if (bytes.Length != 12)
+        {
             throw new ArgumentOutOfRangeException(nameof(bytes), "Byte array must be 12 bytes long.");
         }
         timestamp = (bytes[0] << 24) + (bytes[1] << 16) + (bytes[2] << 8) + bytes[3];
@@ -184,52 +221,66 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static int GetCurrentProcessId() {
+    private static int GetCurrentProcessId()
+    {
         return Process.GetCurrentProcess().Id;
     }
 
-    private static int GetMachineHash() {
+    private static int GetMachineHash()
+    {
         string hostName = Environment.MachineName;
         return 0x00ffffff & hostName.GetHashCode();
     }
 
-    private static int GetTimestampFromDateTime(DateTime timestamp) {
+    private static int GetTimestampFromDateTime(DateTime timestamp)
+    {
         long secondsSinceEpoch = (long)Math.Floor((Utils.ToUniversalTime(timestamp) - __unixEpoch).TotalSeconds);
-        if (secondsSinceEpoch < Int32.MinValue || secondsSinceEpoch > Int32.MaxValue) {
+        if (secondsSinceEpoch < Int32.MinValue || secondsSinceEpoch > Int32.MaxValue)
+        {
             throw new ArgumentOutOfRangeException(nameof(timestamp));
         }
         return (int)secondsSinceEpoch;
     }
 
-    public int CompareTo(ObjectId other) {
+    public int CompareTo(ObjectId other)
+    {
         int r = _timestamp.CompareTo(other._timestamp);
-        if (r != 0) {
+        if (r != 0)
+        {
             return r;
         }
         r = _machine.CompareTo(other._machine);
-        if (r != 0) {
+        if (r != 0)
+        {
             return r;
         }
         r = _pid.CompareTo(other._pid);
-        if (r != 0) {
+        if (r != 0)
+        {
             return r;
         }
         return _increment.CompareTo(other._increment);
     }
 
-    public bool Equals(ObjectId rhs) {
+    public bool Equals(ObjectId rhs)
+    {
         return _timestamp == rhs._timestamp && _machine == rhs._machine && _pid == rhs._pid && _increment == rhs._increment;
     }
 
-    public override bool Equals(object obj) {
-        if (obj is ObjectId id) {
+    public override bool Equals(object obj)
+    {
+        if (obj is ObjectId id)
+        {
             return Equals(id);
-        } else {
+        }
+        else
+        {
             return false;
         }
     }
 
-    public override int GetHashCode() {
+    public override int GetHashCode()
+    {
         int hash = 17;
         hash = 37 * hash + _timestamp.GetHashCode();
         hash = 37 * hash + _machine.GetHashCode();
@@ -238,15 +289,18 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
         return hash;
     }
 
-    public byte[] ToByteArray() {
+    public byte[] ToByteArray()
+    {
         return Pack(_timestamp, _machine, _pid, _increment);
     }
 
-    public override string ToString() {
+    public override string ToString()
+    {
         return Pack(_timestamp, _machine, _pid, _increment).ToHex();
     }
 
-    internal void GetBytes(byte[] bytes, int index) {
+    internal void GetBytes(byte[] bytes, int index)
+    {
         bytes[index] = (byte)(_timestamp >> 24);
         bytes[1 + index] = (byte)(_timestamp >> 16);
         bytes[2 + index] = (byte)(_timestamp >> 8);
@@ -261,64 +315,80 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
         bytes[11 + index] = (byte)(_increment);
     }
 
-    TypeCode IConvertible.GetTypeCode() {
+    TypeCode IConvertible.GetTypeCode()
+    {
         return TypeCode.Object;
     }
 
-    bool IConvertible.ToBoolean(IFormatProvider provider) {
+    bool IConvertible.ToBoolean(IFormatProvider provider)
+    {
         throw new InvalidCastException();
     }
 
-    byte IConvertible.ToByte(IFormatProvider provider) {
+    byte IConvertible.ToByte(IFormatProvider provider)
+    {
         throw new InvalidCastException();
     }
 
-    char IConvertible.ToChar(IFormatProvider provider) {
+    char IConvertible.ToChar(IFormatProvider provider)
+    {
         throw new InvalidCastException();
     }
 
-    DateTime IConvertible.ToDateTime(IFormatProvider provider) {
+    DateTime IConvertible.ToDateTime(IFormatProvider provider)
+    {
         throw new InvalidCastException();
     }
 
-    decimal IConvertible.ToDecimal(IFormatProvider provider) {
+    decimal IConvertible.ToDecimal(IFormatProvider provider)
+    {
         throw new InvalidCastException();
     }
 
-    double IConvertible.ToDouble(IFormatProvider provider) {
+    double IConvertible.ToDouble(IFormatProvider provider)
+    {
         throw new InvalidCastException();
     }
 
-    short IConvertible.ToInt16(IFormatProvider provider) {
+    short IConvertible.ToInt16(IFormatProvider provider)
+    {
         throw new InvalidCastException();
     }
 
-    int IConvertible.ToInt32(IFormatProvider provider) {
+    int IConvertible.ToInt32(IFormatProvider provider)
+    {
         throw new InvalidCastException();
     }
 
-    long IConvertible.ToInt64(IFormatProvider provider) {
+    long IConvertible.ToInt64(IFormatProvider provider)
+    {
         throw new InvalidCastException();
     }
 
-    sbyte IConvertible.ToSByte(IFormatProvider provider) {
+    sbyte IConvertible.ToSByte(IFormatProvider provider)
+    {
         throw new InvalidCastException();
     }
 
-    float IConvertible.ToSingle(IFormatProvider provider) {
+    float IConvertible.ToSingle(IFormatProvider provider)
+    {
         throw new InvalidCastException();
     }
 
-    string IConvertible.ToString(IFormatProvider provider) {
+    string IConvertible.ToString(IFormatProvider provider)
+    {
         return ToString();
     }
 
-    object IConvertible.ToType(Type conversionType, IFormatProvider provider) {
-        switch (Type.GetTypeCode(conversionType)) {
+    object IConvertible.ToType(Type conversionType, IFormatProvider provider)
+    {
+        switch (Type.GetTypeCode(conversionType))
+        {
             case TypeCode.String:
                 return ((IConvertible)this).ToString(provider);
             case TypeCode.Object:
-                if (conversionType == typeof(object) || conversionType == typeof(ObjectId)) {
+                if (conversionType == typeof(object) || conversionType == typeof(ObjectId))
+                {
                     return this;
                 }
                 break;
@@ -327,36 +397,47 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
         throw new InvalidCastException();
     }
 
-    ushort IConvertible.ToUInt16(IFormatProvider provider) {
+    ushort IConvertible.ToUInt16(IFormatProvider provider)
+    {
         throw new InvalidCastException();
     }
 
-    uint IConvertible.ToUInt32(IFormatProvider provider) {
+    uint IConvertible.ToUInt32(IFormatProvider provider)
+    {
         throw new InvalidCastException();
     }
 
-    ulong IConvertible.ToUInt64(IFormatProvider provider) {
+    ulong IConvertible.ToUInt64(IFormatProvider provider)
+    {
         throw new InvalidCastException();
     }
 
-    internal static class Utils {
+    internal static class Utils
+    {
 
-        public static byte[] ParseHexString(string s) {
-            if (s == null) {
+        public static byte[] ParseHexString(string s)
+        {
+            if (s == null)
+            {
                 throw new ArgumentNullException(nameof(s));
             }
 
             byte[] bytes;
-            if ((s.Length & 1) != 0) {
+            if ((s.Length & 1) != 0)
+            {
                 s = "0" + s; // make length of s even
             }
             bytes = new byte[s.Length / 2];
-            for (int i = 0; i < bytes.Length; i++) {
+            for (int i = 0; i < bytes.Length; i++)
+            {
                 string hex = s.Substring(2 * i, 2);
-                try {
+                try
+                {
                     byte b = Convert.ToByte(hex, 16);
                     bytes[i] = b;
-                } catch (FormatException e) {
+                }
+                catch (FormatException e)
+                {
                     throw new FormatException($"Invalid hex string {s}. Problem with substring {hex} starting at position {2 * i}", e);
                 }
             }
@@ -364,31 +445,44 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
             return bytes;
         }
 
-        public static string ToHexString(byte[] bytes) {
-            if (bytes == null) {
+        public static string ToHexString(byte[] bytes)
+        {
+            if (bytes == null)
+            {
                 throw new ArgumentNullException(nameof(bytes));
             }
             var sb = new StringBuilder(bytes.Length * 2);
-            foreach (byte b in bytes) {
+            foreach (byte b in bytes)
+            {
                 sb.AppendFormat("{0:x2}", b);
             }
             return sb.ToString();
         }
 
-        public static DateTime ToUniversalTime(DateTime dateTime) {
-            if (dateTime == DateTime.MinValue) {
+        public static DateTime ToUniversalTime(DateTime dateTime)
+        {
+            if (dateTime == DateTime.MinValue)
+            {
                 return DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
-            } else if (dateTime == DateTime.MaxValue) {
+            }
+            else if (dateTime == DateTime.MaxValue)
+            {
                 return DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc);
-            } else {
+            }
+            else
+            {
                 return dateTime.ToUniversalTime();
             }
         }
 
-        public static bool TryParseHexString(string s, out byte[] bytes) {
-            try {
+        public static bool TryParseHexString(string s, out byte[] bytes)
+        {
+            try
+            {
                 bytes = ParseHexString(s);
-            } catch {
+            }
+            catch
+            {
                 bytes = null;
                 return false;
             }

@@ -6,27 +6,36 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Nest;
 
-namespace Foundatio.Repositories {
-    public static class CompanyQueryExtensions {
+namespace Foundatio.Repositories
+{
+    public static class CompanyQueryExtensions
+    {
         internal const string CompaniesKey = "@Companies";
 
-        public static T Company<T>(this T query, string companyId) where T : IRepositoryQuery {
+        public static T Company<T>(this T query, string companyId) where T : IRepositoryQuery
+        {
             return query.AddCollectionOptionValue(CompaniesKey, companyId);
         }
     }
 }
 
-namespace Foundatio.Repositories.Options {
-    public static class ReadCompanyQueryExtensions {
-        public static ICollection<string> GetCompanies(this IRepositoryQuery query) {
+namespace Foundatio.Repositories.Options
+{
+    public static class ReadCompanyQueryExtensions
+    {
+        public static ICollection<string> GetCompanies(this IRepositoryQuery query)
+        {
             return query.SafeGetCollection<string>(CompanyQueryExtensions.CompaniesKey);
         }
     }
 }
 
-namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries {
-    public class CompanyQueryBuilder : IElasticQueryBuilder {
-        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries
+{
+    public class CompanyQueryBuilder : IElasticQueryBuilder
+    {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
+        {
             var companyIds = ctx.Source.GetCompanies();
             if (companyIds.Count <= 0)
                 return Task.CompletedTask;

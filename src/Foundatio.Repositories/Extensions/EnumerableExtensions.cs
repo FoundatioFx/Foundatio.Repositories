@@ -8,25 +8,30 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Extensions;
 
-public static class EnumerableExtensions {
-    public static void EnsureIds<T>(this IEnumerable<T> values, Func<T, string> generateIdFunc = null) where T : class, IIdentity {
+public static class EnumerableExtensions
+{
+    public static void EnsureIds<T>(this IEnumerable<T> values, Func<T, string> generateIdFunc = null) where T : class, IIdentity
+    {
         if (values == null)
             return;
 
         if (generateIdFunc == null)
             generateIdFunc = (T) => ObjectId.GenerateNewId().ToString();
 
-        foreach (var value in values) {
+        foreach (var value in values)
+        {
             if (String.IsNullOrEmpty(value.Id))
                 value.Id = generateIdFunc(value);
         }
     }
 
-    public static void SetDates<T>(this IEnumerable<T> values) where T : class, IHaveDates {
+    public static void SetDates<T>(this IEnumerable<T> values) where T : class, IHaveDates
+    {
         if (values == null)
             return;
 
-        foreach (var value in values) {
+        foreach (var value in values)
+        {
             var utcNow = SystemClock.UtcNow;
             if (value.CreatedUtc == DateTime.MinValue || value.CreatedUtc > utcNow)
                 value.CreatedUtc = utcNow;
@@ -35,17 +40,20 @@ public static class EnumerableExtensions {
         }
     }
 
-    public static void SetCreatedDates<T>(this IEnumerable<T> values) where T : class, IHaveCreatedDate {
+    public static void SetCreatedDates<T>(this IEnumerable<T> values) where T : class, IHaveCreatedDate
+    {
         if (values == null)
             return;
 
-        foreach (var value in values) {
+        foreach (var value in values)
+        {
             if (value.CreatedUtc == DateTime.MinValue || value.CreatedUtc > SystemClock.UtcNow)
                 value.CreatedUtc = SystemClock.UtcNow;
         }
     }
-    
-    public static void AddRange<T>(this ICollection<T> list, IEnumerable<T> range) {
+
+    public static void AddRange<T>(this ICollection<T> list, IEnumerable<T> range)
+    {
         foreach (var r in range)
             list.Add(r);
     }
@@ -56,7 +64,8 @@ public static class EnumerableExtensions {
         Func<TA, TK> selectKeyA,
         Func<TB, TK> selectKeyB,
         Func<IEnumerable<TA>, IEnumerable<TB>, TK, TR> projection,
-        IEqualityComparer<TK> cmp = null) {
+        IEqualityComparer<TK> cmp = null)
+    {
         cmp = cmp ?? EqualityComparer<TK>.Default;
         var alookup = a.ToLookup(selectKeyA, cmp);
         var blookup = b.ToLookup(selectKeyB, cmp);
@@ -80,7 +89,8 @@ public static class EnumerableExtensions {
         Func<TA, TB, TK, TR> projection,
         TA defaultA = default,
         TB defaultB = default,
-        IEqualityComparer<TK> cmp = null) {
+        IEqualityComparer<TK> cmp = null)
+    {
         cmp = cmp ?? EqualityComparer<TK>.Default;
         var alookup = a.ToLookup(selectKeyA, cmp);
         var blookup = (b ?? new List<TB>()).ToLookup(selectKeyB, cmp);
@@ -101,7 +111,8 @@ public static class EnumerableExtensions {
     /// </summary>
     /// <param name="bytes">The bytes to convert.</param>
     /// <returns>Hexadecimal string of the byte array.</returns>
-    public static string ToHex(this IEnumerable<byte> bytes) {
+    public static string ToHex(this IEnumerable<byte> bytes)
+    {
         var sb = new StringBuilder();
         foreach (byte b in bytes)
             sb.Append(b.ToString("x2"));

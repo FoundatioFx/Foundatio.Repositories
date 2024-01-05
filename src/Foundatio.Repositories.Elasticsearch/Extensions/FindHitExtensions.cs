@@ -10,18 +10,22 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
-public static class FindHitExtensions {
+public static class FindHitExtensions
+{
     private static JsonSerializerOptions _options;
-    static FindHitExtensions() {
+    static FindHitExtensions()
+    {
         _options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         _options.Converters.Add(new ObjectConverter());
     }
 
-    public static string GetIndex<T>(this FindHit<T> hit) {
+    public static string GetIndex<T>(this FindHit<T> hit)
+    {
         return hit?.Data?.GetString(ElasticDataKeys.Index);
     }
 
-    public static object[] GetSorts<T>(this FindHit<T> hit) {
+    public static object[] GetSorts<T>(this FindHit<T> hit)
+    {
         if (hit == null || !hit.Data.TryGetValue(ElasticDataKeys.Sorts, out object sorts))
             return Array.Empty<object>();
 
@@ -29,21 +33,24 @@ public static class FindHitExtensions {
         return sortsArray;
     }
 
-    public static string GetSearchBeforeToken<T>(this FindResults<T> results) where T: class {
+    public static string GetSearchBeforeToken<T>(this FindResults<T> results) where T : class
+    {
         if (results == null || results.Hits.Count == 0)
             return null;
 
         return results.Data.GetString(ElasticDataKeys.SearchBeforeToken, null);
     }
 
-    public static string GetSearchAfterToken<T>(this FindResults<T> results) where T : class {
+    public static string GetSearchAfterToken<T>(this FindResults<T> results) where T : class
+    {
         if (results == null || results.Hits.Count == 0)
             return null;
 
         return results.Data.GetString(ElasticDataKeys.SearchAfterToken, null);
     }
 
-    internal static void SetSearchBeforeToken<T>(this FindResults<T> results) where T : class {
+    internal static void SetSearchBeforeToken<T>(this FindResults<T> results) where T : class
+    {
         if (results == null || results.Hits.Count == 0)
             return;
 
@@ -52,7 +59,8 @@ public static class FindHitExtensions {
             results.Data[ElasticDataKeys.SearchBeforeToken] = token;
     }
 
-    internal static void SetSearchAfterToken<T>(this FindResults<T> results) where T : class {
+    internal static void SetSearchAfterToken<T>(this FindResults<T> results) where T : class
+    {
         if (results == null || results.Hits.Count == 0)
             return;
 
@@ -61,7 +69,8 @@ public static class FindHitExtensions {
             results.Data[ElasticDataKeys.SearchAfterToken] = token;
     }
 
-    public static string GetSortToken<T>(this FindHit<T> hit) {
+    public static string GetSortToken<T>(this FindHit<T> hit)
+    {
         object[] sorts = hit?.GetSorts();
         if (sorts == null || sorts.Length == 0)
             return null;
@@ -69,7 +78,8 @@ public static class FindHitExtensions {
         return Encode(JsonSerializer.Serialize(sorts));
     }
 
-    public static ISort ReverseOrder(this ISort sort) {
+    public static ISort ReverseOrder(this ISort sort)
+    {
         if (sort == null)
             return null;
 
@@ -77,7 +87,8 @@ public static class FindHitExtensions {
         return sort;
     }
 
-    public static IEnumerable<ISort> ReverseOrder(this IEnumerable<ISort> sorts) {
+    public static IEnumerable<ISort> ReverseOrder(this IEnumerable<ISort> sorts)
+    {
         if (sorts == null)
             return null;
 
@@ -86,22 +97,26 @@ public static class FindHitExtensions {
         return sortList;
     }
 
-    public static object[] DecodeSortToken(string sortToken) {
+    public static object[] DecodeSortToken(string sortToken)
+    {
         var tokens = JsonSerializer.Deserialize<object[]>(Decode(sortToken), _options);
         return tokens;
     }
 
-    private static string Encode(string text) {
+    private static string Encode(string text)
+    {
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(text))
             .TrimEnd('=')
             .Replace('+', '-')
             .Replace('/', '_');
     }
 
-    private static string Decode(string text) {
+    private static string Decode(string text)
+    {
         text = text.Replace('_', '/').Replace('-', '+');
 
-        switch (text.Length % 4) {
+        switch (text.Length % 4)
+        {
             case 2:
                 text += "==";
                 break;
@@ -114,7 +129,8 @@ public static class FindHitExtensions {
     }
 }
 
-public static class ElasticDataKeys {
+public static class ElasticDataKeys
+{
     public const string Index = "index";
     public const string ScrollId = "scrollid";
     public const string Sorts = "sorts";
@@ -122,9 +138,12 @@ public static class ElasticDataKeys {
     public const string SearchAfterToken = nameof(SearchAfterToken);
 }
 
-public class ObjectConverter : JsonConverter<object> {
-    public override object Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) {
-        return reader.TokenType switch {
+public class ObjectConverter : JsonConverter<object>
+{
+    public override object Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        return reader.TokenType switch
+        {
             JsonTokenType.Number => reader.GetInt64(),
             JsonTokenType.String => reader.GetString(),
             JsonTokenType.True => reader.GetBoolean(),
@@ -133,7 +152,8 @@ public class ObjectConverter : JsonConverter<object> {
         };
     }
 
-    public override void Write(Utf8JsonWriter writer, object value, JsonSerializerOptions options) {
+    public override void Write(Utf8JsonWriter writer, object value, JsonSerializerOptions options)
+    {
         throw new NotImplementedException();
     }
 }

@@ -4,27 +4,34 @@ using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Utility;
 
-public class PatchDocumentConverter : JsonConverter {
-    public override bool CanConvert(Type objectType) {
+public class PatchDocumentConverter : JsonConverter
+{
+    public override bool CanConvert(Type objectType)
+    {
         return true;
     }
 
-    public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer) {
+    public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+    {
         if (objectType != typeof(PatchDocument))
             throw new ArgumentException("Object must be of type PatchDocument", nameof(objectType));
 
-        try {
+        try
+        {
             if (reader.TokenType == JsonToken.Null)
                 return null;
 
             var patch = JArray.Load(reader);
             return PatchDocument.Parse(patch.ToString());
-        } catch (Exception ex) {
+        }
+        catch (Exception ex)
+        {
             throw new ArgumentException("Invalid patch document: " + ex.Message);
         }
     }
 
-    public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer) {
+    public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+    {
         if (!(value is PatchDocument))
             return;
 

@@ -1,3 +1,3 @@
 ﻿namespace Foundatio.Repositories.Models;
 
-public class TermsAggregate<TKey> : MultiBucketAggregate<KeyedBucket<TKey>> {}
+public class TermsAggregate<TKey> : MultiBucketAggregate<KeyedBucket<TKey>> { }

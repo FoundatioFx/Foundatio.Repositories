@@ -15,29 +15,36 @@ using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-public sealed class IndexTests : ElasticRepositoryTestBase {
-    public IndexTests(ITestOutputHelper output) : base(output) {
+public sealed class IndexTests : ElasticRepositoryTestBase
+{
+    public IndexTests(ITestOutputHelper output) : base(output)
+    {
         Log.SetLogLevel<EmployeeRepository>(LogLevel.Warning);
     }
 
-    public override async Task InitializeAsync() {
+    public override async Task InitializeAsync()
+    {
         await base.InitializeAsync();
         await RemoveDataAsync(false);
     }
 
     [Theory]
     [MemberData(nameof(AliasesDatesToCheck))]
-    public async Task CanCreateDailyAliasesAsync(DateTime utcNow) {
-        using (TestSystemClock.Install()) {
+    public async Task CanCreateDailyAliasesAsync(DateTime utcNow)
+    {
+        using (TestSystemClock.Install())
+        {
             TestSystemClock.SetFrozenTime(utcNow);
             var index = new DailyEmployeeIndex(_configuration, 1);
             await index.DeleteAsync();
 
-            using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
+            using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult()))
+            {
                 await index.ConfigureAsync();
                 IEmployeeRepository repository = new EmployeeRepository(index);
 
-                for (int i = 0; i < 35; i += 5) {
+                for (int i = 0; i < 35; i += 5)
+                {
                     var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(i)));
                     Assert.NotNull(employee?.Id);
 
@@ -50,7 +57,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
                     var aliasesResponse = await _client.Indices.GetAliasAsync(index.GetIndex(employee.CreatedUtc));
                     _logger.LogRequest(aliasesResponse);
                     Assert.True(aliasesResponse.IsValid);
-                    Assert.Equal(1, aliasesResponse.Indices.Count);
+                    Assert.Single(aliasesResponse.Indices);
 
                     var aliases = aliasesResponse.Indices.Values.Single().Aliases.Select(s => s.Key).ToList();
                     aliases.Sort();
@@ -63,18 +70,22 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
 
     [Theory]
     [MemberData(nameof(AliasesDatesToCheck))]
-    public async Task CanCreateMonthlyAliasesAsync(DateTime utcNow) {
-        using (TestSystemClock.Install()) {
+    public async Task CanCreateMonthlyAliasesAsync(DateTime utcNow)
+    {
+        using (TestSystemClock.Install())
+        {
             TestSystemClock.SetFrozenTime(utcNow);
 
             var index = new MonthlyEmployeeIndex(_configuration, 1);
             await index.DeleteAsync();
 
-            using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
+            using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult()))
+            {
                 await index.ConfigureAsync();
                 IEmployeeRepository repository = new EmployeeRepository(index);
 
-                for (int i = 0; i < 4; i++) {
+                for (int i = 0; i < 4; i++)
+                {
                     var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractMonths(i)));
                     Assert.NotNull(employee?.Id);
 
@@ -87,7 +98,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
                     var aliasesResponse = await _client.Indices.GetAliasAsync(index.GetIndex(employee.CreatedUtc));
                     _logger.LogRequest(aliasesResponse);
                     Assert.True(aliasesResponse.IsValid);
-                    Assert.Equal(1, aliasesResponse.Indices.Count);
+                    Assert.Single(aliasesResponse.Indices);
 
                     var aliases = aliasesResponse.Indices.Values.Single().Aliases.Select(s => s.Key).ToList();
                     aliases.Sort();
@@ -109,12 +120,13 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
     }.ToArray();
 
     [Fact]
-    public async Task GetByDateBasedIndexAsync() {
+    public async Task GetByDateBasedIndexAsync()
+    {
         Log.MinimumLevel = LogLevel.Trace;
 
         await _configuration.DailyLogEvents.ConfigureAsync();
-            
-        
+
+
         // TODO: Fix this once https://github.com/elastic/elasticsearch-net/issues/3829 is fixed in beta2
         //var indexes = await _client.GetIndicesPointingToAliasAsync(_configuration.DailyLogEvents.Name);
         //Assert.Empty(indexes);
@@ -145,7 +157,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task MaintainWillCreateAliasOnVersionedIndexAsync() {
+    public async Task MaintainWillCreateAliasOnVersionedIndexAsync()
+    {
         var version1Index = new VersionedEmployeeIndex(_configuration, 1);
         await version1Index.DeleteAsync();
 
@@ -156,12 +169,14 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
         Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
 
-        using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
+        using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult()))
+        {
             await version1Index.ConfigureAsync();
             Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
             Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
 
-            using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult())) {
+            using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult()))
+            {
                 await version2Index.ConfigureAsync();
                 Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName)).Exists);
                 Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
@@ -181,9 +196,9 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
 
                 await version1Index.MaintainAsync();
                 aliasesResponse = await _client.Indices.GetAliasAsync(version1Index.VersionedName);
-                Assert.Equal(1, aliasesResponse.Indices.Single().Value.Aliases.Count);
+                Assert.Single(aliasesResponse.Indices.Single().Value.Aliases);
                 aliasesResponse = await _client.Indices.GetAliasAsync(version2Index.VersionedName);
-                Assert.Equal(0, aliasesResponse.Indices.Single().Value.Aliases.Count);
+                Assert.Empty(aliasesResponse.Indices.Single().Value.Aliases);
 
                 Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
                 Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
@@ -192,8 +207,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task MaintainWillCreateAliasesOnTimeSeriesIndexAsync() {
-        using (TestSystemClock.Install()) {
+    public async Task MaintainWillCreateAliasesOnTimeSeriesIndexAsync()
+    {
+        using (TestSystemClock.Install())
+        {
             TestSystemClock.SetFrozenTime(SystemClock.UtcNow);
             var version1Index = new DailyEmployeeIndex(_configuration, 1);
             await version1Index.DeleteAsync();
@@ -205,7 +222,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
             Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
             Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
 
-            using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult())) {
+            using (new DisposableAction(() => version1Index.DeleteAsync().GetAwaiter().GetResult()))
+            {
                 await version1Index.ConfigureAsync();
                 await version1Index.EnsureIndexAsync(SystemClock.UtcNow);
                 Assert.True((await _client.Indices.ExistsAsync(version1Index.GetVersionedIndex(SystemClock.UtcNow))).Exists);
@@ -215,7 +233,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
                 await _configuration.Cache.RemoveAllAsync();
                 await DeleteAliasesAsync(version1Index.GetVersionedIndex(SystemClock.UtcNow));
 
-                using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult())) {
+                using (new DisposableAction(() => version2Index.DeleteAsync().GetAwaiter().GetResult()))
+                {
                     await version2Index.ConfigureAsync();
                     await version2Index.EnsureIndexAsync(SystemClock.UtcNow);
                     Assert.True((await _client.Indices.ExistsAsync(version2Index.GetVersionedIndex(SystemClock.UtcNow))).Exists);
@@ -237,7 +256,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
                     aliasesResponse = await _client.Indices.GetAliasAsync(version1Index.GetVersionedIndex(SystemClock.UtcNow));
                     Assert.Equal(version1Index.Aliases.Count + 1, aliasesResponse.Indices.Single().Value.Aliases.Count);
                     aliasesResponse = await _client.Indices.GetAliasAsync(version2Index.GetVersionedIndex(SystemClock.UtcNow));
-                    Assert.Equal(0, aliasesResponse.Indices.Single().Value.Aliases.Count);
+                    Assert.Empty(aliasesResponse.Indices.Single().Value.Aliases);
 
                     Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
                     Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
@@ -246,21 +265,26 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
         }
     }
 
-    private async Task DeleteAliasesAsync(string index) {
+    private async Task DeleteAliasesAsync(string index)
+    {
         var aliasesResponse = await _client.Indices.GetAliasAsync(index);
         var aliases = aliasesResponse.Indices.Single(a => a.Key == index).Value.Aliases.Select(s => s.Key).ToList();
-        foreach (string alias in aliases) {
+        foreach (string alias in aliases)
+        {
             await _client.Indices.DeleteAliasAsync(new DeleteAliasRequest(index, alias));
         }
     }
 
     [Fact]
-    public async Task MaintainDailyIndexesAsync() {
-        using (TestSystemClock.Install()) {
+    public async Task MaintainDailyIndexesAsync()
+    {
+        using (TestSystemClock.Install())
+        {
             var index = new DailyEmployeeIndex(_configuration, 1);
             await index.DeleteAsync();
 
-            using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
+            using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult()))
+            {
                 await index.ConfigureAsync();
                 IEmployeeRepository repository = new EmployeeRepository(index);
 
@@ -278,7 +302,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
                 var aliasesResponse = await _client.Indices.GetAliasAsync(index.GetIndex(employee.CreatedUtc));
                 _logger.LogRequest(aliasesResponse);
                 Assert.True(aliasesResponse.IsValid);
-                Assert.Equal(1, aliasesResponse.Indices.Count);
+                Assert.Single(aliasesResponse.Indices);
                 var aliases = aliasesResponse.Indices.Values.Single().Aliases.Select(s => s.Key).ToList();
                 aliases.Sort();
                 Assert.Equal(GetExpectedEmployeeDailyAliases(index, SystemClock.UtcNow, employee.CreatedUtc), String.Join(", ", aliases));
@@ -294,7 +318,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
                 aliasesResponse = await _client.Indices.GetAliasAsync(index.GetIndex(employee.CreatedUtc));
                 _logger.LogRequest(aliasesResponse);
                 Assert.True(aliasesResponse.IsValid);
-                Assert.Equal(1, aliasesResponse.Indices.Count);
+                Assert.Single(aliasesResponse.Indices);
                 aliases = aliasesResponse.Indices.Values.Single().Aliases.Select(s => s.Key).ToList();
                 aliases.Sort();
                 Assert.Equal(GetExpectedEmployeeDailyAliases(index, SystemClock.UtcNow, employee.CreatedUtc), String.Join(", ", aliases));
@@ -314,20 +338,25 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task MaintainMonthlyIndexesAsync() {
-        using (TestSystemClock.Install()) {
+    public async Task MaintainMonthlyIndexesAsync()
+    {
+        using (TestSystemClock.Install())
+        {
             TestSystemClock.SetFrozenTime(new DateTime(2016, 8, 31, 0, 0, 0, DateTimeKind.Utc));
-        var index = new MonthlyEmployeeIndex(_configuration, 1) {
-            MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.SubtractMonths(4).StartOfMonth()
-        };
-        await index.DeleteAsync();
+            var index = new MonthlyEmployeeIndex(_configuration, 1)
+            {
+                MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.SubtractMonths(4).StartOfMonth()
+            };
+            await index.DeleteAsync();
 
-        var utcNow = SystemClock.UtcNow;
-            using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
+            var utcNow = SystemClock.UtcNow;
+            using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult()))
+            {
                 await index.ConfigureAsync();
                 IEmployeeRepository repository = new EmployeeRepository(index);
 
-                for (int i = 0; i < 4; i++) {
+                for (int i = 0; i < 4; i++)
+                {
                     var created = utcNow.SubtractMonths(i);
                     var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: created));
                     Assert.NotNull(employee?.Id);
@@ -341,7 +370,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
                     var aliasesResponse = await _client.Indices.GetAliasAsync(index.GetIndex(employee.CreatedUtc));
                     _logger.LogRequest(aliasesResponse);
                     Assert.True(aliasesResponse.IsValid);
-                    Assert.Equal(1, aliasesResponse.Indices.Count);
+                    Assert.Single(aliasesResponse.Indices);
 
                     var aliases = aliasesResponse.Indices.Values.Single().Aliases.Select(s => s.Key).ToList();
                     aliases.Sort();
@@ -351,7 +380,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
 
                 await index.MaintainAsync();
 
-                for (int i = 0; i < 4; i++) {
+                for (int i = 0; i < 4; i++)
+                {
                     var created = utcNow.SubtractMonths(i);
                     var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: created));
                     Assert.NotNull(employee?.Id);
@@ -365,7 +395,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
                     var aliasesResponse = await _client.Indices.GetAliasAsync(index.GetIndex(employee.CreatedUtc));
                     _logger.LogRequest(aliasesResponse);
                     Assert.True(aliasesResponse.IsValid);
-                    Assert.Equal(1, aliasesResponse.Indices.Count);
+                    Assert.Single(aliasesResponse.Indices);
 
                     var aliases = aliasesResponse.Indices.Values.Single().Aliases.Select(s => s.Key).ToList();
                     aliases.Sort();
@@ -377,11 +407,14 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task MaintainOnlyOldIndexesAsync() {
-        using (TestSystemClock.Install()) {
+    public async Task MaintainOnlyOldIndexesAsync()
+    {
+        using (TestSystemClock.Install())
+        {
             TestSystemClock.SetFrozenTime(SystemClock.UtcNow.EndOfYear());
 
-            var index = new MonthlyEmployeeIndex(_configuration, 1) {
+            var index = new MonthlyEmployeeIndex(_configuration, 1)
+            {
                 MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.SubtractMonths(12).StartOfMonth()
             };
 
@@ -402,7 +435,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanCreateAndDeleteIndex() {
+    public async Task CanCreateAndDeleteIndex()
+    {
         var index = new EmployeeIndex(_configuration);
 
         await index.ConfigureAsync();
@@ -419,7 +453,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanChangeIndexSettings() {
+    public async Task CanChangeIndexSettings()
+    {
         var index1 = new VersionedEmployeeIndex(_configuration, 1, i => i
             .Settings(s => s
                 .NumberOfReplicas(0)
@@ -432,13 +467,13 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
         var settings = await _client.Indices.GetSettingsAsync(index1.VersionedName);
         Assert.Equal(0, settings.Indices[index1.VersionedName].Settings.NumberOfReplicas);
         Assert.NotNull(settings.Indices[index1.VersionedName].Settings.Analysis.Analyzers["custom1"]);
-        
+
         var index2 = new VersionedEmployeeIndex(_configuration, 1, i => i.Settings(s => s
             .NumberOfReplicas(1)
             .Setting("index.mapping.total_fields.limit", 3000)
             .Analysis(a => a.Analyzers(a1 => a1.Custom("custom1", c => c.Filters("uppercase").Tokenizer("whitespace")).Custom("custom2", c => c.Filters("uppercase").Tokenizer("whitespace"))))
         ));
-        
+
         await index2.ConfigureAsync();
         settings = await _client.Indices.GetSettingsAsync(index1.VersionedName);
         Assert.Equal(1, settings.Indices[index1.VersionedName].Settings.NumberOfReplicas);
@@ -446,23 +481,25 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanAddIndexMappings() {
+    public async Task CanAddIndexMappings()
+    {
         var index1 = new VersionedEmployeeIndex(_configuration, 1, null, m => m.Properties(p => p.Keyword(k => k.Name(n => n.EmailAddress))));
         await index1.DeleteAsync();
 
         await index1.ConfigureAsync();
         var fieldMapping = await _client.Indices.GetFieldMappingAsync<Employee>("emailAddress", d => d.Index(index1.VersionedName));
         Assert.NotNull(fieldMapping.Indices[index1.VersionedName].Mappings["emailAddress"]);
-        
+
         var index2 = new VersionedEmployeeIndex(_configuration, 1, null, m => m.Properties(p => p.Keyword(k => k.Name(n => n.EmailAddress)).Number(k => k.Name(n => n.Age))));
-        
+
         await index2.ConfigureAsync();
         fieldMapping = await _client.Indices.GetFieldMappingAsync<Employee>("age", d => d.Index(index2.VersionedName));
         Assert.NotNull(fieldMapping.Indices[index2.VersionedName].Mappings["age"]);
     }
 
     [Fact]
-    public async Task WillWarnWhenAttemptingToChangeFieldMappingType() {
+    public async Task WillWarnWhenAttemptingToChangeFieldMappingType()
+    {
         var index1 = new VersionedEmployeeIndex(_configuration, 1, null, m => m.Properties(p => p.Keyword(k => k.Name(n => n.EmailAddress))));
         await index1.DeleteAsync();
 
@@ -471,15 +508,16 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
         _logger.LogRequest(existsResponse);
         Assert.True(existsResponse.ApiCall.Success);
         Assert.True(existsResponse.Exists);
-        
+
         var index2 = new VersionedEmployeeIndex(_configuration, 1, null, m => m.Properties(p => p.Number(k => k.Name(n => n.EmailAddress))));
-        
+
         await index2.ConfigureAsync();
         Assert.Contains(Log.LogEntries, l => l.LogLevel == LogLevel.Error && l.Message.Contains("requires a new index version"));
     }
 
     [Fact]
-    public async Task CanCreateAndDeleteVersionedIndex() {
+    public async Task CanCreateAndDeleteVersionedIndex()
+    {
         var index = new VersionedEmployeeIndex(_configuration, 1);
         await index.DeleteAsync();
 
@@ -501,7 +539,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanCreateAndDeleteDailyIndex() {
+    public async Task CanCreateAndDeleteDailyIndex()
+    {
         var index = new DailyEmployeeIndex(_configuration, 1);
         await index.DeleteAsync();
 
@@ -538,11 +577,14 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task MaintainOnlyOldIndexesWithNoExistingAliasesAsync() {
-        using (TestSystemClock.Install()) {
+    public async Task MaintainOnlyOldIndexesWithNoExistingAliasesAsync()
+    {
+        using (TestSystemClock.Install())
+        {
             TestSystemClock.SetFrozenTime(SystemClock.UtcNow.EndOfYear());
 
-            var index = new MonthlyEmployeeIndex(_configuration, 1) {
+            var index = new MonthlyEmployeeIndex(_configuration, 1)
+            {
                 MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.SubtractMonths(12).StartOfMonth()
             };
 
@@ -564,11 +606,14 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task MaintainOnlyOldIndexesWithPartialAliasesAsync() {
-        using (TestSystemClock.Install()) {
+    public async Task MaintainOnlyOldIndexesWithPartialAliasesAsync()
+    {
+        using (TestSystemClock.Install())
+        {
             TestSystemClock.SetFrozenTime(SystemClock.UtcNow.EndOfYear());
 
-            var index = new MonthlyEmployeeIndex(_configuration, 1) {
+            var index = new MonthlyEmployeeIndex(_configuration, 1)
+            {
                 MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.SubtractMonths(12).StartOfMonth()
             };
 
@@ -592,16 +637,20 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
 
     [Theory]
     [MemberData(nameof(AliasesDatesToCheck))]
-    public async Task DailyAliasMaxAgeAsync(DateTime utcNow) {
-        using (TestSystemClock.Install()) {
+    public async Task DailyAliasMaxAgeAsync(DateTime utcNow)
+    {
+        using (TestSystemClock.Install())
+        {
             TestSystemClock.SetFrozenTime(utcNow);
-            var index = new DailyEmployeeIndex(_configuration, 1) {
+            var index = new DailyEmployeeIndex(_configuration, 1)
+            {
                 MaxIndexAge = TimeSpan.FromDays(45)
             };
 
             await index.DeleteAsync();
 
-            using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
+            using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult()))
+            {
                 await index.ConfigureAsync();
                 IEmployeeRepository version1Repository = new EmployeeRepository(index);
 
@@ -616,7 +665,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
                 var aliasesResponse = await _client.Indices.GetAliasAsync(index.GetIndex(employee.CreatedUtc));
                 _logger.LogRequest(aliasesResponse);
                 Assert.True(aliasesResponse.IsValid);
-                Assert.Equal(1, aliasesResponse.Indices.Count);
+                Assert.Single(aliasesResponse.Indices);
                 var aliases = aliasesResponse.Indices.Values.Single().Aliases.Select(s => s.Key).ToList();
                 aliases.Sort();
                 Assert.Equal(GetExpectedEmployeeDailyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
@@ -632,7 +681,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
                 aliasesResponse = await _client.Indices.GetAliasAsync(index.GetIndex(employee.CreatedUtc));
                 _logger.LogRequest(aliasesResponse);
                 Assert.True(aliasesResponse.IsValid);
-                Assert.Equal(1, aliasesResponse.Indices.Count);
+                Assert.Single(aliasesResponse.Indices);
                 aliases = aliasesResponse.Indices.Values.Single().Aliases.Select(s => s.Key).ToList();
                 aliases.Sort();
                 Assert.Equal(GetExpectedEmployeeDailyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
@@ -648,7 +697,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
                 aliasesResponse = await _client.Indices.GetAliasAsync(index.GetIndex(employee.CreatedUtc));
                 _logger.LogRequest(aliasesResponse);
                 Assert.True(aliasesResponse.IsValid);
-                Assert.Equal(1, aliasesResponse.Indices.Count);
+                Assert.Single(aliasesResponse.Indices);
                 aliases = aliasesResponse.Indices.Values.Single().Aliases.Select(s => s.Key).ToList();
                 aliases.Sort();
                 Assert.Equal(GetExpectedEmployeeDailyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
@@ -658,16 +707,20 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
 
     [Theory]
     [MemberData(nameof(AliasesDatesToCheck))]
-    public async Task MonthlyAliasMaxAgeAsync(DateTime utcNow) {
-        using (TestSystemClock.Install()) {
+    public async Task MonthlyAliasMaxAgeAsync(DateTime utcNow)
+    {
+        using (TestSystemClock.Install())
+        {
             TestSystemClock.SetFrozenTime(utcNow);
 
-            var index = new MonthlyEmployeeIndex(_configuration, 1) {
+            var index = new MonthlyEmployeeIndex(_configuration, 1)
+            {
                 MaxIndexAge = TimeSpan.FromDays(90)
             };
             await index.DeleteAsync();
 
-            using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
+            using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult()))
+            {
                 await index.ConfigureAsync();
                 IEmployeeRepository repository = new EmployeeRepository(index);
 
@@ -682,7 +735,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
                 var aliasesResponse = await _client.Indices.GetAliasAsync(index.GetIndex(employee.CreatedUtc));
                 _logger.LogRequest(aliasesResponse);
                 Assert.True(aliasesResponse.IsValid);
-                Assert.Equal(1, aliasesResponse.Indices.Count);
+                Assert.Single(aliasesResponse.Indices);
                 var aliases = aliasesResponse.Indices.Values.Single().Aliases.Select(s => s.Key).ToList();
                 aliases.Sort();
                 Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
@@ -698,7 +751,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
                 aliasesResponse = await _client.Indices.GetAliasAsync(index.GetIndex(employee.CreatedUtc));
                 _logger.LogRequest(aliasesResponse);
                 Assert.True(aliasesResponse.IsValid);
-                Assert.Equal(1, aliasesResponse.Indices.Count);
+                Assert.Single(aliasesResponse.Indices);
                 aliases = aliasesResponse.Indices.Values.Single().Aliases.Select(s => s.Key).ToList();
                 aliases.Sort();
                 Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
@@ -714,7 +767,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
                 aliasesResponse = await _client.Indices.GetAliasAsync(index.GetIndex(employee.CreatedUtc));
                 _logger.LogRequest(aliasesResponse);
                 Assert.True(aliasesResponse.IsValid);
-                Assert.Equal(1, aliasesResponse.Indices.Count);
+                Assert.Single(aliasesResponse.Indices);
                 aliases = aliasesResponse.Indices.Values.Single().Aliases.Select(s => s.Key).ToList();
                 aliases.Sort();
                 Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
@@ -724,16 +777,20 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
 
     [Theory]
     [MemberData(nameof(AliasesDatesToCheck))]
-    public async Task DailyIndexMaxAgeAsync(DateTime utcNow) {
-        using (TestSystemClock.Install()) {
+    public async Task DailyIndexMaxAgeAsync(DateTime utcNow)
+    {
+        using (TestSystemClock.Install())
+        {
             TestSystemClock.SetFrozenTime(utcNow);
 
-            var index = new DailyEmployeeIndex(_configuration, 1) {
+            var index = new DailyEmployeeIndex(_configuration, 1)
+            {
                 MaxIndexAge = TimeSpan.FromDays(1)
             };
             await index.DeleteAsync();
 
-            using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
+            using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult()))
+            {
                 await index.ConfigureAsync();
 
                 await index.EnsureIndexAsync(utcNow);
@@ -759,16 +816,20 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
 
     [Theory]
     [MemberData(nameof(AliasesDatesToCheck))]
-    public async Task MonthlyIndexMaxAgeAsync(DateTime utcNow) {
-        using (TestSystemClock.Install()) {
+    public async Task MonthlyIndexMaxAgeAsync(DateTime utcNow)
+    {
+        using (TestSystemClock.Install())
+        {
             TestSystemClock.SetFrozenTime(utcNow);
 
-            var index = new MonthlyEmployeeIndex(_configuration, 1) {
+            var index = new MonthlyEmployeeIndex(_configuration, 1)
+            {
                 MaxIndexAge = SystemClock.UtcNow.EndOfMonth() - SystemClock.UtcNow.StartOfMonth()
             };
             await index.DeleteAsync();
 
-            using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult())) {
+            using (new DisposableAction(() => index.DeleteAsync().GetAwaiter().GetResult()))
+            {
                 await index.ConfigureAsync();
 
                 await index.EnsureIndexAsync(utcNow);
@@ -784,7 +845,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
                 Assert.True(existsResponse.Exists);
 
                 var endOfTwoMonthsAgo = utcNow.SubtractMonths(2).EndOfMonth();
-                if (utcNow - endOfTwoMonthsAgo >= index.MaxIndexAge.GetValueOrDefault()) {
+                if (utcNow - endOfTwoMonthsAgo >= index.MaxIndexAge.GetValueOrDefault())
+                {
                     await Assert.ThrowsAsync<ArgumentException>(async () => await index.EnsureIndexAsync(endOfTwoMonthsAgo));
                     existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(endOfTwoMonthsAgo));
                     _logger.LogRequest(existsResponse);
@@ -795,7 +857,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
         }
     }
 
-    private static string GetExpectedEmployeeDailyAliases(IIndex index, DateTime utcNow, DateTime indexDateUtc) {
+    private static string GetExpectedEmployeeDailyAliases(IIndex index, DateTime utcNow, DateTime indexDateUtc)
+    {
         double totalDays = utcNow.Date.Subtract(indexDateUtc.Date).TotalDays;
         var aliases = new List<string> { index.Name, index.GetIndex(indexDateUtc) };
         if (totalDays <= 30)
@@ -809,7 +872,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase {
         return String.Join(", ", aliases);
     }
 
-    private static string GetExpectedEmployeeMonthlyAliases(IIndex index, DateTime utcNow, DateTime indexDateUtc) {
+    private static string GetExpectedEmployeeMonthlyAliases(IIndex index, DateTime utcNow, DateTime indexDateUtc)
+    {
         var aliases = new List<string> { index.Name, index.GetIndex(indexDateUtc) };
         if (new DateTimeRange(utcNow.SubtractDays(1).StartOfMonth(), utcNow.EndOfMonth()).Contains(indexDateUtc))
             aliases.Add($"{index.Name}-today");

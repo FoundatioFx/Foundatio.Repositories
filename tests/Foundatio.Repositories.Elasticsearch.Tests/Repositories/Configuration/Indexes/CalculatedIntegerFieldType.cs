@@ -1,24 +1,27 @@
-﻿using Foundatio.Serializer;
-using Jint;
-using Jint.Native;
-using Jint.Runtime.Interop;
-using Microsoft.Extensions.Logging;
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using Foundatio.Serializer;
+using Jint;
+using Jint.Native;
+using Jint.Runtime.Interop;
+using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
-public class CalculatedIntegerFieldType : IntegerFieldType {
+public class CalculatedIntegerFieldType : IntegerFieldType
+{
     private readonly ScriptService _scriptService;
 
-    public CalculatedIntegerFieldType(ScriptService scriptService) {
+    public CalculatedIntegerFieldType(ScriptService scriptService)
+    {
         _scriptService = scriptService;
     }
 
-    public override Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class {
+    public override Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class
+    {
         if (!fieldDefinition.Data.TryGetValue("Expression", out object expression))
             return base.ProcessValueAsync(document, value, fieldDefinition);
 
@@ -31,7 +34,7 @@ public class CalculatedIntegerFieldType : IntegerFieldType {
 
         if (calculatedValue.IsCancelled)
             return Task.FromResult(new ProcessFieldValueResult { Value = null });
-        
+
         if (calculatedValue.Value is double doubleValue && Double.IsNaN(doubleValue))
             return Task.FromResult(new ProcessFieldValueResult { Value = null });
 
@@ -39,12 +42,14 @@ public class CalculatedIntegerFieldType : IntegerFieldType {
     }
 }
 
-public class ScriptService {
+public class ScriptService
+{
     private readonly ITextSerializer _serializer;
     private readonly ILogger<ScriptService> _logger;
     private readonly ConcurrentDictionary<string, string> _registeredExpressions = new();
 
-    public ScriptService(ITextSerializer jsonSerializer, ILogger<ScriptService> logger) {
+    public ScriptService(ITextSerializer jsonSerializer, ILogger<ScriptService> logger)
+    {
         Engine = CreateEngine();
         _serializer = jsonSerializer;
         _logger = logger;
@@ -52,7 +57,8 @@ public class ScriptService {
 
     public Engine Engine { get; }
 
-    public string EnsureExpressionFunction(string expression) {
+    public string EnsureExpressionFunction(string expression)
+    {
         if (_registeredExpressions.TryGetValue(expression, out var functionName))
             return functionName;
 
@@ -64,7 +70,8 @@ public class ScriptService {
         return functionName;
     }
 
-    public void RegisterFunction(string name, string body) {
+    public void RegisterFunction(string name, string body)
+    {
         if (String.IsNullOrEmpty(name))
             throw new ArgumentNullException(nameof(name));
 
@@ -76,18 +83,24 @@ public class ScriptService {
 
         body = body.Trim();
         string script;
-        if (body.StartsWith("{")) {
+        if (body.StartsWith("{"))
+        {
             script = $"function {name}() {body}";
-        } else if (body.Contains("return ")) {
+        }
+        else if (body.Contains("return "))
+        {
             script = $"function {name}() {{ {body}; }}";
-        } else {
+        }
+        else
+        {
             script = $"function {name}() {{ return {body}; }}";
         }
 
         Engine.Execute(script);
     }
 
-    public void SetSource(object source) {
+    public void SetSource(object source)
+    {
         string json = _serializer.SerializeToString(source);
         if (json == null)
             json = "null";
@@ -95,31 +108,40 @@ public class ScriptService {
         Engine.Execute(script);
     }
 
-    public ScriptValueResult GetValue(string functionName) {
+    public ScriptValueResult GetValue(string functionName)
+    {
         string script = $"{functionName}()";
-        try {
+        try
+        {
             var completionValue = Engine.Evaluate(script);
             if (completionValue == JsValue.Undefined)
                 return ScriptValueResult.Cancelled;
 
             return new ScriptValueResult(completionValue.ToObject());
-        } finally {
+        }
+        finally
+        {
             Engine.ResetCallStack();
         }
     }
 
-    public object ExecuteExpression(string expression) {
+    public object ExecuteExpression(string expression)
+    {
         if (String.IsNullOrEmpty(expression))
             throw new ArgumentNullException(nameof(expression));
 
-        try {
+        try
+        {
             return Engine.Evaluate(expression).ToObject();
-        } finally {
+        }
+        finally
+        {
             Engine.ResetCallStack();
         }
     }
 
-    private bool IsValidJavaScriptIdentifier(string identifier) {
+    private bool IsValidJavaScriptIdentifier(string identifier)
+    {
         if (String.IsNullOrEmpty(identifier))
             return false;
 
@@ -130,7 +152,8 @@ public class ScriptService {
         return Array.TrueForAll(identifier.ToCharArray(), c => Char.IsLetterOrDigit(c) || c == '_');
     }
 
-    private string ComputeSha256Hash(string value) {
+    private string ComputeSha256Hash(string value)
+    {
         using var sha256Hash = SHA256.Create();
 
         byte[] bytes = sha256Hash.ComputeHash(Encoding.UTF8.GetBytes(value));
@@ -142,8 +165,10 @@ public class ScriptService {
         return builder.ToString();
     }
 
-    private Engine CreateEngine() {
-        return new Engine(o => {
+    private Engine CreateEngine()
+    {
+        return new Engine(o =>
+        {
             o.LimitRecursion(64);
             o.MaxStatements(100);
             o.Strict();
@@ -151,7 +176,8 @@ public class ScriptService {
             o.AddObjectConverter(new JintEnumConverter());
             o.AddObjectConverter(new JintDateTimeConverter());
             o.LocalTimeZone(TimeZoneInfo.Utc);
-            o.CatchClrExceptions(ex => {
+            o.CatchClrExceptions(ex =>
+            {
                 _logger.LogError(ex, "Error evaluating calculated field expression.");
                 return false;
             });
@@ -159,8 +185,10 @@ public class ScriptService {
     }
 }
 
-public class ScriptValueResult {
-    public ScriptValueResult(object value, bool isCancelled = false) {
+public class ScriptValueResult
+{
+    public ScriptValueResult(object value, bool isCancelled = false)
+    {
         Value = value;
         IsCancelled = isCancelled;
     }
@@ -171,9 +199,12 @@ public class ScriptValueResult {
     public static ScriptValueResult Cancelled = new ScriptValueResult(null, true);
 }
 
-public class JintEnumConverter : IObjectConverter {
-    public bool TryConvert(Engine engine, object value, out JsValue result) {
-        if (value.GetType().IsEnum) {
+public class JintEnumConverter : IObjectConverter
+{
+    public bool TryConvert(Engine engine, object value, out JsValue result)
+    {
+        if (value.GetType().IsEnum)
+        {
             result = value.ToString();
             return true;
         }
@@ -183,9 +214,12 @@ public class JintEnumConverter : IObjectConverter {
     }
 }
 
-public class JintGuidConverter : IObjectConverter {
-    public bool TryConvert(Engine engine, object value, out JsValue result) {
-        if (value is Guid guid) {
+public class JintGuidConverter : IObjectConverter
+{
+    public bool TryConvert(Engine engine, object value, out JsValue result)
+    {
+        if (value is Guid guid)
+        {
             result = guid.ToString();
             return true;
         }
@@ -195,14 +229,18 @@ public class JintGuidConverter : IObjectConverter {
     }
 }
 
-public class JintDateTimeConverter : IObjectConverter {
-    public bool TryConvert(Engine engine, object value, out JsValue result) {
-        if (value is DateTime dateTime) {
+public class JintDateTimeConverter : IObjectConverter
+{
+    public bool TryConvert(Engine engine, object value, out JsValue result)
+    {
+        if (value is DateTime dateTime)
+        {
             result = dateTime.ToString("o");
             return true;
         }
 
-        if (value is DateTimeOffset dateTimeOffset) {
+        if (value is DateTimeOffset dateTimeOffset)
+        {
             result = dateTimeOffset.ToString("o");
             return true;
         }

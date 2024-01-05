@@ -6,15 +6,19 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Nest;
 
-namespace Foundatio.Repositories {
-    public static class AgeQueryExtensions {
+namespace Foundatio.Repositories
+{
+    public static class AgeQueryExtensions
+    {
         internal const string AgesKey = "@Ages";
 
-        public static T Age<T>(this T query, int age) where T : IRepositoryQuery {
+        public static T Age<T>(this T query, int age) where T : IRepositoryQuery
+        {
             return query.AddCollectionOptionValue(AgesKey, age);
         }
 
-        public static T AgeRange<T>(this T query, int minAge, int maxAge) where T : IRepositoryQuery {
+        public static T AgeRange<T>(this T query, int minAge, int maxAge) where T : IRepositoryQuery
+        {
             foreach (int age in Enumerable.Range(minAge, maxAge - minAge + 1))
                 query.AddCollectionOptionValue(AgesKey, age);
 
@@ -23,17 +27,23 @@ namespace Foundatio.Repositories {
     }
 }
 
-namespace Foundatio.Repositories.Options {
-    public static class ReadAgeQueryExtensions {
-        public static ICollection<int> GetAges(this IRepositoryQuery query) {
+namespace Foundatio.Repositories.Options
+{
+    public static class ReadAgeQueryExtensions
+    {
+        public static ICollection<int> GetAges(this IRepositoryQuery query)
+        {
             return query.SafeGetCollection<int>(AgeQueryExtensions.AgesKey);
         }
     }
 }
 
-namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries {
-    public class AgeQueryBuilder : IElasticQueryBuilder {
-        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries
+{
+    public class AgeQueryBuilder : IElasticQueryBuilder
+    {
+        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
+        {
             var ages = ctx.Source.GetAges();
             if (ages.Count <= 0)
                 return Task.CompletedTask;

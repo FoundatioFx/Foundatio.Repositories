@@ -3,7 +3,8 @@
 namespace Foundatio.Repositories.Models;
 
 public class MultiBucketAggregate<TBucket> : BucketAggregateBase
-    where TBucket : IBucket {
+    where TBucket : IBucket
+{
     public MultiBucketAggregate() { }
     public MultiBucketAggregate(IReadOnlyDictionary<string, IAggregate> aggregations) : base(aggregations) { }
 

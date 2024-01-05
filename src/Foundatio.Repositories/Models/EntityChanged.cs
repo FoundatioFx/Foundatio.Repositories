@@ -5,8 +5,10 @@ using Foundatio.Utility;
 namespace Foundatio.Repositories.Models;
 
 [DebuggerDisplay("{Type} {ChangeType}: Id={Id}")]
-public class EntityChanged : IHaveData {
-    public EntityChanged() {
+public class EntityChanged : IHaveData
+{
+    public EntityChanged()
+    {
         Data = new DataDictionary();
     }
 

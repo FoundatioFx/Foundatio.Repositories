@@ -5,6 +5,7 @@ namespace Foundatio.Repositories.Models;
 
 [Newtonsoft.Json.JsonConverter(typeof(BucketsNewtonsoftJsonConverter))]
 [System.Text.Json.Serialization.JsonConverter(typeof(BucketsSystemTextJsonConverter))]
-public interface IBucket {
+public interface IBucket
+{
     IReadOnlyDictionary<string, object> Data { get; set; }
 }

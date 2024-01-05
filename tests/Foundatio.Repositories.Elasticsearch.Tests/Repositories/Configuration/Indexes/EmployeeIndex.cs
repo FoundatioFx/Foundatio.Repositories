@@ -2,29 +2,32 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Foundatio.Parsers;
+using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
-using Foundatio.Repositories.Elasticsearch.Queries.Builders;
-using Nest;
-using Foundatio.Parsers.ElasticQueries;
-using Foundatio.Parsers;
-using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Serializer;
 using Microsoft.Extensions.Logging.Abstractions;
+using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 
-public sealed class EmployeeIndex : Index<Employee> {
-    public EmployeeIndex(IElasticConfiguration configuration): base(configuration, "employees") {
+public sealed class EmployeeIndex : Index<Employee>
+{
+    public EmployeeIndex(IElasticConfiguration configuration) : base(configuration, "employees")
+    {
         AddStandardCustomFieldTypes();
 
         // overrides the normal integer field type with one that supports expressions to calculate values
         AddCustomFieldType(new CalculatedIntegerFieldType(new ScriptService(new SystemTextJsonSerializer(), NullLogger<ScriptService>.Instance)));
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    {
         return base.ConfigureIndex(idx.Settings(s => s
             .Setting("index.mapping.ignore_malformed", "true")
             .NumberOfReplicas(0)
@@ -32,7 +35,8 @@ public sealed class EmployeeIndex : Index<Employee> {
             .Analysis(a => a.AddSortNormalizer())));
     }
 
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map) {
+    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
+    {
         return map
             .Dynamic(false)
             .Properties(p => p
@@ -66,40 +70,47 @@ public sealed class EmployeeIndex : Index<Employee> {
                 );
     }
 
-    protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
+    protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder)
+    {
         builder.Register<AgeQueryBuilder>();
         builder.Register<CompanyQueryBuilder>();
         builder.Register<EmailAddressQueryBuilder>();
     }
 
-    protected override void ConfigureQueryParser(ElasticQueryParserConfiguration config) {
+    protected override void ConfigureQueryParser(ElasticQueryParserConfiguration config)
+    {
         base.ConfigureQueryParser(config);
         config.UseIncludes(ResolveIncludeAsync).UseOptInRuntimeFieldResolver(ResolveRuntimeFieldAsync);
     }
 
-    private async Task<string> ResolveIncludeAsync(string name) {
+    private async Task<string> ResolveIncludeAsync(string name)
+    {
         await Task.Delay(100);
         return "aliasedage:10";
     }
 
-    private async Task<ElasticRuntimeField> ResolveRuntimeFieldAsync(string name) {
+    private async Task<ElasticRuntimeField> ResolveRuntimeFieldAsync(string name)
+    {
         await Task.Delay(100);
 
         if (name.Equals("unmappedEmailAddress", StringComparison.OrdinalIgnoreCase))
             return new ElasticRuntimeField { Name = "unmappedEmailAddress" };
-        
+
         return null;
     }
 }
 
-public sealed class EmployeeIndexWithYearsEmployed : Index<Employee> {
-    public EmployeeIndexWithYearsEmployed(IElasticConfiguration configuration) : base(configuration, "employees") {}
+public sealed class EmployeeIndexWithYearsEmployed : Index<Employee>
+{
+    public EmployeeIndexWithYearsEmployed(IElasticConfiguration configuration) : base(configuration, "employees") { }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    {
         return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
 
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map) {
+    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
+    {
         return base.ConfigureIndexMapping(map
             .Dynamic(false)
             .Properties(p => p
@@ -117,13 +128,15 @@ public sealed class EmployeeIndexWithYearsEmployed : Index<Employee> {
     }
 }
 
-public sealed class VersionedEmployeeIndex : VersionedIndex<Employee> {
+public sealed class VersionedEmployeeIndex : VersionedIndex<Employee>
+{
     private readonly Func<CreateIndexDescriptor, CreateIndexDescriptor> _createIndex;
     private readonly Func<TypeMappingDescriptor<Employee>, TypeMappingDescriptor<Employee>> _createMappings;
 
     public VersionedEmployeeIndex(IElasticConfiguration configuration, int version,
         Func<CreateIndexDescriptor, CreateIndexDescriptor> createIndex = null,
-        Func<TypeMappingDescriptor<Employee>, TypeMappingDescriptor<Employee>> createMappings = null) : base(configuration, "employees", version) {
+        Func<TypeMappingDescriptor<Employee>, TypeMappingDescriptor<Employee>> createMappings = null) : base(configuration, "employees", version)
+    {
         _createIndex = createIndex;
         _createMappings = createMappings;
         AddReindexScript(20, "ctx._source.companyName = 'scripted';");
@@ -131,33 +144,39 @@ public sealed class VersionedEmployeeIndex : VersionedIndex<Employee> {
         AddReindexScript(22, "ctx._source.FAIL = 'should not work");
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    {
         if (_createIndex != null)
             return _createIndex(idx);
-        
+
         return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
 
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map) {
+    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
+    {
         if (_createMappings != null)
             return _createMappings(map);
-        
+
         return base.ConfigureIndexMapping(map);
     }
 }
 
-public sealed class DailyEmployeeIndex : DailyIndex<Employee> {
-    public DailyEmployeeIndex(IElasticConfiguration configuration, int version) : base(configuration, "daily-employees", version) {
+public sealed class DailyEmployeeIndex : DailyIndex<Employee>
+{
+    public DailyEmployeeIndex(IElasticConfiguration configuration, int version) : base(configuration, "daily-employees", version)
+    {
         AddAlias($"{Name}-today", TimeSpan.FromDays(1));
         AddAlias($"{Name}-last7days", TimeSpan.FromDays(7));
         AddAlias($"{Name}-last30days", TimeSpan.FromDays(30));
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    {
         return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
 
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map) {
+    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
+    {
         return base.ConfigureIndexMapping(map
             .Dynamic(false)
             .Properties(p => p
@@ -173,29 +192,35 @@ public sealed class DailyEmployeeIndex : DailyIndex<Employee> {
             ));
     }
 
-    protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
+    protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder)
+    {
         builder.Register<AgeQueryBuilder>();
         builder.Register<CompanyQueryBuilder>();
     }
 }
 
-public sealed class DailyEmployeeIndexWithWrongEmployeeType : DailyIndex<Employee> {
-    public DailyEmployeeIndexWithWrongEmployeeType(IElasticConfiguration configuration, int version) : base(configuration, "daily-employees", version) {}
+public sealed class DailyEmployeeIndexWithWrongEmployeeType : DailyIndex<Employee>
+{
+    public DailyEmployeeIndexWithWrongEmployeeType(IElasticConfiguration configuration, int version) : base(configuration, "daily-employees", version) { }
 }
 
-public sealed class MonthlyEmployeeIndex : MonthlyIndex<Employee> {
-    public MonthlyEmployeeIndex(IElasticConfiguration configuration, int version) : base(configuration, "monthly-employees", version) {
+public sealed class MonthlyEmployeeIndex : MonthlyIndex<Employee>
+{
+    public MonthlyEmployeeIndex(IElasticConfiguration configuration, int version) : base(configuration, "monthly-employees", version)
+    {
         AddAlias($"{Name}-today", TimeSpan.FromDays(1));
         AddAlias($"{Name}-last7days", TimeSpan.FromDays(7));
         AddAlias($"{Name}-last30days", TimeSpan.FromDays(30));
         AddAlias($"{Name}-last60days", TimeSpan.FromDays(60));
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    {
         return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
 
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map) {
+    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
+    {
         return base.ConfigureIndexMapping(map
             .Dynamic(false)
             .Properties(p => p
@@ -211,7 +236,8 @@ public sealed class MonthlyEmployeeIndex : MonthlyIndex<Employee> {
             ));
     }
 
-    protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder) {
+    protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder)
+    {
         builder.Register<AgeQueryBuilder>();
         builder.Register<CompanyQueryBuilder>();
     }

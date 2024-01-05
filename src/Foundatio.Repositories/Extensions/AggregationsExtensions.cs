@@ -4,7 +4,8 @@ using System.Linq;
 
 namespace Foundatio.Repositories.Models;
 
-public static class AggregationsExtensions {
+public static class AggregationsExtensions
+{
     public static PercentileItem GetPercentile(this PercentilesAggregate agg, double percentile) => agg.Items.FirstOrDefault(i => i.Percentile == percentile);
     public static ValueAggregate Min(this IReadOnlyDictionary<string, IAggregate> aggs, string key) => aggs.TryGet<ValueAggregate>(key);
     public static ValueAggregate<T> Min<T>(this IReadOnlyDictionary<string, IAggregate> aggs, string key) => aggs.TryGet<ValueAggregate<T>>(key);
@@ -19,7 +20,8 @@ public static class AggregationsExtensions {
 
     public static ValueAggregate Average(this IReadOnlyDictionary<string, IAggregate> aggs, string key) => aggs.TryGet<ValueAggregate>(key);
 
-    public static ObjectValueAggregate Metric(this IReadOnlyDictionary<string, IAggregate> aggs, string key) {
+    public static ObjectValueAggregate Metric(this IReadOnlyDictionary<string, IAggregate> aggs, string key)
+    {
         var valueMetric = aggs.TryGet<ValueAggregate>(key);
 
         return valueMetric != null
@@ -35,11 +37,13 @@ public static class AggregationsExtensions {
 
     public static SingleBucketAggregate Missing(this IReadOnlyDictionary<string, IAggregate> aggs, string key) => aggs.TryGet<SingleBucketAggregate>(key);
 
-    public static TermsAggregate<TKey> Terms<TKey>(this IReadOnlyDictionary<string, IAggregate> aggs, string key) {
+    public static TermsAggregate<TKey> Terms<TKey>(this IReadOnlyDictionary<string, IAggregate> aggs, string key)
+    {
         var bucket = aggs.TryGet<BucketAggregate>(key);
         return bucket == null
             ? null
-            : new TermsAggregate<TKey> {
+            : new TermsAggregate<TKey>
+            {
                 Buckets = GetKeyedBuckets<TKey>(bucket.Items).ToList(),
                 Data = bucket.Data
             };
@@ -52,34 +56,42 @@ public static class AggregationsExtensions {
     public static MultiBucketAggregate<DateHistogramBucket> DateHistogram(this IReadOnlyDictionary<string, IAggregate> aggs, string key) => aggs.GetMultiBucketAggregate<DateHistogramBucket>(key);
 
     private static TAggregate TryGet<TAggregate>(this IReadOnlyDictionary<string, IAggregate> aggs, string key)
-        where TAggregate : class, IAggregate {
+        where TAggregate : class, IAggregate
+    {
         return aggs.TryGetValue(key, out var agg) ? agg as TAggregate : null;
     }
 
     private static MultiBucketAggregate<TBucket> GetMultiBucketAggregate<TBucket>(this IReadOnlyDictionary<string, IAggregate> aggs, string key)
-        where TBucket : IBucket {
+        where TBucket : IBucket
+    {
         var bucket = aggs.TryGet<BucketAggregate>(key);
         if (bucket == null) return null;
-        return new MultiBucketAggregate<TBucket> {
+        return new MultiBucketAggregate<TBucket>
+        {
             Buckets = bucket.Items.OfType<TBucket>().ToList(),
             Data = bucket.Data
         };
     }
 
-    private static MultiBucketAggregate<KeyedBucket<TKey>> GetMultiKeyedBucketAggregate<TKey>(this IReadOnlyDictionary<string, IAggregate> aggs, string key) {
+    private static MultiBucketAggregate<KeyedBucket<TKey>> GetMultiKeyedBucketAggregate<TKey>(this IReadOnlyDictionary<string, IAggregate> aggs, string key)
+    {
         var bucket = aggs.TryGet<BucketAggregate>(key);
         if (bucket == null) return null;
-        return new MultiBucketAggregate<KeyedBucket<TKey>> {
+        return new MultiBucketAggregate<KeyedBucket<TKey>>
+        {
             Buckets = GetKeyedBuckets<TKey>(bucket.Items).ToList(),
             Data = bucket.Data
         };
     }
 
-    private static IEnumerable<KeyedBucket<TKey>> GetKeyedBuckets<TKey>(IEnumerable<IBucket> items) {
+    private static IEnumerable<KeyedBucket<TKey>> GetKeyedBuckets<TKey>(IEnumerable<IBucket> items)
+    {
         var buckets = items.Cast<KeyedBucket<object>>();
 
-        foreach (var bucket in buckets) {
-            yield return new KeyedBucket<TKey> {
+        foreach (var bucket in buckets)
+        {
+            yield return new KeyedBucket<TKey>
+            {
                 Key = (TKey)Convert.ChangeType(bucket.Key, typeof(TKey)),
                 KeyAsString = bucket.KeyAsString,
                 Aggregations = bucket.Aggregations,

@@ -3,10 +3,12 @@ using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Utility;
 
-public class ReplaceOperation : Operation {
+public class ReplaceOperation : Operation
+{
     public JToken Value { get; set; }
 
-    public override void Write(JsonWriter writer) {
+    public override void Write(JsonWriter writer)
+    {
         writer.WriteStartObject();
 
         WriteOp(writer, "replace");
@@ -16,7 +18,8 @@ public class ReplaceOperation : Operation {
         writer.WriteEndObject();
     }
 
-    public override void Read(JObject jOperation) {
+    public override void Read(JObject jOperation)
+    {
         Path = jOperation.Value<string>("path");
         Value = jOperation.GetValue("value");
     }

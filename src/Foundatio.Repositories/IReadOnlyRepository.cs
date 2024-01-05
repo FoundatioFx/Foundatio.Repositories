@@ -6,7 +6,8 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories;
 
-public interface IReadOnlyRepository<T> where T: class, new() {
+public interface IReadOnlyRepository<T> where T : class, new()
+{
     Task<T> GetByIdAsync(Id id, CommandOptionsDescriptor<T> options);
     Task<T> GetByIdAsync(Id id, ICommandOptions options = null);
 

@@ -4,19 +4,24 @@ using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Utility;
 
-public class AggregationsSystemTextJsonConverter : System.Text.Json.Serialization.JsonConverter<IAggregate> {
+public class AggregationsSystemTextJsonConverter : System.Text.Json.Serialization.JsonConverter<IAggregate>
+{
 
-    public override bool CanConvert(Type type) {
+    public override bool CanConvert(Type type)
+    {
         return typeof(IAggregate).IsAssignableFrom(type);
     }
 
-    public override IAggregate Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) {
+    public override IAggregate Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
         IAggregate value = null;
-        
+
         var element = JsonElement.ParseValue(ref reader);
         string typeToken = GetTokenType(element);
-        if (typeToken != null) {
-            switch (typeToken) {
+        if (typeToken != null)
+        {
+            switch (typeToken)
+            {
                 case "bucket":
                     value = element.Deserialize<BucketAggregate>(options);
                     break;
@@ -47,32 +52,36 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
                     break;
             }
         }
-        
+
         if (value is null)
             value = element.Deserialize<ValueAggregate>(options);
-        
+
         return value;
     }
 
-    public override void Write(Utf8JsonWriter writer, IAggregate value, JsonSerializerOptions options) {
-        var serializerOptions = new JsonSerializerOptions(options) {
+    public override void Write(Utf8JsonWriter writer, IAggregate value, JsonSerializerOptions options)
+    {
+        var serializerOptions = new JsonSerializerOptions(options)
+        {
             Converters = { new DoubleSystemTextJsonConverter() }
         };
-        
+
         JsonSerializer.Serialize(writer, value, value.GetType(), serializerOptions);
     }
-    
-    private JsonElement? GetProperty(JsonElement element, string propertyName) {
-        if (element.TryGetProperty(propertyName, out var dataElement)) 
+
+    private JsonElement? GetProperty(JsonElement element, string propertyName)
+    {
+        if (element.TryGetProperty(propertyName, out var dataElement))
             return dataElement;
-        
-        if (element.TryGetProperty(propertyName.ToLower(), out dataElement)) 
+
+        if (element.TryGetProperty(propertyName.ToLower(), out dataElement))
             return dataElement;
 
         return null;
     }
 
-    private string GetTokenType(JsonElement element) {
+    private string GetTokenType(JsonElement element)
+    {
         var dataPropertyElement = GetProperty(element, "Data");
 
         if (dataPropertyElement != null && dataPropertyElement.Value.TryGetProperty("@type", out var typeElement))

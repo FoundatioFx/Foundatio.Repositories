@@ -8,34 +8,39 @@ using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Jobs;
 using Foundatio.Lock;
-using Microsoft.Extensions.Logging;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs;
 
-public class CleanupIndexesJob : IJob {
+public class CleanupIndexesJob : IJob
+{
     private readonly IElasticClient _client;
     private readonly ILogger _logger;
     private readonly ILockProvider _lockProvider;
     private static readonly CultureInfo _enUS = new("en-US");
     private readonly ICollection<IndexMaxAge> _indexes = new List<IndexMaxAge>();
 
-    public CleanupIndexesJob(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory) {
+    public CleanupIndexesJob(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory)
+    {
         _client = client;
         _lockProvider = lockProvider;
         _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
     }
 
-    protected void AddIndex(TimeSpan maxAge, ExtractDateFunc getAge) {
+    protected void AddIndex(TimeSpan maxAge, ExtractDateFunc getAge)
+    {
         _indexes.Add(new IndexMaxAge(maxAge, getAge));
     }
 
-    protected void AddIndex(string prefix, TimeSpan maxAge) {
-        _indexes.Add(new IndexMaxAge(maxAge, idx => {
+    protected void AddIndex(string prefix, TimeSpan maxAge)
+    {
+        _indexes.Add(new IndexMaxAge(maxAge, idx =>
+        {
             if (DateTime.TryParseExact(idx, "'" + prefix + "-'yyyy.MM.dd", _enUS, DateTimeStyles.None, out var result))
                 return result;
 
@@ -43,7 +48,8 @@ public class CleanupIndexesJob : IJob {
         }));
     }
 
-    public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default) {
+    public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default)
+    {
         _logger.LogInformation("Starting index cleanup...");
 
         var sw = Stopwatch.StartNew();
@@ -51,13 +57,16 @@ public class CleanupIndexesJob : IJob {
             d => d.RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
         sw.Stop();
 
-        if (result.IsValid) {
+        if (result.IsValid)
+        {
             _logger.LogRequest(result);
             _logger.LogInformation("Retrieved list of {IndexCount} indexes in {Duration:g}", result.Records?.Count, sw.Elapsed.ToWords(true));
-        } else {
+        }
+        else
+        {
             _logger.LogErrorRequest(result, "Failed to retrieve list of indexes");
         }
-        
+
         var indexes = new List<IndexDate>();
         if (result.IsValid && result.Records != null)
             indexes = result.Records?.Select(r => GetIndexDate(r.Index)).Where(r => r != null).ToList();
@@ -68,7 +77,8 @@ public class CleanupIndexesJob : IJob {
         var now = SystemClock.UtcNow;
         var indexesToDelete = indexes.Where(r => r.Date < now.Subtract(r.MaxAge)).ToList();
 
-        if (indexesToDelete.Count == 0) {
+        if (indexesToDelete.Count == 0)
+        {
             _logger.LogInformation("No indexes selected for deletion.");
             return JobResult.Success;
         }
@@ -81,15 +91,19 @@ public class CleanupIndexesJob : IJob {
         _logger.LogInformation("Selected {IndexCount} indexes for deletion", indexesToDelete.Count);
 
         bool shouldContinue = true;
-        foreach (var oldIndex in indexesToDelete) {
-            if (!shouldContinue) {
+        foreach (var oldIndex in indexesToDelete)
+        {
+            if (!shouldContinue)
+            {
                 _logger.LogInformation("Stopped deleted snapshots.");
                 break;
             }
 
             _logger.LogInformation("Acquiring lock to delete index {OldIndex}", oldIndex.Index);
-            try {
-                await _lockProvider.TryUsingAsync("es-delete-index", async t => {
+            try
+            {
+                await _lockProvider.TryUsingAsync("es-delete-index", async t =>
+                {
                     _logger.LogInformation("Got lock to delete index {OldIndex}", oldIndex.Index);
                     sw.Restart();
                     var response = await _client.Indices.DeleteAsync(oldIndex.Index, d => d, t).AnyContext();
@@ -101,7 +115,9 @@ public class CleanupIndexesJob : IJob {
                     else
                         shouldContinue = await OnIndexDeleteFailure(oldIndex.Index, sw.Elapsed, response, null).AnyContext();
                 }, TimeSpan.FromMinutes(30), cancellationToken).AnyContext();
-            } catch (Exception ex) {
+            }
+            catch (Exception ex)
+            {
                 sw.Stop();
                 shouldContinue = await OnIndexDeleteFailure(oldIndex.Index, sw.Elapsed, null, ex).AnyContext();
             }
@@ -112,28 +128,34 @@ public class CleanupIndexesJob : IJob {
         return JobResult.Success;
     }
 
-    public virtual Task OnIndexDeleted(string indexName, TimeSpan duration) {
+    public virtual Task OnIndexDeleted(string indexName, TimeSpan duration)
+    {
         _logger.LogInformation("Completed delete index {IndexName} in {Duration:g}", indexName, duration.ToWords(true));
         return Task.CompletedTask;
     }
 
-    public virtual Task<bool> OnIndexDeleteFailure(string indexName, TimeSpan duration, DeleteIndexResponse response, Exception ex) {
+    public virtual Task<bool> OnIndexDeleteFailure(string indexName, TimeSpan duration, DeleteIndexResponse response, Exception ex)
+    {
         _logger.LogErrorRequest(ex, response, "Failed to delete index {IndexName} after {Duration:g}", indexName, duration);
         return Task.FromResult(true);
     }
 
-    public virtual Task OnCompleted(IReadOnlyCollection<string> deletedIndexes, TimeSpan duration) {
+    public virtual Task OnCompleted(IReadOnlyCollection<string> deletedIndexes, TimeSpan duration)
+    {
         _logger.LogInformation("Finished cleaning up {IndexCount} in {Duration:g}.", deletedIndexes.Count, duration);
         return Task.CompletedTask;
     }
 
-    private IndexDate GetIndexDate(string name) {
-        if (_indexes.Count == 0) {
+    private IndexDate GetIndexDate(string name)
+    {
+        if (_indexes.Count == 0)
+        {
             AddIndex("logstash", TimeSpan.FromDays(7));
             AddIndex(".marvel", TimeSpan.FromDays(7));
         }
 
-        foreach (var index in _indexes) {
+        foreach (var index in _indexes)
+        {
             var date = index.GetDate(name);
             if (date == null)
                 continue;
@@ -144,8 +166,10 @@ public class CleanupIndexesJob : IJob {
         return null;
     }
 
-    private class IndexMaxAge {
-        public IndexMaxAge(TimeSpan maxAge, ExtractDateFunc getAge) {
+    private class IndexMaxAge
+    {
+        public IndexMaxAge(TimeSpan maxAge, ExtractDateFunc getAge)
+        {
             MaxAge = maxAge;
             GetDate = getAge;
         }
@@ -154,7 +178,8 @@ public class CleanupIndexesJob : IJob {
         public ExtractDateFunc GetDate { get; }
     }
 
-    private class IndexDate {
+    private class IndexDate
+    {
         public string Index { get; set; }
         public DateTime Date { get; set; }
         public TimeSpan MaxAge { get; set; }

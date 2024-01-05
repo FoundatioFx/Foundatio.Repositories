@@ -5,7 +5,8 @@ using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Migrations;
 
-public interface IMigration {
+public interface IMigration
+{
     /// <summary>
     /// The type of migration.
     /// <see cref="MigrationType.Versioned">Versioned</see> migrations are run once and they are run sequentially.
@@ -38,8 +39,10 @@ public interface IMigration {
     Task RunAsync(MigrationContext context);
 }
 
-public class MigrationContext {
-    public MigrationContext(ILock migrationLock, ILogger logger, CancellationToken cancellationToken) {
+public class MigrationContext
+{
+    public MigrationContext(ILock migrationLock, ILogger logger, CancellationToken cancellationToken)
+    {
         Lock = migrationLock;
         Logger = logger;
         CancellationToken = cancellationToken;
@@ -50,14 +53,17 @@ public class MigrationContext {
     public CancellationToken CancellationToken { get; }
 }
 
-public enum MigrationType {
+public enum MigrationType
+{
     Versioned,
     VersionedAndResumable,
     Repeatable
 }
 
-public static class MigrationExtensions {
-    public static string GetId(this IMigration migration) {
+public static class MigrationExtensions
+{
+    public static string GetId(this IMigration migration)
+    {
         return migration.MigrationType != MigrationType.Repeatable ? migration.Version.ToString() : migration.GetType().FullName;
     }
 }

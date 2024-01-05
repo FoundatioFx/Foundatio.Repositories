@@ -9,13 +9,16 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
-public class MonthlyIndex: DailyIndex {
+public class MonthlyIndex : DailyIndex
+{
     public MonthlyIndex(IElasticConfiguration configuration, string name, int version = 1, Func<object, DateTime> getDocumentDateUtc = null)
-        : base(configuration, name, version, getDocumentDateUtc) {
+        : base(configuration, name, version, getDocumentDateUtc)
+    {
         DateFormat = "yyyy.MM";
     }
 
-    public override string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd) {
+    public override string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd)
+    {
         if (!utcStart.HasValue)
             utcStart = SystemClock.UtcNow;
 
@@ -37,11 +40,13 @@ public class MonthlyIndex: DailyIndex {
         return indices.ToArray();
     }
 
-    protected override DateTime GetIndexExpirationDate(DateTime utcDate) {
+    protected override DateTime GetIndexExpirationDate(DateTime utcDate)
+    {
         return MaxIndexAge.HasValue && MaxIndexAge > TimeSpan.Zero ? utcDate.EndOfMonth().SafeAdd(MaxIndexAge.Value) : DateTime.MaxValue;
     }
 
-    protected override bool ShouldCreateAlias(DateTime documentDateUtc, IndexAliasAge alias) {
+    protected override bool ShouldCreateAlias(DateTime documentDateUtc, IndexAliasAge alias)
+    {
         if (alias.MaxAge == TimeSpan.MaxValue)
             return true;
 
@@ -49,26 +54,34 @@ public class MonthlyIndex: DailyIndex {
     }
 }
 
-public class MonthlyIndex<T> : MonthlyIndex where T : class {
+public class MonthlyIndex<T> : MonthlyIndex where T : class
+{
     private readonly string _typeName = typeof(T).Name.ToLower();
 
-    public MonthlyIndex(IElasticConfiguration configuration, string name = null, int version = 1, Func<object, DateTime> getDocumentDateUtc = null) : base(configuration, name, version, getDocumentDateUtc) {
+    public MonthlyIndex(IElasticConfiguration configuration, string name = null, int version = 1, Func<object, DateTime> getDocumentDateUtc = null) : base(configuration, name, version, getDocumentDateUtc)
+    {
         Name = name ?? _typeName;
     }
 
-    protected override ElasticMappingResolver CreateMappingResolver() {
+    protected override ElasticMappingResolver CreateMappingResolver()
+    {
         return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMapping, _logger);
     }
-    
-    public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map) {
+
+    public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map)
+    {
         return map.AutoMap<T>().Properties(p => p.SetupDefaults());
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    {
         idx = base.ConfigureIndex(idx);
-        return idx.Map<T>(f => {
-            if (CustomFieldTypes.Count > 0) {
-                f.DynamicTemplates(d => {
+        return idx.Map<T>(f =>
+        {
+            if (CustomFieldTypes.Count > 0)
+            {
+                f.DynamicTemplates(d =>
+                {
                     foreach (var customFieldType in CustomFieldTypes.Values)
                         d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
 
@@ -80,7 +93,8 @@ public class MonthlyIndex<T> : MonthlyIndex where T : class {
         });
     }
 
-    public override void ConfigureSettings(ConnectionSettings settings) {
+    public override void ConfigureSettings(ConnectionSettings settings)
+    {
         settings.DefaultMappingFor<T>(d => d.IndexName(Name));
     }
 }

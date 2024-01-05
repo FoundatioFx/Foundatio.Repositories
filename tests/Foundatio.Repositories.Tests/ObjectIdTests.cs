@@ -6,9 +6,11 @@ using Xunit;
 
 namespace Foundatio.Repositories.Tests;
 
-public class ObjectIdTests {
+public class ObjectIdTests
+{
     [Fact]
-    public void CanParseDate() {
+    public void CanParseDate()
+    {
         var time = SystemClock.UtcNow.Round(TimeSpan.FromSeconds(1));
         var id = ObjectId.GenerateNewId(time);
         Assert.Equal(time, id.CreationTime);
@@ -19,7 +21,8 @@ public class ObjectIdTests {
     }
 
     [Fact]
-    public void CanParseOldDate() {
+    public void CanParseOldDate()
+    {
         var time = SystemClock.UtcNow.SubtractMonths(1).Round(TimeSpan.FromSeconds(1));
         var id = ObjectId.GenerateNewId(time);
         Assert.Equal(time, id.CreationTime);
@@ -30,7 +33,8 @@ public class ObjectIdTests {
     }
 
     [Fact]
-    public void CanCreateUniqueIdsFromSameDateTime() {
+    public void CanCreateUniqueIdsFromSameDateTime()
+    {
         var utcNow = SystemClock.UtcNow.Round(TimeSpan.FromSeconds(1));
         var id = ObjectId.GenerateNewId(utcNow);
         Assert.Equal(utcNow, id.CreationTime);

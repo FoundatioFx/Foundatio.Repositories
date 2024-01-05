@@ -5,19 +5,24 @@ using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Utility;
 
-public class AggregationsNewtonsoftJsonConverter : JsonConverter {
-    public override bool CanConvert(Type objectType) {
+public class AggregationsNewtonsoftJsonConverter : JsonConverter
+{
+    public override bool CanConvert(Type objectType)
+    {
         return typeof(IAggregate).IsAssignableFrom(objectType);
     }
 
-    public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer) {
+    public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+    {
         var item = JObject.Load(reader);
         var typeToken = item.SelectToken("Data.@type") ?? item.SelectToken("data.@type");
 
         IAggregate value = null;
-        if (typeToken != null) {
+        if (typeToken != null)
+        {
             string type = typeToken.Value<string>();
-            switch (type) {
+            switch (type)
+            {
                 case "bucket":
                     value = new BucketAggregate();
                     break;
@@ -59,7 +64,8 @@ public class AggregationsNewtonsoftJsonConverter : JsonConverter {
 
     public override bool CanWrite => false;
 
-    public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer) {
+    public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+    {
         throw new NotImplementedException();
     }
 }

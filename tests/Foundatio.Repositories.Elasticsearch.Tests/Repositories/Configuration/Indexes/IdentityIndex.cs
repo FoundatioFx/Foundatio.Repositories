@@ -4,14 +4,17 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 
-public sealed class IdentityIndex : Index<Identity> {
-    public IdentityIndex(IElasticConfiguration configuration) : base(configuration, "identity") {}
+public sealed class IdentityIndex : Index<Identity>
+{
+    public IdentityIndex(IElasticConfiguration configuration) : base(configuration, "identity") { }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx) {
+    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    {
         return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
 
-    public override TypeMappingDescriptor<Identity> ConfigureIndexMapping(TypeMappingDescriptor<Identity> map) {
+    public override TypeMappingDescriptor<Identity> ConfigureIndexMapping(TypeMappingDescriptor<Identity> map)
+    {
         return map
             .Dynamic(false)
             .Properties(p => p

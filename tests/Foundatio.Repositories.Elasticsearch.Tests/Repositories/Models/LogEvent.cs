@@ -8,19 +8,22 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 
-public class LogEvent : IIdentity, IHaveCreatedDate {
+public class LogEvent : IIdentity, IHaveCreatedDate
+{
     public string Id { get; set; }
 
-    protected bool Equals(LogEvent other) {
-        return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase) && 
-            String.Equals(CompanyId, other.CompanyId, StringComparison.InvariantCultureIgnoreCase) && 
+    protected bool Equals(LogEvent other)
+    {
+        return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase) &&
+            String.Equals(CompanyId, other.CompanyId, StringComparison.InvariantCultureIgnoreCase) &&
             String.Equals(Message, other.Message, StringComparison.InvariantCultureIgnoreCase) &&
             Value == other.Value &&
             Date.Equals(other.Date) &&
             CreatedUtc.Equals(other.CreatedUtc);
     }
-    
-    public override bool Equals(object obj) {
+
+    public override bool Equals(object obj)
+    {
         if (ReferenceEquals(null, obj))
             return false;
         if (ReferenceEquals(this, obj))
@@ -29,9 +32,11 @@ public class LogEvent : IIdentity, IHaveCreatedDate {
             return false;
         return Equals((LogEvent)obj);
     }
-    
-    public override int GetHashCode() {
-        unchecked {
+
+    public override int GetHashCode()
+    {
+        unchecked
+        {
             int hashCode = (Id != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Id) : 0);
             hashCode = (hashCode * 397) ^ (CompanyId != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(CompanyId) : 0);
             hashCode = (hashCode * 397) ^ (Message != null ? StringComparer.InvariantCultureIgnoreCase.GetHashCode(Message) : 0);
@@ -42,11 +47,13 @@ public class LogEvent : IIdentity, IHaveCreatedDate {
         }
     }
 
-    public static bool operator ==(LogEvent left, LogEvent right) {
+    public static bool operator ==(LogEvent left, LogEvent right)
+    {
         return Equals(left, right);
     }
 
-    public static bool operator !=(LogEvent left, LogEvent right) {
+    public static bool operator !=(LogEvent left, LogEvent right)
+    {
         return !Equals(left, right);
     }
 
@@ -58,34 +65,41 @@ public class LogEvent : IIdentity, IHaveCreatedDate {
     public DateTime CreatedUtc { get; set; }
 }
 
-public class LogEventMeta {
+public class LogEventMeta
+{
     public string Stuff { get; set; }
 }
 
-public static class LogEventGenerator {
+public static class LogEventGenerator
+{
     public static readonly string DefaultCompanyId = ObjectId.GenerateNewId().ToString();
 
-    public static LogEvent Default => new() {
+    public static LogEvent Default => new()
+    {
         Message = "Hello world",
         CompanyId = DefaultCompanyId,
         CreatedUtc = SystemClock.UtcNow
     };
 
-    public static LogEvent Generate(string id = null, string companyId = null, string message = null, DateTime? createdUtc = null, DateTimeOffset? date = null, string stuff = null) {
+    public static LogEvent Generate(string id = null, string companyId = null, string message = null, DateTime? createdUtc = null, DateTimeOffset? date = null, string stuff = null)
+    {
         var created = createdUtc ?? RandomData.GetDateTime(SystemClock.UtcNow.StartOfMonth(), SystemClock.UtcNow);
-        return new LogEvent {
+        return new LogEvent
+        {
             Id = id,
             Message = message ?? RandomData.GetAlphaString(),
             CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
             CreatedUtc = created,
-            Meta = new LogEventMeta {
+            Meta = new LogEventMeta
+            {
                 Stuff = stuff,
             },
             Date = date ?? created
         };
     }
-    
-    public static List<LogEvent> GenerateLogs(int count = 10) {
+
+    public static List<LogEvent> GenerateLogs(int count = 10)
+    {
         var results = new List<LogEvent>(count);
         for (int index = 0; index < count; index++)
             results.Add(Generate());

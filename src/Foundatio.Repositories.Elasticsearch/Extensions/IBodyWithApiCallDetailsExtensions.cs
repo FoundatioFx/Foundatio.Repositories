@@ -5,10 +5,12 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
-internal static class IBodyWithApiCallDetailsExtensions {
-    private static readonly JsonSerializerOptions _options = new() { PropertyNameCaseInsensitive = true,  };
+internal static class IBodyWithApiCallDetailsExtensions
+{
+    private static readonly JsonSerializerOptions _options = new() { PropertyNameCaseInsensitive = true, };
 
-    public static T DeserializeRaw<T>(this IResponse call) where T : class, new() {
+    public static T DeserializeRaw<T>(this IResponse call) where T : class, new()
+    {
         if (call?.ApiCall?.ResponseBodyInBytes == null)
             return default;
 

@@ -6,20 +6,28 @@ using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Extensions;
 
-public static class DictionaryExtensions {
-    public static string GetString(this IEnumerable<KeyValuePair<string, object>> data, string name) {
+public static class DictionaryExtensions
+{
+    public static string GetString(this IEnumerable<KeyValuePair<string, object>> data, string name)
+    {
         return data.GetString(name, String.Empty);
     }
 
-    public static string GetString(this IEnumerable<KeyValuePair<string, object>> data, string name, string @default) {
+    public static string GetString(this IEnumerable<KeyValuePair<string, object>> data, string name, string @default)
+    {
         object value = null;
-        if (data is IDictionary<string, object> dictionary) {
+        if (data is IDictionary<string, object> dictionary)
+        {
             if (!dictionary.TryGetValue(name, out value))
                 return @default;
-        } else if (data is IReadOnlyDictionary<string, object> readOnlyDictionary) {
+        }
+        else if (data is IReadOnlyDictionary<string, object> readOnlyDictionary)
+        {
             if (!readOnlyDictionary.TryGetValue(name, out value))
                 return @default;
-        } else {
+        }
+        else
+        {
             var d = data.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
             if (!d.TryGetValue(name, out value))
                 return @default;
@@ -31,19 +39,26 @@ public static class DictionaryExtensions {
         return @default;
     }
 
-    public static bool GetBoolean(this IEnumerable<KeyValuePair<string, object>> data, string name) {
+    public static bool GetBoolean(this IEnumerable<KeyValuePair<string, object>> data, string name)
+    {
         return data.GetBoolean(name, false);
     }
 
-    public static bool GetBoolean(this IEnumerable<KeyValuePair<string, object>> data, string name, bool @default) {
+    public static bool GetBoolean(this IEnumerable<KeyValuePair<string, object>> data, string name, bool @default)
+    {
         object value = null;
-        if (data is IDictionary<string, object> dictionary) {
+        if (data is IDictionary<string, object> dictionary)
+        {
             if (!dictionary.TryGetValue(name, out value))
                 return @default;
-        } else if (data is IReadOnlyDictionary<string, object> readOnlyDictionary) {
+        }
+        else if (data is IReadOnlyDictionary<string, object> readOnlyDictionary)
+        {
             if (!readOnlyDictionary.TryGetValue(name, out value))
                 return @default;
-        } else {
+        }
+        else
+        {
             var d = data.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
             if (!d.TryGetValue(name, out value))
                 return @default;
@@ -58,7 +73,8 @@ public static class DictionaryExtensions {
         return @default;
     }
 
-    public static IDictionary<string, object> ToData<T>(this IEnumerable<KeyValuePair<string, object>> dictionary) where T: IAggregate {
+    public static IDictionary<string, object> ToData<T>(this IEnumerable<KeyValuePair<string, object>> dictionary) where T : IAggregate
+    {
         var dict = dictionary?
             .Where(kvp => kvp.Key != "@field_type" && kvp.Key != "@timezone")
             .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
@@ -73,11 +89,13 @@ public static class DictionaryExtensions {
         return dict?.Count > 0 ? dict : null;
     }
 
-    public static IReadOnlyDictionary<string, object> ToReadOnlyData<T>(this IEnumerable<KeyValuePair<string, object>> dictionary) where T : IAggregate {
+    public static IReadOnlyDictionary<string, object> ToReadOnlyData<T>(this IEnumerable<KeyValuePair<string, object>> dictionary) where T : IAggregate
+    {
         return new ReadOnlyDictionary<string, object>(dictionary.ToData<T>());
     }
 
-    private static string GetAggregateType(Type type) {
+    private static string GetAggregateType(Type type)
+    {
         if (type == typeof(BucketAggregate))
             return "bucket";
 

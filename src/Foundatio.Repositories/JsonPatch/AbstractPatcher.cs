@@ -1,13 +1,17 @@
 ﻿namespace Foundatio.Repositories.Utility;
 
-public abstract class AbstractPatcher<TDoc> where TDoc : class {
-    public virtual void Patch(ref TDoc target, PatchDocument document) {
-        foreach (var operation in document.Operations) {
+public abstract class AbstractPatcher<TDoc> where TDoc : class
+{
+    public virtual void Patch(ref TDoc target, PatchDocument document)
+    {
+        foreach (var operation in document.Operations)
+        {
             target = ApplyOperation(operation, target);
         }
     }
 
-    public virtual TDoc ApplyOperation(Operation operation, TDoc target) {
+    public virtual TDoc ApplyOperation(Operation operation, TDoc target)
+    {
         if (operation is AddOperation)
             Add((AddOperation)operation, target);
         else if (operation is CopyOperation)

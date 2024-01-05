@@ -5,8 +5,10 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders;
 
-public class SoftDeletesQueryBuilder : IElasticQueryBuilder {
-    public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new() {
+public class SoftDeletesQueryBuilder : IElasticQueryBuilder
+{
+    public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
+    {
         // TODO: Figure out how to automatically add parent filter for soft deletes on queries that have a parent document type
 
         // dont add filter to child query system filters
@@ -27,7 +29,7 @@ public class SoftDeletesQueryBuilder : IElasticQueryBuilder {
         var documentType = ctx.Options.DocumentType();
         var property = documentType.GetProperty(nameof(ISupportSoftDeletes.IsDeleted));
         var index = ctx.Options.GetElasticIndex();
-        
+
         string fieldName = property != null ? index?.Configuration.Client.Infer.Field(new Field(property)) ?? "isDeleted" : "isDeleted";
         if (mode == SoftDeleteQueryMode.ActiveOnly)
             ctx.Filter &= new TermQuery { Field = fieldName, Value = false };
@@ -36,9 +38,11 @@ public class SoftDeletesQueryBuilder : IElasticQueryBuilder {
 
         var parentType = ctx.Options.ParentDocumentType();
         if (parentType != null && parentType != typeof(object))
-            ctx.Filter &= new HasParentQuery {
+            ctx.Filter &= new HasParentQuery
+            {
                 ParentType = parentType,
-                Query = new BoolQuery {
+                Query = new BoolQuery
+                {
                     Filter = new[] { new QueryContainer(new TermQuery { Field = fieldName, Value = false }) }
                 }
             };

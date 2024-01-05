@@ -1,5 +1,6 @@
 ﻿namespace Foundatio.Repositories;
 
-public interface ISystemFilter {
+public interface ISystemFilter
+{
     IRepositoryQuery GetQuery();
 }

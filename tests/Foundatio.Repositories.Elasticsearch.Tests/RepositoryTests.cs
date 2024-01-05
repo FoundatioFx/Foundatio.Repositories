@@ -5,28 +5,30 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
+using Foundatio.AsyncEx;
+using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
-using Foundatio.AsyncEx;
-using Foundatio.Caching;
 using Xunit;
 using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-public sealed class RepositoryTests : ElasticRepositoryTestBase {
+public sealed class RepositoryTests : ElasticRepositoryTestBase
+{
     private readonly IEmployeeRepository _employeeRepository;
     private readonly ILogEventRepository _dailyRepository;
     private readonly ILogEventRepository _dailyRepositoryWithNoCaching;
     private readonly IIdentityRepository _identityRepository;
     private readonly IIdentityRepository _identityRepositoryWithNoCaching;
 
-    public RepositoryTests(ITestOutputHelper output) : base(output) {
+    public RepositoryTests(ITestOutputHelper output) : base(output)
+    {
         _dailyRepository = new DailyLogEventRepository(_configuration);
         _dailyRepositoryWithNoCaching = new DailyLogEventWithNoCachingRepository(_configuration);
         _employeeRepository = new EmployeeRepository(_configuration);
@@ -34,7 +36,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         _identityRepositoryWithNoCaching = new IdentityWithNoCachingRepository(_configuration);
     }
 
-    public override async Task InitializeAsync() {
+    public override async Task InitializeAsync()
+    {
         _logger.LogInformation("Starting init");
         await base.InitializeAsync();
         await RemoveDataAsync();
@@ -42,21 +45,25 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task AddAsync() {
+    public async Task AddAsync()
+    {
         var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Generate());
         Assert.NotNull(identity1?.Id);
 
         var disposables = new List<IDisposable>(2);
         var countdownEvent = new AsyncCountdownEvent(2);
 
-        try {
+        try
+        {
             var identity2 = IdentityGenerator.Default;
-            disposables.Add(_identityRepository.DocumentsAdding.AddSyncHandler((o, args) => {
+            disposables.Add(_identityRepository.DocumentsAdding.AddSyncHandler((o, args) =>
+            {
                 Assert.Equal(identity2, args.Documents.First());
                 countdownEvent.Signal();
             }));
 
-            disposables.Add(_identityRepository.DocumentsAdded.AddSyncHandler((o, args) => {
+            disposables.Add(_identityRepository.DocumentsAdded.AddSyncHandler((o, args) =>
+            {
                 Assert.Equal(identity2, args.Documents.First());
                 countdownEvent.Signal();
             }));
@@ -66,7 +73,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
 
             await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
             Assert.Equal(0, countdownEvent.CurrentCount);
-        } finally {
+        }
+        finally
+        {
             foreach (var disposable in disposables)
                 disposable.Dispose();
 
@@ -75,7 +84,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanQueryByDeleted() {
+    public async Task CanQueryByDeleted()
+    {
         var employee1 = EmployeeGenerator.Default;
         employee1.IsDeleted = true;
         employee1 = await _employeeRepository.AddAsync(employee1, o => o.ImmediateConsistency());
@@ -96,7 +106,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanQueryByDeletedSearch() {
+    public async Task CanQueryByDeletedSearch()
+    {
         var employee1 = EmployeeGenerator.Default;
         employee1.IsDeleted = true;
         employee1 = await _employeeRepository.AddAsync(employee1, o => o.ImmediateConsistency());
@@ -117,7 +128,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task QueryByIdsWorksWithSoftDeletedModes() {
+    public async Task QueryByIdsWorksWithSoftDeletedModes()
+    {
         var employee1 = EmployeeGenerator.Default;
         employee1.IsDeleted = true;
         employee1 = await _employeeRepository.AddAsync(employee1, o => o.ImmediateConsistency());
@@ -128,17 +140,18 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         var employees = await _employeeRepository.FindAsync(q => q.Id(employee1.Id, employee2.Id));
         Assert.Equal(1, employees.Total);
         Assert.Equal(employee2.Id, employees.Documents.Single().Id);
-        
+
         employees = await _employeeRepository.FindAsync(q => q.Id(employee1.Id, employee2.Id), o => o.IncludeSoftDeletes());
         Assert.Equal(2, employees.Total);
-        
+
         employees = await _employeeRepository.FindAsync(q => q.Id(employee1.Id, employee2.Id), o => o.SoftDeleteMode(SoftDeleteQueryMode.DeletedOnly));
         Assert.Equal(1, employees.Total);
         Assert.Equal(employee1.Id, employees.Documents.Single().Id);
     }
 
     [Fact]
-    public async Task AddDuplicateAsync() {
+    public async Task AddDuplicateAsync()
+    {
         var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(identity1?.Id);
 
@@ -147,7 +160,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task AddDuplicateCollectionAsync() {
+    public async Task AddDuplicateCollectionAsync()
+    {
         var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(identity1?.Id);
 
@@ -161,7 +175,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task AddWithCachingAsync() {
+    public async Task AddWithCachingAsync()
+    {
         var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.Cache());
         Assert.NotNull(identity?.Id);
         Assert.Equal(1, _cache.Count);
@@ -175,7 +190,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task AddWithTimeSeriesAsync() {
+    public async Task AddWithTimeSeriesAsync()
+    {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate());
         Assert.NotNull(log?.Id);
 
@@ -183,7 +199,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task AddCollectionAsync() {
+    public async Task AddCollectionAsync()
+    {
         var identity = IdentityGenerator.Generate();
         await _identityRepository.AddAsync(new List<Identity> { identity });
         Assert.NotNull(identity.Id);
@@ -192,7 +209,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task AddCollectionWithTimeSeriesAsync() {
+    public async Task AddCollectionWithTimeSeriesAsync()
+    {
         var utcNow = SystemClock.UtcNow;
         var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
         var nowLog = LogEventGenerator.Default;
@@ -208,7 +226,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task AddCollectionWithCachingAsync() {
+    public async Task AddCollectionWithCachingAsync()
+    {
         var identity = IdentityGenerator.Generate();
         await _identityRepository.AddAsync(new List<Identity> { identity, IdentityGenerator.Generate() }, o => o.Cache());
         Assert.NotNull(identity?.Id);
@@ -221,9 +240,10 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         Assert.Equal(1, _cache.Hits);
         Assert.Equal(0, _cache.Misses);
     }
-    
+
     [Fact]
-    public async Task AddCollectionWithCacheKeyAsync() {
+    public async Task AddCollectionWithCacheKeyAsync()
+    {
         var identity = IdentityGenerator.Generate();
         var identity2 = IdentityGenerator.Generate();
         await _identityRepository.AddAsync(new List<Identity> { identity, identity2 }, o => o.Cache());
@@ -243,11 +263,11 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         Assert.Equal(2, _cache.Hits);
         Assert.Equal(0, _cache.Misses);
 
-        await _identityRepository.InvalidateCacheAsync(new List<Identity> {identity, identity2});
+        await _identityRepository.InvalidateCacheAsync(new List<Identity> { identity, identity2 });
         Assert.Equal(0, _cache.Count);
         Assert.Equal(2, _cache.Hits);
         Assert.Equal(0, _cache.Misses);
-        
+
         Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache()));
         Assert.Equal(1, _cache.Count);
         Assert.Equal(2, _cache.Hits);
@@ -258,40 +278,47 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         Assert.Equal(2, _cache.Count);
         Assert.Equal(3, _cache.Hits);
         Assert.Equal(2, _cache.Misses);
-        
+
         idsResult = await _identityRepository.GetByIdsAsync(new[] { identity.Id, identity2.Id }, o => o.Cache());
         Assert.Equal(2, idsResult.Count);
         Assert.Equal(2, _cache.Count);
         Assert.Equal(5, _cache.Hits);
         Assert.Equal(2, _cache.Misses);
     }
-    
+
     [Fact]
-    public async Task SaveAsync() {
+    public async Task SaveAsync()
+    {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Default, o => o.Notifications(false));
         Assert.NotNull(log?.Id);
 
         var disposables = new List<IDisposable>();
         var countdownEvent = new AsyncCountdownEvent(5);
 
-        try {
-            disposables.Add(_dailyRepository.DocumentsChanging.AddSyncHandler((o, args) => {
+        try
+        {
+            disposables.Add(_dailyRepository.DocumentsChanging.AddSyncHandler((o, args) =>
+            {
                 Assert.Equal(log, args.Documents.First().Value);
                 countdownEvent.Signal();
             }));
-            disposables.Add(_dailyRepository.DocumentsChanged.AddSyncHandler((o, args) => {
+            disposables.Add(_dailyRepository.DocumentsChanged.AddSyncHandler((o, args) =>
+            {
                 Assert.Equal(log, args.Documents.First().Value);
                 countdownEvent.Signal();
             }));
-            disposables.Add(_dailyRepository.DocumentsSaving.AddSyncHandler((o, args) => {
+            disposables.Add(_dailyRepository.DocumentsSaving.AddSyncHandler((o, args) =>
+            {
                 Assert.Equal(log, args.Documents.First().Value);
                 countdownEvent.Signal();
             }));
-            disposables.Add(_dailyRepository.DocumentsSaved.AddSyncHandler((o, args) => {
+            disposables.Add(_dailyRepository.DocumentsSaved.AddSyncHandler((o, args) =>
+            {
                 Assert.Equal(log, args.Documents.First().Value);
                 countdownEvent.Signal();
             }));
-            await _messageBus.SubscribeAsync<EntityChanged>((msg, ct) => {
+            await _messageBus.SubscribeAsync<EntityChanged>((msg, ct) =>
+            {
                 Assert.Equal(nameof(LogEvent), msg.Type);
                 Assert.Equal(log.Id, msg.Id);
                 Assert.Equal(ChangeType.Saved, msg.ChangeType);
@@ -305,7 +332,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
 
             await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(2)).Token);
             Assert.Equal(0, countdownEvent.CurrentCount);
-        } finally {
+        }
+        finally
+        {
             foreach (var disposable in disposables)
                 disposable.Dispose();
 
@@ -314,7 +343,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task AddAndSaveAsync() {
+    public async Task AddAndSaveAsync()
+    {
         var logEntry = await _dailyRepository.AddAsync(LogEventGenerator.Default, o => o.Notifications(false));
         Assert.NotNull(logEntry?.Id);
 
@@ -323,16 +353,20 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         var notificationCountdownEvent = new AsyncCountdownEvent(2);
         // Save requires an id to be set.
         var addedLog = LogEventGenerator.Generate(id: ObjectId.GenerateNewId().ToString());
-        try {
-            disposables.Add(_dailyRepository.DocumentsSaving.AddSyncHandler((o, args) => {
+        try
+        {
+            disposables.Add(_dailyRepository.DocumentsSaving.AddSyncHandler((o, args) =>
+            {
                 Assert.Equal(logEntry, args.Documents.First().Value);
                 saveCountdownEvent.Signal();
             }));
-            disposables.Add(_dailyRepository.DocumentsSaved.AddSyncHandler((o, args) => {
+            disposables.Add(_dailyRepository.DocumentsSaved.AddSyncHandler((o, args) =>
+            {
                 Assert.Equal(logEntry, args.Documents.First().Value);
                 saveCountdownEvent.Signal();
             }));
-            await _messageBus.SubscribeAsync<EntityChanged>((msg, ct) => {
+            await _messageBus.SubscribeAsync<EntityChanged>((msg, ct) =>
+            {
                 Assert.Equal(nameof(LogEvent), msg.Type);
                 Assert.True(msg.Id == logEntry.Id || msg.Id == addedLog.Id);
                 Assert.Equal(ChangeType.Saved, msg.ChangeType);
@@ -346,7 +380,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
             await notificationCountdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(2)).Token);
             Assert.Equal(0, notificationCountdownEvent.CurrentCount);
             Assert.Equal(0, saveCountdownEvent.CurrentCount);
-        } finally {
+        }
+        finally
+        {
             foreach (var disposable in disposables)
                 disposable.Dispose();
 
@@ -355,7 +391,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task SaveWithOriginalFromOptions() {
+    public async Task SaveWithOriginalFromOptions()
+    {
         var original = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Notifications(false));
         Assert.Equal(0, _cache.Count);
         Assert.Equal(0, _cache.Hits);
@@ -375,7 +412,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task AddAndSaveWithCacheAsync() {
+    public async Task AddAndSaveWithCacheAsync()
+    {
         var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.Cache());
         Assert.Equal(1, _cache.Count);
         Assert.Equal(0, _cache.Hits);
@@ -409,9 +447,10 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         Assert.True(cacheValue.HasValue);
         Assert.Equal(identity, cacheValue.Value.Single().Document);
     }
-    
+
     [Fact]
-    public async Task AddAndSaveWithCacheKeyAsync() {
+    public async Task AddAndSaveWithCacheKeyAsync()
+    {
         var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.Cache());
         Assert.Equal(1, _cache.Count);
         Assert.Equal(0, _cache.Hits);
@@ -426,7 +465,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         identity = await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache());
         Assert.NotNull(identity);
         Assert.Equal(2, _cache.Hits);
-        
+
         await _identityRepository.InvalidateCacheAsync(identity);
         Assert.Equal(0, _cache.Count);
         Assert.Equal(2, _cache.Hits);
@@ -444,13 +483,15 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public Task SaveWithNoIdentityAsync() {
+    public Task SaveWithNoIdentityAsync()
+    {
         var identity = IdentityGenerator.Generate();
         return Assert.ThrowsAsync<ArgumentException>(async () => await _identityRepository.SaveAsync(new List<Identity> { identity }, o => o.Cache()));
     }
 
     [Fact]
-    public async Task SaveWithOutOfSyncIndexAsync() {
+    public async Task SaveWithOutOfSyncIndexAsync()
+    {
         var utcNow = SystemClock.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog?.Id);
@@ -464,7 +505,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanGetAggregationsAsync() {
+    public async Task CanGetAggregationsAsync()
+    {
         var utcNow = SystemClock.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog?.Id);
@@ -481,42 +523,45 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CanGetDateAggregationAsync() {
+    public async Task CanGetDateAggregationAsync()
+    {
         var utcNow = SystemClock.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog?.Id);
 
         var result = await _dailyRepository.CountAsync(q => q.AggregationsExpression("date:(createdUtc min:createdUtc)"));
-        Assert.Equal(1, result.Aggregations.Count);
+        Assert.Single(result.Aggregations);
         var dateAgg = result.Aggregations.DateHistogram("date_createdUtc");
         Assert.NotNull(dateAgg);
-        Assert.Equal(1, dateAgg.Buckets.Count);
+        Assert.Single(dateAgg.Buckets);
         Assert.Equal(utcNow.AddDays(-1).Date, dateAgg.Buckets.First().Date);
         Assert.Equal(utcNow.AddDays(-1).Floor(TimeSpan.FromMilliseconds(1)), dateAgg.Buckets.First().Aggregations.Min<DateTime>("min_createdUtc").Value.Floor(TimeSpan.FromMilliseconds(1)));
 
         result = await _dailyRepository.CountAsync(q => q.AggregationsExpression("date:(createdUtc~1h^-3h min:createdUtc)"));
-        Assert.Equal(1, result.Aggregations.Count);
+        Assert.Single(result.Aggregations);
         dateAgg = result.Aggregations.DateHistogram("date_createdUtc");
         Assert.NotNull(dateAgg);
-        Assert.Equal(1, dateAgg.Buckets.Count);
+        Assert.Single(dateAgg.Buckets);
     }
 
     [Fact]
-    public async Task CanGetGeoGridAggregationAsync() {
+    public async Task CanGetGeoGridAggregationAsync()
+    {
         var utcNow = SystemClock.UtcNow;
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
         Assert.NotNull(employee?.Id);
         await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(), o => o.ImmediateConsistency());
 
         var result = await _employeeRepository.CountAsync(q => q.AggregationsExpression("geogrid:(location~6 max:age)"));
-        Assert.Equal(1, result.Aggregations.Count);
+        Assert.Single(result.Aggregations);
         var geoAgg = result.Aggregations.GeoHash("geogrid_location");
         Assert.NotNull(geoAgg);
         Assert.InRange(geoAgg.Buckets.Count, 1, 11);
     }
 
     [Fact]
-    public async Task SaveWithCachingAsync() {
+    public async Task SaveWithCachingAsync()
+    {
         var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.Cache());
         Assert.NotNull(identity?.Id);
         Assert.Equal(1, _cache.Count);
@@ -541,7 +586,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task SaveCollectionAsync() {
+    public async Task SaveCollectionAsync()
+    {
         var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate(ObjectId.GenerateNewId().ToString()) };
         await _identityRepository.SaveAsync(identities);
 
@@ -550,7 +596,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task SaveCollectionWithTimeSeriesAsync() {
+    public async Task SaveCollectionWithTimeSeriesAsync()
+    {
         var utcNow = SystemClock.UtcNow;
         var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
         var nowLog = LogEventGenerator.Default;
@@ -568,7 +615,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task SaveCollectionWithCachingAsync() {
+    public async Task SaveCollectionWithCachingAsync()
+    {
         var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
         await _identityRepository.AddAsync(identities, o => o.Cache());
         Assert.Equal(2, _cache.Count);
@@ -593,8 +641,10 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task SetCreatedAndModifiedTimesAsync() {
-        using (TestSystemClock.Install()) {
+    public async Task SetCreatedAndModifiedTimesAsync()
+    {
+        using (TestSystemClock.Install())
+        {
             TestSystemClock.SubtractTime(TimeSpan.FromMilliseconds(100));
             var nowUtc = SystemClock.UtcNow;
             var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
@@ -613,7 +663,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task CannotSetFutureCreatedAndModifiedTimesAsync() {
+    public async Task CannotSetFutureCreatedAndModifiedTimesAsync()
+    {
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(createdUtc: DateTime.MaxValue, updatedUtc: DateTime.MaxValue));
         Assert.True(employee.CreatedUtc != DateTime.MaxValue);
         Assert.True(employee.UpdatedUtc != DateTime.MaxValue);
@@ -627,7 +678,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task JsonPatchAsync() {
+    public async Task JsonPatchAsync()
+    {
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
         var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
@@ -640,7 +692,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task JsonPatchAllAsync() {
+    public async Task JsonPatchAllAsync()
+    {
         await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(100), o => o.ImmediateConsistency());
         var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
         await _employeeRepository.PatchAllAsync(q => q, new JsonPatch(patch));
@@ -651,20 +704,25 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task ConcurrentJsonPatchAsync() {
+    public async Task ConcurrentJsonPatchAsync()
+    {
         var resetEvent = new AutoResetEvent(false);
         var cts = new CancellationTokenSource();
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false));
         string employeeId = employee.Id;
-        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (i, ct) => {
+        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (i, ct) =>
+        {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
             resetEvent.Set();
             e.CompanyName = "Company " + i;
-            try {
+            try
+            {
                 await _employeeRepository.SaveAsync(e, o => o.Cache(false));
                 _logger.LogInformation("Set company {Iteration}", i);
-            } catch (VersionConflictDocumentException) {
+            }
+            catch (VersionConflictDocumentException)
+            {
                 _logger.LogInformation("Got version conflict {Iteration}", i);
             }
         });
@@ -674,10 +732,13 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
         resetEvent.WaitOne();
         employee.Name = "Saved";
-        try {
+        try
+        {
             await _employeeRepository.SaveAsync(employee, o => o.Cache(false));
             _logger.LogInformation("Saved name");
-        } catch (VersionConflictDocumentException) {
+        }
+        catch (VersionConflictDocumentException)
+        {
             _logger.LogInformation("Conflict attempting to save name");
         }
 
@@ -687,7 +748,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         await _employeeRepository.PatchAsync(employee.Id, new JsonPatch(patch));
         _logger.LogInformation("Done patching name");
 
-        cts.Cancel();
+        await cts.CancelAsync();
         await Task.Delay(100);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
@@ -698,20 +759,25 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task ConcurrentJsonPatchAllAsync() {
+    public async Task ConcurrentJsonPatchAllAsync()
+    {
         var resetEvent = new AutoResetEvent(false);
         var cts = new CancellationTokenSource();
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false));
         string employeeId = employee.Id;
-        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (i, ct) => {
+        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (i, ct) =>
+        {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
             resetEvent.Set();
             e.CompanyName = "Company " + i;
-            try {
+            try
+            {
                 await _employeeRepository.SaveAsync(e, o => o.Cache(false));
                 _logger.LogInformation("Set company {Iteration}", i);
-            } catch (VersionConflictDocumentException) {
+            }
+            catch (VersionConflictDocumentException)
+            {
                 _logger.LogInformation("Got version conflict {Iteration}", i);
             }
         });
@@ -721,10 +787,13 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
         resetEvent.WaitOne();
         employee.Name = "Saved";
-        try {
+        try
+        {
             await _employeeRepository.SaveAsync(employee, o => o.Cache(false));
             _logger.LogInformation("Saved name");
-        } catch (VersionConflictDocumentException) {
+        }
+        catch (VersionConflictDocumentException)
+        {
             _logger.LogInformation("Conflict attempting to save name");
         }
 
@@ -734,7 +803,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         await _employeeRepository.PatchAllAsync(q => q.Age(EmployeeGenerator.Default.Age), new JsonPatch(patch), o => o.ImmediateConsistency());
         _logger.LogInformation("Done patching name");
 
-        cts.Cancel();
+        await cts.CancelAsync();
         await Task.Delay(100);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
@@ -745,7 +814,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task PartialPatchAsync() {
+    public async Task PartialPatchAsync()
+    {
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
         await _employeeRepository.PatchAsync(employee.Id, new PartialPatch(new { name = "Patched" }));
 
@@ -756,7 +826,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task ScriptPatchAsync() {
+    public async Task ScriptPatchAsync()
+    {
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
         await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'Patched';"));
 
@@ -767,20 +838,25 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task ConcurrentScriptPatchAsync() {
+    public async Task ConcurrentScriptPatchAsync()
+    {
         var resetEvent = new AutoResetEvent(false);
         var cts = new CancellationTokenSource();
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false));
         string employeeId = employee.Id;
-        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (i, ct) => {
+        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (i, ct) =>
+        {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
             resetEvent.Set();
             e.CompanyName = "Company " + i;
-            try {
+            try
+            {
                 await _employeeRepository.SaveAsync(e, o => o.Cache(false));
                 _logger.LogInformation("Set company {Iteration}", i);
-            } catch (VersionConflictDocumentException) {
+            }
+            catch (VersionConflictDocumentException)
+            {
                 _logger.LogInformation("Got version conflict {Iteration}", i);
             }
         });
@@ -790,10 +866,13 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
         resetEvent.WaitOne();
         employee.Name = "Saved";
-        try {
+        try
+        {
             await _employeeRepository.SaveAsync(employee, o => o.Cache(false));
             _logger.LogInformation("Saved name");
-        } catch (VersionConflictDocumentException) {
+        }
+        catch (VersionConflictDocumentException)
+        {
             _logger.LogInformation("Conflict attempting to save name");
         }
 
@@ -802,7 +881,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'Patched';"));
         _logger.LogInformation("Done patching name");
 
-        cts.Cancel();
+        await cts.CancelAsync();
         await Task.Delay(100);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
@@ -813,7 +892,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task ActionPatchAsync() {
+    public async Task ActionPatchAsync()
+    {
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
         await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => e.Name = "Patched"));
 
@@ -824,7 +904,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task ActionPatchAllAsync() {
+    public async Task ActionPatchAllAsync()
+    {
         await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(100), o => o.ImmediateConsistency());
         await _employeeRepository.PatchAllAsync(q => q, new ActionPatch<Employee>(e => e.Name = "Patched"));
 
@@ -834,20 +915,25 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task ConcurrentActionPatchAsync() {
+    public async Task ConcurrentActionPatchAsync()
+    {
         var resetEvent = new AutoResetEvent(false);
         var cts = new CancellationTokenSource();
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false));
         string employeeId = employee.Id;
-        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (i, ct) => {
+        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (i, ct) =>
+        {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
             resetEvent.Set();
             e.CompanyName = "Company " + i;
-            try {
+            try
+            {
                 await _employeeRepository.SaveAsync(e, o => o.Cache(false));
                 _logger.LogInformation("Set company {Iteration}", i);
-            } catch (VersionConflictDocumentException) {
+            }
+            catch (VersionConflictDocumentException)
+            {
                 _logger.LogInformation("Got version conflict {Iteration}", i);
             }
         });
@@ -857,10 +943,13 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
         resetEvent.WaitOne();
         employee.Name = "Saved";
-        try {
+        try
+        {
             await _employeeRepository.SaveAsync(employee, o => o.Cache(false));
             _logger.LogInformation("Saved name");
-        } catch (VersionConflictDocumentException) {
+        }
+        catch (VersionConflictDocumentException)
+        {
             _logger.LogInformation("Conflict attempting to save name");
         }
 
@@ -869,7 +958,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => e.Name = "Patched"));
         _logger.LogInformation("Done patching name");
 
-        cts.Cancel();
+        await cts.CancelAsync();
         await Task.Delay(100);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
@@ -880,7 +969,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task ScriptPatchAllAsync() {
+    public async Task ScriptPatchAllAsync()
+    {
         var utcNow = SystemClock.UtcNow;
         var logs = new List<LogEvent> {
             LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),
@@ -900,7 +990,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
 
         var results = await _dailyRepository.GetAllByCompanyAsync("1");
         Assert.Equal(2, results.Documents.Count);
-        foreach (var document in results.Documents) {
+        foreach (var document in results.Documents)
+        {
             Assert.Equal("1", document.CompanyId);
             Assert.Equal(1, document.Value);
         }
@@ -909,14 +1000,16 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
 
         results = await _dailyRepository.GetAllByCompanyAsync("1");
         Assert.Equal(2, results.Documents.Count);
-        foreach (var document in results.Documents) {
+        foreach (var document in results.Documents)
+        {
             Assert.Equal("1", document.CompanyId);
             Assert.Equal(0, document.Value);
         }
     }
 
     [Fact]
-    public async Task ScriptPatchAllWithNoCacheAsync() {
+    public async Task ScriptPatchAllWithNoCacheAsync()
+    {
         var utcNow = SystemClock.UtcNow;
         var logs = new List<LogEvent> {
             LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),
@@ -929,7 +1022,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
 
         var results = await _dailyRepositoryWithNoCaching.GetAllByCompanyAsync("1");
         Assert.Equal(2, results.Documents.Count);
-        foreach (var document in results.Documents) {
+        foreach (var document in results.Documents)
+        {
             Assert.Equal("1", document.CompanyId);
             Assert.Equal(1, document.Value);
         }
@@ -938,19 +1032,22 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
 
         results = await _dailyRepositoryWithNoCaching.GetAllByCompanyAsync("1");
         Assert.Equal(2, results.Documents.Count);
-        foreach (var document in results.Documents) {
+        foreach (var document in results.Documents)
+        {
             Assert.Equal("1", document.CompanyId);
             Assert.Equal(0, document.Value);
         }
     }
 
     [Fact]
-    public async Task PatchAllBulkAsync() {
+    public async Task PatchAllBulkAsync()
+    {
         Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Warning);
         const int COUNT = 1000;
         const int BATCH_SIZE = 250;
         int added = 0;
-        do {
+        do
+        {
             await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(BATCH_SIZE));
             added += BATCH_SIZE;
         } while (added < COUNT);
@@ -961,19 +1058,22 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task PatchAllBulkConcurrentlyAsync() {
+    public async Task PatchAllBulkConcurrentlyAsync()
+    {
         Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Warning);
         const int COUNT = 1000;
         const int BATCH_SIZE = 250;
         int added = 0;
-        do {
+        do
+        {
             await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(BATCH_SIZE));
             added += BATCH_SIZE;
         } while (added < COUNT);
         await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name);
         Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Trace);
 
-        var tasks = Enumerable.Range(1, 6).Select(async i => {
+        var tasks = Enumerable.Range(1, 6).Select(async i =>
+        {
             Assert.Equal(COUNT, await _dailyRepository.IncrementValueAsync(Array.Empty<string>(), i));
         });
 
@@ -984,19 +1084,23 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task RemoveAsync() {
+    public async Task RemoveAsync()
+    {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Default);
         Assert.NotNull(log?.Id);
 
         var disposables = new List<IDisposable>(2);
         var countdownEvent = new AsyncCountdownEvent(2);
 
-        try {
-            disposables.Add(_dailyRepository.DocumentsRemoving.AddSyncHandler((o, args) => {
+        try
+        {
+            disposables.Add(_dailyRepository.DocumentsRemoving.AddSyncHandler((o, args) =>
+            {
                 Assert.Equal(log, args.Documents.First());
                 countdownEvent.Signal();
             }));
-            disposables.Add(_dailyRepository.DocumentsRemoved.AddSyncHandler((o, args) => {
+            disposables.Add(_dailyRepository.DocumentsRemoved.AddSyncHandler((o, args) =>
+            {
                 Assert.Equal(log, args.Documents.First());
                 countdownEvent.Signal();
             }));
@@ -1006,7 +1110,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
             await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
             Assert.Equal(0, countdownEvent.CurrentCount);
 
-        } finally {
+        }
+        finally
+        {
             foreach (var disposable in disposables)
                 disposable.Dispose();
 
@@ -1015,7 +1121,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task RemoveWithTimeSeriesAsync() {
+    public async Task RemoveWithTimeSeriesAsync()
+    {
         var log = LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString());
         await _dailyRepository.AddAsync(log, o => o.ImmediateConsistency());
 
@@ -1026,7 +1133,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact(Skip = "We need to look into how we want to handle this.")]
-    public async Task RemoveWithOutOfSyncIndexAsync() {
+    public async Task RemoveWithOutOfSyncIndexAsync()
+    {
         var utcNow = SystemClock.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog?.Id);
@@ -1039,12 +1147,14 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public Task RemoveUnsavedDocumentAsync() {
+    public Task RemoveUnsavedDocumentAsync()
+    {
         return _dailyRepository.RemoveAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: SystemClock.UtcNow));
     }
 
     [Fact]
-    public Task RemoveUnsavedDocumentsAsync() {
+    public Task RemoveUnsavedDocumentsAsync()
+    {
         return _dailyRepository.RemoveAsync(new List<LogEvent> {
             LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: SystemClock.UtcNow),
             LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: SystemClock.UtcNow)
@@ -1052,7 +1162,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task RemoveByIdsWithCachingAsync() {
+    public async Task RemoveByIdsWithCachingAsync()
+    {
         var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
         Assert.Equal(0, _cache.Count);
         Assert.Equal(0, _cache.Hits);
@@ -1077,7 +1188,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task RemoveWithCachingAsync() {
+    public async Task RemoveWithCachingAsync()
+    {
         var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
         await _identityRepository.AddAsync(identities, o => o.Cache().ImmediateConsistency());
         Assert.Equal(2, _cache.Count);
@@ -1098,7 +1210,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task RemoveCollectionAsync() {
+    public async Task RemoveCollectionAsync()
+    {
         var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
         await _identityRepository.AddAsync(identities, o => o.ImmediateConsistency());
         await _identityRepository.RemoveAsync(identities, o => o.ImmediateConsistency());
@@ -1107,7 +1220,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task RemoveCollectionWithTimeSeriesAsync() {
+    public async Task RemoveCollectionWithTimeSeriesAsync()
+    {
         var utcNow = SystemClock.UtcNow;
         var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
         var nowLog = LogEventGenerator.Default;
@@ -1121,7 +1235,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task RemoveCollectionWithCachingAsync() {
+    public async Task RemoveCollectionWithCachingAsync()
+    {
         var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
         await _identityRepository.AddAsync(identities, o => o.Cache().ImmediateConsistency());
         Assert.Equal(2, _cache.Count);
@@ -1137,7 +1252,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact(Skip = "We need to look into how we want to handle this.")]
-    public async Task RemoveCollectionWithOutOfSyncIndexAsync() {
+    public async Task RemoveCollectionWithOutOfSyncIndexAsync()
+    {
         var utcNow = SystemClock.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog?.Id);
@@ -1150,7 +1266,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task RemoveAllAsync() {
+    public async Task RemoveAllAsync()
+    {
         await _identityRepository.RemoveAllAsync();
 
         var identities = new List<Identity> { IdentityGenerator.Default };
@@ -1159,11 +1276,14 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         var disposables = new List<IDisposable>(2);
         var countdownEvent = new AsyncCountdownEvent(2);
 
-        try {
-            disposables.Add(_identityRepository.DocumentsRemoving.AddSyncHandler((o, args) => {
+        try
+        {
+            disposables.Add(_identityRepository.DocumentsRemoving.AddSyncHandler((o, args) =>
+            {
                 countdownEvent.Signal();
             }));
-            disposables.Add(_identityRepository.DocumentsRemoved.AddSyncHandler((o, args) => {
+            disposables.Add(_identityRepository.DocumentsRemoved.AddSyncHandler((o, args) =>
+            {
                 countdownEvent.Signal();
             }));
 
@@ -1171,7 +1291,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
             await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
             Assert.Equal(0, countdownEvent.CurrentCount);
 
-        } finally {
+        }
+        finally
+        {
             foreach (var disposable in disposables)
                 disposable.Dispose();
 
@@ -1182,7 +1304,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task RemoveAllWithBatchingAsync() {
+    public async Task RemoveAllWithBatchingAsync()
+    {
         const int COUNT = 1000;
         Log.SetLogLevel<IdentityRepository>(LogLevel.Information);
         await _identityRepository.AddAsync(IdentityGenerator.GenerateIdentities(COUNT), o => o.ImmediateConsistency());
@@ -1191,11 +1314,14 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         var disposables = new List<IDisposable>(2);
         var countdownEvent = new AsyncCountdownEvent(COUNT * 2);
 
-        try {
-            disposables.Add(_identityRepository.DocumentsRemoving.AddSyncHandler((o, args) => {
+        try
+        {
+            disposables.Add(_identityRepository.DocumentsRemoving.AddSyncHandler((o, args) =>
+            {
                 countdownEvent.Signal(args.Documents.Count);
             }));
-            disposables.Add(_identityRepository.DocumentsRemoved.AddSyncHandler((o, args) => {
+            disposables.Add(_identityRepository.DocumentsRemoved.AddSyncHandler((o, args) =>
+            {
                 countdownEvent.Signal(args.Documents.Count);
             }));
 
@@ -1207,7 +1333,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
             await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
             Assert.Equal(0, countdownEvent.CurrentCount);
             Assert.Equal(0, await _identityRepository.CountAsync());
-        } finally {
+        }
+        finally
+        {
             foreach (var disposable in disposables)
                 disposable.Dispose();
 
@@ -1216,7 +1344,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task RemoveAllWithDeleteByQueryAsync() {
+    public async Task RemoveAllWithDeleteByQueryAsync()
+    {
         const int COUNT = 10000;
         Log.SetLogLevel<IdentityWithNoCachingRepository>(LogLevel.Information);
         await _identityRepositoryWithNoCaching.AddAsync(IdentityGenerator.GenerateIdentities(COUNT), o => o.ImmediateConsistency());
@@ -1225,11 +1354,14 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
         var disposables = new List<IDisposable>(2);
         var countdownEvent = new AsyncCountdownEvent(20);
 
-        try {
-            disposables.Add(_identityRepositoryWithNoCaching.DocumentsRemoving.AddSyncHandler((o, args) => {
+        try
+        {
+            disposables.Add(_identityRepositoryWithNoCaching.DocumentsRemoving.AddSyncHandler((o, args) =>
+            {
                 countdownEvent.Signal();
             }));
-            disposables.Add(_identityRepositoryWithNoCaching.DocumentsRemoved.AddSyncHandler((o, args) => {
+            disposables.Add(_identityRepositoryWithNoCaching.DocumentsRemoved.AddSyncHandler((o, args) =>
+            {
                 countdownEvent.Signal();
             }));
 
@@ -1242,7 +1374,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
             Assert.Equal(0, countdownEvent.CurrentCount);
 
             Assert.Equal(0, await _identityRepositoryWithNoCaching.CountAsync());
-        } finally {
+        }
+        finally
+        {
             foreach (var disposable in disposables)
                 disposable.Dispose();
 
@@ -1251,7 +1385,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task RemoveAllWithCachingAsync() {
+    public async Task RemoveAllWithCachingAsync()
+    {
         var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
         await _identityRepository.AddAsync(identities, o => o.Cache().ImmediateConsistency());
         Assert.Equal(2, _cache.Count);
@@ -1267,7 +1402,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase {
     }
 
     [Fact]
-    public async Task RemoveAllWithTimeSeriesAsync() {
+    public async Task RemoveAllWithTimeSeriesAsync()
+    {
         var utcNow = SystemClock.UtcNow;
         var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
         var nowLog = LogEventGenerator.Default;

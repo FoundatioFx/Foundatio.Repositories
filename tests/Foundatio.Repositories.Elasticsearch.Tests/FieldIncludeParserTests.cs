@@ -4,7 +4,8 @@ using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-public class FieldIncludeParserTests {
+public class FieldIncludeParserTests
+{
     [Theory]
     [InlineData("property1", "property1", "property1")]
     [InlineData("property1.test", "property1.test", "property1.test")]
@@ -14,7 +15,8 @@ public class FieldIncludeParserTests {
     [InlineData("Results(id,applicant,program(name,id,properties),application_id,cas_id,application_status,cas_date_submitted),NextPageToken,Results(applicant(givenName))", "Results(id,applicant(givenName),program(name,id,properties),application_id,cas_id,application_status,cas_date_submitted),NextPageToken", "Results.id,Results.applicant.givenName,Results.program.name,Results.program.id,Results.program.properties,Results.application_id,Results.cas_id,Results.application_status,Results.cas_date_submitted,NextPageToken")]
     [InlineData("meTa(sTuFf)  ,  CreaTedUtc", "meTa(sTuFf),CreaTedUtc", "meTa.sTuFf,CreaTedUtc")]
     [InlineData("", "", "")]
-    public void CanParse(string expression, string mask, string fields) {
+    public void CanParse(string expression, string mask, string fields)
+    {
         var result = FieldIncludeParser.Parse(expression);
         Assert.Equal(mask, result.ToString());
         Assert.Equal(fields, string.Join(',', result.ToFieldPaths()));
@@ -28,7 +30,8 @@ public class FieldIncludeParserTests {
     [InlineData("blah(", "missing")]
     [InlineData("blah((", "missing")]
     [InlineData("blah(()", "missing")]
-    public void CanHandleInvalid(string expression, string message) {
+    public void CanHandleInvalid(string expression, string message)
+    {
         var result = FieldIncludeParser.Parse(expression);
         Assert.False(result.IsValid);
 

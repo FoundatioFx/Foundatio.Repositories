@@ -3,8 +3,10 @@ using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Utility;
 
-public class RemoveOperation : Operation {
-    public override void Write(JsonWriter writer) {
+public class RemoveOperation : Operation
+{
+    public override void Write(JsonWriter writer)
+    {
         writer.WriteStartObject();
 
         WriteOp(writer, "remove");
@@ -13,7 +15,8 @@ public class RemoveOperation : Operation {
         writer.WriteEndObject();
     }
 
-    public override void Read(JObject jOperation) {
+    public override void Read(JObject jOperation)
+    {
         Path = jOperation.Value<string>("path");
     }
 }

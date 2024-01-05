@@ -13,7 +13,8 @@ public class GameReview : IIdentity, IHaveDates
     public DateTime CreatedUtc { get; set; }
 }
 
-public class GameReviewSearchResult {
+public class GameReviewSearchResult
+{
     public IReadOnlyCollection<GameReview> Reviews { get; set; } = new List<GameReview>();
     public long Total { get; set; }
     public ICollection<AggCount> CategoryCounts { get; set; } = new List<AggCount>();
@@ -24,7 +25,8 @@ public class GameReviewSearchResult {
         var categoryCounts = results.Aggregations.Terms("terms_category")?.Buckets.Select(t => new AggCount { Name = t.Key, Total = t.Total }).ToList() ?? new List<AggCount>();
         var tagCounts = results.Aggregations.Terms("terms_tags")?.Buckets.Select(t => new AggCount { Name = t.Key, Total = t.Total }).ToList() ?? new List<AggCount>();
 
-        return new GameReviewSearchResult {
+        return new GameReviewSearchResult
+        {
             Reviews = results.Documents,
             Total = results.Total,
             CategoryCounts = categoryCounts,

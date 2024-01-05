@@ -6,16 +6,19 @@ using Newtonsoft.Json.Serialization;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 
-public class ElasticsearchJsonNetSerializer : ConnectionSettingsAwareSerializerBase {
+public class ElasticsearchJsonNetSerializer : ConnectionSettingsAwareSerializerBase
+{
     public ElasticsearchJsonNetSerializer(IElasticsearchSerializer builtinSerializer, IConnectionSettingsValues connectionSettings)
         : base(builtinSerializer, connectionSettings) { }
 
     protected override JsonSerializerSettings CreateJsonSerializerSettings() =>
-        new JsonSerializerSettings {
+        new JsonSerializerSettings
+        {
             NullValueHandling = NullValueHandling.Include
         };
 
-    protected override void ModifyContractResolver(ConnectionSettingsAwareContractResolver resolver) {
+    protected override void ModifyContractResolver(ConnectionSettingsAwareContractResolver resolver)
+    {
         resolver.NamingStrategy = new CamelCaseNamingStrategy();
     }
 }

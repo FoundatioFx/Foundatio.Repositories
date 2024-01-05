@@ -2,8 +2,10 @@
 
 namespace Foundatio.Repositories.Models;
 
-public class BeforeGetEventArgs<T> : EventArgs where T : class, new() {
-    public BeforeGetEventArgs(Ids ids, ICommandOptions options, IReadOnlyRepository<T> repository, Type resultType) {
+public class BeforeGetEventArgs<T> : EventArgs where T : class, new()
+{
+    public BeforeGetEventArgs(Ids ids, ICommandOptions options, IReadOnlyRepository<T> repository, Type resultType)
+    {
         Ids = ids;
         Options = options;
         Repository = repository;

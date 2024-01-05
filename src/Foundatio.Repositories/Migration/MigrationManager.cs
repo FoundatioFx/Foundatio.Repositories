@@ -14,7 +14,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Foundatio.Repositories.Migrations;
 
-public class MigrationManager {
+public class MigrationManager
+{
     protected readonly IServiceProvider _serviceProvider;
     protected readonly IMigrationStateRepository _migrationStatusRepository;
     protected readonly ILockProvider _lockProvider;
@@ -22,7 +23,8 @@ public class MigrationManager {
     protected readonly ILogger _logger;
     protected readonly List<IMigration> _migrations = new();
 
-    public MigrationManager(IServiceProvider serviceProvider, IMigrationStateRepository migrationStatusRepository, ILockProvider lockProvider, ILoggerFactory loggerFactory) {
+    public MigrationManager(IServiceProvider serviceProvider, IMigrationStateRepository migrationStatusRepository, ILockProvider lockProvider, ILoggerFactory loggerFactory)
+    {
         _serviceProvider = serviceProvider;
         _migrationStatusRepository = migrationStatusRepository;
         _lockProvider = lockProvider;
@@ -30,25 +32,30 @@ public class MigrationManager {
         _logger = _loggerFactory.CreateLogger<MigrationManager>();
     }
 
-    public void AddMigrationsFromLoadedAssemblies() {
+    public void AddMigrationsFromLoadedAssemblies()
+    {
         var migrationTypes = GetDerivedTypes<IMigration>(AppDomain.CurrentDomain.GetAssemblies());
         AddMigration(migrationTypes);
     }
 
-    public void AddMigrationsFromAssembly(Assembly assembly) {
+    public void AddMigrationsFromAssembly(Assembly assembly)
+    {
         var migrationTypes = GetDerivedTypes<IMigration>(new[] { assembly });
         AddMigration(migrationTypes);
     }
 
-    public void AddMigrationsFromAssembly<T>() where T : IMigration {
+    public void AddMigrationsFromAssembly<T>() where T : IMigration
+    {
         AddMigrationsFromAssembly(typeof(T).Assembly);
     }
 
-    public void AddMigration<T>() where T : IMigration {
+    public void AddMigration<T>() where T : IMigration
+    {
         AddMigration(typeof(T));
     }
 
-    public void AddMigration(Type migrationType) {
+    public void AddMigration(Type migrationType)
+    {
         if (migrationType == null)
             throw new ArgumentNullException(nameof(migrationType));
 
@@ -62,18 +69,20 @@ public class MigrationManager {
         var versionedMigrations = _migrations.Where(m => m.MigrationType != MigrationType.Repeatable && m.Version.HasValue);
         if (migration.Version.HasValue && versionedMigrations.Any(m => m.Version.Value == migration.Version))
             throw new ArgumentException($"Duplicate migration version detected for '{migrationType.Name}'", nameof(migrationType));
-        
+
         _migrations.Add(migration);
     }
 
-    public void AddMigration(IEnumerable<Type> migrationTypes) {
+    public void AddMigration(IEnumerable<Type> migrationTypes)
+    {
         foreach (var migrationType in migrationTypes)
             AddMigration(migrationType);
     }
 
     public ICollection<IMigration> Migrations => _migrations;
 
-    public async Task<MigrationResult> RunMigrationsAsync(CancellationToken cancellationToken = default) {
+    public async Task<MigrationResult> RunMigrationsAsync(CancellationToken cancellationToken = default)
+    {
         if (Migrations.Count == 0)
             AddMigrationsFromLoadedAssemblies();
 
@@ -81,27 +90,32 @@ public class MigrationManager {
         if (migrationsLock == null)
             return MigrationResult.UnableToAcquireLock;
 
-        try {
+        try
+        {
             var migrationStatus = await GetMigrationStatus();
             if (!migrationStatus.NeedsMigration)
                 return MigrationResult.Success;
 
-            foreach (var migrationInfo in migrationStatus.PendingMigrations) {
+            foreach (var migrationInfo in migrationStatus.PendingMigrations)
+            {
                 if (cancellationToken.IsCancellationRequested)
                     return MigrationResult.Cancelled;
 
                 // stuck on non-resumable versioned migration, must be manually fixed
-                if (migrationInfo.Migration.MigrationType == MigrationType.Versioned && migrationInfo.State != null && migrationInfo.State.StartedUtc > DateTime.MinValue) {
+                if (migrationInfo.Migration.MigrationType == MigrationType.Versioned && migrationInfo.State != null && migrationInfo.State.StartedUtc > DateTime.MinValue)
+                {
                     _logger.LogError("Migration {Id} failed to complete and cannot be resumed, please correct the error and then delete the migration record to make it run again", migrationInfo.Migration.GetId());
                     return MigrationResult.Failed;
                 }
 
                 await MarkMigrationStartedAsync(migrationInfo).AnyContext();
 
-                try {
+                try
+                {
                     var context = new MigrationContext(migrationsLock, _loggerFactory.CreateLogger(migrationInfo.Migration.GetType()), cancellationToken);
                     if (migrationInfo.Migration.MigrationType != MigrationType.Versioned)
-                        await Run.WithRetriesAsync<object>(async () => {
+                        await Run.WithRetriesAsync<object>(async () =>
+                        {
                             await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30));
                             if (cancellationToken.IsCancellationRequested)
                                 return MigrationResult.Cancelled;
@@ -110,7 +124,9 @@ public class MigrationManager {
                         }, 3, retryInterval: TimeSpan.Zero, cancellationToken: CancellationToken.None, _logger).AnyContext();
                     else
                         await migrationInfo.Migration.RunAsync(context).AnyContext();
-                } catch (Exception ex) {
+                }
+                catch (Exception ex)
+                {
                     _logger.LogError(ex, "Failed running migration {Id}", migrationInfo.Migration.GetId());
 
                     migrationInfo.State.ErrorMessage = ex.Message;
@@ -124,38 +140,47 @@ public class MigrationManager {
                 // renew migration lock
                 await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30));
             }
-        } finally {
+        }
+        finally
+        {
             await migrationsLock.ReleaseAsync();
         }
 
         return MigrationResult.Success;
     }
 
-    private async Task MarkMigrationStartedAsync(MigrationInfo info) {
+    private async Task MarkMigrationStartedAsync(MigrationInfo info)
+    {
         _logger.LogInformation("Starting migration {Id}...", info.Migration.GetId());
-        if (info.State == null) {
-            info.State = new MigrationState {
+        if (info.State == null)
+        {
+            info.State = new MigrationState
+            {
                 Id = info.Migration.GetId(),
                 MigrationType = info.Migration.MigrationType,
                 Version = info.Migration.Version ?? 0
             };
             info.State.StartedUtc = SystemClock.UtcNow;
             await _migrationStatusRepository.AddAsync(info.State);
-        } else {
+        }
+        else
+        {
             info.State.StartedUtc = SystemClock.UtcNow;
             info.State.Version = info.Migration.Version ?? 0;
             await _migrationStatusRepository.SaveAsync(info.State);
         }
     }
 
-    private async Task MarkMigrationCompleteAsync(MigrationInfo info) {
+    private async Task MarkMigrationCompleteAsync(MigrationInfo info)
+    {
         info.State.CompletedUtc = SystemClock.UtcNow;
         info.State.ErrorMessage = null;
         await _migrationStatusRepository.SaveAsync(info.State).AnyContext();
         _logger.LogInformation("Completed migration {Id}.", info.State.Id);
     }
 
-    public async Task<MigrationStatus> GetMigrationStatus() {
+    public async Task<MigrationStatus> GetMigrationStatus()
+    {
         var migrations = Migrations.OrderBy(m => m.Version).ToList();
         string[] migrationIds = migrations.Select(m => m.GetId()).ToArray();
 
@@ -167,7 +192,8 @@ public class MigrationManager {
         var otherMigrationStates = await _migrationStatusRepository.GetAllAsync(o => o.PageLimit(1000)).AnyContext();
         migrationStates.AddRange(otherMigrationStates.Documents.Where(m => !migrationStates.Any(s => s.Id == m.Id)));
 
-        var migrationInfos = migrations.Select(m => new MigrationInfo {
+        var migrationInfos = migrations.Select(m => new MigrationInfo
+        {
             Migration = m,
             State = migrationStates.FirstOrDefault(s => s.Id.Equals(m.GetId()))
         }).ToList();
@@ -176,14 +202,18 @@ public class MigrationManager {
         var versioned = migrationInfos.Where(i => i.Migration.MigrationType != MigrationType.Repeatable && i.Migration.Version.HasValue).ToArray();
 
         // if migrations have never run before, mark highest version as completed
-        if (migrationStates.Count == 0) {
-            if (migrationInfos.Count > 0) {
-                if (versioned.Length > 0) {
+        if (migrationStates.Count == 0)
+        {
+            if (migrationInfos.Count > 0)
+            {
+                if (versioned.Length > 0)
+                {
                     var now = SystemClock.UtcNow;
                     max = versioned.Max(v => v.Migration.Version.Value);
 
                     // marking highest version as completed
-                    await _migrationStatusRepository.SaveAsync(new MigrationState {
+                    await _migrationStatusRepository.SaveAsync(new MigrationState
+                    {
                         Id = max.ToString(),
                         Version = max,
                         MigrationType = MigrationType.Versioned,
@@ -212,15 +242,20 @@ public class MigrationManager {
         return new MigrationStatus(pendingMigrations, currentVersion);
     }
 
-    private static IEnumerable<Type> GetDerivedTypes<TAction>(IList<Assembly> assemblies = null) {
+    private static IEnumerable<Type> GetDerivedTypes<TAction>(IList<Assembly> assemblies = null)
+    {
         if (assemblies == null || assemblies.Count == 0)
             assemblies = AppDomain.CurrentDomain.GetAssemblies();
 
         var types = new List<Type>();
-        foreach (var assembly in assemblies) {
-            try {
+        foreach (var assembly in assemblies)
+        {
+            try
+            {
                 types.AddRange(from type in assembly.GetTypes() where type.IsClass && !type.IsNotPublic && !type.IsAbstract && typeof(TAction).IsAssignableFrom(type) select type);
-            } catch (ReflectionTypeLoadException ex) {
+            }
+            catch (ReflectionTypeLoadException ex)
+            {
                 string loaderMessages = String.Join(", ", ex.LoaderExceptions.ToList().Select(le => le.Message));
                 Trace.TraceInformation("Unable to search types from assembly \"{0}\" for plugins of type \"{1}\": {2}", assembly.FullName, typeof(TAction).Name, loaderMessages);
             }
@@ -230,7 +265,8 @@ public class MigrationManager {
     }
 }
 
-public enum MigrationResult {
+public enum MigrationResult
+{
     Success,
     Failed,
     UnableToAcquireLock,
@@ -238,13 +274,16 @@ public enum MigrationResult {
 }
 
 [DebuggerDisplay("Type: {Migration.MigrationType} Version {Migration.Version}")]
-public class MigrationInfo {
+public class MigrationInfo
+{
     public IMigration Migration { get; set; }
     public MigrationState State { get; set; }
 }
 
-public class MigrationStatus {
-    public MigrationStatus(IReadOnlyCollection<MigrationInfo> pendingMigrations, int currentVersion) {
+public class MigrationStatus
+{
+    public MigrationStatus(IReadOnlyCollection<MigrationInfo> pendingMigrations, int currentVersion)
+    {
         PendingMigrations = pendingMigrations ?? EmptyReadOnly<MigrationInfo>.Collection;
         CurrentVersion = currentVersion;
     }

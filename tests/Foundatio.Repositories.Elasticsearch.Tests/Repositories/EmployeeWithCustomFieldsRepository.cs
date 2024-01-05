@@ -11,7 +11,8 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-public interface IEmployeeWithCustomFieldsRepository : ISearchableRepository<EmployeeWithCustomFields> {
+public interface IEmployeeWithCustomFieldsRepository : ISearchableRepository<EmployeeWithCustomFields>
+{
     long DocumentsChangedCount { get; }
     long QueryCount { get; }
 
@@ -37,25 +38,31 @@ public interface IEmployeeWithCustomFieldsRepository : ISearchableRepository<Emp
     Task<long> IncrementYearsEmployeedAsync(RepositoryQueryDescriptor<EmployeeWithCustomFields> query, int years = 1);
 }
 
-public class EmployeeWithCustomFieldsRepository : ElasticRepositoryBase<EmployeeWithCustomFields>, IEmployeeWithCustomFieldsRepository {
-    public EmployeeWithCustomFieldsRepository(MyAppElasticConfiguration elasticConfiguration) : this(elasticConfiguration.EmployeeWithCustomFields) {
+public class EmployeeWithCustomFieldsRepository : ElasticRepositoryBase<EmployeeWithCustomFields>, IEmployeeWithCustomFieldsRepository
+{
+    public EmployeeWithCustomFieldsRepository(MyAppElasticConfiguration elasticConfiguration) : this(elasticConfiguration.EmployeeWithCustomFields)
+    {
         AutoCreateCustomFields = true;
     }
 
-    public EmployeeWithCustomFieldsRepository(IIndex employeeIndex) : base(employeeIndex) {
-        BeforeQuery.AddHandler((o, args) => {
+    public EmployeeWithCustomFieldsRepository(IIndex employeeIndex) : base(employeeIndex)
+    {
+        BeforeQuery.AddHandler((o, args) =>
+        {
             QueryCount++;
 
             return Task.CompletedTask;
         });
 
-        DocumentsChanged.AddHandler((o, args) => {
+        DocumentsChanged.AddHandler((o, args) =>
+        {
             DocumentsChangedCount += args.Documents.Count;
             return Task.CompletedTask;
         });
     }
 
-    protected override string GetTenantKey(IRepositoryQuery query) {
+    protected override string GetTenantKey(IRepositoryQuery query)
+    {
         var companies = query.GetCompanies();
         if (companies.Count != 1)
             return null;
@@ -66,15 +73,18 @@ public class EmployeeWithCustomFieldsRepository : ElasticRepositoryBase<Employee
     public long DocumentsChangedCount { get; private set; }
     public long QueryCount { get; private set; }
 
-    public Task<FindResults<EmployeeWithCustomFields>> GetAllByAgeAsync(int age) {
+    public Task<FindResults<EmployeeWithCustomFields>> GetAllByAgeAsync(int age)
+    {
         return FindAsync(q => q.Age(age));
     }
 
-    public Task<FindHit<EmployeeWithCustomFields>> GetByEmailAddressAsync(string emailAddress) {
+    public Task<FindHit<EmployeeWithCustomFields>> GetByEmailAddressAsync(string emailAddress)
+    {
         return FindOneAsync(q => q.EmailAddress(emailAddress), o => o.Cache($"email:{emailAddress.ToLowerInvariant()}"));
     }
 
-    public Task<FindResults<EmployeeWithCustomFields>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<EmployeeWithCustomFields> options = null) {
+    public Task<FindResults<EmployeeWithCustomFields>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<EmployeeWithCustomFields> options = null)
+    {
         var commandOptions = options.Configure();
         if (commandOptions.ShouldUseCache())
             commandOptions.CacheKey(company);
@@ -82,19 +92,23 @@ public class EmployeeWithCustomFieldsRepository : ElasticRepositoryBase<Employee
         return FindAsync(q => q.Company(company), o => commandOptions);
     }
 
-    public Task<FindResults<EmployeeWithCustomFields>> GetAllByCompaniesWithFieldEqualsAsync(string[] companies) {
+    public Task<FindResults<EmployeeWithCustomFields>> GetAllByCompaniesWithFieldEqualsAsync(string[] companies)
+    {
         return FindAsync(q => q.FieldCondition(c => c.CompanyId, ComparisonOperator.Equals, companies));
     }
 
-    public Task<CountResult> GetCountByCompanyAsync(string companyId) {
+    public Task<CountResult> GetCountByCompanyAsync(string companyId)
+    {
         return CountAsync(q => q.Company(companyId), o => o.CacheKey(companyId));
     }
 
-    public Task<CountResult> GetNumberOfEmployeesWithMissingCompanyName(string company) {
+    public Task<CountResult> GetNumberOfEmployeesWithMissingCompanyName(string company)
+    {
         return CountAsync(q => q.Company(company).ElasticFilter(!Query<EmployeeWithCustomFields>.Exists(f => f.Field(e => e.CompanyName))));
     }
 
-    public Task<CountResult> GetNumberOfEmployeesWithMissingName(string company) {
+    public Task<CountResult> GetNumberOfEmployeesWithMissingName(string company)
+    {
         return CountAsync(q => q.Company(company).ElasticFilter(!Query<EmployeeWithCustomFields>.Exists(f => f.Field(e => e.Name))));
     }
 
@@ -105,11 +119,13 @@ public class EmployeeWithCustomFieldsRepository : ElasticRepositoryBase<Employee
     /// <param name="name">company name</param>
     /// <param name="limit">OPTIONAL limit that should be applied to bulk updates. This is here only for tests...</param>
     /// <returns></returns>
-    public Task<long> UpdateCompanyNameByCompanyAsync(string company, string name, int? limit = null) {
+    public Task<long> UpdateCompanyNameByCompanyAsync(string company, string name, int? limit = null)
+    {
         return PatchAllAsync(q => q.Company(company), new PartialPatch(new { CompanyName = name }), o => o.PageLimit(limit).ImmediateConsistency(true));
     }
 
-    public async Task<long> IncrementYearsEmployeedAsync(string[] ids, int years = 1) {
+    public async Task<long> IncrementYearsEmployeedAsync(string[] ids, int years = 1)
+    {
         string script = $"ctx._source.yearsEmployed += {years};";
         if (ids.Length == 0)
             return await PatchAllAsync(null, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
@@ -118,7 +134,8 @@ public class EmployeeWithCustomFieldsRepository : ElasticRepositoryBase<Employee
         return ids.Length;
     }
 
-    public Task<long> IncrementYearsEmployeedAsync(RepositoryQueryDescriptor<EmployeeWithCustomFields> query, int years = 1) {
+    public Task<long> IncrementYearsEmployeedAsync(RepositoryQueryDescriptor<EmployeeWithCustomFields> query, int years = 1)
+    {
         if (query == null)
             throw new ArgumentNullException(nameof(query));
 
@@ -126,7 +143,8 @@ public class EmployeeWithCustomFieldsRepository : ElasticRepositoryBase<Employee
         return PatchAllAsync(query, new ScriptPatch(script), o => o.ImmediateConsistency(true));
     }
 
-    protected override async Task AddDocumentsToCacheAsync(ICollection<FindHit<EmployeeWithCustomFields>> findHits, ICommandOptions options, bool isDirtyRead) {
+    protected override async Task AddDocumentsToCacheAsync(ICollection<FindHit<EmployeeWithCustomFields>> findHits, ICommandOptions options, bool isDirtyRead)
+    {
         await base.AddDocumentsToCacheAsync(findHits, options, isDirtyRead);
 
         var cacheEntries = new Dictionary<string, FindHit<EmployeeWithCustomFields>>();
@@ -136,7 +154,8 @@ public class EmployeeWithCustomFieldsRepository : ElasticRepositoryBase<Employee
         await AddDocumentsToCacheWithKeyAsync(cacheEntries, options.GetExpiresIn());
     }
 
-    protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<EmployeeWithCustomFields>> documents, ChangeType? changeType = null) {
+    protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<EmployeeWithCustomFields>> documents, ChangeType? changeType = null)
+    {
         await base.InvalidateCacheAsync(documents, changeType);
         await Cache.RemoveAllAsync(documents.Where(d => !String.IsNullOrEmpty(d.Value.EmailAddress)).Select(d => $"email:{d.Value.EmailAddress.ToLowerInvariant()}"));
     }

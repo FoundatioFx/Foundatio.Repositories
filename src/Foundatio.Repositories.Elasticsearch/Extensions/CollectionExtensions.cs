@@ -4,8 +4,9 @@ using System.Linq;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
-internal static class CollectionExtensions { 
-    public static IEnumerable<TSource> DistinctBy<TSource, TKey> (this IEnumerable<TSource> source, Func<TSource, TKey> keySelector)
+internal static class CollectionExtensions
+{
+    public static IEnumerable<TSource> DistinctBy<TSource, TKey>(this IEnumerable<TSource> source, Func<TSource, TKey> keySelector)
     {
         var knownKeys = new HashSet<TKey>();
         foreach (TSource element in source)
@@ -17,11 +18,13 @@ internal static class CollectionExtensions {
         }
     }
 
-    public static IEnumerable<IEnumerable<T>> Chunk<T>(this IEnumerable<T> source, int size) {
+    public static IEnumerable<IEnumerable<T>> Chunk<T>(this IEnumerable<T> source, int size)
+    {
         T[] bucket = null;
         int count = 0;
 
-        foreach (var item in source) {
+        foreach (var item in source)
+        {
             if (bucket == null)
                 bucket = new T[size];
 
@@ -37,7 +40,8 @@ internal static class CollectionExtensions {
         }
 
         // Return the last bucket with all remaining elements
-        if (bucket != null && count > 0) {
+        if (bucket != null && count > 0)
+        {
             Array.Resize(ref bucket, count);
             yield return bucket.Select(x => x);
         }

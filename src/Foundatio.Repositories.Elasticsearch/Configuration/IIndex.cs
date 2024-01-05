@@ -9,7 +9,8 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
-public interface IIndex : IDisposable {
+public interface IIndex : IDisposable
+{
     string Name { get; }
     bool HasMultipleIndexes { get; }
     IElasticQueryBuilder QueryBuilder { get; }
@@ -29,9 +30,10 @@ public interface IIndex : IDisposable {
     string GetIndex(object target);
 }
 
-public interface IIndex<T> : IIndex where T : class {
+public interface IIndex<T> : IIndex where T : class
+{
     TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map);
-    Inferrer Infer { get; } 
+    Inferrer Infer { get; }
     string InferField(Expression<Func<T, object>> objectPath);
     string InferPropertyName(Expression<Func<T, object>> objectPath);
 }

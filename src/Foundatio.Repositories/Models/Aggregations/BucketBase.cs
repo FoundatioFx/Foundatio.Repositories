@@ -2,7 +2,8 @@
 
 namespace Foundatio.Repositories.Models;
 
-public abstract class BucketBase : AggregationsHelper, IBucket {
+public abstract class BucketBase : AggregationsHelper, IBucket
+{
     protected BucketBase() { }
     protected BucketBase(IReadOnlyDictionary<string, IAggregate> aggregations) : base(aggregations) { }
 

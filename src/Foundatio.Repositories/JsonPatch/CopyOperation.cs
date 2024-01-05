@@ -3,10 +3,12 @@ using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Utility;
 
-public class CopyOperation : Operation {
+public class CopyOperation : Operation
+{
     public string FromPath { get; set; }
 
-    public override void Write(JsonWriter writer) {
+    public override void Write(JsonWriter writer)
+    {
         writer.WriteStartObject();
 
         WriteOp(writer, "copy");
@@ -16,7 +18,8 @@ public class CopyOperation : Operation {
         writer.WriteEndObject();
     }
 
-    public override void Read(JObject jOperation) {
+    public override void Read(JObject jOperation)
+    {
         Path = jOperation.Value<string>("path");
         FromPath = jOperation.Value<string>("from");
     }
