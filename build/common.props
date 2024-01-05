@@ -12,7 +12,7 @@
     <ReferenceFoundatioRepositoriesSource>false</ReferenceFoundatioRepositoriesSource>
     <FoundatioProjectsDir>$(ProjectDir)..\..\..\</FoundatioProjectsDir>
 
-    <Copyright>Copyright (c) 2023 Foundatio.  All rights reserved.</Copyright>
+    <Copyright>Copyright (c) 2024 Foundatio.  All rights reserved.</Copyright>
     <Authors>FoundatioFx</Authors>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <WarningsAsErrors>true</WarningsAsErrors>
