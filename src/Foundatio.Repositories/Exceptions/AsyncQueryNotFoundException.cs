@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace Foundatio.Repositories.Exceptions;
+﻿namespace Foundatio.Repositories.Exceptions;
 
 public class AsyncQueryNotFoundException : RepositoryException
 {

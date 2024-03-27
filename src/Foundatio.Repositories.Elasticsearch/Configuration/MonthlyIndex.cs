@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Parsers.ElasticQueries;
-using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Utility;
 using Nest;

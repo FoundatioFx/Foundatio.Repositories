@@ -1,5 +1,4 @@
 ﻿using Foundatio.Repositories.Elasticsearch.Configuration;
-using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Migrations;
 using Nest;
 

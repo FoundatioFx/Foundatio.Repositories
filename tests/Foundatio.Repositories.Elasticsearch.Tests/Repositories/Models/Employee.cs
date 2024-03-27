@@ -66,7 +66,7 @@ public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes
             return false;
         if (ReferenceEquals(this, obj))
             return true;
-        if (obj.GetType() != this.GetType())
+        if (obj.GetType() != GetType())
             return false;
         return Equals((Employee)obj);
     }

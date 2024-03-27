@@ -28,7 +28,7 @@ public class LogEvent : IIdentity, IHaveCreatedDate
             return false;
         if (ReferenceEquals(this, obj))
             return true;
-        if (obj.GetType() != this.GetType())
+        if (obj.GetType() != GetType())
             return false;
         return Equals((LogEvent)obj);
     }
