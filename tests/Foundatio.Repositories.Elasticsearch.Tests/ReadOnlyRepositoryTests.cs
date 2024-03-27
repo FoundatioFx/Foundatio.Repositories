@@ -670,7 +670,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetAllWithAsyncQueryAsync()
     {
-        Log.MinimumLevel = LogLevel.Trace;
+        Log.DefaultMinimumLevel = LogLevel.Trace;
 
         var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(identity1?.Id);
@@ -745,7 +745,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task CountWithAsyncQueryAsync()
     {
-        Log.MinimumLevel = LogLevel.Trace;
+        Log.DefaultMinimumLevel = LogLevel.Trace;
 
         var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(identity1?.Id);
@@ -807,7 +807,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task FindWithRuntimeFieldsAsync()
     {
-        Log.MinimumLevel = LogLevel.Trace;
+        Log.DefaultMinimumLevel = LogLevel.Trace;
 
         var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(employee1?.Id);
@@ -823,7 +823,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task FindWithResolvedRuntimeFieldsAsync()
     {
-        Log.MinimumLevel = LogLevel.Trace;
+        Log.DefaultMinimumLevel = LogLevel.Trace;
 
         var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(employee1?.Id);
@@ -839,7 +839,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task CanUseOptInRuntimeFieldResolving()
     {
-        Log.MinimumLevel = LogLevel.Trace;
+        Log.DefaultMinimumLevel = LogLevel.Trace;
 
         var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(employee1?.Id);
@@ -863,7 +863,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task FindWithSearchAfterPagingAsync()
     {
-        Log.MinimumLevel = LogLevel.Trace;
+        Log.DefaultMinimumLevel = LogLevel.Trace;
 
         var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(employee1?.Id);
@@ -1034,7 +1034,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetWithDateRangeFilterExpressionHonoringTimeZoneAsync()
     {
-        Log.MinimumLevel = LogLevel.Trace;
+        Log.DefaultMinimumLevel = LogLevel.Trace;
         var chicagoTimeZone = TZConvert.GetTimeZoneInfo("America/Chicago");
         var asiaTimeZone = TZConvert.GetTimeZoneInfo("Asia/Shanghai");
         var utcNow = SystemClock.UtcNow;
@@ -1076,7 +1076,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetWithDateRangeHonoringTimeZoneAsync()
     {
-        Log.MinimumLevel = LogLevel.Trace;
+        Log.DefaultMinimumLevel = LogLevel.Trace;
 
         var chicagoTimeZone = TZConvert.GetTimeZoneInfo("America/Chicago");
         var asiaTimeZone = TZConvert.GetTimeZoneInfo("Asia/Shanghai");

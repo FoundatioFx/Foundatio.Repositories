@@ -121,7 +121,7 @@ public class ScriptService
         }
         finally
         {
-            Engine.ResetCallStack();
+            Engine.Advanced.ResetCallStack();
         }
     }
 
@@ -136,7 +136,7 @@ public class ScriptService
         }
         finally
         {
-            Engine.ResetCallStack();
+            Engine.Advanced.ResetCallStack();
         }
     }
 

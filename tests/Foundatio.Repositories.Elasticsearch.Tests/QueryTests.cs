@@ -46,7 +46,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetByCompanyAsync()
     {
-        Log.MinimumLevel = LogLevel.Trace;
+        Log.DefaultMinimumLevel = LogLevel.Trace;
 
         var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId), o => o.ImmediateConsistency());
         var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20, name: "Eric J. Smith", employmentType: EmploymentType.Contract), o => o.ImmediateConsistency());

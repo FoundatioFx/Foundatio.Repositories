@@ -232,7 +232,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         const int NUMBER_OF_EMPLOYEES = 1000;
         const int PAGE_SIZE = 100;
 
-        Log.MinimumLevel = LogLevel.Warning;
+        Log.DefaultMinimumLevel = LogLevel.Warning;
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
@@ -264,7 +264,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         const int NUMBER_OF_EMPLOYEES = 100;
         const int PAGE_SIZE = 50;
 
-        Log.MinimumLevel = LogLevel.Warning;
+        Log.DefaultMinimumLevel = LogLevel.Warning;
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
@@ -302,7 +302,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         const int NUMBER_OF_EMPLOYEES = 100;
         const int PAGE_SIZE = 10;
 
-        Log.MinimumLevel = LogLevel.Warning;
+        Log.DefaultMinimumLevel = LogLevel.Warning;
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees);
         await _client.Indices.RefreshAsync(Indices.All);
@@ -339,7 +339,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         const int NUMBER_OF_EMPLOYEES = 100;
         const int PAGE_SIZE = 10;
 
-        Log.MinimumLevel = LogLevel.Warning;
+        Log.DefaultMinimumLevel = LogLevel.Warning;
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees);
         await _client.Indices.RefreshAsync(Indices.All);
@@ -377,7 +377,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
     {
         const int NUMBER_OF_EMPLOYEES = 67;
         const int PAGE_SIZE = 12;
-        Log.MinimumLevel = LogLevel.Warning;
+        Log.DefaultMinimumLevel = LogLevel.Warning;
 
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
@@ -408,7 +408,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
     public async Task UpdateAllWithPageLimitAsync()
     {
         const int NUMBER_OF_EMPLOYEES = 100;
-        Log.MinimumLevel = LogLevel.Warning;
+        Log.DefaultMinimumLevel = LogLevel.Warning;
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
         Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company", limit: 100));
