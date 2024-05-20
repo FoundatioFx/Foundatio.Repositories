@@ -31,6 +31,7 @@ public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes
     public string UnmappedEmailAddress => EmailAddress;
     public int Age { get; set; }
     public int UnmappedAge => Age;
+    public double DecimalAge => Age + .5;
     public string Location { get; set; }
     public int YearsEmployed { get; set; }
     public EmploymentType EmploymentType { get; set; } = EmploymentType.FullTime;
