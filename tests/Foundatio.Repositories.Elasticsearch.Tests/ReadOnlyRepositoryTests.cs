@@ -1201,8 +1201,10 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Single(employees.Documents);
     }
 
-    [Fact]
-    public async Task CanSearchAfterAndBeforeWithMultipleSorts()
+    [Theory]
+    [InlineData("age")]
+    [InlineData("decimalAge")]
+    public async Task CanSearchAfterAndBeforeWithMultipleSorts(string secondarySort)
     {
         await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(count: 100), o => o.ImmediateConsistency());
         int pageSize = 10;
@@ -1214,7 +1216,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         do
         {
             page++;
-            var employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(e => e.Age), o => o.SearchAfterToken(searchAfterToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
+            var employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(secondarySort), o => o.SearchAfterToken(searchAfterToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
             searchBeforeToken = employees.GetSearchBeforeToken();
             searchAfterToken = employees.GetSearchAfterToken();
             if (page == 1)

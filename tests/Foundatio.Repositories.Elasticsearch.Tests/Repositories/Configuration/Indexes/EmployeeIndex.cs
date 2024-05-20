@@ -50,6 +50,7 @@ public sealed class EmployeeIndex : Index<Employee>
                 .Text(f => f.Name(e => e.Name).AddKeywordAndSortFields().CopyTo(c => c.Field("_all")))
                 .Scalar(f => f.Age, f => f.Name(e => e.Age))
                 .FieldAlias(a => a.Name("aliasedage").Path(f => f.Age))
+                .Scalar(f => f.DecimalAge, f => f.Name(e => e.DecimalAge))
                 .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
                 .FieldAlias(a => a.Name("next").Path(f => f.NextReview))
                 .GeoPoint(f => f.Name(e => e.Location))

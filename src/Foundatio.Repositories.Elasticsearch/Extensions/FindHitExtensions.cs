@@ -144,12 +144,22 @@ public class ObjectConverter : JsonConverter<object>
     {
         return reader.TokenType switch
         {
-            JsonTokenType.Number => reader.GetInt64(),
+            JsonTokenType.Number => GetNumber(reader),
             JsonTokenType.String => reader.GetString(),
             JsonTokenType.True => reader.GetBoolean(),
             JsonTokenType.False => reader.GetBoolean(),
             _ => null
         };
+    }
+
+    private object GetNumber(Utf8JsonReader reader)
+    {
+        if (reader.TryGetInt64(out var l))
+            return l;
+        else if (reader.TryGetDecimal(out var d))
+            return d;
+        else
+            throw new InvalidOperationException("Value is not a number");
     }
 
     public override void Write(Utf8JsonWriter writer, object value, JsonSerializerOptions options)
