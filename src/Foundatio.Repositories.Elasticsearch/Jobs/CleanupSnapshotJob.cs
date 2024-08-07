@@ -20,13 +20,19 @@ public class CleanupSnapshotJob : IJob
 {
     protected readonly IElasticClient _client;
     protected readonly ILockProvider _lockProvider;
+    protected readonly TimeProvider _timeProvider;
     protected readonly ILogger _logger;
     private readonly ICollection<RepositoryMaxAge> _repositories = new List<RepositoryMaxAge>();
 
-    public CleanupSnapshotJob(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory)
+    public CleanupSnapshotJob(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory) : this(client, lockProvider, TimeProvider.System, loggerFactory)
+    {
+    }
+
+    public CleanupSnapshotJob(IElasticClient client, ILockProvider lockProvider, TimeProvider timeProvider, ILoggerFactory loggerFactory)
     {
         _client = client;
         _lockProvider = lockProvider;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
     }
 
@@ -77,7 +83,7 @@ public class CleanupSnapshotJob : IJob
         if (snapshots.Count == 0)
             return;
 
-        var oldestValidSnapshot = SystemClock.UtcNow.Subtract(maxAge);
+        var oldestValidSnapshot = _timeProvider.GetUtcNow().UtcDateTime.Subtract(maxAge);
         var snapshotsToDelete = snapshots.Where(r => r.Date.IsBefore(oldestValidSnapshot)).OrderBy(s => s.Date).ToList();
         if (snapshotsToDelete.Count == 0)
             return;
@@ -124,7 +130,7 @@ public class CleanupSnapshotJob : IJob
                         if (shouldContinue)
                             throw response.OriginalException ?? new ApplicationException($"Failed deleting snapshot(s) \"{snapshotNames}\"");
                     }
-                }, 5, TimeSpan.Zero, cancellationToken);
+                }, 5, TimeSpan.Zero, _timeProvider, cancellationToken);
                 sw.Stop();
             }
             catch (Exception ex)

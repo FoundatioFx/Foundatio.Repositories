@@ -10,7 +10,6 @@ using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Extensions;
-using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Nest;
@@ -19,16 +18,18 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs;
 
 public class CleanupIndexesJob : IJob
 {
-    private readonly IElasticClient _client;
-    private readonly ILogger _logger;
-    private readonly ILockProvider _lockProvider;
+    protected readonly IElasticClient _client;
+    protected readonly ILogger _logger;
+    protected readonly ILockProvider _lockProvider;
+    protected readonly TimeProvider _timeProvider;
     private static readonly CultureInfo _enUS = new("en-US");
     private readonly ICollection<IndexMaxAge> _indexes = new List<IndexMaxAge>();
 
-    public CleanupIndexesJob(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory)
+    public CleanupIndexesJob(IElasticClient client, ILockProvider lockProvider, TimeProvider timeProvider, ILoggerFactory loggerFactory)
     {
         _client = client;
         _lockProvider = lockProvider;
+        _timeProvider = timeProvider;
         _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
     }
 
@@ -74,7 +75,7 @@ public class CleanupIndexesJob : IJob
         if (indexes == null || indexes.Count == 0)
             return JobResult.Success;
 
-        var now = SystemClock.UtcNow;
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
         var indexesToDelete = indexes.Where(r => r.Date < now.Subtract(r.MaxAge)).ToList();
 
         if (indexesToDelete.Count == 0)

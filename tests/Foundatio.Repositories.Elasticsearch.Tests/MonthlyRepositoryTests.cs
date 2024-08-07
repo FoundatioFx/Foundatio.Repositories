@@ -4,6 +4,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
 using Foundatio.Utility;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -38,8 +39,7 @@ public sealed class MonthlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task AddAsyncWithCurrentDateViaDocumentsAdding()
     {
-        using var _ = TestSystemClock.Install();
-        TestSystemClock.SetFrozenTime(new DateTime(2023, 02, 1, 0, 0, 0, DateTimeKind.Local));
+        _configuration.TimeProvider = new FakeTimeProvider(new DateTimeOffset(2023, 02, 1, 0, 0, 0, TimeSpan.Zero));
 
         try
         {
@@ -62,8 +62,8 @@ public sealed class MonthlyRepositoryTests : ElasticRepositoryTestBase
     {
         foreach (var document in arg.Documents)
         {
-            if (document.AccessedDateUtc == DateTime.MinValue || document.AccessedDateUtc > SystemClock.UtcNow)
-                document.AccessedDateUtc = SystemClock.UtcNow;
+            if (document.AccessedDateUtc == DateTime.MinValue || document.AccessedDateUtc > _configuration.TimeProvider.GetUtcNow().UtcDateTime)
+                document.AccessedDateUtc = _configuration.TimeProvider.GetUtcNow().UtcDateTime;
         }
 
         return Task.CompletedTask;

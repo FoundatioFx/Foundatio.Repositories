@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.Extensions;
-using Foundatio.Utility;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
@@ -19,10 +18,10 @@ public class MonthlyIndex : DailyIndex
     public override string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd)
     {
         if (!utcStart.HasValue)
-            utcStart = SystemClock.UtcNow;
+            utcStart = Configuration.TimeProvider.GetUtcNow().UtcDateTime;
 
         if (!utcEnd.HasValue || utcEnd.Value < utcStart)
-            utcEnd = SystemClock.UtcNow;
+            utcEnd = Configuration.TimeProvider.GetUtcNow().UtcDateTime;
 
         var utcStartOfDay = utcStart.Value.StartOfDay();
         var utcEndOfDay = utcEnd.Value.EndOfDay();
@@ -49,7 +48,7 @@ public class MonthlyIndex : DailyIndex
         if (alias.MaxAge == TimeSpan.MaxValue)
             return true;
 
-        return SystemClock.UtcNow.Date.SafeSubtract(alias.MaxAge) <= documentDateUtc.EndOfMonth();
+        return Configuration.TimeProvider.GetUtcNow().UtcDateTime.Date.SafeSubtract(alias.MaxAge) <= documentDateUtc.EndOfMonth();
     }
 }
 

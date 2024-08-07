@@ -8,7 +8,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
-using Foundatio.Utility;
 using Nest;
 using Xunit;
 using Xunit.Abstractions;
@@ -182,7 +181,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
     [Fact]
     public async Task UpdateAllWithSinglePageOfDataAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var employees = new List<Employee> {
             EmployeeGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),
             EmployeeGenerator.Generate(createdUtc: utcNow, companyId: "1"),

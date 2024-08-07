@@ -1107,7 +1107,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (DocumentsAdding != null && DocumentsAdding.HasHandlers)
             await DocumentsAdding.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
-        documents.EnsureIds(ElasticIndex.CreateDocumentId);
+        documents.EnsureIds(ElasticIndex.CreateDocumentId, ElasticIndex.Configuration.TimeProvider);
 
         await OnDocumentsChangingAsync(ChangeType.Added, documents, options).AnyContext();
     }
@@ -1134,7 +1134,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (HasDates)
             documents.Cast<IHaveDates>().SetDates();
 
-        documents.EnsureIds(ElasticIndex.CreateDocumentId);
+        documents.EnsureIds(ElasticIndex.CreateDocumentId, ElasticIndex.Configuration.TimeProvider);
 
         var modifiedDocs = originalDocuments.FullOuterJoin(
             documents, cf => cf.Id, cf => cf.Id,

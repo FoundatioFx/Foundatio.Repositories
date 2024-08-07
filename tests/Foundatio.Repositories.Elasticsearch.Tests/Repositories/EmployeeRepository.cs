@@ -13,6 +13,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public interface IEmployeeRepository : ISearchableRepository<Employee>
 {
+    TimeProvider TimeProvider { get; set; }
     long DocumentsChangedCount { get; }
     long QueryCount { get; }
 
@@ -43,6 +44,17 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
     public EmployeeRepository(MyAppElasticConfiguration elasticConfiguration, bool autoCreateCustomFields = false) : this(elasticConfiguration.Employees)
     {
         AutoCreateCustomFields = autoCreateCustomFields;
+    }
+
+    public TimeProvider TimeProvider {
+        get
+        {
+            return ElasticIndex.Configuration.TimeProvider;
+        }
+        set
+        {
+            ElasticIndex.Configuration.TimeProvider = value;
+        }
     }
 
     public EmployeeRepository(IIndex employeeIndex) : base(employeeIndex)

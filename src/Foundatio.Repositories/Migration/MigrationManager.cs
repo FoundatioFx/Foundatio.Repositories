@@ -9,6 +9,7 @@ using Foundatio.Lock;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Utility;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -19,6 +20,7 @@ public class MigrationManager
     protected readonly IServiceProvider _serviceProvider;
     protected readonly IMigrationStateRepository _migrationStatusRepository;
     protected readonly ILockProvider _lockProvider;
+    protected readonly TimeProvider _timeProvider;
     protected readonly ILoggerFactory _loggerFactory;
     protected readonly ILogger _logger;
     protected readonly List<IMigration> _migrations = new();
@@ -26,6 +28,7 @@ public class MigrationManager
     public MigrationManager(IServiceProvider serviceProvider, IMigrationStateRepository migrationStatusRepository, ILockProvider lockProvider, ILoggerFactory loggerFactory)
     {
         _serviceProvider = serviceProvider;
+        _timeProvider = serviceProvider.GetService<TimeProvider>() ?? TimeProvider.System;
         _migrationStatusRepository = migrationStatusRepository;
         _lockProvider = lockProvider;
         _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
@@ -121,7 +124,7 @@ public class MigrationManager
                                 return MigrationResult.Cancelled;
                             await migrationInfo.Migration.RunAsync(context).AnyContext();
                             return null;
-                        }, 3, retryInterval: TimeSpan.Zero, cancellationToken: CancellationToken.None, _logger).AnyContext();
+                        }, 3, retryInterval: TimeSpan.Zero, _timeProvider, cancellationToken: CancellationToken.None, _logger).AnyContext();
                     else
                         await migrationInfo.Migration.RunAsync(context).AnyContext();
                 }
@@ -160,12 +163,12 @@ public class MigrationManager
                 MigrationType = info.Migration.MigrationType,
                 Version = info.Migration.Version ?? 0
             };
-            info.State.StartedUtc = SystemClock.UtcNow;
+            info.State.StartedUtc = _timeProvider.GetUtcNow().UtcDateTime;
             await _migrationStatusRepository.AddAsync(info.State);
         }
         else
         {
-            info.State.StartedUtc = SystemClock.UtcNow;
+            info.State.StartedUtc = _timeProvider.GetUtcNow().UtcDateTime;
             info.State.Version = info.Migration.Version ?? 0;
             await _migrationStatusRepository.SaveAsync(info.State);
         }
@@ -173,7 +176,7 @@ public class MigrationManager
 
     private async Task MarkMigrationCompleteAsync(MigrationInfo info)
     {
-        info.State.CompletedUtc = SystemClock.UtcNow;
+        info.State.CompletedUtc = _timeProvider.GetUtcNow().UtcDateTime;
         info.State.ErrorMessage = null;
         await _migrationStatusRepository.SaveAsync(info.State).AnyContext();
         _logger.LogInformation("Completed migration {Id}.", info.State.Id);
@@ -208,7 +211,7 @@ public class MigrationManager
             {
                 if (versioned.Length > 0)
                 {
-                    var now = SystemClock.UtcNow;
+                    var now = _timeProvider.GetUtcNow().UtcDateTime;
                     max = versioned.Max(v => v.Migration.Version.Value);
 
                     // marking highest version as completed

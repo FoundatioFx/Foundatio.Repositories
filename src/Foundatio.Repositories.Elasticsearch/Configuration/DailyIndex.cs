@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -16,7 +16,6 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Utility;
-using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Nest;
 
@@ -65,7 +64,7 @@ public class DailyIndex : VersionedIndex
     };
 
     /// <summary>
-    /// This should never be be negative or less than the index time period (day or a month)
+    /// This should never be negative or less than the index time period (day or a month)
     /// </summary>
     public TimeSpan? MaxIndexAge
     {
@@ -140,7 +139,7 @@ public class DailyIndex : VersionedIndex
             return;
 
         var indexExpirationUtcDate = GetIndexExpirationDate(utcDate);
-        if (SystemClock.UtcNow > indexExpirationUtcDate)
+        if (Configuration.TimeProvider.GetUtcNow().UtcDateTime > indexExpirationUtcDate)
             throw new ArgumentException($"Index max age exceeded: {indexExpirationUtcDate}", nameof(utcDate));
 
         var expires = indexExpirationUtcDate < DateTime.MaxValue ? indexExpirationUtcDate : (DateTime?)null;
@@ -178,7 +177,7 @@ public class DailyIndex : VersionedIndex
         if (alias.MaxAge == TimeSpan.MaxValue)
             return true;
 
-        return SystemClock.UtcNow.Date.SafeSubtract(alias.MaxAge) <= documentDateUtc.EndOfDay();
+        return Configuration.TimeProvider.GetUtcNow().UtcDateTime.Date.SafeSubtract(alias.MaxAge) <= documentDateUtc.EndOfDay();
     }
 
     public override async Task<int> GetCurrentVersionAsync()
@@ -188,7 +187,7 @@ public class DailyIndex : VersionedIndex
             return Version;
 
         var currentIndexes = indexes
-            .Where(i => SystemClock.UtcNow <= GetIndexExpirationDate(i.DateUtc))
+            .Where(i => Configuration.TimeProvider.GetUtcNow().UtcDateTime <= GetIndexExpirationDate(i.DateUtc))
             .Select(i => i.CurrentVersion >= 0 ? i.CurrentVersion : i.Version)
             .OrderBy(v => v)
             .ToList();
@@ -199,10 +198,10 @@ public class DailyIndex : VersionedIndex
     public virtual string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd)
     {
         if (!utcStart.HasValue)
-            utcStart = SystemClock.UtcNow;
+            utcStart = Configuration.TimeProvider.GetUtcNow().UtcDateTime;
 
         if (!utcEnd.HasValue || utcEnd.Value < utcStart)
-            utcEnd = SystemClock.UtcNow;
+            utcEnd = Configuration.TimeProvider.GetUtcNow().UtcDateTime;
 
         var utcStartOfDay = utcStart.Value.StartOfDay();
         var utcEndOfDay = utcEnd.Value.EndOfDay();
@@ -236,7 +235,7 @@ public class DailyIndex : VersionedIndex
         var reindexer = new ElasticReindexer(Configuration.Client, _logger);
         foreach (var index in indexes)
         {
-            if (SystemClock.UtcNow > GetIndexExpirationDate(index.DateUtc))
+            if (Configuration.TimeProvider.GetUtcNow().UtcDateTime > GetIndexExpirationDate(index.DateUtc))
                 continue;
 
             if (index.CurrentVersion > Version)
@@ -283,7 +282,7 @@ public class DailyIndex : VersionedIndex
             var indexExpirationDate = GetIndexExpirationDate(indexGroup.Key);
 
             // Ensure the current version is always set.
-            if (SystemClock.UtcNow < indexExpirationDate)
+            if (Configuration.TimeProvider.GetUtcNow().UtcDateTime < indexExpirationDate)
             {
                 var oldestIndex = indexGroup.First();
                 if (oldestIndex.CurrentVersion < 0)
@@ -304,7 +303,7 @@ public class DailyIndex : VersionedIndex
 
             foreach (var index in indexGroup)
             {
-                if (SystemClock.UtcNow >= indexExpirationDate || index.Version != index.CurrentVersion)
+                if (Configuration.TimeProvider.GetUtcNow().UtcDateTime >= indexExpirationDate || index.Version != index.CurrentVersion)
                 {
                     foreach (var alias in Aliases)
                         aliasDescriptor = aliasDescriptor.Remove(r => r.Index(index.Index).Alias(alias.Name));
@@ -343,13 +342,13 @@ public class DailyIndex : VersionedIndex
             return;
 
         var sw = new Stopwatch();
-        foreach (var index in indexes.Where(i => SystemClock.UtcNow > GetIndexExpirationDate(i.DateUtc)))
+        foreach (var index in indexes.Where(i => Configuration.TimeProvider.GetUtcNow().UtcDateTime > GetIndexExpirationDate(i.DateUtc)))
         {
             sw.Restart();
             try
             {
                 await DeleteIndexAsync(index.Index).AnyContext();
-                _logger.LogInformation("Deleted index {Index} of age {Age:g} in {Duration:g}", index.Index, SystemClock.UtcNow.Subtract(index.DateUtc), sw.Elapsed);
+                _logger.LogInformation("Deleted index {Index} of age {Age:g} in {Duration:g}", index.Index, Configuration.TimeProvider.GetUtcNow().UtcDateTime.Subtract(index.DateUtc), sw.Elapsed);
             }
             catch (Exception) { }
 

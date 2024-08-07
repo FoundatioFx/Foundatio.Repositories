@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Parsers.LuceneQueries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
-using Foundatio.Utility;
 using Xunit;
 using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -257,22 +256,22 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetByCreatedDate()
     {
-        var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", createdUtc: SystemClock.UtcNow), o => o.ImmediateConsistency());
+        var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", createdUtc: DateTime.UtcNow), o => o.ImmediateConsistency());
         Assert.NotNull(log?.Id);
 
-        var results = await _dailyRepository.GetByDateRange(SystemClock.UtcNow.SubtractDays(1), SystemClock.UtcNow.AddDays(1));
+        var results = await _dailyRepository.GetByDateRange(DateTime.UtcNow.SubtractDays(1), DateTime.UtcNow.AddDays(1));
         Assert.Equal(log, results.Documents.Single());
 
-        results = await _dailyRepository.GetByDateRange(SystemClock.UtcNow.SubtractDays(1), DateTime.MaxValue);
+        results = await _dailyRepository.GetByDateRange(DateTime.UtcNow.SubtractDays(1), DateTime.MaxValue);
         Assert.Equal(log, results.Documents.Single());
 
-        results = await _dailyRepository.GetByDateRange(DateTime.MinValue, SystemClock.UtcNow.AddDays(1));
+        results = await _dailyRepository.GetByDateRange(DateTime.MinValue, DateTime.UtcNow.AddDays(1));
         Assert.Equal(log, results.Documents.Single());
 
         results = await _dailyRepository.GetByDateRange(DateTime.MinValue, DateTime.MaxValue);
         Assert.Equal(log, results.Documents.Single());
 
-        results = await _dailyRepository.GetByDateRange(SystemClock.UtcNow.AddDays(1), DateTime.MaxValue);
+        results = await _dailyRepository.GetByDateRange(DateTime.UtcNow.AddDays(1), DateTime.MaxValue);
         Assert.Empty(results.Documents);
     }
 

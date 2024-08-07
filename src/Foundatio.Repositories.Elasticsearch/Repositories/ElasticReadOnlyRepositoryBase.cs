@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using Elasticsearch.Net;
 using Foundatio.Caching;
 using Foundatio.Parsers.ElasticQueries.Extensions;
-using Foundatio.Repositories;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Extensions;

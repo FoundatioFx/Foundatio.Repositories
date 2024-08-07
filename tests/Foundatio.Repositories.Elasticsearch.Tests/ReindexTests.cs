@@ -117,7 +117,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
                 Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
 
                 // Add a document and ensure it resumes from this document.
-                await version1Repository.AddAsync(EmployeeGenerator.Generate(ObjectId.GenerateNewId(SystemClock.UtcNow.AddMinutes(1)).ToString()), o => o.ImmediateConsistency());
+                await version1Repository.AddAsync(EmployeeGenerator.Generate(ObjectId.GenerateNewId(DateTime.UtcNow.AddMinutes(1)).ToString()), o => o.ImmediateConsistency());
                 await version2Index.ReindexAsync();
 
                 var aliasResponse = await _client.Indices.GetAliasAsync(version2Index.Name);
@@ -311,7 +311,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             await version1Index.ConfigureAsync();
             IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
 
-            var utcNow = SystemClock.UtcNow;
+            var utcNow = DateTime.UtcNow;
             var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);
 
@@ -366,7 +366,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             await version1Index.ConfigureAsync();
             IEmployeeRepository version1Repository = new EmployeeRepository(version1Index);
 
-            var utcNow = SystemClock.UtcNow;
+            var utcNow = DateTime.UtcNow;
             var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);
 
@@ -396,7 +396,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             await version1Index.ConfigureAsync();
             IEmployeeRepository version1Repository = new EmployeeRepository(version1Index);
 
-            var utcNow = SystemClock.UtcNow;
+            var utcNow = DateTime.UtcNow;
             var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);
 
@@ -427,7 +427,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             await version1Index.ConfigureAsync();
             IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
 
-            var utcNow = SystemClock.UtcNow;
+            var utcNow = DateTime.UtcNow;
             var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);
 
@@ -564,7 +564,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
                 // Wait until the first reindex pass is done.
                 await countdown.WaitAsync();
                 Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
-                await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: SystemClock.UtcNow));
+                await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: DateTime.UtcNow));
                 employee.Name = "Updated";
                 await repository.SaveAsync(employee);
 
@@ -679,7 +679,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             await version1Index.ConfigureAsync();
             IEmployeeRepository version1Repository = new EmployeeRepository(version1Index);
 
-            var utcNow = SystemClock.UtcNow;
+            var utcNow = DateTime.UtcNow;
             var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);
 
@@ -775,7 +775,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             await version1Index.ConfigureAsync();
             IEmployeeRepository version1Repository = new EmployeeRepository(version1Index);
 
-            var utcNow = SystemClock.UtcNow;
+            var utcNow = DateTime.UtcNow;
             var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
             Assert.NotNull(employee?.Id);
 

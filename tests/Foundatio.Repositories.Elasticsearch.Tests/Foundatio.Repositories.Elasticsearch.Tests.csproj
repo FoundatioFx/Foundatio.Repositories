@@ -9,4 +9,9 @@
     <PackageReference Include="NEST.JsonNetSerializer" Version="7.17.5" />
     <PackageReference Include="TimeZoneConverter" Version="6.1.0" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\docker-compose.yml">
+      <Link>docker-compose.yml</Link>
+    </Content>
+  </ItemGroup>
 </Project>
