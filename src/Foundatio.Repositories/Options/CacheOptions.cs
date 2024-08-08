@@ -62,9 +62,9 @@ namespace Foundatio.Repositories
             return options;
         }
 
-        public static T CacheExpiresAt<T>(this T options, DateTime? expiresAtUtc, TimeProvider timeProvider = null) where T : ICommandOptions
+        public static T CacheExpiresAt<T>(this T options, DateTime? expiresAtUtc) where T : ICommandOptions
         {
-            timeProvider ??= TimeProvider.System;
+            var timeProvider = options.GetTimeProvider();
 
             if (expiresAtUtc.HasValue)
             {

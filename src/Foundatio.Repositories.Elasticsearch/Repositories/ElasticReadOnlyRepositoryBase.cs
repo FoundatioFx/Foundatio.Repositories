@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -264,7 +264,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     private async Task OnBeforeGetAsync(Ids ids, ICommandOptions options, Type resultType)
     {
-        if (BeforeGet == null || !BeforeGet.HasHandlers)
+        if (BeforeGet is not { HasHandlers: true })
             return;
 
         await BeforeGet.InvokeAsync(this, new BeforeGetEventArgs<T>(ids, options, this, resultType)).AnyContext();
@@ -702,6 +702,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     {
         options ??= new CommandOptions<T>();
 
+        options.TimeProvider(ElasticIndex.Configuration.TimeProvider ?? TimeProvider.System);
         options.ElasticIndex(ElasticIndex);
         options.SupportsSoftDeletes(SupportsSoftDeletes);
         options.DocumentType(typeof(T));
