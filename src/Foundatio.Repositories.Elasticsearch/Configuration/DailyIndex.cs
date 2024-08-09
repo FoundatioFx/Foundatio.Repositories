@@ -57,7 +57,7 @@ public class DailyIndex : VersionedIndex
         {
             null => throw new ArgumentNullException(nameof(document)),
             // This is also called when trying to create the document id.
-            IIdentity identityDoc when identityDoc.Id != null && ObjectId.TryParse(identityDoc.Id, out var objectId) && objectId.CreationTime != DateTime.MinValue => objectId.CreationTime,
+            IIdentity { Id: not null } identityDoc when ObjectId.TryParse(identityDoc.Id, out var objectId) && objectId.CreationTime != DateTime.MinValue => objectId.CreationTime,
             IHaveCreatedDate createdDoc when createdDoc.CreatedUtc != DateTime.MinValue => createdDoc.CreatedUtc,
             _ => throw new ArgumentException("Unable to get document date.", nameof(document)),
         };
@@ -428,6 +428,9 @@ public class DailyIndex : VersionedIndex
     {
         if (target == null)
             throw new ArgumentNullException(nameof(target));
+
+        if (target is DateTimeOffset dto)
+            return GetIndexByDate(dto.UtcDateTime);
 
         if (target is DateTime dt)
             return GetIndexByDate(dt);
