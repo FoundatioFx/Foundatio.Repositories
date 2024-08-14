@@ -29,7 +29,7 @@ public class CleanupIndexesJob : IJob
     {
         _client = client;
         _lockProvider = lockProvider;
-        _timeProvider = timeProvider;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
     }
 
