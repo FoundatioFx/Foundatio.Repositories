@@ -21,12 +21,14 @@ public class SnapshotJob : IJob
 {
     protected readonly IElasticClient _client;
     protected readonly ILockProvider _lockProvider;
+    protected readonly TimeProvider _timeProvider;
     protected readonly ILogger _logger;
 
-    public SnapshotJob(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory)
+    public SnapshotJob(IElasticClient client, ILockProvider lockProvider, TimeProvider timeProvider, ILoggerFactory loggerFactory)
     {
         _client = client;
         _lockProvider = lockProvider;
+        _timeProvider = timeProvider ?? TimeProvider.System;;
         _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
     }
 
@@ -41,7 +43,7 @@ public class SnapshotJob : IJob
             return JobResult.FromException(hasSnapshotRepositoryResponse.OriginalException, hasSnapshotRepositoryResponse.GetErrorMessage());
         }
 
-        string snapshotName = SystemClock.UtcNow.ToString("'" + Repository + "-'yyyy-MM-dd-HH-mm");
+        string snapshotName = _timeProvider.GetUtcNow().UtcDateTime.ToString("'" + Repository + "-'yyyy-MM-dd-HH-mm");
         _logger.LogInformation("Starting {Repository} snapshot {SnapshotName}...", Repository, snapshotName);
 
         await _lockProvider.TryUsingAsync("es-snapshot", async t =>

@@ -13,6 +13,7 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -211,7 +212,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task AddCollectionWithTimeSeriesAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
         var nowLog = LogEventGenerator.Default;
 
@@ -492,7 +493,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task SaveWithOutOfSyncIndexAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog?.Id);
 
@@ -507,7 +508,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task CanGetAggregationsAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog?.Id);
 
@@ -525,7 +526,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task CanGetDateAggregationAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog?.Id);
 
@@ -547,7 +548,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task CanGetGeoGridAggregationAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
         Assert.NotNull(employee?.Id);
         await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(), o => o.ImmediateConsistency());
@@ -598,7 +599,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task SaveCollectionWithTimeSeriesAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
         var nowLog = LogEventGenerator.Default;
 
@@ -643,23 +644,22 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task SetCreatedAndModifiedTimesAsync()
     {
-        using (TestSystemClock.Install())
-        {
-            TestSystemClock.SubtractTime(TimeSpan.FromMilliseconds(100));
-            var nowUtc = SystemClock.UtcNow;
-            var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
-            Assert.True(employee.CreatedUtc >= nowUtc);
-            Assert.True(employee.UpdatedUtc >= nowUtc);
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        _configuration.TimeProvider = timeProvider;
 
-            var createdUtc = employee.CreatedUtc;
-            var updatedUtc = employee.UpdatedUtc;
+        var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        Assert.True(employee.CreatedUtc >= nowUtc);
+        Assert.True(employee.UpdatedUtc >= nowUtc);
 
-            employee.Name = Guid.NewGuid().ToString();
-            TestSystemClock.AddTime(TimeSpan.FromMilliseconds(100));
-            employee = await _employeeRepository.SaveAsync(employee);
-            Assert.Equal(createdUtc, employee.CreatedUtc);
-            Assert.True(updatedUtc < employee.UpdatedUtc, $"Previous UpdatedUtc: {updatedUtc} Current UpdatedUtc: {employee.UpdatedUtc}");
-        }
+        var createdUtc = employee.CreatedUtc;
+        var updatedUtc = employee.UpdatedUtc;
+
+        employee.Name = Guid.NewGuid().ToString();
+        timeProvider.Advance(TimeSpan.FromMilliseconds(100));
+        employee = await _employeeRepository.SaveAsync(employee);
+        Assert.Equal(createdUtc, employee.CreatedUtc);
+        Assert.True(updatedUtc < employee.UpdatedUtc, $"Previous UpdatedUtc: {updatedUtc} Current UpdatedUtc: {employee.UpdatedUtc}");
     }
 
     [Fact]
@@ -971,7 +971,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task ScriptPatchAllAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var logs = new List<LogEvent> {
             LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),
             LogEventGenerator.Generate(createdUtc: utcNow, companyId: "1"),
@@ -1010,7 +1010,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task ScriptPatchAllWithNoCacheAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var logs = new List<LogEvent> {
             LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1"),
             LogEventGenerator.Generate(createdUtc: utcNow, companyId: "1"),
@@ -1135,7 +1135,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact(Skip = "We need to look into how we want to handle this.")]
     public async Task RemoveWithOutOfSyncIndexAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog?.Id);
 
@@ -1149,15 +1149,15 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public Task RemoveUnsavedDocumentAsync()
     {
-        return _dailyRepository.RemoveAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: SystemClock.UtcNow));
+        return _dailyRepository.RemoveAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: DateTime.UtcNow));
     }
 
     [Fact]
     public Task RemoveUnsavedDocumentsAsync()
     {
         return _dailyRepository.RemoveAsync(new List<LogEvent> {
-            LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: SystemClock.UtcNow),
-            LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: SystemClock.UtcNow)
+            LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: DateTime.UtcNow),
+            LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: DateTime.UtcNow)
         });
     }
 
@@ -1222,7 +1222,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task RemoveCollectionWithTimeSeriesAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
         var nowLog = LogEventGenerator.Default;
 
@@ -1254,7 +1254,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact(Skip = "We need to look into how we want to handle this.")]
     public async Task RemoveCollectionWithOutOfSyncIndexAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog?.Id);
 
@@ -1404,7 +1404,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task RemoveAllWithTimeSeriesAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var yesterdayLog = LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1));
         var nowLog = LogEventGenerator.Default;
 

@@ -4,19 +4,19 @@ using System.Linq;
 using System.Text;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
-using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Extensions;
 
 public static class EnumerableExtensions
 {
-    public static void EnsureIds<T>(this IEnumerable<T> values, Func<T, string> generateIdFunc = null) where T : class, IIdentity
+    public static void EnsureIds<T>(this IEnumerable<T> values, Func<T, string> generateIdFunc = null, TimeProvider timeProvider = null) where T : class, IIdentity
     {
         if (values == null)
             return;
 
-        if (generateIdFunc == null)
-            generateIdFunc = (T) => ObjectId.GenerateNewId().ToString();
+        timeProvider ??= TimeProvider.System;
+
+        generateIdFunc ??= _ => ObjectId.GenerateNewId(timeProvider.GetUtcNow().UtcDateTime).ToString();
 
         foreach (var value in values)
         {
@@ -25,14 +25,16 @@ public static class EnumerableExtensions
         }
     }
 
-    public static void SetDates<T>(this IEnumerable<T> values) where T : class, IHaveDates
+    public static void SetDates<T>(this IEnumerable<T> values, TimeProvider timeProvider = null) where T : class, IHaveDates
     {
         if (values == null)
             return;
 
+        timeProvider ??= TimeProvider.System;
+
         foreach (var value in values)
         {
-            var utcNow = SystemClock.UtcNow;
+            var utcNow = timeProvider.GetUtcNow().UtcDateTime;
             if (value.CreatedUtc == DateTime.MinValue || value.CreatedUtc > utcNow)
                 value.CreatedUtc = utcNow;
 
@@ -40,15 +42,17 @@ public static class EnumerableExtensions
         }
     }
 
-    public static void SetCreatedDates<T>(this IEnumerable<T> values) where T : class, IHaveCreatedDate
+    public static void SetCreatedDates<T>(this IEnumerable<T> values, TimeProvider timeProvider = null) where T : class, IHaveCreatedDate
     {
         if (values == null)
             return;
 
+        timeProvider ??= TimeProvider.System;
+
         foreach (var value in values)
         {
-            if (value.CreatedUtc == DateTime.MinValue || value.CreatedUtc > SystemClock.UtcNow)
-                value.CreatedUtc = SystemClock.UtcNow;
+            if (value.CreatedUtc == DateTime.MinValue || value.CreatedUtc > timeProvider.GetUtcNow().UtcDateTime)
+                value.CreatedUtc = timeProvider.GetUtcNow().UtcDateTime;
         }
     }
 

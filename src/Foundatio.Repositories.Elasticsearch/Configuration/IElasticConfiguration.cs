@@ -17,6 +17,7 @@ public interface IElasticConfiguration : IDisposable
     ICacheClient Cache { get; }
     IMessageBus MessageBus { get; }
     ILoggerFactory LoggerFactory { get; }
+    TimeProvider TimeProvider { get; set; }
     IReadOnlyCollection<IIndex> Indexes { get; }
     ICustomFieldDefinitionRepository CustomFieldDefinitionRepository { get; }
 

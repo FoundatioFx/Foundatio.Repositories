@@ -5,7 +5,6 @@ using System.Security;
 using System.Text;
 using System.Threading;
 using Foundatio.Repositories.Extensions;
-using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Utility;
 
@@ -125,7 +124,7 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
 
     public static ObjectId GenerateNewId()
     {
-        return GenerateNewId(GetTimestampFromDateTime(SystemClock.UtcNow));
+        return GenerateNewId(GetTimestampFromDateTime(DateTime.UtcNow));
     }
 
     public static ObjectId GenerateNewId(DateTime timestamp)

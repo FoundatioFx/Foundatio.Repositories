@@ -5,7 +5,6 @@ using Foundatio.Caching;
 using Foundatio.Lock;
 using Foundatio.Messaging;
 using Foundatio.Repositories.Migrations;
-using Foundatio.Utility;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using Xunit.Abstractions;
@@ -91,8 +90,8 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
             Id = "1",
             Version = 1,
             MigrationType = MigrationType.Versioned,
-            StartedUtc = SystemClock.UtcNow,
-            CompletedUtc = SystemClock.UtcNow
+            StartedUtc = DateTime.UtcNow,
+            CompletedUtc = DateTime.UtcNow
         });
 
         _migrationManager.AddMigration<Version3Migration>();
@@ -125,8 +124,8 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
             Id = "1",
             Version = 1,
             MigrationType = MigrationType.Versioned,
-            StartedUtc = SystemClock.UtcNow,
-            CompletedUtc = SystemClock.UtcNow
+            StartedUtc = DateTime.UtcNow,
+            CompletedUtc = DateTime.UtcNow
         });
 
         _migrationManager.AddMigration<RepeatableMigration>();
@@ -189,8 +188,8 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
             Id = "1",
             Version = 1,
             MigrationType = MigrationType.Versioned,
-            StartedUtc = SystemClock.UtcNow,
-            CompletedUtc = SystemClock.UtcNow
+            StartedUtc = DateTime.UtcNow,
+            CompletedUtc = DateTime.UtcNow
         });
 
         _migrationManager.AddMigration<FailingMigration>();
@@ -226,8 +225,8 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
             Id = "1",
             Version = 1,
             MigrationType = MigrationType.Versioned,
-            StartedUtc = SystemClock.UtcNow,
-            CompletedUtc = SystemClock.UtcNow
+            StartedUtc = DateTime.UtcNow,
+            CompletedUtc = DateTime.UtcNow
         });
 
         _migrationManager.AddMigration<FailingResumableMigration>();

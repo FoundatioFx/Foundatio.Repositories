@@ -1,6 +1,5 @@
 ﻿using System;
 using Foundatio.Repositories.Options;
-using Foundatio.Utility;
 
 namespace Foundatio.Repositories
 {
@@ -65,10 +64,12 @@ namespace Foundatio.Repositories
 
         public static T CacheExpiresAt<T>(this T options, DateTime? expiresAtUtc) where T : ICommandOptions
         {
+            var timeProvider = options.GetTimeProvider();
+
             if (expiresAtUtc.HasValue)
             {
                 options.Values.Set(CacheEnabledKey, true);
-                return options.BuildOption(CacheExpiresInKey, expiresAtUtc.Value.Subtract(SystemClock.UtcNow));
+                return options.BuildOption(CacheExpiresInKey, expiresAtUtc.Value.Subtract(timeProvider.GetUtcNow().UtcDateTime));
             }
 
             return options;

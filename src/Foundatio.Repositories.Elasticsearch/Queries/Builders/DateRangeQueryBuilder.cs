@@ -8,7 +8,6 @@ using Exceptionless.DateTimeExtensions;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Options;
-using Foundatio.Utility;
 using Nest;
 
 namespace Foundatio.Repositories
@@ -34,7 +33,7 @@ namespace Foundatio.Repositories
 
         public DateTime GetEndDate()
         {
-            return UseEndDate ? EndDate.GetValueOrDefault() : SystemClock.UtcNow.AddHours(1);
+            return UseEndDate ? EndDate.GetValueOrDefault() : DateTime.UtcNow.AddHours(1);
         }
     }
 

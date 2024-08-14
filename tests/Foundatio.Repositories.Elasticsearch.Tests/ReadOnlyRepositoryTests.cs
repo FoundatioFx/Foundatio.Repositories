@@ -10,7 +10,6 @@ using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
-using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using TimeZoneConverter;
@@ -193,7 +192,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     {
         Assert.Equal(0, await _dailyRepository.CountAsync());
 
-        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(createdUtc: SystemClock.UtcNow.AddDays(-1)), o => o.ImmediateConsistency());
+        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(createdUtc: DateTime.UtcNow.AddDays(-1)), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog?.Id);
 
         var nowLog = LogEventGenerator.Default;
@@ -353,7 +352,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetByIdWithTimeSeriesAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow.AddDays(-1)));
         Assert.NotNull(yesterdayLog?.Id);
 
@@ -367,7 +366,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact(Skip = "We need to look into how we want to handle this.")]
     public async Task GetByIdWithOutOfSyncIndexAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
         Assert.NotNull(yesterdayLog?.Id);
 
@@ -488,7 +487,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetByIdsWithTimeSeriesAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow.AddDays(-1)));
         Assert.NotNull(yesterdayLog?.Id);
 
@@ -503,7 +502,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact(Skip = "We need to look into how we want to handle this.")]
     public async Task GetByIdsWithOutOfSyncIndexAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
         Assert.NotNull(yesterdayLog?.Id);
 
@@ -1037,7 +1036,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Log.DefaultMinimumLevel = LogLevel.Trace;
         var chicagoTimeZone = TZConvert.GetTimeZoneInfo("America/Chicago");
         var asiaTimeZone = TZConvert.GetTimeZoneInfo("Asia/Shanghai");
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var chicagoNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, chicagoTimeZone);
         var asiaNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, asiaTimeZone);
         _logger.LogInformation($"UTC: {utcNow:o} Chicago: {chicagoNow:o} Asia: {asiaNow:o}");
@@ -1081,7 +1080,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         var chicagoTimeZone = TZConvert.GetTimeZoneInfo("America/Chicago");
         var asiaTimeZone = TZConvert.GetTimeZoneInfo("Asia/Shanghai");
 
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var chicagoNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, chicagoTimeZone);
         var asiaNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, asiaTimeZone);
 
@@ -1177,7 +1176,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     {
         Assert.False(await _dailyRepository.ExistsAsync(Id.Null));
 
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog?.Id);
 

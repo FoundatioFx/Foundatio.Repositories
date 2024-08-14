@@ -7,7 +7,7 @@ using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
-using Foundatio.Utility;
+using Microsoft.Extensions.Time.Testing;
 using Nest;
 using Newtonsoft.Json;
 using Xunit;
@@ -44,8 +44,8 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(34.7, result.Aggregations.Average("avg_age").Value);
         Assert.Equal(347, result.Aggregations.Sum("sum_age").Value);
         var percentiles = result.Aggregations.Percentiles("percentiles_age");
-        Assert.Equal(SystemClock.UtcNow.Date.SubtractYears(10), result.Aggregations.Min<DateTime>("min_createdUtc").Value);
-        Assert.Equal(SystemClock.UtcNow.Date.SubtractYears(1), result.Aggregations.Max<DateTime>("max_createdUtc").Value);
+        Assert.Equal(DateTime.UtcNow.Date.SubtractYears(10), result.Aggregations.Min<DateTime>("min_createdUtc").Value);
+        Assert.Equal(DateTime.UtcNow.Date.SubtractYears(1), result.Aggregations.Max<DateTime>("max_createdUtc").Value);
         Assert.Equal(19, percentiles.GetPercentile(1).Value);
         Assert.Equal(19, percentiles.GetPercentile(5).Value);
         Assert.Equal(25d, percentiles.GetPercentile(25).Value);
@@ -194,7 +194,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetDateUtcAggregationsAsync()
     {
-        var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
+        var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5)).UtcDateTime;
         await _employeeRepository.AddAsync(new List<Employee> {
             EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(2)),
             EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(1)),
@@ -206,12 +206,12 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(3, result.Total);
         Assert.Equal(3, result.Aggregations.Count);
 
-        AssertEqual(utcToday.UtcDateTime.SubtractDays(2), result.Aggregations.Min<DateTime>("min_nextReview")?.Value);
-        AssertEqual(utcToday.UtcDateTime, result.Aggregations.Max<DateTime>("max_nextReview")?.Value);
+        AssertEqual(utcToday.SubtractDays(2), result.Aggregations.Min<DateTime>("min_nextReview")?.Value);
+        AssertEqual(utcToday, result.Aggregations.Max<DateTime>("max_nextReview")?.Value);
 
         var dateHistogramAgg = result.Aggregations.DateHistogram("date_nextReview");
         Assert.Equal(3, dateHistogramAgg.Buckets.Count);
-        var oldestDate = utcToday.UtcDateTime.Date.SubtractDays(2);
+        var oldestDate = utcToday.Date.SubtractDays(2);
         foreach (var bucket in dateHistogramAgg.Buckets)
         {
             AssertEqual(oldestDate, bucket.Date);
@@ -223,7 +223,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetDateUtcAggregationsWithOffsetsAsync()
     {
-        var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
+        var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5)).UtcDateTime;
         await _employeeRepository.AddAsync(new List<Employee> {
             EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(2)),
             EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(1)),
@@ -235,12 +235,12 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(3, result.Total);
         Assert.Equal(3, result.Aggregations.Count);
 
-        AssertEqual(DateTime.SpecifyKind(utcToday.UtcDateTime.SubtractDays(2).SubtractHours(1), DateTimeKind.Unspecified), result.Aggregations.Min<DateTime>("min_nextReview")?.Value);
-        AssertEqual(DateTime.SpecifyKind(utcToday.UtcDateTime.SubtractHours(1), DateTimeKind.Unspecified), result.Aggregations.Max<DateTime>("max_nextReview")?.Value);
+        AssertEqual(DateTime.SpecifyKind(utcToday.SubtractDays(2).SubtractHours(1), DateTimeKind.Unspecified), result.Aggregations.Min<DateTime>("min_nextReview")?.Value);
+        AssertEqual(DateTime.SpecifyKind(utcToday.SubtractHours(1), DateTimeKind.Unspecified), result.Aggregations.Max<DateTime>("max_nextReview")?.Value);
 
         var dateHistogramAgg = result.Aggregations.DateHistogram("date_nextReview");
         Assert.Equal(3, dateHistogramAgg.Buckets.Count);
-        var oldestDate = DateTime.SpecifyKind(utcToday.UtcDateTime.Date.SubtractDays(2).SubtractHours(1), DateTimeKind.Unspecified);
+        var oldestDate = DateTime.SpecifyKind(utcToday.Date.SubtractDays(2).SubtractHours(1), DateTimeKind.Unspecified);
         foreach (var bucket in dateHistogramAgg.Buckets)
         {
             AssertEqual(oldestDate, bucket.Date);
@@ -252,7 +252,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetDateUtcAggregationsWithNegativeOffsetAsync()
     {
-        var utcToday = SystemClock.OffsetUtcNow.UtcDateTime.Date;
+        var utcToday = DateTimeOffset.UtcNow.UtcDateTime.Date;
         await _employeeRepository.AddAsync(new List<Employee> {
             EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(2)),
             EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(1)),
@@ -287,43 +287,39 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         new object[] { new DateTime(2017, 4, 10, 18, 43, 39, 0, DateTimeKind.Utc) },
         new object[] { new DateTime(2017, 4, 10, 23, 0, 0, 0, DateTimeKind.Utc) },
         new object[] { new DateTime(2017, 12, 31, 11, 59, 59, DateTimeKind.Utc).EndOfDay() },
-        new object[] { SystemClock.UtcNow }
+        new object[] { DateTime.UtcNow }
     }.ToArray();
 
     [Theory]
     [MemberData(nameof(DatesToCheck))]
     public async Task GetDateOffsetAggregationsAsync(DateTime utcNow)
     {
-        using (TestSystemClock.Install())
+        _employeeRepository.TimeProvider = new FakeTimeProvider(new DateTimeOffset(utcNow, TimeSpan.Zero));
+        var today = utcNow.Floor(TimeSpan.FromMilliseconds(1));
+
+        await _employeeRepository.AddAsync(new List<Employee> {
+            EmployeeGenerator.Generate(nextReview: today.SubtractDays(2)),
+            EmployeeGenerator.Generate(nextReview: today.SubtractDays(1)),
+            EmployeeGenerator.Generate(nextReview: today)
+        }, o => o.ImmediateConsistency());
+
+        const string aggregations = "min:nextReview max:nextReview date:nextReview";
+        var result = await _employeeRepository.CountAsync(q => q.AggregationsExpression(aggregations));
+        Assert.Equal(3, result.Total);
+        Assert.Equal(3, result.Aggregations.Count);
+
+        // Dates are always returned in utc.
+        Assert.Equal(DateTime.SpecifyKind(today.SubtractDays(2), DateTimeKind.Utc), result.Aggregations.Min<DateTime>("min_nextReview")?.Value);
+        Assert.Equal(DateTime.SpecifyKind(today, DateTimeKind.Utc), result.Aggregations.Max<DateTime>("max_nextReview")?.Value);
+
+        var dateHistogramAgg = result.Aggregations.DateHistogram("date_nextReview");
+        Assert.Equal(3, dateHistogramAgg.Buckets.Count);
+        var oldestDate = DateTime.SpecifyKind(today.Date.SubtractDays(2), DateTimeKind.Utc);
+        foreach (var bucket in dateHistogramAgg.Buckets)
         {
-            TestSystemClock.SetFrozenTime(utcNow);
-
-            var today = SystemClock.OffsetNow.Floor(TimeSpan.FromMilliseconds(1));
-
-            await _employeeRepository.AddAsync(new List<Employee> {
-                EmployeeGenerator.Generate(nextReview: today.SubtractDays(2)),
-                EmployeeGenerator.Generate(nextReview: today.SubtractDays(1)),
-                EmployeeGenerator.Generate(nextReview: today)
-            }, o => o.ImmediateConsistency());
-
-            const string aggregations = "min:nextReview max:nextReview date:nextReview";
-            var result = await _employeeRepository.CountAsync(q => q.AggregationsExpression(aggregations));
-            Assert.Equal(3, result.Total);
-            Assert.Equal(3, result.Aggregations.Count);
-
-            // Dates are always returned in utc.
-            AssertEqual(DateTime.SpecifyKind(today.UtcDateTime.SubtractDays(2), DateTimeKind.Utc), result.Aggregations.Min<DateTime>("min_nextReview")?.Value);
-            AssertEqual(DateTime.SpecifyKind(today.UtcDateTime, DateTimeKind.Utc), result.Aggregations.Max<DateTime>("max_nextReview")?.Value);
-
-            var dateHistogramAgg = result.Aggregations.DateHistogram("date_nextReview");
-            Assert.Equal(3, dateHistogramAgg.Buckets.Count);
-            var oldestDate = DateTime.SpecifyKind(today.UtcDateTime.Date.SubtractDays(2), DateTimeKind.Utc);
-            foreach (var bucket in dateHistogramAgg.Buckets)
-            {
-                AssertEqual(oldestDate, bucket.Date);
-                Assert.Equal(1, bucket.Total);
-                oldestDate = oldestDate.AddDays(1);
-            }
+            Assert.Equal(oldestDate, bucket.Date);
+            Assert.Equal(1, bucket.Total);
+            oldestDate = oldestDate.AddDays(1);
         }
     }
 
@@ -331,7 +327,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "xUnit1004:Test methods should not be skipped", Justification = "<Pending>")]
     public async Task GetDateOffsetAggregationsWithOffsetsAsync()
     {
-        var today = SystemClock.OffsetNow.Floor(TimeSpan.FromMilliseconds(1));
+        var today = DateTimeOffset.Now.Floor(TimeSpan.FromMilliseconds(1));
         await _employeeRepository.AddAsync(new List<Employee> {
             EmployeeGenerator.Generate(nextReview: today.SubtractDays(2)),
             EmployeeGenerator.Generate(nextReview: today.SubtractDays(1)),
@@ -595,7 +591,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
 
     private Task CreateDataAsync()
     {
-        var utcToday = SystemClock.UtcNow.Date;
+        var utcToday = DateTime.UtcNow.Date;
         return _employeeRepository.AddAsync(new List<Employee> {
             EmployeeGenerator.Generate(age: 19, yearsEmployed: 1,  location: "10,10", createdUtc: utcToday.SubtractYears(1), updatedUtc: utcToday.SubtractYears(1)),
             EmployeeGenerator.Generate(age: 22, yearsEmployed: 2,  location: "10,10", createdUtc: utcToday.SubtractYears(2), updatedUtc: utcToday.SubtractYears(2)),

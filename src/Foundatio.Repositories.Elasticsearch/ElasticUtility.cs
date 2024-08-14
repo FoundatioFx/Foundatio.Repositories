@@ -4,7 +4,6 @@ using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
-using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Nest;
@@ -14,11 +13,17 @@ namespace Foundatio.Repositories.Elasticsearch;
 public class ElasticUtility
 {
     private readonly IElasticClient _client;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
 
-    public ElasticUtility(IElasticClient client, ILogger logger)
+    public ElasticUtility(IElasticClient client, ILogger logger) : this(client, TimeProvider.System, logger)
+    {
+    }
+
+    public ElasticUtility(IElasticClient client, TimeProvider timeProvider, ILogger logger)
     {
         _client = client;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger ?? NullLogger.Instance;
     }
 
@@ -84,7 +89,7 @@ public class ElasticUtility
     public async Task<bool> CreateSnapshotAsync(CreateSnapshotOptions options)
     {
         if (String.IsNullOrEmpty(options.Name))
-            options.Name = SystemClock.UtcNow.ToString("'" + options.Repository + "-'yyyy-MM-dd-HH-mm");
+            options.Name = _timeProvider.GetUtcNow().UtcDateTime.ToString("'" + options.Repository + "-'yyyy-MM-dd-HH-mm");
 
         bool repoExists = await SnapshotRepositoryExistsAsync(options.Repository).AnyContext();
         if (!repoExists)

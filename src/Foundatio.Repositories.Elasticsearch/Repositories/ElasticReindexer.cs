@@ -20,13 +20,19 @@ namespace Foundatio.Repositories.Elasticsearch;
 public class ElasticReindexer
 {
     private readonly IElasticClient _client;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
     private const string ID_FIELD = "id";
     private const int MAX_STATUS_FAILS = 10;
 
-    public ElasticReindexer(IElasticClient client, ILogger logger = null)
+    public ElasticReindexer(IElasticClient client, ILogger logger = null) : this(client, TimeProvider.System, logger)
+    {
+    }
+
+    public ElasticReindexer(IElasticClient client, TimeProvider timeProvider, ILogger logger = null)
     {
         _client = client;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger ?? NullLogger.Instance;
     }
 
@@ -48,7 +54,7 @@ public class ElasticReindexer
         }
 
         _logger.LogInformation("Received reindex work item for new index: {NewIndex}", workItem.NewIndex);
-        var startTime = SystemClock.UtcNow.AddSeconds(-1);
+        var startTime = _timeProvider.GetUtcNow().UtcDateTime.AddSeconds(-1);
         await progressCallbackAsync(0, "Starting reindex...").AnyContext();
         var firstPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 0, 90, workItem.StartUtc).AnyContext();
 
@@ -133,7 +139,7 @@ public class ElasticReindexer
             }, cancellationToken).AnyContext();
 
             return response;
-        }, 5, TimeSpan.FromSeconds(10), cancellationToken, _logger).AnyContext();
+        }, 5, TimeSpan.FromSeconds(10), _timeProvider, cancellationToken, _logger).AnyContext();
 
         _logger.LogInformation("Reindex Task Id: {TaskId}", result.Task.FullyQualifiedId);
         _logger.LogRequest(result);

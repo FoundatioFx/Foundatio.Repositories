@@ -115,7 +115,7 @@ public class Index : IIndex
             null => throw new ArgumentNullException(nameof(document)),
             IIdentity identityDoc when !String.IsNullOrEmpty(identityDoc.Id) => identityDoc.Id,
             IHaveCreatedDate createdDoc when createdDoc.CreatedUtc != DateTime.MinValue => ObjectId.GenerateNewId(createdDoc.CreatedUtc).ToString(),
-            _ => ObjectId.GenerateNewId().ToString(),
+            _ => ObjectId.GenerateNewId(Configuration.TimeProvider.GetUtcNow().UtcDateTime).ToString(),
         };
     }
 

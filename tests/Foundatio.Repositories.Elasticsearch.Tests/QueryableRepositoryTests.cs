@@ -7,7 +7,7 @@ using Foundatio.AsyncEx;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Utility;
-using Foundatio.Utility;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -48,7 +48,7 @@ public sealed class QueryableRepositoryTests : ElasticRepositoryTestBase
     {
         Assert.Equal(0, await _dailyRepository.CountAsync());
 
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog?.Id);
 
@@ -66,13 +66,12 @@ public sealed class QueryableRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task CanRoundTripById()
     {
-        using var _ = TestSystemClock.Install();
-        TestSystemClock.SetFrozenTime(new DateTime(2020, 6, 16, 20, 0, 0, DateTimeKind.Local));
+        _configuration.TimeProvider = new FakeTimeProvider(new DateTimeOffset(2020, 6, 16, 20, 0, 0, TimeSpan.Zero));
 
         Assert.Equal(0, await _dailyRepository.CountAsync());
 
-        var utcNow = SystemClock.UtcNow;
-        var logEvent = await _dailyRepository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow, date: utcNow.SubtractDays(1)), o => o.ImmediateConsistency());
+        var utcNow = _configuration.TimeProvider.GetUtcNow();
+        var logEvent = await _dailyRepository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow.UtcDateTime, date: utcNow.UtcDateTime.SubtractDays(1)), o => o.ImmediateConsistency());
         Assert.NotNull(logEvent?.Id);
 
         var ev = await _dailyRepository.GetByIdAsync(logEvent.Id);
@@ -120,7 +119,7 @@ public sealed class QueryableRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task SearchByQueryWithTimeSeriesAsync()
     {
-        var utcNow = SystemClock.UtcNow;
+        var utcNow = DateTime.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1234567890"), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog?.Id);
 

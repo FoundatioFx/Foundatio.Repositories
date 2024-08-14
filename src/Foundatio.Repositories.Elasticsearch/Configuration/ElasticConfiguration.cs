@@ -32,18 +32,19 @@ public class ElasticConfiguration : IElasticConfiguration
     private readonly Lazy<ICustomFieldDefinitionRepository> _customFieldDefinitionRepository;
     protected readonly bool _shouldDisposeCache;
 
-    public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, ILoggerFactory loggerFactory = null)
+    public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, TimeProvider timeProvider = null, ILoggerFactory loggerFactory = null)
     {
         _workItemQueue = workItemQueue;
+        TimeProvider = timeProvider ?? TimeProvider.System;
         LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _logger = LoggerFactory.CreateLogger(GetType());
-        Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { LoggerFactory = loggerFactory, CloneValues = true });
-        _lockProvider = new CacheLockProvider(Cache, messageBus, loggerFactory);
-        _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15));
+        Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { LoggerFactory = loggerFactory, CloneValues = true, TimeProvider = TimeProvider});
+        _lockProvider = new CacheLockProvider(Cache, messageBus, TimeProvider, loggerFactory);
+        _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15), TimeProvider, loggerFactory);
         _shouldDisposeCache = cacheClient == null;
-        MessageBus = messageBus ?? new InMemoryMessageBus(new InMemoryMessageBusOptions { LoggerFactory = loggerFactory });
+        MessageBus = messageBus ?? new InMemoryMessageBus(new InMemoryMessageBusOptions { LoggerFactory = loggerFactory, TimeProvider = TimeProvider });
         _frozenIndexes = new Lazy<IReadOnlyCollection<IIndex>>(() => _indexes.AsReadOnly());
-        _customFieldDefinitionRepository = new Lazy<ICustomFieldDefinitionRepository>(() => CreateCustomFieldDefinitionRepository());
+        _customFieldDefinitionRepository = new Lazy<ICustomFieldDefinitionRepository>(CreateCustomFieldDefinitionRepository);
         _client = new Lazy<IElasticClient>(CreateElasticClient);
     }
 
@@ -76,6 +77,7 @@ public class ElasticConfiguration : IElasticConfiguration
     public ICacheClient Cache { get; }
     public IMessageBus MessageBus { get; }
     public ILoggerFactory LoggerFactory { get; }
+    public TimeProvider TimeProvider { get; set; }
     public IReadOnlyCollection<IIndex> Indexes => _frozenIndexes.Value;
     public ICustomFieldDefinitionRepository CustomFieldDefinitionRepository => _customFieldDefinitionRepository.Value;
 
