@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -537,6 +537,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return PatchAllAsync(query.Configure(), operation, options.Configure());
     }
 
+    /// <summary>
+    /// Script patches will not invalidate the cache or send notifications.
+    /// Partial patches will not
+    /// </summary>
     public virtual async Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null)
     {
         if (operation == null)
@@ -674,7 +678,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 var updatedIds = results.Hits.Select(h => h.Id).ToList();
                 if (IsCacheEnabled)
+                {
+                    // TODO: Should this call invalidation by cache.
                     await Cache.RemoveAllAsync(updatedIds).AnyContext();
+                }
 
                 try
                 {
@@ -740,6 +747,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     await Task.Delay(delay).AnyContext();
                 } while (true);
 
+                // TODO: Add cache invalidation.
                 return affectedRecords;
             }
             else
@@ -785,7 +793,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     var updatedIds = results.Hits.Select(h => h.Id).ToList();
                     if (IsCacheEnabled)
+                    {
+                        // TODO: Add cache invalidation for documents.
                         await InvalidateCacheAsync(updatedIds).AnyContext();
+                    }
 
                     try
                     {
