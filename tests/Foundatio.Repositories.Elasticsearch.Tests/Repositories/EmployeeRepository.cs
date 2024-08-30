@@ -46,7 +46,8 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
         AutoCreateCustomFields = autoCreateCustomFields;
     }
 
-    public TimeProvider TimeProvider {
+    public TimeProvider TimeProvider
+    {
         get
         {
             return ElasticIndex.Configuration.TimeProvider;

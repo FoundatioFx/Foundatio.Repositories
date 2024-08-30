@@ -540,7 +540,7 @@ public static class ElasticIndexExtensions
             pd.Date(p => p.Name(d => ((IHaveCreatedDate)d).CreatedUtc)).FieldAlias(a => a.Path(p => ((IHaveCreatedDate)p).CreatedUtc).Name("created"));
 
         if (hasDates)
-            pd.Date(p => p.Name(d => ((IHaveDates)d).UpdatedUtc)).FieldAlias(a => a.Path(p => ((IHaveDates)p).UpdatedUtc).Name("updated")); ;
+            pd.Date(p => p.Name(d => ((IHaveDates)d).UpdatedUtc)).FieldAlias(a => a.Path(p => ((IHaveDates)p).UpdatedUtc).Name("updated"));
 
         if (hasCustomFields || hasVirtualCustomFields)
             pd.Object<object>(f => f.Name("idx").Dynamic());

@@ -101,7 +101,7 @@ public struct ElasticDocumentVersion : IEquatable<ElasticDocumentVersion>, IComp
         if (obj is IVersioned versioned)
             return CompareTo(versioned.GetElasticVersion());
 
-        throw new ArgumentException($"Object must be of type {nameof(ElasticDocumentVersion)}"); ;
+        throw new ArgumentException($"Object must be of type {nameof(ElasticDocumentVersion)}");
     }
 
     public static bool operator <(ElasticDocumentVersion left, ElasticDocumentVersion right)

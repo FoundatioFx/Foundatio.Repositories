@@ -38,7 +38,7 @@ public class ElasticConfiguration : IElasticConfiguration
         TimeProvider = timeProvider ?? TimeProvider.System;
         LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _logger = LoggerFactory.CreateLogger(GetType());
-        Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { LoggerFactory = loggerFactory, CloneValues = true, TimeProvider = TimeProvider});
+        Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { LoggerFactory = loggerFactory, CloneValues = true, TimeProvider = TimeProvider });
         _lockProvider = new CacheLockProvider(Cache, messageBus, TimeProvider, loggerFactory);
         _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15), TimeProvider, loggerFactory);
         _shouldDisposeCache = cacheClient == null;

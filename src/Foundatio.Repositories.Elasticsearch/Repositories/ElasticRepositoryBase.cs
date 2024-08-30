@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -260,8 +260,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 if (!response.IsValid)
                     throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
 
-                var versionedDoc = response.Source as IVersioned;
-                if (versionedDoc != null && response.PrimaryTerm.HasValue)
+                if (response.Source is IVersioned versionedDoc && response.PrimaryTerm.HasValue)
                     versionedDoc.Version = response.GetElasticVersion();
 
                 foreach (var action in actionPatch.Actions)
@@ -614,7 +613,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error calling updated ids callback.");
+                    _logger.LogError(ex, "Error calling updated ids callback");
                 }
 
                 return true;
@@ -683,7 +682,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error calling updated ids callback.");
+                    _logger.LogError(ex, "Error calling updated ids callback");
                 }
 
                 return true;
@@ -794,7 +793,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error calling updated ids callback.");
+                        _logger.LogError(ex, "Error calling updated ids callback");
                     }
 
                     return true;
@@ -910,7 +909,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             if (!await processFunc(results).AnyContext())
             {
-                _logger.LogTrace("Aborted batch processing.");
+                _logger.LogTrace("Aborted batch processing");
                 break;
             }
 
@@ -920,7 +919,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (options.GetConsistency() != Consistency.Eventual)
             await RefreshForConsistency(query, options).AnyContext();
 
-        _logger.LogTrace("{0} records processed", recordsProcessed);
+        _logger.LogTrace("{Processed} records processed", recordsProcessed);
         return recordsProcessed;
     }
 
