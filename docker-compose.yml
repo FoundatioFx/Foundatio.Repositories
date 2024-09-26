@@ -1,8 +1,6 @@
-version: '3.5'
-
 services:
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.19
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.24
     environment:
       discovery.type: single-node
       xpack.security.enabled: 'false'
@@ -12,15 +10,32 @@ services:
       - 9300:9300
     networks:
       - foundatio
+    healthcheck:
+      interval: 2s
+      retries: 10
+      test: curl -s http://localhost:9200/_cluster/health | grep -vq '"status":"red"'
+    deploy:
+      resources:
+        limits:
+          memory: 1g
 
   kibana:
     depends_on:
-      - elasticsearch
-    image: docker.elastic.co/kibana/kibana:7.17.19
+      elasticsearch:
+        condition: service_healthy
+    image: docker.elastic.co/kibana/kibana:7.17.24
     ports:
       - 5601:5601
     networks:
       - foundatio
+    healthcheck:
+      interval: 2s
+      retries: 20
+      test: curl --write-out 'HTTP %{http_code}' --fail --silent --output /dev/null http://localhost:5601/api/status
+    deploy:
+      resources:
+        limits:
+          memory: 1g
 
   ready:
     image: andrewlock/wait-for-dependencies
