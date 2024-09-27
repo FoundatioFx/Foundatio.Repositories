@@ -14,10 +14,6 @@ services:
       interval: 2s
       retries: 10
       test: curl -s http://localhost:9200/_cluster/health | grep -vq '"status":"red"'
-    deploy:
-      resources:
-        limits:
-          memory: 1g
 
   kibana:
     depends_on:
@@ -32,10 +28,6 @@ services:
       interval: 2s
       retries: 20
       test: curl --write-out 'HTTP %{http_code}' --fail --silent --output /dev/null http://localhost:5601/api/status
-    deploy:
-      resources:
-        limits:
-          memory: 1g
 
   ready:
     image: andrewlock/wait-for-dependencies
