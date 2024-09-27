@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -226,7 +226,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
         Log.SetLogLevel<CustomFieldDefinitionRepository>(LogLevel.Information);
 
         const int COUNT = 1000;
-        await Parallel.ForEachAsync(Enumerable.Range(1, COUNT), new ParallelOptions { MaxDegreeOfParallelism = 2 }, async (index, ct) =>
+        await Parallel.ForEachAsync(Enumerable.Range(1, COUNT), new ParallelOptions { MaxDegreeOfParallelism = 2 }, async (index, _) =>
         {
             var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
             {
@@ -330,7 +330,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
     [Fact]
     public async Task CanUseCalculatedFieldType()
     {
-        await _customFieldDefinitionRepository.AddAsync(new[] {
+        await _customFieldDefinitionRepository.AddAsync([
             new CustomFieldDefinition {
                 EntityType = nameof(EmployeeWithCustomFields),
                 TenantKey = "1",
@@ -347,11 +347,11 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
                 EntityType = nameof(EmployeeWithCustomFields),
                 TenantKey = "1",
                 Name = "Calculated",
-                IndexType = CalculatedIntegerFieldType.IndexType,
+                IndexType = IntegerFieldType.IndexType,
                 ProcessMode = CustomFieldProcessMode.AlwaysProcess,
                 Data = new Dictionary<string, object> { { "Expression", "source.Data.Field1 + source.Data.Field2" } }
             }
-        });
+        ]);
 
         var employee = EmployeeWithCustomFieldsGenerator.Generate(age: 19);
         employee.CompanyId = "1";
