@@ -746,9 +746,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     var delay = TimeSpan.FromSeconds(attempts <= 5 ? 1 : 5);
                     await Task.Delay(delay).AnyContext();
                 } while (true);
-
-                // TODO: Add cache invalidation.
-                return affectedRecords;
             }
             else
             {
@@ -816,6 +813,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         {
             if (IsCacheEnabled)
                 await InvalidateCacheByQueryAsync(query.As<T>());
+
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
             await SendQueryNotificationsAsync(ChangeType.Saved, query, options).AnyContext();
         }
