@@ -235,6 +235,36 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task CanHandleIncludeAndExcludeOnGetById()
+    {
+        var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", stuff: "stuff"), o => o.ImmediateConsistency());
+        Assert.NotNull(log?.Id);
+
+        var companyLog = await _dailyRepository.GetByIdAsync(log!.Id, o => o.QueryLogLevel(LogLevel.Warning).Exclude(e => e.Date).Include(e => e.Id).Include("createdUtc"));
+        Assert.Equal(log.Id, companyLog.Id);
+        Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
+        Assert.Equal(default, companyLog.Date);
+        Assert.Null(companyLog.Message);
+        Assert.Null(companyLog.CompanyId);
+    }
+
+    [Fact]
+    public async Task CanHandleIncludeAndExcludeOnGetByIds()
+    {
+        var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", stuff: "stuff"), o => o.ImmediateConsistency());
+        Assert.NotNull(log?.Id);
+
+        var results = await _dailyRepository.GetByIdsAsync([log!.Id], o => o.QueryLogLevel(LogLevel.Warning).Exclude(e => e.Date).Include(e => e.Id).Include("createdUtc"));
+        Assert.Single(results);
+        var companyLog = results.First();
+        Assert.Equal(log.Id, companyLog.Id);
+        Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
+        Assert.Equal(default, companyLog.Date);
+        Assert.Null(companyLog.Message);
+        Assert.Null(companyLog.CompanyId);
+    }
+
+    [Fact]
     public async Task GetByCompanyWithExcludeMask()
     {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
