@@ -10,6 +10,7 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Repositories.Elasticsearch.Utility;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
@@ -18,6 +19,7 @@ using Foundatio.Repositories.Queries;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Nest;
+using Index = Foundatio.Repositories.Elasticsearch.Configuration.Index;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
@@ -101,8 +103,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
 
         var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
+
         if (id.Routing != null)
             request.Routing = id.Routing;
+
+        ConfigureGetRequest(request, options);
         var response = await _client.GetAsync<T>(request).AnyContext();
         _logger.LogRequest(response, options.GetQueryLogLevel());
 
@@ -153,6 +158,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             });
         }
 
+        ConfigureMultiGetRequest(multiGet, options);
         var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
         _logger.LogRequest(multiGetResults, options.GetQueryLogLevel());
 
@@ -712,6 +718,79 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         options.DefaultQueryLogLevel(DefaultQueryLogLevel);
 
         return options;
+    }
+
+    protected virtual void ConfigureGetRequest(GetRequest request, ICommandOptions options)
+    {
+        var (resolvedIncludes, resolvedExcludes) = GetResolvedIncludesAndExcludes(options);
+
+        if (resolvedIncludes.Length > 0 && resolvedExcludes.Length > 0)
+        {
+            request.SourceIncludes = resolvedIncludes;
+            request.SourceExcludes = resolvedExcludes;
+        } else if (resolvedIncludes.Length > 0)
+        {
+            request.SourceIncludes = resolvedIncludes;
+        }
+        else if (resolvedExcludes.Length > 0)
+        {
+            request.SourceExcludes = resolvedExcludes;
+        }
+    }
+
+    protected virtual void ConfigureMultiGetRequest(MultiGetDescriptor request, ICommandOptions options)
+    {
+        var (resolvedIncludes, resolvedExcludes) = GetResolvedIncludesAndExcludes(options);
+
+        if (resolvedIncludes.Length > 0 && resolvedExcludes.Length > 0)
+        {
+            request.SourceIncludes(resolvedIncludes);
+            request.SourceExcludes(resolvedExcludes);
+        } else if (resolvedIncludes.Length > 0)
+        {
+            request.SourceIncludes(resolvedIncludes);
+        }
+        else if (resolvedExcludes.Length > 0)
+        {
+            request.SourceExcludes(resolvedExcludes);
+        }
+    }
+
+    private (Field[] Includes, Field[] Excludes) GetResolvedIncludesAndExcludes(ICommandOptions options)
+    {
+        return GetResolvedIncludesAndExcludes(null, options);
+    }
+
+    private (Field[] Includes, Field[] Excludes) GetResolvedIncludesAndExcludes(IRepositoryQuery query, ICommandOptions options)
+    {
+        // includes
+
+        var includes = new HashSet<Field>();
+        includes.AddRange(query.GetIncludes());
+        includes.AddRange(options.GetIncludes());
+
+        var optionIncludeMask = options.GetIncludeMask();
+        if (!String.IsNullOrEmpty(optionIncludeMask))
+            includes.AddRange(FieldIncludeParser.ParseFieldPaths(optionIncludeMask).Select(f => (Field)f));
+
+        var resolvedIncludes = ElasticIndex.MappingResolver.GetResolvedFields(includes).ToArray();
+
+        // excludes
+
+        var excludes = new HashSet<Field>();
+        includes.AddRange(query.GetExcludes());
+        excludes.AddRange(options.GetExcludes());
+
+        if (_defaultExcludes.Count > 0 && excludes.Count == 0)
+            excludes.AddRange(_defaultExcludes.Select(f => f.Value));
+
+        var optionExcludeMask = options.GetExcludeMask();
+        if (!String.IsNullOrEmpty(optionExcludeMask))
+            excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
+
+        var resolvedExcludes = ElasticIndex.MappingResolver.GetResolvedFields(excludes).ToArray();
+
+        return (resolvedIncludes, resolvedExcludes);
     }
 
     private bool ShouldReturnDocument(T document, ICommandOptions options)
