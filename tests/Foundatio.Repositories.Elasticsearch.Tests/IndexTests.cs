@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -120,10 +120,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         await _configuration.DailyLogEvents.ConfigureAsync();
 
-
-        // TODO: Fix this once https://github.com/elastic/elasticsearch-net/issues/3829 is fixed in beta2
-        //var indexes = await _client.GetIndicesPointingToAliasAsync(_configuration.DailyLogEvents.Name);
-        //Assert.Empty(indexes);
+        var indexes = await _client.GetIndicesPointingToAliasAsync(_configuration.DailyLogEvents.Name);
+        Assert.Empty(indexes);
 
         var alias = await _client.Indices.GetAliasAsync(_configuration.DailyLogEvents.Name);
         _logger.LogRequest(alias);
@@ -142,7 +140,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         Assert.True(alias.IsValid);
         Assert.Equal(2, alias.Indices.Count);
 
-        var indexes = await _client.GetIndicesPointingToAliasAsync(_configuration.DailyLogEvents.Name);
+        indexes = await _client.GetIndicesPointingToAliasAsync(_configuration.DailyLogEvents.Name);
         Assert.Equal(2, indexes.Count);
 
         await repository.RemoveAllAsync(o => o.ImmediateConsistency());

@@ -7,6 +7,7 @@ using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Caching;
+using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -30,6 +31,8 @@ public class DailyIndex : VersionedIndex
     private TimeSpan? _maxIndexAge;
     protected readonly Func<object, DateTime> _getDocumentDateUtc;
     protected readonly string[] _defaultIndexes;
+    private readonly CacheLockProvider _ensureIndexLock;
+    private readonly Dictionary<DateTime, object> _ensuredDates = new();
 
     public DailyIndex(IElasticConfiguration configuration, string name, int version = 1, Func<object, DateTime> getDocumentDateUtc = null)
         : base(configuration, name, version)
@@ -37,12 +40,13 @@ public class DailyIndex : VersionedIndex
         AddAlias(Name);
         _frozenAliases = new Lazy<IReadOnlyCollection<IndexAliasAge>>(() => _aliases.AsReadOnly());
         _aliasCache = new ScopedCacheClient(configuration.Cache, "alias");
+        _ensureIndexLock = new CacheLockProvider(configuration.Cache, configuration.MessageBus, configuration.LoggerFactory);
         _getDocumentDateUtc = getDocumentDateUtc;
         _defaultIndexes = new[] { Name };
         HasMultipleIndexes = true;
 
         if (_getDocumentDateUtc != null)
-            _getDocumentDateUtc = (document) =>
+            _getDocumentDateUtc = document =>
             {
                 var date = getDocumentDateUtc(document);
                 return date != DateTime.MinValue ? date : DefaultDocumentDateFunc(document);
@@ -131,10 +135,16 @@ public class DailyIndex : VersionedIndex
         return DateTime.MaxValue;
     }
 
-    private readonly Dictionary<DateTime, object> _ensuredDates = new();
     protected async Task EnsureDateIndexAsync(DateTime utcDate)
     {
         utcDate = utcDate.Date;
+        if (_ensuredDates.ContainsKey(utcDate))
+            return;
+
+        await using var indexLock = await _ensureIndexLock.AcquireAsync($"Index:{GetVersionedIndex(utcDate)}", TimeSpan.FromMinutes(1)).AnyContext();
+        if (indexLock is null)
+            throw new Exception("Unable to acquire index lock");
+
         if (_ensuredDates.ContainsKey(utcDate))
             return;
 

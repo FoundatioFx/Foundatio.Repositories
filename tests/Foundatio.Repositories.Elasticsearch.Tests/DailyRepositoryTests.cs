@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
@@ -10,13 +11,13 @@ using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-public sealed class MonthlyRepositoryTests : ElasticRepositoryTestBase
+public sealed class DailyRepositoryTests : ElasticRepositoryTestBase
 {
     private readonly IFileAccessHistoryRepository _fileAccessHistoryRepository;
 
-    public MonthlyRepositoryTests(ITestOutputHelper output) : base(output)
+    public DailyRepositoryTests(ITestOutputHelper output) : base(output)
     {
-        _fileAccessHistoryRepository = new FileAccessHistoryRepository(_configuration.MonthlyFileAccessHistory);
+        _fileAccessHistoryRepository = new FileAccessHistoryRepository(_configuration.DailyFileAccessHistory);
     }
 
     public override async Task InitializeAsync()
@@ -33,7 +34,7 @@ public sealed class MonthlyRepositoryTests : ElasticRepositoryTestBase
         Assert.NotNull(history?.Id);
 
         var result = await _fileAccessHistoryRepository.FindOneAsync(f => f.Id(history.Id));
-        Assert.Equal("file-access-history-monthly-v1-2023.01", result.Data.GetString("index"));
+        Assert.Equal("file-access-history-daily-v1-2023.01.01", result.Data.GetString("index"));
     }
 
     [Fact]
@@ -50,7 +51,7 @@ public sealed class MonthlyRepositoryTests : ElasticRepositoryTestBase
             Assert.NotNull(history?.Id);
 
             var result = await _fileAccessHistoryRepository.FindOneAsync(f => f.Id(history.Id));
-            Assert.Equal("file-access-history-monthly-v1-2023.02", result.Data.GetString("index"));
+            Assert.Equal("file-access-history-daily-v1-2023.02.01", result.Data.GetString("index"));
         }
         finally
         {
@@ -67,5 +68,22 @@ public sealed class MonthlyRepositoryTests : ElasticRepositoryTestBase
         }
 
         return Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task CanAddAsync()
+    {
+        var history = await _fileAccessHistoryRepository.AddAsync(new FileAccessHistory { AccessedDateUtc = DateTime.UtcNow });
+        Assert.NotNull(history?.Id);
+    }
+
+   [Fact]
+    public Task AddAsyncConcurrentUpdates()
+    {
+        return Parallel.ForEachAsync(Enumerable.Range(0, 50), async (i, _) =>
+        {
+            var history = await _fileAccessHistoryRepository.AddAsync(new FileAccessHistory { AccessedDateUtc = DateTime.UtcNow });
+            Assert.NotNull(history?.Id);
+        });
     }
 }
