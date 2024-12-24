@@ -979,12 +979,12 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         };
 
         await _dailyRepository.AddAsync(logs, o => o.Cache().ImmediateConsistency());
-        Assert.Equal(5, _cache.Count);
+        Assert.Equal(7, _cache.Count);
         Assert.Equal(0, _cache.Hits);
         Assert.Equal(2, _cache.Misses);
 
         Assert.Equal(3, await _dailyRepository.IncrementValueAsync(logs.Select(l => l.Id).ToArray()));
-        Assert.Equal(2, _cache.Count);
+        Assert.Equal(4, _cache.Count);
         Assert.Equal(0, _cache.Hits);
         Assert.Equal(2, _cache.Misses);
 
