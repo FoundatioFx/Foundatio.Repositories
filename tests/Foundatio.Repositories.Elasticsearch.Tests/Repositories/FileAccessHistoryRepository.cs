@@ -1,4 +1,4 @@
-﻿using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
+﻿using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories;
@@ -7,7 +7,11 @@ public interface IFileAccessHistoryRepository : ISearchableRepository<FileAccess
 
 public class FileAccessHistoryRepository : ElasticRepositoryBase<FileAccessHistory>, IFileAccessHistoryRepository
 {
-    public FileAccessHistoryRepository(MyAppElasticConfiguration elasticConfiguration) : base(elasticConfiguration.MonthlyFileAccessHistory)
+    public FileAccessHistoryRepository(DailyIndex<FileAccessHistory> dailyIndex) : base(dailyIndex)
+    {
+    }
+
+    public FileAccessHistoryRepository(MonthlyIndex<FileAccessHistory> monthlyIndex) : base(monthlyIndex)
     {
     }
 }

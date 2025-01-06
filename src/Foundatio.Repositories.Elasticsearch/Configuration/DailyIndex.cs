@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -30,6 +31,7 @@ public class DailyIndex : VersionedIndex
     private TimeSpan? _maxIndexAge;
     protected readonly Func<object, DateTime> _getDocumentDateUtc;
     protected readonly string[] _defaultIndexes;
+    private readonly ConcurrentDictionary<DateTime, object> _ensuredDates = new();
 
     public DailyIndex(IElasticConfiguration configuration, string name, int version = 1, Func<object, DateTime> getDocumentDateUtc = null)
         : base(configuration, name, version)
@@ -42,7 +44,7 @@ public class DailyIndex : VersionedIndex
         HasMultipleIndexes = true;
 
         if (_getDocumentDateUtc != null)
-            _getDocumentDateUtc = (document) =>
+            _getDocumentDateUtc = document =>
             {
                 var date = getDocumentDateUtc(document);
                 return date != DateTime.MinValue ? date : DefaultDocumentDateFunc(document);
@@ -131,7 +133,6 @@ public class DailyIndex : VersionedIndex
         return DateTime.MaxValue;
     }
 
-    private readonly Dictionary<DateTime, object> _ensuredDates = new();
     protected async Task EnsureDateIndexAsync(DateTime utcDate)
     {
         utcDate = utcDate.Date;
@@ -165,10 +166,10 @@ public class DailyIndex : VersionedIndex
             foreach (var a in Aliases.Where(a => ShouldCreateAlias(utcDate, a)))
                 aliasesDescriptor.Alias(a.Name);
 
-            _ensuredDates[utcDate] = null;
             return ConfigureIndex(descriptor).Aliases(a => aliasesDescriptor);
         }).AnyContext();
 
+        _ensuredDates[utcDate] = null;
         await _aliasCache.SetAsync(unversionedIndexAlias, unversionedIndexAlias, expires).AnyContext();
     }
 
