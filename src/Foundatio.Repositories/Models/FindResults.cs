@@ -12,6 +12,8 @@ namespace Foundatio.Repositories.Models;
 [DebuggerDisplay("Total: {Total} Documents: {Documents.Count} Hits: {Hits.Count} Aggs: {Aggregations.Count} Page: {Page} HasMore: {HasMore}")]
 public class FindResults<T> : CountResult, IFindResults<T> where T : class
 {
+    public static new readonly FindResults<T> Empty = new();
+
     public FindResults(IEnumerable<FindHit<T>> hits = null, long total = 0, IReadOnlyDictionary<string, IAggregate> aggregations = null, Func<FindResults<T>, Task<FindResults<T>>> getNextPage = null, IDictionary<string, object> data = null)
         : base(total, aggregations, data)
     {
