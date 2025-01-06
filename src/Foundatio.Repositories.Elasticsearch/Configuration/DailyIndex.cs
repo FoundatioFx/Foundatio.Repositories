@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -7,7 +8,6 @@ using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Caching;
-using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -31,8 +31,7 @@ public class DailyIndex : VersionedIndex
     private TimeSpan? _maxIndexAge;
     protected readonly Func<object, DateTime> _getDocumentDateUtc;
     protected readonly string[] _defaultIndexes;
-    private readonly CacheLockProvider _ensureIndexLock;
-    private readonly Dictionary<DateTime, object> _ensuredDates = new();
+    private readonly ConcurrentDictionary<DateTime, object> _ensuredDates = new();
 
     public DailyIndex(IElasticConfiguration configuration, string name, int version = 1, Func<object, DateTime> getDocumentDateUtc = null)
         : base(configuration, name, version)
@@ -40,7 +39,6 @@ public class DailyIndex : VersionedIndex
         AddAlias(Name);
         _frozenAliases = new Lazy<IReadOnlyCollection<IndexAliasAge>>(() => _aliases.AsReadOnly());
         _aliasCache = new ScopedCacheClient(configuration.Cache, "alias");
-        _ensureIndexLock = new CacheLockProvider(configuration.Cache, configuration.MessageBus, configuration.LoggerFactory);
         _getDocumentDateUtc = getDocumentDateUtc;
         _defaultIndexes = new[] { Name };
         HasMultipleIndexes = true;
@@ -141,13 +139,6 @@ public class DailyIndex : VersionedIndex
         if (_ensuredDates.ContainsKey(utcDate))
             return;
 
-        await using var indexLock = await _ensureIndexLock.AcquireAsync($"Index:{GetVersionedIndex(utcDate)}", TimeSpan.FromMinutes(1)).AnyContext();
-        if (indexLock is null)
-            throw new Exception("Unable to acquire index lock");
-
-        if (_ensuredDates.ContainsKey(utcDate))
-            return;
-
         var indexExpirationUtcDate = GetIndexExpirationDate(utcDate);
         if (Configuration.TimeProvider.GetUtcNow().UtcDateTime > indexExpirationUtcDate)
             throw new ArgumentException($"Index max age exceeded: {indexExpirationUtcDate}", nameof(utcDate));
@@ -175,10 +166,10 @@ public class DailyIndex : VersionedIndex
             foreach (var a in Aliases.Where(a => ShouldCreateAlias(utcDate, a)))
                 aliasesDescriptor.Alias(a.Name);
 
-            _ensuredDates[utcDate] = null;
             return ConfigureIndex(descriptor).Aliases(a => aliasesDescriptor);
         }).AnyContext();
 
+        _ensuredDates[utcDate] = null;
         await _aliasCache.SetAsync(unversionedIndexAlias, unversionedIndexAlias, expires).AnyContext();
     }
 
