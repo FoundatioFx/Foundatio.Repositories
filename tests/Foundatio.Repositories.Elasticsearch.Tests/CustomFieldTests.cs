@@ -331,19 +331,22 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
     public async Task CanUseCalculatedFieldType()
     {
         await _customFieldDefinitionRepository.AddAsync([
-            new CustomFieldDefinition {
+            new CustomFieldDefinition
+            {
                 EntityType = nameof(EmployeeWithCustomFields),
                 TenantKey = "1",
                 Name = "Field1",
                 IndexType = IntegerFieldType.IndexType
             },
-            new CustomFieldDefinition {
+            new CustomFieldDefinition
+            {
                 EntityType = nameof(EmployeeWithCustomFields),
                 TenantKey = "1",
                 Name = "Field2",
                 IndexType = IntegerFieldType.IndexType
             },
-            new CustomFieldDefinition {
+            new CustomFieldDefinition
+            {
                 EntityType = nameof(EmployeeWithCustomFields),
                 TenantKey = "1",
                 Name = "Calculated",

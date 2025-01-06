@@ -19,7 +19,6 @@ using Foundatio.Repositories.Queries;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Nest;
-using Index = Foundatio.Repositories.Elasticsearch.Configuration.Index;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
@@ -728,7 +727,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         {
             request.SourceIncludes = resolvedIncludes;
             request.SourceExcludes = resolvedExcludes;
-        } else if (resolvedIncludes.Length > 0)
+        }
+        else if (resolvedIncludes.Length > 0)
         {
             request.SourceIncludes = resolvedIncludes;
         }
@@ -746,7 +746,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         {
             request.SourceIncludes(resolvedIncludes);
             request.SourceExcludes(resolvedExcludes);
-        } else if (resolvedIncludes.Length > 0)
+        }
+        else if (resolvedIncludes.Length > 0)
         {
             request.SourceIncludes(resolvedIncludes);
         }

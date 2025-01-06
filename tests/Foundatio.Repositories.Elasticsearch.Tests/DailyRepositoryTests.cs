@@ -77,7 +77,7 @@ public sealed class DailyRepositoryTests : ElasticRepositoryTestBase
         Assert.NotNull(history?.Id);
     }
 
-   [Fact]
+    [Fact]
     public Task AddAsyncConcurrentUpdates()
     {
         return Parallel.ForEachAsync(Enumerable.Range(0, 50), async (i, _) =>

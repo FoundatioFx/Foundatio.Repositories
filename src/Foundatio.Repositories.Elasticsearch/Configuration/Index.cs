@@ -193,7 +193,7 @@ public class Index : IIndex
 
         // check for valid response or that the index already exists
         if (response.IsValid || response.ServerError?.Status == 400 &&
-            (response.ServerError.Error.Type is "index_already_exists_exception" or "resource_already_exists_exception"))
+            response.ServerError.Error.Type is "index_already_exists_exception" or "resource_already_exists_exception")
         {
             _logger.LogRequest(response);
             return;
