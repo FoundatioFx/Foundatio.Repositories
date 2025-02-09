@@ -63,6 +63,8 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
                 fieldMapping[customField.Name] = customField;
         } while (await fields.NextPageAsync().AnyContext());
 
+        fieldMapping = fieldMapping.OrderBy(f => f.Value.ProcessOrder).ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
+
         if (fieldMapping.Count > 0)
             await _cache.AddAsync(cacheKey, fieldMapping, TimeSpan.FromMinutes(15)).AnyContext();
 
@@ -99,7 +101,8 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
 
     public override async Task AddAsync(IEnumerable<CustomFieldDefinition> documents, ICommandOptions options = null)
     {
-        var fieldScopes = documents.GroupBy(d => (d.EntityType, d.TenantKey, d.IndexType)).ToArray();
+        var documentArray = documents as CustomFieldDefinition[] ?? documents.ToArray();
+        var fieldScopes = documentArray.GroupBy(d => (d.EntityType, d.TenantKey, d.IndexType)).ToArray();
         string[] lockKeys = fieldScopes.Select(f => GetLockName(f.Key.EntityType, f.Key.TenantKey, f.Key.IndexType)).ToArray();
         await using var lck = await _lockProvider.AcquireAsync(lockKeys, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1)).AnyContext();
         if (lck is null)
@@ -108,7 +111,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         foreach (var fieldScope in fieldScopes)
         {
             string slotFieldScopeKey = GetSlotFieldScopeCacheKey(fieldScope.Key.EntityType, fieldScope.Key.TenantKey, fieldScope.Key.IndexType);
-            string namesFieldScopeKey = GetNamesFieldScopeCacheKey(fieldScope.Key.EntityType, fieldScope.Key.TenantKey, fieldScope.Key.IndexType);
+            string namesFieldScopeKey = GetNamesFieldScopeCacheKey(fieldScope.Key.EntityType, fieldScope.Key.TenantKey);
 
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var availableSlots = new Queue<int>();
@@ -131,7 +134,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
                 var existingFields = await FindAsync(q => q
                     .FieldEquals(cf => cf.EntityType, fieldScope.Key.EntityType)
                     .FieldEquals(cf => cf.TenantKey, fieldScope.Key.TenantKey)
-                    .FieldEquals(cf => cf.IndexType, fieldScope.Key.IndexType)
+                    .Include(cf => cf.IndexType)
                     .Include(cf => cf.IndexSlot)
                     .Include(cf => cf.Name)
                     .Include(cf => cf.IsDeleted),
@@ -139,7 +142,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
 
                 do
                 {
-                    usedSlots.AddRange(existingFields.Documents.Select(d => d.IndexSlot));
+                    usedSlots.AddRange(existingFields.Documents.Where(f => f.IndexType == fieldScope.Key.IndexType).Select(d => d.IndexSlot));
                     usedNames.AddRange(existingFields.Documents.Where(d => !d.IsDeleted).Select(d => d.Name));
                 } while (await existingFields.NextPageAsync().AnyContext());
 
@@ -175,7 +178,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
             }
         }
 
-        await base.AddAsync(documents, options).AnyContext();
+        await base.AddAsync(documentArray, options).AnyContext();
     }
 
     protected override Task ValidateAndThrowAsync(CustomFieldDefinition document)
@@ -210,7 +213,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
 
                 if (doc.Value.IsDeleted)
                 {
-                    string namesFieldScopeKey = GetNamesFieldScopeCacheKey(doc.Value.EntityType, doc.Value.TenantKey, doc.Value.IndexType);
+                    string namesFieldScopeKey = GetNamesFieldScopeCacheKey(doc.Value.EntityType, doc.Value.TenantKey);
                     await _cache.ListRemoveAsync(namesFieldScopeKey, new[] { doc.Value.Name }).AnyContext();
                 }
             }
@@ -220,9 +223,9 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
             foreach (var doc in args.Documents)
             {
                 string slotFieldScopeKey = GetSlotFieldScopeCacheKey(doc.Value.EntityType, doc.Value.TenantKey, doc.Value.IndexType);
-                string namesFieldScopeKey = GetNamesFieldScopeCacheKey(doc.Value.EntityType, doc.Value.TenantKey, doc.Value.IndexType);
-                await _cache.ListAddAsync(slotFieldScopeKey, new[] { doc.Value.IndexSlot }).AnyContext();
-                await _cache.ListRemoveAsync(namesFieldScopeKey, new[] { doc.Value.Name }).AnyContext();
+                string namesFieldScopeKey = GetNamesFieldScopeCacheKey(doc.Value.EntityType, doc.Value.TenantKey);
+                await _cache.ListAddAsync(slotFieldScopeKey, [doc.Value.IndexSlot]).AnyContext();
+                await _cache.ListRemoveAsync(namesFieldScopeKey, [doc.Value.Name]).AnyContext();
             }
         }
     }
@@ -242,9 +245,9 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         return $"customfield:{entityType}:{tenantKey}:{indexType}:slots";
     }
 
-    private string GetNamesFieldScopeCacheKey(string entityType, string tenantKey, string indexType)
+    private string GetNamesFieldScopeCacheKey(string entityType, string tenantKey)
     {
-        return $"customfield:{entityType}:{tenantKey}:{indexType}:names";
+        return $"customfield:{entityType}:{tenantKey}:names";
     }
 
     protected override async Task InvalidateCacheByQueryAsync(IRepositoryQuery<CustomFieldDefinition> query)

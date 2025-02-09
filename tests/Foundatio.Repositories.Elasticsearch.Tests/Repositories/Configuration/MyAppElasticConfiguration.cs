@@ -9,6 +9,7 @@ using Foundatio.Jobs;
 using Foundatio.Messaging;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Microsoft.Extensions.Logging;
 using Nest;
@@ -29,7 +30,7 @@ public class MyAppElasticConfiguration : ElasticConfiguration
         AddIndex(ParentChild = new ParentChildIndex(this));
         AddIndex(DailyFileAccessHistory = new DailyFileAccessHistoryIndex(this));
         AddIndex(MonthlyFileAccessHistory = new MonthlyFileAccessHistoryIndex(this));
-        AddCustomFieldIndex(replicas: 0);
+        CustomFields = AddCustomFieldIndex(replicas: 0);
     }
 
     protected override IConnectionPool CreateConnectionPool()
@@ -98,4 +99,5 @@ public class MyAppElasticConfiguration : ElasticConfiguration
     public ParentChildIndex ParentChild { get; }
     public DailyFileAccessHistoryIndex DailyFileAccessHistory { get; }
     public MonthlyFileAccessHistoryIndex MonthlyFileAccessHistory { get; }
+    public CustomFieldDefinitionIndex CustomFields { get; }
 }

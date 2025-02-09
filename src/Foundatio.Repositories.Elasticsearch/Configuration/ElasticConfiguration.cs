@@ -90,10 +90,11 @@ public class ElasticConfiguration : IElasticConfiguration
         return new CustomFieldDefinitionRepository(_customFieldDefinitionIndex, _lockProvider);
     }
 
-    public void AddCustomFieldIndex(string name = "customfield", int replicas = 1)
+    public CustomFieldDefinitionIndex AddCustomFieldIndex(string name = "customfield", int replicas = 1)
     {
         _customFieldDefinitionIndex = new CustomFieldDefinitionIndex(this, name, replicas);
         AddIndex(_customFieldDefinitionIndex);
+        return _customFieldDefinitionIndex;
     }
 
     public void AddIndex(IIndex index)

@@ -111,6 +111,29 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task WontAllowSameFieldNameWithDifferentType()
+    {
+        var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
+            EntityType = nameof(EmployeeWithCustomFields),
+            TenantKey = "1",
+            Name = "MyField1",
+            IndexType = StringFieldType.IndexType
+        });
+        Assert.Equal(1, customField.IndexSlot);
+        var mapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
+        Assert.Contains(mapping.Keys, c => c == "MyField1");
+
+        await Assert.ThrowsAsync<DocumentValidationException>(() => _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
+            EntityType = nameof(EmployeeWithCustomFields),
+            TenantKey = "1",
+            Name = "MyField1",
+            IndexType = IntegerFieldType.IndexType
+        }));
+    }
+
+    [Fact]
     public async Task CanUseDeletedSlotAndName()
     {
         var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
@@ -150,6 +173,9 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
         await _customFieldDefinitionRepository.SaveAsync(customField2);
         mapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
         Assert.DoesNotContain(mapping.Keys, c => c == "MyField2");
+
+        var deletedFields = await _customFieldDefinitionRepository.FindAsync(q => q.FieldEquals(cf => cf.EntityType, nameof(EmployeeWithCustomFields)).FieldEquals(cf => cf.TenantKey, "1"), o => o.IncludeSoftDeletes().PageLimit(1000));
+        Assert.Contains(deletedFields.Documents, d => d.Name == "MyField2");
 
         customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
         {
@@ -284,24 +310,64 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
     [Fact]
     public async Task CanAutoCreateUnmappedCustomField()
     {
+        Log.DefaultMinimumLevel = LogLevel.Trace;
+
+        await _customFieldDefinitionRepository.AddAsync([
+            new CustomFieldDefinition
+            {
+                EntityType = nameof(EmployeeWithCustomFields),
+                TenantKey = "1",
+                Name = "Field1",
+                IndexType = IntegerFieldType.IndexType
+            },
+            new CustomFieldDefinition
+            {
+                EntityType = nameof(EmployeeWithCustomFields),
+                TenantKey = "1",
+                Name = "Field2",
+                IndexType = IntegerFieldType.IndexType
+            },
+            new CustomFieldDefinition
+            {
+                EntityType = nameof(EmployeeWithCustomFields),
+                TenantKey = "1",
+                Name = "Calculated",
+                IndexType = IntegerFieldType.IndexType,
+                ProcessMode = CustomFieldProcessMode.AlwaysProcess,
+                Data = new Dictionary<string, object> { { "Expression", "source.Data.Field1 + source.Data.Field2" } }
+            }
+        ]);
+
         var fieldMapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
         Assert.DoesNotContain(fieldMapping, m => m.Key == "MyField1");
 
-        var employee = EmployeeWithCustomFieldsGenerator.Generate(age: 19);
-        employee.CompanyId = "1";
-        employee.PhoneNumbers.Add(new PhoneInfo { Number = "214-222-2222" });
-        employee.Data["MyField1"] = "hey";
-        await _employeeRepository.AddAsync(employee, o => o.ImmediateConsistency());
+        var employee1 = EmployeeWithCustomFieldsGenerator.Generate(age: 19);
+        employee1.CompanyId = "1";
+        employee1.PhoneNumbers.Add(new PhoneInfo { Number = "214-222-2222" });
+        employee1.Data["MyField1"] = "hey1";
+        employee1.Data["Calculated"] = 1;
+        var employee2 = EmployeeWithCustomFieldsGenerator.Generate(age: 21);
+        employee2.CompanyId = "1";
+        employee2.PhoneNumbers.Add(new PhoneInfo { Number = "214-111-1111" });
+        employee2.Data["myfield1"] = "hey2";
+        await _employeeRepository.AddAsync([employee1, employee2], o => o.ImmediateConsistency());
 
         fieldMapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
         Assert.Contains(fieldMapping, m => m.Key == "MyField1");
 
-        var results = await _employeeRepository.FindAsync(q => q.Company("1").FilterExpression("myfield1:hey"), o => o.QueryLogLevel(LogLevel.Information));
+        var results = await _employeeRepository.FindAsync(q => q.Company("1").FilterExpression("myfield1:hey1"), o => o.QueryLogLevel(LogLevel.Information));
         var employees = results.Documents.ToArray();
         Assert.Single(employees);
         Assert.Equal(19, employees[0].Age);
-        Assert.Single(employees[0].Data);
-        Assert.Equal("hey", employees[0].Data["MyField1"]);
+        Assert.Equal(2, employees[0].Data.Count);
+        Assert.Equal("hey1", employees[0].Data["MyField1"]);
+
+        results = await _employeeRepository.FindAsync(q => q.Company("1").FilterExpression("myfield1:hey2"), o => o.QueryLogLevel(LogLevel.Information));
+        employees = results.Documents.ToArray();
+        Assert.Single(employees);
+        Assert.Equal(21, employees[0].Age);
+        Assert.Equal(2, employees[0].Data.Count);
+        Assert.Equal("hey2", employees[0].Data["myfield1"]);
     }
 
     [Fact]

@@ -64,7 +64,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (document == null)
             throw new ArgumentNullException(nameof(document));
 
-        await AddAsync(new[] { document }, options).AnyContext();
+        await AddAsync([document], options).AnyContext();
         return document;
     }
 
@@ -968,13 +968,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     protected virtual async Task OnCustomFieldsDocumentsChanging(object sender, DocumentsChangeEventArgs<T> args)
     {
-        var tenantGroups = args.Documents.Select(d => d.Value).GroupBy(e => GetDocumentTenantKey(e)).Where(g => g.Key != null).ToList();
+        var tenantGroups = args.Documents.Select(d => d.Value).GroupBy(GetDocumentTenantKey).Where(g => g.Key != null).ToList();
 
         foreach (var tenant in tenantGroups)
         {
             var fieldDefinitions = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenant.Key);
-            var processOnValueFields = fieldDefinitions.Where(f => f.Value.ProcessMode == CustomFieldProcessMode.ProcessOnValue).OrderBy(f => f.Value.ProcessOrder).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-            var alwaysProcessFields = fieldDefinitions.Where(f => f.Value.ProcessMode == CustomFieldProcessMode.AlwaysProcess).OrderBy(f => f.Value.ProcessOrder).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
             foreach (var doc in tenant)
             {
@@ -990,11 +988,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 foreach (var customField in customFields)
                 {
-                    if (!processOnValueFields.TryGetValue(customField.Key, out var fieldDefinition))
+                    if (!fieldDefinitions.TryGetValue(customField.Key, out var fieldDefinition))
                     {
-                        fieldDefinition = await HandleUnmappedCustomField(doc, customField.Key, customField.Value);
+                        fieldDefinition = await HandleUnmappedCustomField(doc, customField.Key, customField.Value, fieldDefinitions);
                         if (fieldDefinition == null)
                             continue;
+
+                        fieldDefinitions[customField.Key] = fieldDefinition;
                     }
 
                     if (!ElasticIndex.CustomFieldTypes.TryGetValue(fieldDefinition.IndexType, out var fieldType))
@@ -1011,7 +1011,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(fieldDefinition);
                 }
 
-                foreach (var alwaysProcessField in alwaysProcessFields.Values)
+                foreach (var alwaysProcessField in fieldDefinitions.Values.Where(f => f.ProcessMode == CustomFieldProcessMode.AlwaysProcess))
                 {
                     if (!ElasticIndex.CustomFieldTypes.TryGetValue(alwaysProcessField.IndexType, out var fieldType))
                     {
@@ -1031,7 +1031,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
     }
 
-    protected virtual async Task<CustomFieldDefinition> HandleUnmappedCustomField(T document, string name, object value)
+    protected virtual async Task<CustomFieldDefinition> HandleUnmappedCustomField(T document, string name, object value, IDictionary<string, CustomFieldDefinition> existingFields)
     {
         if (!AutoCreateCustomFields)
             return null;
