@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Foundatio.Caching;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
@@ -15,11 +16,13 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
 {
     private readonly ICustomFieldDefinitionRepository _customFieldDefinitionRepository;
     private readonly IEmployeeWithCustomFieldsRepository _employeeRepository;
+    private readonly InMemoryCacheClient _cache;
 
     public CustomFieldTests(ITestOutputHelper output) : base(output)
     {
         _customFieldDefinitionRepository = _configuration.CustomFieldDefinitionRepository;
         _employeeRepository = new EmployeeWithCustomFieldsRepository(_configuration);
+        _cache = _configuration.Cache as InMemoryCacheClient;
     }
 
     public override async Task InitializeAsync()
@@ -84,8 +87,11 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
             IndexType = "string"
         });
         Assert.Equal(1, customField.IndexSlot);
+        Assert.Equal(3, _cache.Count);
         var mapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
         Assert.Contains(mapping.Keys, c => c == "MyField1");
+        await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
+        Assert.Equal(1, _cache.Hits);
 
         customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
         {
@@ -97,6 +103,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
         Assert.Equal(2, customField.IndexSlot);
         mapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
         Assert.Contains(mapping.Keys, c => c == "MyField2");
+        Assert.Equal(3, _cache.Hits);
 
         customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
         {
@@ -108,6 +115,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
         Assert.Equal(3, customField.IndexSlot);
         mapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
         Assert.Contains(mapping.Keys, c => c == "MyField3");
+        Assert.Equal(5, _cache.Hits);
     }
 
     [Fact]

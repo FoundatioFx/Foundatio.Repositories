@@ -214,7 +214,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
                 if (doc.Value.IsDeleted)
                 {
                     string namesFieldScopeKey = GetNamesFieldScopeCacheKey(doc.Value.EntityType, doc.Value.TenantKey);
-                    await _cache.ListRemoveAsync(namesFieldScopeKey, new[] { doc.Value.Name }).AnyContext();
+                    await _cache.ListRemoveAsync(namesFieldScopeKey, [doc.Value.Name]).AnyContext();
                 }
             }
         }
@@ -273,8 +273,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         }
 
         var cacheKeys = documents.Select(d => GetMappingCacheKey(d.Value.EntityType, d.Value.TenantKey)).Distinct().ToList();
-        foreach (string cacheKey in cacheKeys)
-            await _cache.RemoveByPrefixAsync(cacheKey).AnyContext();
+        await _cache.RemoveAllAsync(cacheKeys).AnyContext();
     }
 }
 
