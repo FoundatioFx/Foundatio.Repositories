@@ -173,7 +173,10 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
                     // check to see if field mapping was just added
                     var fieldMapping = await GetFieldMappingAsync(doc.EntityType, doc.TenantKey).AnyContext();
                     if (fieldMapping.ContainsKey(doc.Name) && fieldMapping[doc.Name].IndexType == doc.IndexType)
+                    {
+                        doc.IndexSlot = fieldMapping[doc.Name].IndexSlot;
                         continue;
+                    }
 
                     throw new DocumentValidationException($"Custom field with name {doc.Name} already exists");
                 }
