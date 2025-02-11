@@ -102,6 +102,8 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
     public override async Task AddAsync(IEnumerable<CustomFieldDefinition> documents, ICommandOptions options = null)
     {
         var documentArray = documents as CustomFieldDefinition[] ?? documents.ToArray();
+        _logger.LogTrace("Adding {DocumentCount} new custom field definitions", documentArray.Length);
+
         var fieldScopes = documentArray.GroupBy(d => (d.EntityType, d.TenantKey, d.IndexType)).ToArray();
         string[] lockKeys = fieldScopes.Select(f => GetLockName(f.Key.EntityType, f.Key.TenantKey, f.Key.IndexType)).ToArray();
         await using var lck = await _lockProvider.AcquireAsync(lockKeys, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1)).AnyContext();
@@ -138,7 +140,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
                     .Include(cf => cf.IndexSlot)
                     .Include(cf => cf.Name)
                     .Include(cf => cf.IsDeleted),
-                    o => o.IncludeSoftDeletes().PageLimit(1000).QueryLogLevel(Microsoft.Extensions.Logging.LogLevel.Information)).AnyContext();
+                    o => o.IncludeSoftDeletes().PageLimit(1000)).AnyContext();
 
                 do
                 {
@@ -167,7 +169,14 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
                     throw new DocumentValidationException("IndexSlot can't be assigned.");
 
                 if (usedNames.Contains(doc.Name))
+                {
+                    // check to see if field mapping was just added
+                    var fieldMapping = await GetFieldMappingAsync(doc.EntityType, doc.TenantKey).AnyContext();
+                    if (fieldMapping.ContainsKey(doc.Name) && fieldMapping[doc.Name].IndexType == doc.IndexType)
+                        continue;
+
                     throw new DocumentValidationException($"Custom field with name {doc.Name} already exists");
+                }
 
                 int availableSlot = availableSlots.Dequeue();
                 doc.IndexSlot = availableSlot;
@@ -175,10 +184,10 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
                 await _cache.ListRemoveAsync(slotFieldScopeKey, [availableSlot]).AnyContext();
                 await _cache.ListAddAsync(namesFieldScopeKey, [doc.Name]).AnyContext();
                 _logger.LogTrace("New field {FieldName} using slot {IndexSlot} for {FieldScope}", doc.Name, doc.IndexSlot, slotFieldScopeKey);
+
+                await base.AddAsync([doc], options).AnyContext();
             }
         }
-
-        await base.AddAsync(documentArray, options).AnyContext();
     }
 
     protected override Task ValidateAndThrowAsync(CustomFieldDefinition document)

@@ -363,6 +363,20 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
         fieldMapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
         Assert.Contains(fieldMapping, m => m.Key == "MyField1");
 
+        const int count = 2;
+        await Parallel.ForEachAsync(Enumerable.Range(1, count), new ParallelOptions { MaxDegreeOfParallelism = 2 }, async (index, ct) =>
+        {
+            var randomEmployees = EmployeeWithCustomFieldsGenerator.GenerateEmployees(count: 5, companyId: "1");
+            randomEmployees.ForEach(e =>
+            {
+                for (int i = 0; i < 5; i++)
+                    e.Data["Field" + i] = i;
+            });
+            await _employeeRepository.AddAsync(randomEmployees, o => o.ImmediateConsistency());
+        });
+
+        fieldMapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
+
         var results = await _employeeRepository.FindAsync(q => q.Company("1").FilterExpression("myfield1:hey1"), o => o.QueryLogLevel(LogLevel.Information));
         var employees = results.Documents.ToArray();
         Assert.Single(employees);
