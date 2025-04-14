@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Foundatio.Parsers;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Visitors;
@@ -9,7 +11,6 @@ using Foundatio.Parsers.LuceneQueries.Nodes;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders;
 
@@ -20,11 +21,11 @@ public interface IElasticQueryBuilder
 
 public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitorContext, IQueryVisitorContextWithFieldResolver, IQueryVisitorContextWithIncludeResolver, IQueryVisitorContextWithValidation where T : class, new()
 {
-    public QueryBuilderContext(IRepositoryQuery source, ICommandOptions options, SearchDescriptor<T> search = null, IQueryBuilderContext parentContext = null)
+    public QueryBuilderContext(IRepositoryQuery source, ICommandOptions options, SearchRequestDescriptor<T> search = null, IQueryBuilderContext parentContext = null)
     {
         Source = source;
         Options = options;
-        Search = search ?? new SearchDescriptor<T>();
+        Search = search ?? new SearchRequestDescriptor<T>();
         Parent = parentContext;
         ((IQueryVisitorContextWithIncludeResolver)this).IncludeResolver = options.GetIncludeResolver();
         ((IQueryVisitorContextWithFieldResolver)this).FieldResolver = options.GetQueryFieldResolver();
@@ -41,9 +42,9 @@ public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitor
     public IQueryBuilderContext Parent { get; }
     public IRepositoryQuery Source { get; }
     public ICommandOptions Options { get; }
-    public QueryContainer Query { get; set; }
-    public QueryContainer Filter { get; set; }
-    public SearchDescriptor<T> Search { get; }
+    public Query Query { get; set; }
+    public Query Filter { get; set; }
+    public SearchRequestDescriptor<T> Search { get; }
     public IDictionary<string, object> Data { get; } = new Dictionary<string, object>();
     public QueryValidationOptions ValidationOptions { get; set; }
     public QueryValidationResult ValidationResult { get; set; }
@@ -77,8 +78,8 @@ public interface IQueryBuilderContext
     IQueryBuilderContext Parent { get; }
     IRepositoryQuery Source { get; }
     ICommandOptions Options { get; }
-    QueryContainer Query { get; set; }
-    QueryContainer Filter { get; set; }
+    Query Query { get; set; }
+    Query Filter { get; set; }
     IDictionary<string, object> Data { get; }
 }
 
@@ -112,7 +113,7 @@ public static class QueryBuilderContextExtensions
 
 public static class ElasticQueryBuilderExtensions
 {
-    public static async Task<QueryContainer> BuildQueryAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, ICommandOptions options, SearchDescriptor<T> search) where T : class, new()
+    public static async Task<Query> BuildQueryAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, ICommandOptions options, SearchRequestDescriptor<T> search) where T : class, new()
     {
         var ctx = new QueryBuilderContext<T>(query, options, search);
         await builder.BuildAsync(ctx).AnyContext();
@@ -124,7 +125,7 @@ public static class ElasticQueryBuilderExtensions
         };
     }
 
-    public static async Task ConfigureSearchAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, ICommandOptions options, SearchDescriptor<T> search) where T : class, new()
+    public static async Task ConfigureSearchAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, ICommandOptions options, SearchRequestDescriptor<T> search) where T : class, new()
     {
         if (search == null)
             throw new ArgumentNullException(nameof(search));

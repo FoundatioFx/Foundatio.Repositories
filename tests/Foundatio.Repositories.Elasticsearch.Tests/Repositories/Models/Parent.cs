@@ -1,7 +1,7 @@
 ﻿using System;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 

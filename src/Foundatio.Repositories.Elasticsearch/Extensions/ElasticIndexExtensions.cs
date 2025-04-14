@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -543,7 +543,7 @@ public static class ElasticIndexExtensions
             pd.Date(p => p.Name(d => ((IHaveDates)d).UpdatedUtc)).FieldAlias(a => a.Path(p => ((IHaveDates)p).UpdatedUtc).Name("updated"));
 
         if (hasCustomFields || hasVirtualCustomFields)
-            pd.Object<object>(f => f.Name("idx").Dynamic());
+            pd.Object<object>(f => f.Name("idx").Dynamic(DynamicMapping.True));
 
         return pd;
     }

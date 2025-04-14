@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
@@ -15,7 +15,7 @@ public static class ResolverExtensions
         return fields.Select(field => ResolveFieldName(resolver, field)).ToList();
     }
 
-    public static ICollection<IFieldSort> GetResolvedFields(this ElasticMappingResolver resolver, ICollection<IFieldSort> sorts)
+    public static ICollection<SortOptions> GetResolvedFields(this ElasticMappingResolver resolver, ICollection<SortOptions> sorts)
     {
         if (sorts.Count == 0)
             return sorts;
@@ -31,7 +31,7 @@ public static class ResolverExtensions
         return new Field(resolver.GetResolvedField(field.Name), field.Boost, field.Format);
     }
 
-    public static IFieldSort ResolveFieldSort(this ElasticMappingResolver resolver, IFieldSort sort)
+    public static SortOptions ResolveFieldSort(this ElasticMappingResolver resolver, SortOptions sort)
     {
         return new FieldSort
         {

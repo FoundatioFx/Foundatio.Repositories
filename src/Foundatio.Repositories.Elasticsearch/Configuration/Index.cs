@@ -3,6 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Analysis;
+using Elastic.Clients.Elasticsearch.Fluent;
+using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Parsers.LuceneQueries.Visitors;
@@ -16,7 +21,6 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
@@ -164,9 +168,8 @@ public class Index : IIndex
         return Task.CompletedTask;
     }
 
-    public virtual IPromise<IAliases> ConfigureIndexAliases(AliasesDescriptor aliases)
+    public virtual void ConfigureIndexAliases(FluentDictionaryOfNameAlias fluentDictionaryOfNameAlias)
     {
-        return aliases;
     }
 
     public IElasticQueryBuilder QueryBuilder => _queryBuilder.Value;
@@ -181,7 +184,7 @@ public class Index : IIndex
         return DeleteIndexAsync(Name);
     }
 
-    protected virtual async Task CreateIndexAsync(string name, Func<CreateIndexDescriptor, CreateIndexDescriptor> descriptor = null)
+    protected virtual async Task CreateIndexAsync(string name, Func<CreateIndexRequestDescriptor, CreateIndexRequestDescriptor> descriptor = null)
     {
         if (name == null)
             throw new ArgumentNullException(nameof(name));
@@ -192,8 +195,8 @@ public class Index : IIndex
         _isEnsured = true;
 
         // check for valid response or that the index already exists
-        if (response.IsValid || response.ServerError?.Status == 400 &&
-            response.ServerError.Error.Type is "index_already_exists_exception" or "resource_already_exists_exception")
+        if (response.IsValid || response.ElasticsearchServerError?.Status == 400 &&
+            response.ElasticsearchServerError.Error.Type is "index_already_exists_exception" or "resource_already_exists_exception")
         {
             _logger.LogRequest(response);
             return;
@@ -219,9 +222,9 @@ public class Index : IIndex
             var currentCharFilters = currentSettings.Indices[name]?.Settings?.Analysis?.CharFilters ?? new CharFilters();
 
             // default to update dynamic index settings from the ConfigureIndex method
-            var createIndexDescriptor = new CreateIndexDescriptor(name);
-            createIndexDescriptor = ConfigureIndex(createIndexDescriptor);
-            var settings = ((IIndexState)createIndexDescriptor).Settings;
+            var CreateIndexRequestDescriptor = new CreateIndexRequestDescriptor(name);
+            CreateIndexRequestDescriptor = ConfigureIndex(CreateIndexRequestDescriptor);
+            var settings = ((IIndexState)CreateIndexRequestDescriptor).Settings;
 
             // strip off non-dynamic index settings
             settings.FileSystemStorageImplementation = null;
@@ -349,12 +352,12 @@ public class Index : IIndex
         return null;
     }
 
-    public virtual CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public virtual CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
         return idx.Aliases(ConfigureIndexAliases);
     }
 
-    public virtual void ConfigureSettings(ConnectionSettings settings) { }
+    public virtual void ConfigureSettings(ElasticsearchClientSettings settings) { }
 
     public virtual void Dispose() { }
 }
@@ -375,13 +378,13 @@ public class Index<T> : Index, IIndex<T> where T : class
 
     public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map)
     {
-        return map.AutoMap<T>().Properties(p => p.SetupDefaults());
+        return map.Properties(p => p.SetupDefaults());
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
         idx = base.ConfigureIndex(idx);
-        return idx.Map<T>(f =>
+        return idx.Mappings<T>(f =>
         {
             if (CustomFieldTypes.Count > 0)
             {
@@ -404,11 +407,11 @@ public class Index<T> : Index, IIndex<T> where T : class
 
         var typeMappingDescriptor = new TypeMappingDescriptor<T>();
         typeMappingDescriptor = ConfigureIndexMapping(typeMappingDescriptor);
-        var mapping = (ITypeMapping)typeMappingDescriptor;
+        var mapping = (TypeMapping)typeMappingDescriptor;
 
         var response = await Configuration.Client.Indices.PutMappingAsync<T>(m =>
         {
-            m.Properties(_ => new NestPromise<IProperties>(mapping.Properties));
+            m.Properties(_ => new NestPromise<Properties>(mapping.Properties));
             if (CustomFieldTypes.Count > 0)
             {
                 m.DynamicTemplates(d =>
@@ -429,7 +432,7 @@ public class Index<T> : Index, IIndex<T> where T : class
             _logger.LogErrorRequest(response, $"Error updating index ({name}) mappings.");
     }
 
-    public override void ConfigureSettings(ConnectionSettings settings)
+    public override void ConfigureSettings(ElasticsearchClientSettings settings)
     {
         settings.DefaultMappingFor<T>(d => d.IndexName(Name));
     }

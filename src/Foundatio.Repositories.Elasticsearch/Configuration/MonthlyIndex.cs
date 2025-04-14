@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.Extensions;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
@@ -71,10 +73,10 @@ public class MonthlyIndex<T> : MonthlyIndex where T : class
         return map.AutoMap<T>().Properties(p => p.SetupDefaults());
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
         idx = base.ConfigureIndex(idx);
-        return idx.Map<T>(f =>
+        return idx.Mappings<T>(f =>
         {
             if (CustomFieldTypes.Count > 0)
             {
@@ -91,7 +93,7 @@ public class MonthlyIndex<T> : MonthlyIndex where T : class
         });
     }
 
-    public override void ConfigureSettings(ConnectionSettings settings)
+    public override void ConfigureSettings(ElasticsearchClientSettings settings)
     {
         settings.DefaultMappingFor<T>(d => d.IndexName(Name));
     }

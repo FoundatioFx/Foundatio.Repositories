@@ -4,9 +4,10 @@ using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Text;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories
 {
@@ -236,7 +237,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                         else
                             query = new TermQuery { Field = resolver.GetNonAnalyzedFieldName(fieldValue.Field), Value = fieldValue.Value };
 
-                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { query } };
+                        ctx.Filter &= new BoolQuery { MustNot = new Query[] { query } };
                         break;
                     case ComparisonOperator.Contains:
                         var fieldContains = resolver.GetResolvedField(fieldValue.Field);
@@ -270,10 +271,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                         else
                             query = new MatchQuery { Field = fieldNotContains, Query = fieldValue.Value.ToString() };
 
-                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { query } };
+                        ctx.Filter &= new BoolQuery { MustNot = new Query[] { query } };
                         break;
                     case ComparisonOperator.IsEmpty:
-                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { new ExistsQuery { Field = resolver.GetResolvedField(fieldValue.Field) } } };
+                        ctx.Filter &= new BoolQuery { MustNot = new Query[] { new ExistsQuery { Field = resolver.GetResolvedField(fieldValue.Field) } } };
                         break;
                     case ComparisonOperator.HasValue:
                         ctx.Filter &= new ExistsQuery { Field = resolver.GetResolvedField(fieldValue.Field) };

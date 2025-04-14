@@ -1,9 +1,9 @@
 ﻿using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories;
 public interface IParentRepository : ISearchableRepository<Parent> { }

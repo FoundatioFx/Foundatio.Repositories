@@ -4,10 +4,9 @@ using System.Linq;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using Elasticsearch.Net;
+using Elastic.Transport.Products.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Microsoft.Extensions.Logging;
-using Nest;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
@@ -15,12 +14,12 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions;
 public static class LoggerExtensions
 {
     [Obsolete("Use LogRequest instead")]
-    public static void LogTraceRequest(this ILogger logger, IElasticsearchResponse elasticResponse, LogLevel logLevel = LogLevel.Trace)
+    public static void LogTraceRequest(this ILogger logger, ElasticsearchResponse elasticResponse, LogLevel logLevel = LogLevel.Trace)
     {
         LogRequest(logger, elasticResponse, logLevel);
     }
 
-    public static void LogRequest(this ILogger logger, IElasticsearchResponse elasticResponse, LogLevel logLevel = LogLevel.Trace)
+    public static void LogRequest(this ILogger logger, ElasticsearchResponse elasticResponse, LogLevel logLevel = LogLevel.Trace)
     {
         if (elasticResponse == null || !logger.IsEnabled(logLevel))
             return;
@@ -39,12 +38,12 @@ public static class LoggerExtensions
         }
     }
 
-    public static void LogErrorRequest(this ILogger logger, IElasticsearchResponse elasticResponse, string message, params object[] args)
+    public static void LogErrorRequest(this ILogger logger, ElasticsearchResponse elasticResponse, string message, params object[] args)
     {
         LogErrorRequest(logger, null, elasticResponse, message, args);
     }
 
-    public static void LogErrorRequest(this ILogger logger, Exception ex, IElasticsearchResponse elasticResponse, string message, params object[] args)
+    public static void LogErrorRequest(this ILogger logger, Exception ex, ElasticsearchResponse elasticResponse, string message, params object[] args)
     {
         if (elasticResponse == null || !logger.IsEnabled(LogLevel.Error))
             return;

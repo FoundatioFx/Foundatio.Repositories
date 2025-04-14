@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Caching;
 using Foundatio.Jobs;
 using Foundatio.Messaging;
@@ -11,7 +12,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Utility;
 using Foundatio.Xunit;
 using Microsoft.Extensions.Logging;
-using Nest;
 using Xunit.Abstractions;
 using IAsyncLifetime = Xunit.IAsyncLifetime;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -22,7 +22,7 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
 {
     protected readonly MyAppElasticConfiguration _configuration;
     protected readonly InMemoryCacheClient _cache;
-    protected readonly IElasticClient _client;
+    protected readonly ElasticsearchClient _client;
     protected readonly IQueue<WorkItemData> _workItemQueue;
     protected readonly InMemoryMessageBus _messageBus;
 

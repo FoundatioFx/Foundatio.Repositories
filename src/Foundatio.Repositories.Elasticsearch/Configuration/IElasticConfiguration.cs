@@ -1,19 +1,19 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Caching;
 using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Microsoft.Extensions.Logging;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
 public interface IElasticConfiguration : IDisposable
 {
-    IElasticClient Client { get; }
+    ElasticsearchClient Client { get; }
     ICacheClient Cache { get; }
     IMessageBus MessageBus { get; }
     ILoggerFactory LoggerFactory { get; }

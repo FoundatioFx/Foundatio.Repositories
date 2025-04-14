@@ -4,9 +4,9 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
@@ -83,7 +83,7 @@ public static class FindHitExtensions
         if (sort == null)
             return null;
 
-        sort.Order = !sort.Order.HasValue || sort.Order == SortOrder.Ascending ? SortOrder.Descending : SortOrder.Ascending;
+        sort.Order = !sort.Order.HasValue || sort.Order == SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
         return sort;
     }
 

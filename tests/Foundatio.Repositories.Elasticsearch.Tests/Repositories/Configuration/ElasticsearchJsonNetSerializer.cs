@@ -1,7 +1,4 @@
-﻿using Elasticsearch.Net;
-using Nest;
-using Nest.JsonNetSerializer;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;

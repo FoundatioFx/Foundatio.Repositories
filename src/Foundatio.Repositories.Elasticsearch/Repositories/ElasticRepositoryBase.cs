@@ -1,11 +1,14 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
-using Elasticsearch.Net;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Core.Bulk;
+using Elastic.Transport;
+using Elastic.Transport.Extensions;
 using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Parsers.LuceneQueries.Visitors;
@@ -21,7 +24,6 @@ using Foundatio.Repositories.Queries;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
-using Nest;
 using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Elasticsearch;
@@ -237,7 +239,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 if (!updateResponse.Success)
                 {
-                    if (response.ServerError?.Status == 409)
+                    if (response.ElasticsearchServerError?.Status == 409)
                         throw new VersionConflictDocumentException(response.GetErrorMessage("Error saving document"), response.OriginalException);
 
                     throw new DocumentException(response.GetErrorMessage("Error saving document"), response.OriginalException);
@@ -565,10 +567,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     b.Refresh(options.GetRefreshMode(DefaultConsistency));
                     foreach (var h in results.Hits)
                     {
-                        var json = _client.ConnectionSettings.SourceSerializer.SerializeToString(h.Document);
+                        var json = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(h.Document);
                         var target = JToken.Parse(json);
                         patcher.Patch(ref target, jsonOperation.Patch);
-                        var doc = _client.ConnectionSettings.SourceSerializer.Deserialize<T>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToString())));
+                        var doc = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToString())));
                         var elasticVersion = h.GetElasticVersion();
 
                         b.Index<T>(i =>
@@ -707,7 +709,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             {
                 var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", ElasticIndex.GetIndexesByQuery(query))))
                 {
-                    Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext(),
+                    Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchRequestDescriptor<T>()).AnyContext(),
                     Conflicts = Conflicts.Proceed,
                     Script = new InlineScript(scriptOperation.Script) { Params = scriptOperation.Params },
                     Pipeline = DefaultPipeline,
@@ -854,7 +856,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         {
             Refresh = options.GetRefreshMode(DefaultConsistency) != Refresh.False,
             Conflicts = Conflicts.Proceed,
-            Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext()
+            Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchRequestDescriptor<T>()).AnyContext()
         }).AnyContext();
 
         if (response.IsValid)
@@ -1293,9 +1295,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             if (!response.IsValid)
             {
                 string message = $"Error {(isCreateOperation ? "adding" : "saving")} document";
-                if (isCreateOperation && response.ServerError?.Status == 409)
+                if (isCreateOperation && response.ElasticsearchServerError?.Status == 409)
                     throw new DuplicateDocumentException(response.GetErrorMessage(message), response.OriginalException);
-                else if (!isCreateOperation && response.ServerError?.Status == 409)
+                else if (!isCreateOperation && response.ElasticsearchServerError?.Status == 409)
                     throw new VersionConflictDocumentException(response.GetErrorMessage(message), response.OriginalException);
 
                 throw new DocumentException(response.GetErrorMessage(message), response.OriginalException);

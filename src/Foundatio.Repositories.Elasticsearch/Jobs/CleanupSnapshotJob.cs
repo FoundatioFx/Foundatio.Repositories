@@ -1,9 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Jobs;
 using Foundatio.Lock;
@@ -12,23 +13,22 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs;
 
 public class CleanupSnapshotJob : IJob
 {
-    protected readonly IElasticClient _client;
+    protected readonly ElasticsearchClient _client;
     protected readonly ILockProvider _lockProvider;
     protected readonly TimeProvider _timeProvider;
     protected readonly ILogger _logger;
     private readonly ICollection<RepositoryMaxAge> _repositories = new List<RepositoryMaxAge>();
 
-    public CleanupSnapshotJob(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory) : this(client, lockProvider, TimeProvider.System, loggerFactory)
+    public CleanupSnapshotJob(ElasticsearchClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory) : this(client, lockProvider, TimeProvider.System, loggerFactory)
     {
     }
 
-    public CleanupSnapshotJob(IElasticClient client, ILockProvider lockProvider, TimeProvider timeProvider, ILoggerFactory loggerFactory)
+    public CleanupSnapshotJob(ElasticsearchClient client, ILockProvider lockProvider, TimeProvider timeProvider, ILoggerFactory loggerFactory)
     {
         _client = client;
         _lockProvider = lockProvider;

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Net.NetworkInformation;
-using Elasticsearch.Net;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Caching;
 using Foundatio.Jobs;
 using Foundatio.Messaging;
@@ -12,7 +12,6 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Microsoft.Extensions.Logging;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 
@@ -71,19 +70,19 @@ public class MyAppElasticConfiguration : ElasticConfiguration
         return false;
     }
 
-    protected override IElasticClient CreateElasticClient()
+    protected override ElasticsearchClient CreateElasticClient()
     {
-        //var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")), sourceSerializer: (serializer, values) => new ElasticsearchJsonNetSerializer(serializer, values));
-        var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")));
+        //var settings = new ElasticsearchClientSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")), sourceSerializer: (serializer, values) => new ElasticsearchJsonNetSerializer(serializer, values));
+        var settings = new ElasticsearchClientSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")));
         settings.EnableApiVersioningHeader();
         ConfigureSettings(settings);
         foreach (var index in Indexes)
             index.ConfigureSettings(settings);
 
-        return new ElasticClient(settings);
+        return new ElasticsearchClient(settings);
     }
 
-    protected override void ConfigureSettings(ConnectionSettings settings)
+    protected override void ConfigureSettings(ElasticsearchClientSettings settings)
     {
         // only do this in test and dev mode
         settings.DisableDirectStreaming().PrettyJson();

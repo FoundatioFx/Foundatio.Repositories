@@ -1,26 +1,26 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
 public class ElasticUtility
 {
-    private readonly IElasticClient _client;
+    private readonly ElasticsearchClient _client;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
 
-    public ElasticUtility(IElasticClient client, ILogger logger) : this(client, TimeProvider.System, logger)
+    public ElasticUtility(ElasticsearchClient client, ILogger logger) : this(client, TimeProvider.System, logger)
     {
     }
 
-    public ElasticUtility(IElasticClient client, TimeProvider timeProvider, ILogger logger)
+    public ElasticUtility(ElasticsearchClient client, TimeProvider timeProvider, ILogger logger)
     {
         _client = client;
         _timeProvider = timeProvider ?? TimeProvider.System;

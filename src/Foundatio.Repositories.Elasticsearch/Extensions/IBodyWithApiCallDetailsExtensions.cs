@@ -1,6 +1,5 @@
 ﻿using System.Text;
 using System.Text.Json;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 

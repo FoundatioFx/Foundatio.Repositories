@@ -5,6 +5,8 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.IndexManagement;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Jobs;
 using Foundatio.Lock;
@@ -12,20 +14,19 @@ using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs;
 
 public class CleanupIndexesJob : IJob
 {
-    protected readonly IElasticClient _client;
+    protected readonly ElasticsearchClient _client;
     protected readonly ILogger _logger;
     protected readonly ILockProvider _lockProvider;
     protected readonly TimeProvider _timeProvider;
     private static readonly CultureInfo _enUS = new("en-US");
     private readonly ICollection<IndexMaxAge> _indexes = new List<IndexMaxAge>();
 
-    public CleanupIndexesJob(IElasticClient client, ILockProvider lockProvider, TimeProvider timeProvider, ILoggerFactory loggerFactory)
+    public CleanupIndexesJob(ElasticsearchClient client, ILockProvider lockProvider, TimeProvider timeProvider, ILoggerFactory loggerFactory)
     {
         _client = client;
         _lockProvider = lockProvider;

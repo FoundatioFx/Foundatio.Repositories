@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Caching;
 using Foundatio.Lock;
 using Foundatio.Repositories.Elasticsearch.Configuration;
@@ -11,7 +13,6 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Microsoft.Extensions.Logging;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
@@ -314,7 +315,7 @@ public class CustomFieldDefinitionIndex : VersionedIndex<CustomFieldDefinition>
             );
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
         return base.ConfigureIndex(idx).Settings(s => s
             .NumberOfShards(1)

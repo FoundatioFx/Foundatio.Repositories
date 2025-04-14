@@ -9,7 +9,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Inde
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Utility;
 using Microsoft.Extensions.Time.Testing;
-using Nest;
 using Xunit;
 using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -454,13 +453,13 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await index1.DeleteAsync();
 
         await index1.ConfigureAsync();
-        var fieldMapping = await _client.Indices.GetFieldMappingAsync<Employee>("emailAddress", d => d.Index(index1.VersionedName));
+        var fieldMapping = await _client.Indices.GetFieldMappingAsync<Employee>("emailAddress", d => d.Indices(index1.VersionedName));
         Assert.NotNull(fieldMapping.Indices[index1.VersionedName].Mappings["emailAddress"]);
 
         var index2 = new VersionedEmployeeIndex(_configuration, 1, null, m => m.Properties(p => p.Keyword(k => k.Name(n => n.EmailAddress)).Number(k => k.Name(n => n.Age))));
 
         await index2.ConfigureAsync();
-        fieldMapping = await _client.Indices.GetFieldMappingAsync<Employee>("age", d => d.Index(index2.VersionedName));
+        fieldMapping = await _client.Indices.GetFieldMappingAsync<Employee>("age", d => d.Indices(index2.VersionedName));
         Assert.NotNull(fieldMapping.Indices[index2.VersionedName].Mappings["age"]);
     }
 

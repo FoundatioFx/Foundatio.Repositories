@@ -1,6 +1,7 @@
-﻿using Foundatio.Repositories.Elasticsearch.Configuration;
+﻿using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Clients.Elasticsearch.Mapping;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Migrations;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
@@ -34,7 +35,7 @@ public class MigrationIndex : Index<MigrationState>
             );
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
         return base.ConfigureIndex(idx).Settings(s => s
             .NumberOfShards(1)

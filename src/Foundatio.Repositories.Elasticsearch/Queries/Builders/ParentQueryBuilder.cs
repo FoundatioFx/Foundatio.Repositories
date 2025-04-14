@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories
 {
@@ -95,7 +95,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
                     await index.QueryBuilder.BuildAsync(parentContext);
 
-                    if (parentContext.Filter != null && ((IQueryContainer)parentContext.Filter).IsConditionless == false)
+                    if (parentContext.Filter != null && ((Query)parentContext.Filter).IsConditionless == false)
                         ctx.Filter &= new HasParentQuery
                         {
                             ParentType = parentQuery.GetDocumentType(),
@@ -105,7 +105,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                             }
                         };
 
-                    if (parentContext.Query != null && ((IQueryContainer)parentContext.Query).IsConditionless == false)
+                    if (parentContext.Query != null && ((Query)parentContext.Query).IsConditionless == false)
                         ctx.Query &= new HasParentQuery
                         {
                             ParentType = parentQuery.GetDocumentType(),

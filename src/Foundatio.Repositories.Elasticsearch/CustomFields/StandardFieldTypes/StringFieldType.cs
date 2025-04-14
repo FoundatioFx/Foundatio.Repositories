@@ -1,5 +1,5 @@
 ﻿using System.Threading.Tasks;
-using Nest;
+using Elastic.Clients.Elasticsearch.Mapping;
 
 namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 

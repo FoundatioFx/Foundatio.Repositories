@@ -8,7 +8,6 @@ using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
 using Microsoft.Extensions.Time.Testing;
-using Nest;
 using Newtonsoft.Json;
 using Xunit;
 using Xunit.Abstractions;
@@ -562,7 +561,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
                 }
             }";
 
-        var employeeHit = _configuration.Client.ConnectionSettings.RequestResponseSerializer.Deserialize<IHit<Employee>>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(json)));
+        var employeeHit = _configuration.Client.ElasticsearchClientSettings.RequestResponseSerializer.Deserialize<IHit<Employee>>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(json)));
         Assert.Equal("employees", employeeHit.Index);
         Assert.Equal("62d982efd3e0d1fed81452f3", employeeHit.Source.CompanyId);
     }

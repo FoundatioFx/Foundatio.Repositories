@@ -1,11 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Parsers;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Queries;
-using Nest;
 
 namespace Foundatio.Repositories
 {

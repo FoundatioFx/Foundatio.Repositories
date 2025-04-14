@@ -4,6 +4,9 @@ using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -12,7 +15,6 @@ using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Microsoft.Extensions.Logging;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
@@ -203,7 +205,7 @@ public class VersionedIndex : Index, IVersionedIndex
     protected virtual async Task<int> GetVersionFromAliasAsync(string alias)
     {
         var response = await Configuration.Client.Indices.GetAliasAsync(alias).AnyContext();
-        if (!response.IsValid && response.ServerError?.Status == 404)
+        if (!response.IsValid && response.ElasticsearchServerError?.Status == 404)
             return -1;
 
         if (response.IsValid && response.Indices.Count > 0)
@@ -315,13 +317,13 @@ public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class
 
     public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map)
     {
-        return map.AutoMap<T>().Properties(p => p.SetupDefaults());
+        return map.Properties(p => p.SetupDefaults());
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
         idx = base.ConfigureIndex(idx);
-        return idx.Map<T>(f =>
+        return idx.Mappings<T>(f =>
         {
             if (CustomFieldTypes.Count > 0)
             {
@@ -344,12 +346,12 @@ public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class
 
         var typeMappingDescriptor = new TypeMappingDescriptor<T>();
         typeMappingDescriptor = ConfigureIndexMapping(typeMappingDescriptor);
-        var mapping = (ITypeMapping)typeMappingDescriptor;
+        var mapping = (TypeMapping)typeMappingDescriptor;
 
         var response = await Configuration.Client.Indices.PutMappingAsync<T>(m =>
         {
             m.Index(name);
-            m.Properties(_ => new NestPromise<IProperties>(mapping.Properties));
+            m.Properties(_ => new NestPromise<Properties>(mapping.Properties));
             if (CustomFieldTypes.Count > 0)
             {
                 m.DynamicTemplates(d =>
@@ -371,7 +373,7 @@ public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class
             _logger.LogErrorRequest(response, $"Error updating index ({name}) mappings. Changing existing fields requires a new index version.");
     }
 
-    public override void ConfigureSettings(ConnectionSettings settings)
+    public override void ConfigureSettings(ElasticsearchClientSettings settings)
     {
         settings.DefaultMappingFor<T>(d => d.IndexName(Name));
     }

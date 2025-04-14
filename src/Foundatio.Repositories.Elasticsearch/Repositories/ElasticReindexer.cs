@@ -4,7 +4,10 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Elasticsearch.Net;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.QueryDsl;
+using Elastic.Transport;
+using Elastic.Transport.Products.Elasticsearch;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
@@ -12,24 +15,23 @@ using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Nest;
 using Newtonsoft.Json;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
 public class ElasticReindexer
 {
-    private readonly IElasticClient _client;
+    private readonly ElasticsearchClient _client;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
     private const string ID_FIELD = "id";
     private const int MAX_STATUS_FAILS = 10;
 
-    public ElasticReindexer(IElasticClient client, ILogger logger = null) : this(client, TimeProvider.System, logger)
+    public ElasticReindexer(ElasticsearchClient client, ILogger logger = null) : this(client, TimeProvider.System, logger)
     {
     }
 
-    public ElasticReindexer(IElasticClient client, TimeProvider timeProvider, ILogger logger = null)
+    public ElasticReindexer(ElasticsearchClient client, TimeProvider timeProvider, ILogger logger = null)
     {
         _client = client;
         _timeProvider = timeProvider ?? TimeProvider.System;
@@ -301,9 +303,9 @@ public class ElasticReindexer
         return new List<string>();
     }
 
-    private async Task<QueryContainer> GetResumeQueryAsync(string newIndex, string timestampField, DateTime? startTime)
+    private async Task<Query> GetResumeQueryAsync(string newIndex, string timestampField, DateTime? startTime)
     {
-        var descriptor = new QueryContainerDescriptor<object>();
+        var descriptor = new QueryDescriptor<object>();
         if (startTime.HasValue)
             return CreateRangeQuery(descriptor, timestampField, startTime);
 
@@ -314,7 +316,7 @@ public class ElasticReindexer
         return descriptor;
     }
 
-    private QueryContainer CreateRangeQuery(QueryContainerDescriptor<object> descriptor, string timestampField, DateTime? startTime)
+    private Query CreateRangeQuery(QueryDescriptor<object> descriptor, string timestampField, DateTime? startTime)
     {
         if (!startTime.HasValue)
             return descriptor;

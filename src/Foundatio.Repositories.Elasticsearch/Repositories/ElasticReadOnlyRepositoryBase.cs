@@ -3,7 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
-using Elasticsearch.Net;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Aggregations;
+using Elastic.Clients.Elasticsearch.Core.Search;
+using Elastic.Transport;
+using Elastic.Transport.Products.Elasticsearch;
 using Foundatio.Caching;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
@@ -18,7 +22,6 @@ using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Queries;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
@@ -36,8 +39,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected readonly Lazy<string> _idField;
 
     protected readonly ILogger _logger;
-    protected readonly Lazy<IElasticClient> _lazyClient;
-    protected IElasticClient _client => _lazyClient.Value;
+    protected readonly Lazy<ElasticsearchClient> _lazyClient;
+    protected ElasticsearchClient _client => _lazyClient.Value;
 
     private ScopedCacheClient _scopedCacheClient;
 
@@ -46,7 +49,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         ElasticIndex = index;
         if (HasIdentity)
             _idField = new Lazy<string>(() => InferField(d => ((IIdentity)d).Id) ?? "id");
-        _lazyClient = new Lazy<IElasticClient>(() => index.Configuration.Client);
+        _lazyClient = new Lazy<ElasticsearchClient>(() => index.Configuration.Client);
 
         SetCacheClient(index.Configuration.Cache);
         _logger = index.Configuration.LoggerFactory.CreateLogger(GetType());
@@ -676,14 +679,14 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return Task.CompletedTask;
     }
 
-    protected virtual Task<SearchDescriptor<T>> CreateSearchDescriptorAsync(IRepositoryQuery query, ICommandOptions options)
+    protected virtual Task<SearchRequestDescriptor<T>> CreateSearchDescriptorAsync(IRepositoryQuery query, ICommandOptions options)
     {
         return ConfigureSearchDescriptorAsync(null, query, options);
     }
 
-    protected virtual async Task<SearchDescriptor<T>> ConfigureSearchDescriptorAsync(SearchDescriptor<T> search, IRepositoryQuery query, ICommandOptions options)
+    protected virtual async Task<SearchRequestDescriptor<T>> ConfigureSearchDescriptorAsync(SearchRequestDescriptor<T> search, IRepositoryQuery query, ICommandOptions options)
     {
-        search ??= new SearchDescriptor<T>();
+        search ??= new SearchRequestDescriptor<T>();
 
         query = ConfigureQuery(query.As<T>()).Unwrap();
         string[] indices = ElasticIndex.GetIndexesByQuery(query);
@@ -1005,9 +1008,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     }
 }
 
-internal class SearchResponse<TDocument> : IResponse, IElasticsearchResponse where TDocument : class
+internal class SearchResponse<TDocument> : ElasticsearchResponse where TDocument : class
 {
-    public IApiCallDetails ApiCall { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public ApiCallDetails ApiCall
+    {
+        get => throw new NotImplementedException();
+        set => throw new NotImplementedException();
+    }
 
     public string DebugInformation => throw new NotImplementedException();
 
@@ -1020,14 +1027,14 @@ internal class SearchResponse<TDocument> : IResponse, IElasticsearchResponse whe
     AggregateDictionary Aggregations { get; }
     bool TimedOut { get; }
     bool TerminatedEarly { get; }
-    ISuggestDictionary<TDocument> Suggest { get; }
+    SuggestDictionary<TDocument> Suggest { get; }
     ShardStatistics Shards { get; }
     string ScrollId { get; }
     Profile Profile { get; }
     long Took { get; }
     string PointInTimeId { get; }
     double MaxScore { get; }
-    IHitsMetadata<TDocument> HitsMetadata { get; }
+    HitsMetadata<TDocument> HitsMetadata { get; }
     IReadOnlyCollection<IHit<TDocument>> Hits { get; }
     IReadOnlyCollection<FieldValues> Fields { get; }
     IReadOnlyCollection<TDocument> Documents { get; }

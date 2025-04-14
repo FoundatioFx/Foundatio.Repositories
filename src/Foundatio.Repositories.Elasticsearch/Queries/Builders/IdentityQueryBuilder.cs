@@ -1,7 +1,7 @@
 ﻿using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Foundatio.Repositories.Queries;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders;
 

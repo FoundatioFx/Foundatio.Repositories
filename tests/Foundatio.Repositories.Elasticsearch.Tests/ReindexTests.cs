@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Elasticsearch.Net;
 using Foundatio.AsyncEx;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
@@ -12,7 +11,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
-using Nest;
 using Xunit;
 using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -156,7 +154,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         //Create invalid mappings
-        var response = await _client.Indices.CreateAsync(version2Index.VersionedName, d => d.Map<Employee>(map => map
+        var response = await _client.Indices.CreateAsync(version2Index.VersionedName, d => d.Mappings<Employee>(map => map
             .Dynamic(false)
             .Properties(p => p
                 .Number(f => f.Name(e => e.Id))

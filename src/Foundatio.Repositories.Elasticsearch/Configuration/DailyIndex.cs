@@ -6,6 +6,9 @@ using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Caching;
 using Foundatio.Parsers.ElasticQueries;
@@ -18,7 +21,6 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Utility;
 using Microsoft.Extensions.Logging;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
@@ -323,7 +325,6 @@ public class DailyIndex : VersionedIndex
         }
 
         var response = await Configuration.Client.Indices.BulkAliasAsync(aliasDescriptor).AnyContext();
-
         if (response.IsValid)
         {
             _logger.LogRequest(response);
@@ -399,7 +400,7 @@ public class DailyIndex : VersionedIndex
         return ElasticMappingResolver.Create(GetLatestIndexMapping, Configuration.Client.Infer, _logger);
     }
 
-    protected ITypeMapping GetLatestIndexMapping()
+    protected TypeMapping GetLatestIndexMapping()
     {
         string filter = $"{Name}-v{Version}-*";
         var catResponse = Configuration.Client.Cat.Indices(i => i.Pri().Index(Indices.Index((IndexName)filter)));
@@ -421,7 +422,7 @@ public class DailyIndex : VersionedIndex
         _logger.LogTrace("GetMapping: {Request}", mappingResponse.GetRequest(false, true));
 
         // use first returned mapping because index could have been an index alias
-        var mapping = mappingResponse.Indices.Values.FirstOrDefault()?.Mappings;
+        var mapping = mappingResponse.Mappings.Values.FirstOrDefault()?.Mappings;
         return mapping;
     }
 
@@ -520,13 +521,13 @@ public class DailyIndex<T> : DailyIndex, IIndex<T> where T : class
 
     public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map)
     {
-        return map.AutoMap<T>().Properties(p => p.SetupDefaults());
+        return map.Properties(p => p.SetupDefaults());
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
         idx = base.ConfigureIndex(idx);
-        return idx.Map<T>(f =>
+        return idx.Mappings<T>(f =>
         {
             if (CustomFieldTypes.Count > 0)
             {
@@ -543,7 +544,7 @@ public class DailyIndex<T> : DailyIndex, IIndex<T> where T : class
         });
     }
 
-    public override void ConfigureSettings(ConnectionSettings settings)
+    public override void ConfigureSettings(ElasticsearchClientSettings settings)
     {
         settings.DefaultMappingFor<T>(d => d.IndexName(Name));
     }

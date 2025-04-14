@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Parsers;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.Configuration;
@@ -12,8 +14,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Serializer;
 using Microsoft.Extensions.Logging.Abstractions;
-using Nest;
-
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 
 public sealed class EmployeeIndex : Index<Employee>
@@ -26,7 +26,7 @@ public sealed class EmployeeIndex : Index<Employee>
         AddCustomFieldType(new CalculatedIntegerFieldType(new ScriptService(new SystemTextJsonSerializer(), NullLogger<ScriptService>.Instance)));
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
         return base.ConfigureIndex(idx.Settings(s => s
             .Setting("index.mapping.ignore_malformed", "true")
@@ -105,7 +105,7 @@ public sealed class EmployeeIndexWithYearsEmployed : Index<Employee>
 {
     public EmployeeIndexWithYearsEmployed(IElasticConfiguration configuration) : base(configuration, "employees") { }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
         return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
@@ -131,11 +131,11 @@ public sealed class EmployeeIndexWithYearsEmployed : Index<Employee>
 
 public sealed class VersionedEmployeeIndex : VersionedIndex<Employee>
 {
-    private readonly Func<CreateIndexDescriptor, CreateIndexDescriptor> _createIndex;
+    private readonly Func<CreateIndexRequestDescriptor, CreateIndexRequestDescriptor> _createIndex;
     private readonly Func<TypeMappingDescriptor<Employee>, TypeMappingDescriptor<Employee>> _createMappings;
 
     public VersionedEmployeeIndex(IElasticConfiguration configuration, int version,
-        Func<CreateIndexDescriptor, CreateIndexDescriptor> createIndex = null,
+        Func<CreateIndexRequestDescriptor, CreateIndexRequestDescriptor> createIndex = null,
         Func<TypeMappingDescriptor<Employee>, TypeMappingDescriptor<Employee>> createMappings = null) : base(configuration, "employees", version)
     {
         _createIndex = createIndex;
@@ -145,7 +145,7 @@ public sealed class VersionedEmployeeIndex : VersionedIndex<Employee>
         AddReindexScript(22, "ctx._source.FAIL = 'should not work");
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
         if (_createIndex != null)
             return _createIndex(idx);
@@ -171,7 +171,7 @@ public sealed class DailyEmployeeIndex : DailyIndex<Employee>
         AddAlias($"{Name}-last30days", TimeSpan.FromDays(30));
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
         return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
@@ -215,7 +215,7 @@ public sealed class MonthlyEmployeeIndex : MonthlyIndex<Employee>
         AddAlias($"{Name}-last60days", TimeSpan.FromDays(60));
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
         return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
