@@ -33,7 +33,7 @@ public class FieldIncludeParserTests
     public void CanHandleInvalid(string expression, string message)
     {
         var result = FieldIncludeParser.Parse(expression);
-        Assert.False(result.IsValid);
+        Assert.False(result.IsValidResponse);
 
         if (!String.IsNullOrEmpty(message))
             Assert.Contains(message, result.ValidationMessage, StringComparison.OrdinalIgnoreCase);

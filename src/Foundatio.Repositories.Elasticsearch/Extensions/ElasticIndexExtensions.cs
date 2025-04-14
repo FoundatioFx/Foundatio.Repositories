@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.AsyncSearch;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Exceptions;
@@ -15,7 +18,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 public static class ElasticIndexExtensions
 {
-    public static Nest.AsyncSearchSubmitDescriptor<T> ToAsyncSearchSubmitDescriptor<T>(this Nest.SearchDescriptor<T> searchDescriptor) where T : class, new()
+    public static Nest.AsyncSearchSubmitDescriptor<T> ToAsyncSearchSubmitDescriptor<T>(this SearchRequestDescriptor<T> searchDescriptor) where T : class, new()
     {
         var asyncSearchDescriptor = new Nest.AsyncSearchSubmitDescriptor<T>();
 
@@ -31,7 +34,7 @@ public static class ElasticIndexExtensions
 
         asyncSearchRequest.Aggregations = searchRequest.Aggregations;
         asyncSearchRequest.Collapse = searchRequest.Collapse;
-        asyncSearchRequest.DocValueFields = searchRequest.DocValueFields;
+        asyncSearchRequest.DocvalueFields = searchRequest.DocvalueFields;
         asyncSearchRequest.Explain = searchRequest.Explain;
         asyncSearchRequest.From = searchRequest.From;
         asyncSearchRequest.Highlight = searchRequest.Highlight;
@@ -60,9 +63,9 @@ public static class ElasticIndexExtensions
 
     public static FindResults<T> ToFindResults<T>(this Nest.ISearchResponse<T> response, ICommandOptions options) where T : class, new()
     {
-        if (!response.IsValid)
+        if (!response.IsValidResponse)
         {
-            if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 return new FindResults<T>();
 
             throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException);
@@ -108,9 +111,9 @@ public static class ElasticIndexExtensions
 
     public static FindResults<T> ToFindResults<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options) where T : class, new()
     {
-        if (!response.IsValid)
+        if (!response.IsValidResponse)
         {
-            if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 return new FindResults<T>();
 
             throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException);
@@ -167,9 +170,9 @@ public static class ElasticIndexExtensions
 
     public static CountResult ToCountResult<T>(this Nest.ISearchResponse<T> response, ICommandOptions options) where T : class, new()
     {
-        if (!response.IsValid)
+        if (!response.IsValidResponse)
         {
-            if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 return new FindResults<T>();
 
             throw new DocumentException(response.GetErrorMessage("Error while counting"), response.OriginalException);
@@ -184,9 +187,9 @@ public static class ElasticIndexExtensions
 
     public static CountResult ToCountResult<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options) where T : class, new()
     {
-        if (!response.IsValid)
+        if (!response.IsValidResponse)
         {
-            if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 return new FindResults<T>();
 
             throw new DocumentException(response.GetErrorMessage("Error while counting"), response.OriginalException);
@@ -205,7 +208,7 @@ public static class ElasticIndexExtensions
         return new CountResult(response.Response.Total, response.ToAggregations(), data);
     }
 
-    public static FindHit<T> ToFindHit<T>(this Nest.GetResponse<T> hit) where T : class
+    public static FindHit<T> ToFindHit<T>(this GetResponse<T> hit) where T : class
     {
         var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
 
@@ -216,26 +219,26 @@ public static class ElasticIndexExtensions
         return new FindHit<T>(hit.Id, hit.Source, 0, hit.GetElasticVersion(), hit.Routing, data);
     }
 
-    public static ElasticDocumentVersion GetElasticVersion<T>(this Nest.GetResponse<T> hit) where T : class
+    public static ElasticDocumentVersion GetElasticVersion<T>(this GetResponse<T> hit) where T : class
     {
-        if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
+        if (!hit.PrimaryTerm.HasValue || !hit.SeqNo.HasValue)
             return ElasticDocumentVersion.Empty;
 
-        if (hit.PrimaryTerm.Value == 0 && hit.SequenceNumber.Value == 0)
+        if (hit.PrimaryTerm.Value == 0 && hit.SeqNo.Value == 0)
             return ElasticDocumentVersion.Empty;
 
-        return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SequenceNumber.Value);
+        return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SeqNo.Value);
     }
 
     public static ElasticDocumentVersion GetElasticVersion<T>(this Nest.IHit<T> hit) where T : class
     {
-        if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
+        if (!hit.PrimaryTerm.HasValue || !hit.SeqNo.HasValue)
             return ElasticDocumentVersion.Empty;
 
-        if (hit.PrimaryTerm.Value == 0 && hit.SequenceNumber.Value == 0)
+        if (hit.PrimaryTerm.Value == 0 && hit.SeqNo.Value == 0)
             return ElasticDocumentVersion.Empty;
 
-        return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SequenceNumber.Value);
+        return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SeqNo.Value);
     }
 
     public static ElasticDocumentVersion GetElasticVersion<T>(this FindHit<T> hit) where T : class
@@ -246,20 +249,20 @@ public static class ElasticIndexExtensions
         return hit.Version;
     }
 
-    public static ElasticDocumentVersion GetElasticVersion(this Nest.IndexResponse hit)
+    public static ElasticDocumentVersion GetElasticVersion(this IndexResponse hit)
     {
-        if (hit.PrimaryTerm == 0 && hit.SequenceNumber == 0)
+        if (hit.PrimaryTerm == 0 && hit.SeqNo == 0)
             return ElasticDocumentVersion.Empty;
 
-        return new ElasticDocumentVersion(hit.PrimaryTerm, hit.SequenceNumber);
+        return new ElasticDocumentVersion(hit.PrimaryTerm, hit.SeqNo);
     }
 
-    public static ElasticDocumentVersion GetElasticVersion<T>(this Nest.IMultiGetHit<T> hit) where T : class
+    public static ElasticDocumentVersion GetElasticVersion<T>(this MultiGetHit<T> hit) where T : class
     {
-        if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
+        if (!hit.PrimaryTerm.HasValue || !hit.SeqNo.HasValue)
             return ElasticDocumentVersion.Empty;
 
-        return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SequenceNumber.Value);
+        return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SeqNo.Value);
     }
 
     public static ElasticDocumentVersion GetElasticVersion(this Nest.BulkResponseItemBase hit)

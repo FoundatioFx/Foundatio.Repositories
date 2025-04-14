@@ -147,7 +147,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (itemsToFind.Count == 0)
             return hits.Where(h => h.Document != null && ShouldReturnDocument(h.Document, options)).Select(h => h.Document).ToList().AsReadOnly();
 
-        var multiGet = new MultiGetDescriptor();
+        var multiGet = new MultiGetRequestDescriptor();
         foreach (var id in itemsToFind.Where(i => i.Routing != null || !HasParent))
         {
             multiGet.Get<T>(f =>
@@ -161,7 +161,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
 
         ConfigureMultiGetRequest(multiGet, options);
-        var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
+        var multiGetResults = await _client.MultiGetAsync<T>(multiGet).AnyContext();
         _logger.LogRequest(multiGetResults, options.GetQueryLogLevel());
 
         foreach (var doc in multiGetResults.Hits)
@@ -359,7 +359,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 await RemoveQueryAsync(queryId);
 
             _logger.LogRequest(response, options.GetQueryLogLevel());
-            if (!response.IsValid && response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+            if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 throw new AsyncQueryNotFoundException(queryId);
 
             result = response.ToFindResults(options);
@@ -473,13 +473,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         searchDescriptor.Size(1);
         var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
 
-        if (response.IsValid)
+        if (response.IsValidResponse)
         {
             _logger.LogRequest(response, options.GetQueryLogLevel());
         }
         else
         {
-            if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 return FindHit<T>.Empty;
 
             throw new DocumentException(response.GetErrorMessage("Error while finding document"), response.OriginalException);
@@ -573,16 +573,16 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         await RefreshForConsistency(query, options).AnyContext();
 
         var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(0);
-        searchDescriptor.DocValueFields(_idField.Value);
+        searchDescriptor.DocvalueFields(_idField.Value);
         var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
 
-        if (response.IsValid)
+        if (response.IsValidResponse)
         {
             _logger.LogRequest(response, options.GetQueryLogLevel());
         }
         else
         {
-            if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 return false;
 
             throw new DocumentException(response.GetErrorMessage("Error checking if document exists"), response.OriginalException);
@@ -693,7 +693,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (indices?.Length > 0)
             search.Index(String.Join(",", indices));
         if (HasVersion)
-            search.SequenceNumberPrimaryTerm(HasVersion);
+            search.SeqNoPrimaryTerm(HasVersion);
 
         if (options.HasQueryTimeout())
             search.Timeout(new Time(options.GetQueryTimeout()).ToString());
@@ -741,7 +741,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
     }
 
-    protected virtual void ConfigureMultiGetRequest(MultiGetDescriptor request, ICommandOptions options)
+    protected virtual void ConfigureMultiGetRequest(MultiGetRequestDescriptor request, ICommandOptions options)
     {
         var (resolvedIncludes, resolvedExcludes) = GetResolvedIncludesAndExcludes(options);
 

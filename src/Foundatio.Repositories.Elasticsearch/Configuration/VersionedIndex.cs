@@ -92,7 +92,7 @@ public class VersionedIndex : Index, IVersionedIndex
             return;
 
         var response = await Configuration.Client.Indices.BulkAliasAsync(a => a.Add(s => s.Index(index).Alias(name))).AnyContext();
-        if (response.IsValid)
+        if (response.IsValidResponse)
             return;
 
         if (await AliasExistsAsync(name).AnyContext())
@@ -104,7 +104,7 @@ public class VersionedIndex : Index, IVersionedIndex
     protected async Task<bool> AliasExistsAsync(string alias)
     {
         var response = await Configuration.Client.Indices.AliasExistsAsync(Names.Parse(alias)).AnyContext();
-        if (response.ApiCall.Success)
+        if (response.ApiCallDetails.HasSuccessfulStatusCode)
             return response.Exists;
 
         throw new RepositoryException(response.GetErrorMessage($"Error checking to see if alias {alias}"), response.OriginalException);
@@ -205,10 +205,10 @@ public class VersionedIndex : Index, IVersionedIndex
     protected virtual async Task<int> GetVersionFromAliasAsync(string alias)
     {
         var response = await Configuration.Client.Indices.GetAliasAsync(alias).AnyContext();
-        if (!response.IsValid && response.ElasticsearchServerError?.Status == 404)
+        if (!response.IsValidResponse && response.ElasticsearchServerError?.Status == 404)
             return -1;
 
-        if (response.IsValid && response.Indices.Count > 0)
+        if (response.IsValidResponse && response.Indices.Count > 0)
         {
             _logger.LogRequest(response);
             return response.Indices.Keys.Select(i => GetIndexVersion(i.Name)).OrderBy(v => v).First();
@@ -248,7 +248,7 @@ public class VersionedIndex : Index, IVersionedIndex
         var response = await Configuration.Client.Cat.IndicesAsync(i => i.Pri().Index(Indices.Index((IndexName)filter))).AnyContext();
         sw.Stop();
 
-        if (!response.IsValid)
+        if (!response.IsValidResponse)
             throw new RepositoryException(response.GetErrorMessage($"Error getting indices {filter}"), response.OriginalException);
 
         if (response.Records.Count == 0)
@@ -256,7 +256,7 @@ public class VersionedIndex : Index, IVersionedIndex
 
         var aliasResponse = await Configuration.Client.Cat.AliasesAsync(i => i.Name($"{Name}-*")).AnyContext();
 
-        if (!aliasResponse.IsValid)
+        if (!aliasResponse.IsValidResponse)
             throw new RepositoryException(response.GetErrorMessage($"Error getting index aliases for {filter}"), response.OriginalException);
 
         _logger.LogRequest(response);
@@ -330,7 +330,7 @@ public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class
                 f.DynamicTemplates(d =>
                 {
                     foreach (var customFieldType in CustomFieldTypes.Values)
-                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
+                        d.Add($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
 
                     return d;
                 });
@@ -350,14 +350,14 @@ public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class
 
         var response = await Configuration.Client.Indices.PutMappingAsync<T>(m =>
         {
-            m.Index(name);
+            m.Indices(name);
             m.Properties(_ => new NestPromise<Properties>(mapping.Properties));
             if (CustomFieldTypes.Count > 0)
             {
                 m.DynamicTemplates(d =>
                 {
                     foreach (var customFieldType in CustomFieldTypes.Values)
-                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
+                        d.Add($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
 
                     return d;
                 });
@@ -367,7 +367,7 @@ public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class
         }).AnyContext();
 
         // TODO: Check for issues with attempting to change existing fields and warn that index version needs to be incremented
-        if (response.IsValid)
+        if (response.IsValidResponse)
             _logger.LogRequest(response);
         else
             _logger.LogErrorRequest(response, $"Error updating index ({name}) mappings. Changing existing fields requires a new index version.");

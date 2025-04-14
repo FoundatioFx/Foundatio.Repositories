@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Elastic.Clients.Elasticsearch.QueryDsl;
 using Elastic.Transport;
 using Elastic.Transport.Products.Elasticsearch;
@@ -154,9 +155,9 @@ public class ElasticReindexer
         var sw = Stopwatch.StartNew();
         do
         {
-            var status = await _client.Tasks.GetTaskAsync(result.Task, null, cancellationToken).AnyContext();
+            var status = await _client.Tasks.GetAsync(result.Task, null, cancellationToken).AnyContext();
 
-            if (status.IsValid)
+            if (status.IsValidResponse)
             {
                 _logger.LogRequest(status);
             }
@@ -204,7 +205,7 @@ public class ElasticReindexer
             // waited more than 10 minutes with no progress made
             if (sw.Elapsed > TimeSpan.FromMinutes(10))
             {
-                _logger.LogError($"Timed out waiting for reindex {workItem.OldIndex} -> {workItem.NewIndex}.");
+                _logger.LogError("Timed out waiting for reindex {WorkItemOldIndex} -> {WorkItemNewIndex}", workItem.OldIndex, workItem.NewIndex);
                 break;
             }
 
@@ -245,11 +246,11 @@ public class ElasticReindexer
         string errorIndex = workItem.NewIndex + "-error";
         var existsResponse = await _client.Indices.ExistsAsync(errorIndex).AnyContext();
         _logger.LogRequest(existsResponse);
-        if (existsResponse.ApiCall.Success && existsResponse.Exists)
+        if (existsResponse.ApiCallDetails.HasSuccessfulStatusCode && existsResponse.Exists)
             return true;
 
-        var createResponse = await _client.Indices.CreateAsync(errorIndex, d => d.Map(md => md.Dynamic(false))).AnyContext();
-        if (!createResponse.IsValid)
+        var createResponse = await _client.Indices.CreateAsync(errorIndex, d => d.Mappings(md => md.Dynamic(DynamicMapping.False))).AnyContext();
+        if (!createResponse.IsValidResponse)
         {
             _logger.LogErrorRequest(createResponse, "Unable to create error index");
             return false;
@@ -264,7 +265,7 @@ public class ElasticReindexer
         _logger.LogError("Error reindexing document {Index}/{Id}: [{Status}] {Message}", workItem.OldIndex, failure.Id, failure.Status, failure.Cause.Reason);
         var gr = await _client.GetAsync<object>(request: new GetRequest(workItem.OldIndex, failure.Id)).AnyContext();
 
-        if (!gr.IsValid)
+        if (!gr.IsValidResponse)
         {
             _logger.LogErrorRequest(gr, "Error getting document {Index}/{Id}", workItem.OldIndex, failure.Id);
             return;
@@ -294,7 +295,7 @@ public class ElasticReindexer
         var aliasesResponse = await _client.Indices.GetAliasAsync(index).AnyContext();
         _logger.LogRequest(aliasesResponse);
 
-        if (aliasesResponse.IsValid && aliasesResponse.Indices.Count > 0)
+        if (aliasesResponse.IsValidResponse && aliasesResponse.Indices.Count > 0)
         {
             var aliases = aliasesResponse.Indices.Single(a => a.Key == index);
             return aliases.Value.Aliases.Select(a => a.Key).ToList();
@@ -330,15 +331,15 @@ public class ElasticReindexer
     private async Task<DateTime?> GetResumeStartingPointAsync(string newIndex, string timestampField)
     {
         var newestDocumentResponse = await _client.SearchAsync<IDictionary<string, object>>(d => d
-            .Index(newIndex)
+            .Indices(newIndex)
             .Sort(s => s.Descending(timestampField))
-            .DocValueFields(timestampField)
+            .DocvalueFields(timestampField)
             .Source(s => s.ExcludeAll())
             .Size(1)
         ).AnyContext();
 
         _logger.LogRequest(newestDocumentResponse);
-        if (!newestDocumentResponse.IsValid || !newestDocumentResponse.Documents.Any())
+        if (!newestDocumentResponse.IsValidResponse || !newestDocumentResponse.Documents.Any())
             return null;
 
         var doc = newestDocumentResponse.Hits.FirstOrDefault();

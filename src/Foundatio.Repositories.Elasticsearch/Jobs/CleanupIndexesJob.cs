@@ -59,7 +59,7 @@ public class CleanupIndexesJob : IJob
             d => d.RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
         sw.Stop();
 
-        if (result.IsValid)
+        if (result.IsValidResponse)
         {
             _logger.LogRequest(result);
             _logger.LogInformation("Retrieved list of {IndexCount} indexes in {Duration:g}", result.Records?.Count, sw.Elapsed.ToWords(true));
@@ -70,7 +70,7 @@ public class CleanupIndexesJob : IJob
         }
 
         var indexes = new List<IndexDate>();
-        if (result.IsValid && result.Records != null)
+        if (result.IsValidResponse && result.Records != null)
             indexes = result.Records?.Select(r => GetIndexDate(r.Index)).Where(r => r != null).ToList();
 
         if (indexes == null || indexes.Count == 0)
@@ -112,7 +112,7 @@ public class CleanupIndexesJob : IJob
                     sw.Stop();
                     _logger.LogRequest(response);
 
-                    if (response.IsValid)
+                    if (response.IsValidResponse)
                         await OnIndexDeleted(oldIndex.Index, sw.Elapsed).AnyContext();
                     else
                         shouldContinue = await OnIndexDeleteFailure(oldIndex.Index, sw.Elapsed, response, null).AnyContext();

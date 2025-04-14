@@ -67,7 +67,7 @@ public class CleanupSnapshotJob : IJob
         _logger.LogRequest(result);
 
         var snapshots = new List<SnapshotDate>();
-        if (result.IsValid && result.Snapshots != null)
+        if (result.IsValidResponse && result.Snapshots != null)
         {
             snapshots = result.Snapshots?
                 .Where(r => !String.Equals(r.State, "IN_PROGRESS"))
@@ -75,7 +75,7 @@ public class CleanupSnapshotJob : IJob
                 .ToList();
         }
 
-        if (result.IsValid)
+        if (result.IsValidResponse)
             _logger.LogInformation("Retrieved list of {SnapshotCount} snapshots from {Repo} in {Duration:g}", snapshots.Count, repo, sw.Elapsed);
         else
             _logger.LogErrorRequest(result, "Failed to retrieve list of snapshots from {Repo} in {Duration:g}", repo, sw.Elapsed);
@@ -120,7 +120,7 @@ public class CleanupSnapshotJob : IJob
                     var response = await _client.Snapshot.DeleteAsync(repo, snapshotNames, r => r.RequestConfiguration(c => c.RequestTimeout(TimeSpan.FromMinutes(5))), ct: cancellationToken).AnyContext();
                     _logger.LogRequest(response);
 
-                    if (response.IsValid)
+                    if (response.IsValidResponse)
                     {
                         await OnSnapshotDeleted(snapshotNames, sw.Elapsed).AnyContext();
                     }

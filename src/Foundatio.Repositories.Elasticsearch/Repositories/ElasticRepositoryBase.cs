@@ -179,7 +179,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             var response = await _client.UpdateAsync(request).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
-            if (!response.IsValid)
+            if (!response.IsValidResponse)
                 throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
         }
         else if (operation is PartialPatch partialOperation)
@@ -197,7 +197,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             var response = await _client.UpdateAsync(request).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
-            if (!response.IsValid)
+            if (!response.IsValidResponse)
                 throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
         }
         else if (operation is JsonPatch jsonOperation)
@@ -214,7 +214,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 var response = await _client.LowLevel.GetAsync<GetResponse<IDictionary<string, object>>>(ElasticIndex.GetIndex(id), id.Value).AnyContext();
                 var jobject = JObject.FromObject(response.Source);
                 _logger.LogRequest(response, options.GetQueryLogLevel());
-                if (!response.IsValid)
+                if (!response.IsValidResponse)
                     throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
 
                 var target = (JToken)jobject;
@@ -259,7 +259,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 var response = await _client.GetAsync<T>(request).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
 
-                if (!response.IsValid)
+                if (!response.IsValidResponse)
                     throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
 
                 if (response.Source is IVersioned versionedDoc && response.PrimaryTerm.HasValue)
@@ -358,7 +358,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }).AnyContext();
 
         // TODO: Is there a better way to handle failures?
-        if (bulkResponse.IsValid)
+        if (bulkResponse.IsValidResponse)
         {
             _logger.LogRequest(bulkResponse, options.GetQueryLogLevel());
         }
@@ -474,7 +474,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             var response = await _client.DeleteAsync(request).AnyContext();
 
-            if (response.IsValid || response.ApiCall.HttpStatusCode == 404)
+            if (response.IsValidResponse || response.ApiCallDetails.HttpStatusCode == 404)
             {
                 _logger.LogRequest(response, options.GetQueryLogLevel());
             }
@@ -502,7 +502,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 return bulk;
             }).AnyContext();
 
-            if (response.IsValid)
+            if (response.IsValidResponse)
             {
                 _logger.LogRequest(response, options.GetQueryLogLevel());
             }
@@ -595,7 +595,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }).AnyContext();
                 _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
 
-                if (!bulkResult.IsValid)
+                if (!bulkResult.IsValidResponse)
                 {
                     if (bulkResult.ItemsWithErrors.All(i => i.Status == 409))
                     {
@@ -664,7 +664,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }).AnyContext();
                 _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
 
-                if (!bulkResult.IsValid)
+                if (!bulkResult.IsValidResponse)
                 {
                     if (bulkResult.ItemsWithErrors.All(i => i.Status == 409))
                     {
@@ -720,7 +720,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 };
 
                 var response = await _client.UpdateByQueryAsync(request).AnyContext();
-                if (response.IsValid)
+                if (response.IsValidResponse)
                 {
                     _logger.LogRequest(response, options.GetQueryLogLevel());
                 }
@@ -734,7 +734,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 do
                 {
                     attempts++;
-                    var taskStatus = await _client.Tasks.GetTaskAsync(taskId, t => t.WaitForCompletion(false)).AnyContext();
+                    var taskStatus = await _client.Tasks.GetAsync(taskId, t => t.WaitForCompletion(false)).AnyContext();
                     var status = taskStatus.Task.Status;
                     if (taskStatus.Completed)
                     {
@@ -780,7 +780,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         return b;
                     }).AnyContext();
 
-                    if (bulkResult.IsValid)
+                    if (bulkResult.IsValidResponse)
                     {
                         _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
                     }
@@ -859,7 +859,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchRequestDescriptor<T>()).AnyContext()
         }).AnyContext();
 
-        if (response.IsValid)
+        if (response.IsValidResponse)
         {
             _logger.LogRequest(response, options.GetQueryLogLevel());
         }
@@ -1292,7 +1292,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             }).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
-            if (!response.IsValid)
+            if (!response.IsValidResponse)
             {
                 string message = $"Error {(isCreateOperation ? "adding" : "saving")} document";
                 if (isCreateOperation && response.ElasticsearchServerError?.Status == 409)
@@ -1343,7 +1343,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             {
                 foreach (var hit in response.Items)
                 {
-                    if (!hit.IsValid)
+                    if (!hit.IsValidResponse)
                         continue;
 
                     var document = documents.FirstOrDefault(d => d.Id == hit.Id);
@@ -1371,7 +1371,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
             }
 
-            if (!response.IsValid)
+            if (!response.IsValidResponse)
             {
                 if (isCreateOperation && allErrors.Any(e => e.Status == 409))
                     throw new DuplicateDocumentException(response.GetErrorMessage("Error adding duplicate documents"), response.OriginalException);

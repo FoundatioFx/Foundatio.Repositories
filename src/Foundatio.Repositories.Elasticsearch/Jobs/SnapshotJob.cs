@@ -35,9 +35,9 @@ public class SnapshotJob : IJob
     public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default)
     {
         var hasSnapshotRepositoryResponse = await _client.Snapshot.GetRepositoryAsync(r => r.RepositoryName(Repository), cancellationToken);
-        if (!hasSnapshotRepositoryResponse.IsValid)
+        if (!hasSnapshotRepositoryResponse.IsValidResponse)
         {
-            if (hasSnapshotRepositoryResponse.ApiCall.HttpStatusCode == 404)
+            if (hasSnapshotRepositoryResponse.ApiCallDetails.HttpStatusCode == 404)
                 return JobResult.CancelledWithMessage($"Snapshot repository {Repository} has not been configured.");
 
             return JobResult.FromException(hasSnapshotRepositoryResponse.OriginalException, hasSnapshotRepositoryResponse.GetErrorMessage());
@@ -63,7 +63,7 @@ public class SnapshotJob : IJob
                 _logger.LogRequest(response);
 
                 // 400 means the snapshot already exists
-                if (!response.IsValid && response.ApiCall.HttpStatusCode != 400)
+                if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode != 400)
                     throw new RepositoryException(response.GetErrorMessage("Snapshot failed"), response.OriginalException);
 
                 return response;
@@ -82,7 +82,7 @@ public class SnapshotJob : IJob
 
                 var status = await _client.Snapshot.StatusAsync(s => s.Snapshot(snapshotName).RepositoryName(Repository), cancellationToken).AnyContext();
                 _logger.LogRequest(status);
-                if (status.IsValid && status.Snapshots.Count > 0)
+                if (status.IsValidResponse && status.Snapshots.Count > 0)
                 {
                     string state = status.Snapshots.First().State;
                     if (state.Equals("SUCCESS", StringComparison.OrdinalIgnoreCase))

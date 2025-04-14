@@ -9,7 +9,7 @@ public static class ElasticsearchExtensions
     public static async Task AssertSingleIndexAlias(this ElasticsearchClient client, string indexName, string aliasName)
     {
         var aliasResponse = await client.Indices.GetAliasAsync(aliasName, a => a.IgnoreUnavailable());
-        Assert.True(aliasResponse.IsValid);
+        Assert.True(aliasResponse.IsValidResponse);
         Assert.Contains(indexName, aliasResponse.Indices);
         Assert.Single(aliasResponse.Indices);
         var aliasedIndex = aliasResponse.Indices[indexName];
@@ -22,13 +22,13 @@ public static class ElasticsearchExtensions
     {
         var response = await client.Indices.GetAliasAsync(aliasName, a => a.IgnoreUnavailable());
         // TODO: Fix this properly once https://github.com/elastic/elasticsearch-net/issues/3828 is fixed in beta2
-        if (!response.IsValid)
+        if (!response.IsValidResponse)
             return 0;
 
-        if (!response.IsValid && response.ElasticsearchServerError?.Status == 404)
+        if (!response.IsValidResponse && response.ElasticsearchServerError?.Status == 404)
             return 0;
 
-        Assert.True(response.IsValid);
+        Assert.True(response.IsValidResponse);
         return response.Indices.Count;
     }
 }

@@ -12,7 +12,7 @@ internal static class IBodyWithApiCallDetailsExtensions
         if (call?.ApiCall?.ResponseBodyInBytes == null)
             return default;
 
-        string rawResponse = Encoding.UTF8.GetString(call.ApiCall.ResponseBodyInBytes);
+        string rawResponse = Encoding.UTF8.GetString(call.ApiCallDetails.ResponseBodyInBytes);
         return JsonSerializer.Deserialize<T>(rawResponse, _options);
     }
 }

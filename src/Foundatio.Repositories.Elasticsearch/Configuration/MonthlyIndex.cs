@@ -70,7 +70,7 @@ public class MonthlyIndex<T> : MonthlyIndex where T : class
 
     public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map)
     {
-        return map.AutoMap<T>().Properties(p => p.SetupDefaults());
+        return map.Properties(p => p.SetupDefaults());
     }
 
     public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
@@ -83,7 +83,7 @@ public class MonthlyIndex<T> : MonthlyIndex where T : class
                 f.DynamicTemplates(d =>
                 {
                     foreach (var customFieldType in CustomFieldTypes.Values)
-                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
+                        d.Add($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
 
                     return d;
                 });

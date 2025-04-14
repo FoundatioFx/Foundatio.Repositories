@@ -195,7 +195,7 @@ public class Index : IIndex
         _isEnsured = true;
 
         // check for valid response or that the index already exists
-        if (response.IsValid || response.ElasticsearchServerError?.Status == 400 &&
+        if (response.IsValidResponse || response.ElasticsearchServerError?.Status == 400 &&
             response.ElasticsearchServerError.Error.Type is "index_already_exists_exception" or "resource_already_exists_exception")
         {
             _logger.LogRequest(response);
@@ -288,7 +288,7 @@ public class Index : IIndex
 
         var response = await Configuration.Client.Indices.UpdateSettingsAsync(name, _ => updateIndexDescriptor).AnyContext();
 
-        if (response.IsValid)
+        if (response.IsValidResponse)
             _logger.LogRequest(response);
         else
             _logger.LogErrorRequest(response, $"Error updating index ({name}) settings");
@@ -309,7 +309,7 @@ public class Index : IIndex
 
         var response = await Configuration.Client.Indices.DeleteAsync(Indices.Index(names), i => i.IgnoreUnavailable()).AnyContext();
 
-        if (response.IsValid)
+        if (response.IsValidResponse)
         {
             _logger.LogRequest(response);
             return;
@@ -324,7 +324,7 @@ public class Index : IIndex
             throw new ArgumentNullException(nameof(name));
 
         var response = await Configuration.Client.Indices.ExistsAsync(name).AnyContext();
-        if (response.ApiCall.Success)
+        if (response.ApiCallDetails.HasSuccessfulStatusCode)
         {
             _logger.LogRequest(response);
             return response.Exists;
@@ -391,7 +391,7 @@ public class Index<T> : Index, IIndex<T> where T : class
                 f.DynamicTemplates(d =>
                 {
                     foreach (var customFieldType in CustomFieldTypes.Values)
-                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
+                        d.Add($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
 
                     return d;
                 });
@@ -417,7 +417,7 @@ public class Index<T> : Index, IIndex<T> where T : class
                 m.DynamicTemplates(d =>
                 {
                     foreach (var customFieldType in CustomFieldTypes.Values)
-                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
+                        d.Add($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
 
                     return d;
                 });
@@ -426,7 +426,7 @@ public class Index<T> : Index, IIndex<T> where T : class
             return m;
         }).AnyContext();
 
-        if (response.IsValid)
+        if (response.IsValidResponse)
             _logger.LogRequest(response);
         else
             _logger.LogErrorRequest(response, $"Error updating index ({name}) mappings.");

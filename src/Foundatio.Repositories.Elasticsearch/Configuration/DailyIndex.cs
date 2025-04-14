@@ -325,13 +325,13 @@ public class DailyIndex : VersionedIndex
         }
 
         var response = await Configuration.Client.Indices.BulkAliasAsync(aliasDescriptor).AnyContext();
-        if (response.IsValid)
+        if (response.IsValidResponse)
         {
             _logger.LogRequest(response);
         }
         else
         {
-            if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 return;
 
             throw new DocumentException(response.GetErrorMessage("Error updating aliases"), response.OriginalException);
@@ -404,7 +404,7 @@ public class DailyIndex : VersionedIndex
     {
         string filter = $"{Name}-v{Version}-*";
         var catResponse = Configuration.Client.Cat.Indices(i => i.Pri().Index(Indices.Index((IndexName)filter)));
-        if (!catResponse.IsValid)
+        if (!catResponse.IsValidResponse)
         {
             throw new RepositoryException(catResponse.GetErrorMessage($"Error getting latest index mapping {filter}"), catResponse.OriginalException);
         }
@@ -534,7 +534,7 @@ public class DailyIndex<T> : DailyIndex, IIndex<T> where T : class
                 f.DynamicTemplates(d =>
                 {
                     foreach (var customFieldType in CustomFieldTypes.Values)
-                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
+                        d.Add($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
 
                     return d;
                 });
