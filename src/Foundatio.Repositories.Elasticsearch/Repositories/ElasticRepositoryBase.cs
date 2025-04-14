@@ -230,7 +230,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 if (HasVersion && !options.ShouldSkipVersionCheck())
                 {
-                    indexParameters.IfSequenceNumber = response.SequenceNumber;
+                    indexParameters.IfSeqNo = response.SequenceNumber;
                     indexParameters.IfPrimaryTerm = response.PrimaryTerm;
                 }
 

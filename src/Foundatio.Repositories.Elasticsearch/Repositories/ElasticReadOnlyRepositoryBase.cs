@@ -1022,7 +1022,7 @@ internal class SearchResponse<TDocument> : ElasticsearchResponse where TDocument
 
     public Exception OriginalException => throw new NotImplementedException();
 
-    public ServerError ServerError => throw new NotImplementedException();
+    public ElasticsearchServerError ServerError => throw new NotImplementedException();
 
     AggregateDictionary Aggregations { get; }
     bool TimedOut { get; }

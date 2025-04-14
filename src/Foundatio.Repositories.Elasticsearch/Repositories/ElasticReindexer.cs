@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -74,13 +74,13 @@ public class ElasticReindexer
 
             if (aliases.Count > 0)
             {
-                var bulkResponse = await _client.Indices.BulkAliasAsync(x =>
-                {
-                    foreach (string alias in aliases)
-                        x = x.Remove(a => a.Alias(alias).Index(workItem.OldIndex)).Add(a => a.Alias(alias).Index(workItem.NewIndex));
-
-                    return x;
-                }).AnyContext();
+                var bulkResponse = await _client.Indices.UpdateAliasesAsync(x =>
+                    x.Actions(a =>
+                    {
+                        foreach (string alias in aliases)
+                            a.Remove(r => r.Alias(alias).Index(workItem.OldIndex)).Add(a => a.Alias(alias).Index(workItem.NewIndex));
+                    })
+                ).AnyContext();
                 _logger.LogRequest(bulkResponse);
 
                 await progressCallbackAsync(92, $"Updated aliases: {String.Join(", ", aliases)} Remove: {workItem.OldIndex} Add: {workItem.NewIndex}").AnyContext();
@@ -106,8 +106,8 @@ public class ElasticReindexer
         if (!hasFailures && workItem.DeleteOld && workItem.OldIndex != workItem.NewIndex)
         {
             await _client.Indices.RefreshAsync(Indices.All).AnyContext();
-            long newDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.NewIndex)).AnyContext()).Count;
-            long oldDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.OldIndex)).AnyContext()).Count;
+            long newDocCount = (await _client.CountAsync<object>(d => d.Indices(workItem.NewIndex)).AnyContext()).Count;
+            long oldDocCount = (await _client.CountAsync<object>(d => d.Indices(workItem.OldIndex)).AnyContext()).Count;
             await progressCallbackAsync(98, $"Old Docs: {oldDocCount} New Docs: {newDocCount}").AnyContext();
             if (newDocCount >= oldDocCount)
             {
@@ -125,12 +125,12 @@ public class ElasticReindexer
 
         var result = await Run.WithRetriesAsync(async () =>
         {
-            var response = await _client.ReindexOnServerAsync(d =>
+            var response = await _client.ReindexAsync(d =>
             {
                 d.Source(src => src
-                    .Index(workItem.OldIndex)
+                    .Indices(workItem.OldIndex)
                     .Query<object>(q => query))
-                .Destination(dest => dest.Index(workItem.NewIndex))
+                .Dest(dest => dest.Index(workItem.NewIndex))
                 .Conflicts(Conflicts.Proceed)
                 .WaitForCompletion(false);
 
