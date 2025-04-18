@@ -74,7 +74,7 @@ public class DailyIndex : VersionedIndex
         set
         {
             if (value.HasValue && value.Value <= TimeSpan.Zero)
-                throw new ArgumentException($"{nameof(MaxIndexAge)} cannot be negative. ");
+                throw new ArgumentException($"{nameof(MaxIndexAge)} must be positive");
 
             _maxIndexAge = value;
         }
@@ -349,9 +349,14 @@ public class DailyIndex : VersionedIndex
             try
             {
                 await DeleteIndexAsync(index.Index).AnyContext();
-                _logger.LogInformation("Deleted index {Index} of age {Age:g} in {Duration:g}", index.Index, Configuration.TimeProvider.GetUtcNow().UtcDateTime.Subtract(index.DateUtc), sw.Elapsed);
+                _logger.LogInformation("Deleted index {Index} of age {Age:g} in {Duration:g}", index.Index,
+                    Configuration.TimeProvider.GetUtcNow().UtcDateTime.Subtract(index.DateUtc), sw.Elapsed);
             }
-            catch (Exception) { }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting index {Index} of age {Age:g} in {Duration:g}", index.Index,
+                    Configuration.TimeProvider.GetUtcNow().UtcDateTime.Subtract(index.DateUtc), sw.Elapsed);
+            }
 
             sw.Stop();
         }
