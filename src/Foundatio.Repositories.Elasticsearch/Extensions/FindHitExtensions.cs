@@ -99,7 +99,7 @@ public static class FindHitExtensions
 
     public static object[] DecodeSortToken(string sortToken)
     {
-        var tokens = JsonSerializer.Deserialize<object[]>(Decode(sortToken), _options);
+        object[] tokens = JsonSerializer.Deserialize<object[]>(Decode(sortToken), _options);
         return tokens;
     }
 
