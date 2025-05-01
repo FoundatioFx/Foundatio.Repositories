@@ -38,7 +38,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         OriginalsEnabled = true;
         DefaultConsistency = Consistency.Immediate;
 
-        AddPropertyRequiredForRemove(d => d.EntityType, d => d.TenantKey, d => d.IndexType, d => d.IndexSlot);
+        AddPropertyRequiredForRemove(d => d.EntityType, d => d.TenantKey, d => d.IndexType, d => d.IndexSlot, d => d.Name);
 
         DocumentsChanged.AddHandler(OnDocumentsChanged);
     }
