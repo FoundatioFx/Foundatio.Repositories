@@ -178,7 +178,7 @@ public class ScriptService
             o.LocalTimeZone(TimeZoneInfo.Utc);
             o.CatchClrExceptions(ex =>
             {
-                _logger.LogError(ex, "Error evaluating calculated field expression.");
+                _logger.LogError(ex, "Error evaluating calculated field expression");
                 return false;
             });
         });
