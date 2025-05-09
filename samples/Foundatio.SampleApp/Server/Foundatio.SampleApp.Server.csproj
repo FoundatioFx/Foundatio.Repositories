@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Foundatio.Extensions.Hosting" Version="11.0.8" />
+    <PackageReference Include="Foundatio.Extensions.Hosting" Version="11.1.0" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="8.0.12" />
   </ItemGroup>
 
