@@ -10,3 +10,12 @@ updates:
   directory: "/"
   schedule:
     interval: quarterly
+  ignore:
+    - dependency-name: "elasticsearch/elasticsearch"
+      versions:
+        - "<8.0.0"
+        - ">=9.0.0"
+    - dependency-name: "kibana/kibana"
+      versions:
+        - "<8.0.0"
+        - ">=9.0.0"
