@@ -62,7 +62,7 @@ public sealed class EmployeeIndex : Index<Employee>
                 .FieldAlias(a => a.Name("followers").Path("data.@user_meta.twitter_followers"))
                 .Object<Dictionary<string, object>>(f => f.Name(e => e.Data).Properties(p1 => p1
                     .Object<object>(f2 => f2.Name("@user_meta").Properties(p2 => p2
-                        .Keyword(f3 => f3.Name("twitter_id").Boost(1.1).CopyTo(c => c.Field("_all")))
+                        .Keyword(f3 => f3.Name("twitter_id").CopyTo(c => c.Field("_all")))
                         .Number(f3 => f3.Name("twitter_followers"))
                     ))))
                 .Nested<PeerReview>(f => f.Name(e => e.PeerReviews).Properties(p1 => p1
