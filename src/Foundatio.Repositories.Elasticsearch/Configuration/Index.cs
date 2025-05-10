@@ -312,7 +312,7 @@ public class Index : IIndex
             return;
         }
 
-        throw new RepositoryException(response.GetErrorMessage("Error deleting the index {names}"), response.OriginalException);
+        throw new RepositoryException(response.GetErrorMessage($"Error deleting the index {names}"), response.OriginalException);
     }
 
     protected async Task<bool> IndexExistsAsync(string name)
