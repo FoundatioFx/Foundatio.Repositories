@@ -7,7 +7,9 @@ namespace Foundatio.Repositories.Models;
 [DebuggerDisplay("Date: {Date}: Ticks: {Key}")]
 public class DateHistogramBucket : KeyedBucket<double>
 {
-    public DateHistogramBucket() { }
+    public DateHistogramBucket()
+    {
+    }
 
     [System.Text.Json.Serialization.JsonConstructor]
     public DateHistogramBucket(DateTime date, IReadOnlyDictionary<string, IAggregate> aggregations) : base(aggregations)
