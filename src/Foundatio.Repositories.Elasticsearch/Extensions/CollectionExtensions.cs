@@ -4,6 +4,7 @@ using System.Linq;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
+#if NETSTANDARD
 internal static class CollectionExtensions
 {
     public static IEnumerable<TSource> DistinctBy<TSource, TKey>(this IEnumerable<TSource> source, Func<TSource, TKey> keySelector)
@@ -47,3 +48,4 @@ internal static class CollectionExtensions
         }
     }
 }
+#endif
