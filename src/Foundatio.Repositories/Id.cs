@@ -5,9 +5,12 @@ using System.Linq;
 
 namespace Foundatio.Repositories;
 
+#if NETSTANDARD
 public struct Id : IEquatable<Id>
+#else
+public record struct Id
+#endif
 {
-
     public static readonly Id Null = new();
 
     public Id(string id, string routing = null)
@@ -30,6 +33,7 @@ public struct Id : IEquatable<Id>
         return String.Concat(Routing, "-", Value);
     }
 
+#if NETSTANDARD
     public bool Equals(Id other)
     {
         if (ReferenceEquals(null, other)) return false;
@@ -61,6 +65,7 @@ public struct Id : IEquatable<Id>
     {
         return !Equals(left, right);
     }
+#endif
 }
 
 public class Ids : List<Id>
