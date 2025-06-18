@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -232,7 +232,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     indexParameters.IfPrimaryTerm = response.PrimaryTerm;
                 }
 
-                var updateResponse = await _client.LowLevel.IndexAsync<VoidResponse>(ElasticIndex.GetIndex(id), id.Value, PostData.String(target.ToString()), indexParameters, default).AnyContext();
+                var updateResponse = await _client.LowLevel.IndexAsync<VoidResponse>(ElasticIndex.GetIndex(id), id.Value, PostData.String(target.ToString()), indexParameters).AnyContext();
                 _logger.LogRequest(updateResponse, options.GetQueryLogLevel());
 
                 if (!updateResponse.Success)
@@ -266,7 +266,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 foreach (var action in actionPatch.Actions)
                     action?.Invoke(response.Source);
 
-                await IndexDocumentsAsync(new[] { response.Source }, false, options);
+                await IndexDocumentsAsync([response.Source], false, options);
             }, options.GetRetryCount());
         }
         else
@@ -565,7 +565,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     b.Refresh(options.GetRefreshMode(DefaultConsistency));
                     foreach (var h in results.Hits)
                     {
-                        var json = _client.ConnectionSettings.SourceSerializer.SerializeToString(h.Document);
+                        string json = _client.ConnectionSettings.SourceSerializer.SerializeToString(h.Document);
                         var target = JToken.Parse(json);
                         patcher.Patch(ref target, jsonOperation.Patch);
                         var doc = _client.ConnectionSettings.SourceSerializer.Deserialize<T>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToString())));
@@ -896,7 +896,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     public virtual async Task<long> BatchProcessAsAsync<TResult>(IRepositoryQuery query, Func<FindResults<TResult>, Task<bool>> processFunc, ICommandOptions options = null)
         where TResult : class, new()
     {
-
         if (processFunc == null)
             throw new ArgumentNullException(nameof(processFunc));
 

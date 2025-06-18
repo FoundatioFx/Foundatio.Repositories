@@ -40,7 +40,7 @@ public class DailyIndex : VersionedIndex
         _frozenAliases = new Lazy<IReadOnlyCollection<IndexAliasAge>>(() => _aliases.AsReadOnly());
         _aliasCache = new ScopedCacheClient(configuration.Cache, "alias");
         _getDocumentDateUtc = getDocumentDateUtc;
-        _defaultIndexes = new[] { Name };
+        _defaultIndexes = [Name];
         HasMultipleIndexes = true;
 
         if (_getDocumentDateUtc != null)
