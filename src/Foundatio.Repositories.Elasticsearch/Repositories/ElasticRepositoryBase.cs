@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -210,12 +210,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     request.Routing = id.Routing;
 
                 var response = await _client.LowLevel.GetAsync<GetResponse<IDictionary<string, object>>>(ElasticIndex.GetIndex(id), id.Value).AnyContext();
-                var jobject = JObject.FromObject(response.Source);
                 _logger.LogRequest(response, options.GetQueryLogLevel());
                 if (!response.IsValid)
                     throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
 
-                var target = (JToken)jobject;
+                var jObject = JObject.FromObject(response.Source);
+                var target = (JToken)jObject;
                 new JsonPatcher().Patch(ref target, jsonOperation.Patch);
 
                 var indexParameters = new IndexRequestParameters
