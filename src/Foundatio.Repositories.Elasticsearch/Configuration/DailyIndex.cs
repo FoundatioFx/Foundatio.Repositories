@@ -31,7 +31,7 @@ public class DailyIndex : VersionedIndex
     private TimeSpan? _maxIndexAge;
     protected readonly Func<object, DateTime> _getDocumentDateUtc;
     protected readonly string[] _defaultIndexes;
-    private readonly ConcurrentDictionary<DateTime, object> _ensuredDates = new();
+    private readonly ConcurrentDictionary<DateTime, string> _ensuredDates = new();
 
     public DailyIndex(IElasticConfiguration configuration, string name, int version = 1, Func<object, DateTime> getDocumentDateUtc = null)
         : base(configuration, name, version)
@@ -499,6 +499,12 @@ public class DailyIndex : VersionedIndex
 
         var date = _getDocumentDateUtc(target);
         return EnsureDateIndexAsync(date);
+    }
+
+    public override void Dispose()
+    {
+        _ensuredDates.Clear();
+        base.Dispose();
     }
 
     [DebuggerDisplay("Name: {Name} Max Age: {MaxAge}")]
