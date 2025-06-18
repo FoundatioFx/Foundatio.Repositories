@@ -78,12 +78,15 @@ public sealed class DailyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public Task AddAsyncConcurrentUpdates()
+    public async Task AddAsyncConcurrentUpdates()
     {
-        return Parallel.ForEachAsync(Enumerable.Range(0, 50), async (i, _) =>
+        for (int index = 0; index < 5; index++)
         {
-            var history = await _fileAccessHistoryRepository.AddAsync(new FileAccessHistory { AccessedDateUtc = DateTime.UtcNow });
-            Assert.NotNull(history?.Id);
-        });
+            await Parallel.ForEachAsync(Enumerable.Range(0, 10), async (_, _) =>
+            {
+                var history = await _fileAccessHistoryRepository.AddAsync(new FileAccessHistory { AccessedDateUtc = DateTime.UtcNow.AddDays(index) });
+                Assert.NotNull(history?.Id);
+            });
+        }
     }
 }
