@@ -23,7 +23,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 {
     public IndexTests(ITestOutputHelper output) : base(output)
     {
-        Log.SetLogLevel<EmployeeRepository>(LogLevel.Warning);
+        Log.SetLogLevel<EmployeeRepository>(LogLevel.Trace);
     }
 
     public override async Task InitializeAsync()
@@ -1369,5 +1369,47 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         // Assert
         var exists = await _client.Indices.ExistsAsync(index.Name);
         Assert.False(exists.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_ByQuery_CreatesAllRelevantDailyIndices()
+    {
+        // Arrange
+        var index = new EmployeeIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new EmployeeRepository(index);
+
+        string id1 = ObjectId.GenerateNewId().ToString();
+        string id2 = ObjectId.GenerateNewId(DateTime.UtcNow.SubtractDays(1)).ToString();
+
+        // Act
+        await repository.PatchAllAsync(q => q.Id(id1, id2), new ActionPatch<Employee>(e => e.Name = "Patched"));
+
+        // Assert
+        var response = await _client.Indices.ExistsAsync(index.GetIndex(id1));
+        Assert.True(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_ByQueryAcrossMultipleDays_CreatesAllRelevantDailyIndices()
+    {
+        // Arrange
+        var index = new DailyEmployeeIndex(_configuration, 1);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new EmployeeRepository(index);
+
+        string id1 = ObjectId.GenerateNewId().ToString();
+        string id2 = ObjectId.GenerateNewId(DateTime.UtcNow.SubtractDays(1)).ToString();
+
+        // Act
+        await repository.PatchAllAsync(q => q.Id(id1, id2), new ActionPatch<Employee>(e => e.Name = "Patched"));
+
+        // Assert
+        var existsDay1 = await _client.Indices.ExistsAsync(index.GetIndex(id1));
+        Assert.True(existsDay1.Exists);
+        var existsDay2 = await _client.Indices.ExistsAsync(index.GetIndex(id2));
+        Assert.True(existsDay2.Exists);
     }
 }
