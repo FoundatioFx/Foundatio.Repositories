@@ -179,10 +179,13 @@ public class Index : IIndex
 
     public int BulkBatchSize { get; set; } = 1000;
 
-    public virtual Task DeleteAsync()
+    public virtual async Task DeleteAsync()
     {
-        _isEnsured = false;
-        return DeleteIndexAsync(Name);
+        using (await _lock.LockAsync().AnyContext())
+        {
+            await DeleteIndexAsync(Name).AnyContext();
+            _isEnsured = false;
+        }
     }
 
     protected virtual async Task CreateIndexAsync(string name, Func<CreateIndexDescriptor, CreateIndexDescriptor> descriptor = null)
