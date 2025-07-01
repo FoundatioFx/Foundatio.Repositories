@@ -160,6 +160,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (operation == null)
             throw new ArgumentNullException(nameof(operation));
 
+        await ElasticIndex.EnsureIndexAsync(id).AnyContext();
+
         options = ConfigureOptions(options.As<T>());
 
         if (operation is ScriptPatch scriptOperation)
