@@ -23,6 +23,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 {
     public IndexTests(ITestOutputHelper output) : base(output)
     {
+        Log.DefaultMinimumLevel = LogLevel.Trace;
         Log.SetLogLevel<EmployeeRepository>(LogLevel.Trace);
     }
 
@@ -1068,7 +1069,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task PatchAsync_WhenActionPatchAndSingleIndexMissing_DoesNotCreateIndex()
+    public async Task PatchAsync_WhenActionPatchAndSingleIndexMissing_CreatesIndex()
     {
         // Arrange
         var index = new EmployeeIndex(_configuration);
@@ -1083,11 +1084,11 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         // Assert
         var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.False(exists.Exists);
+        Assert.True(exists.Exists);
     }
 
     [Fact]
-    public async Task PatchAsync_WhenPartialPatchAndSingleIndexMissing_DoesNotCreateIndex()
+    public async Task PatchAsync_WhenPartialPatchAndSingleIndexMissing_CreatesIndex()
     {
         // Arrange
         var index = new EmployeeIndex(_configuration);
@@ -1102,11 +1103,11 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         // Assert
         var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.False(exists.Exists);
+        Assert.True(exists.Exists);
     }
 
     [Fact]
-    public async Task PatchAsync_WhenJsonPatchAndSingleIndexMissing_DoesNotCreateIndex()
+    public async Task PatchAsync_WhenJsonPatchAndSingleIndexMissing_CreatesIndex()
     {
         // Arrange
         var index = new EmployeeIndex(_configuration);
@@ -1123,11 +1124,11 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         // Assert
         var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.False(exists.Exists);
+        Assert.True(exists.Exists);
     }
 
     [Fact]
-    public async Task PatchAsync_WhenScriptPatchAndSingleIndexMissing_DoesNotCreateIndex()
+    public async Task PatchAsync_WhenScriptPatchAndSingleIndexMissing_CreatesIndex()
     {
         // Arrange
         var index = new EmployeeIndex(_configuration);
@@ -1142,7 +1143,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         // Assert
         var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.False(exists.Exists);
+        Assert.True(exists.Exists);
     }
 
     [Fact]
@@ -1160,7 +1161,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         // Assert
         var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.False(exists.Exists);
+        Assert.True(exists.Exists);
     }
 
     [Fact]
@@ -1178,7 +1179,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         // Assert
         var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.False(exists.Exists);
+        Assert.True(exists.Exists);
     }
 
     [Fact]
@@ -1198,7 +1199,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         // Assert
         var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.False(exists.Exists);
+        Assert.True(exists.Exists);
     }
 
     [Fact]
@@ -1216,7 +1217,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         // Assert
         var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.False(exists.Exists);
+        Assert.True(exists.Exists);
     }
 
     [Fact]
@@ -1254,7 +1255,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         // Assert
         var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.False(exists.Exists);
+        Assert.True(exists.Exists);
     }
 
     [Fact]
@@ -1275,7 +1276,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         // Assert
         var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.False(exists.Exists);
+        Assert.True(exists.Exists);
     }
 
     [Fact]
@@ -1294,11 +1295,11 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         // Assert
         var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.False(exists.Exists);
+        Assert.True(exists.Exists);
     }
 
     [Fact]
-    public async Task PatchAllAsync_WhenActionPatchAndMonthlyIndexMissing_CreatesIndex()
+    public async Task PatchAllAsync_WhenActionPatchAndMonthlyIndexMissing_DoesNotCreateIndex()
     {
         // Arrange
         var index = new MonthlyLogEventIndex(_configuration);
@@ -1316,7 +1317,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task PatchAllAsync_WhenPartialPatchAndMonthlyIndexMissing_CreatesIndex()
+    public async Task PatchAllAsync_WhenPartialPatchAndMonthlyIndexMissing_DoesNotCreateIndex()
     {
         // Arrange
         var index = new MonthlyLogEventIndex(_configuration);
@@ -1334,7 +1335,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task PatchAllAsync_WhenJsonPatchAndMonthlyIndexMissing_CreatesIndex()
+    public async Task PatchAllAsync_WhenJsonPatchAndMonthlyIndexMissing_DoesNotCreateIndex()
     {
         // Arrange
         var index = new MonthlyLogEventIndex(_configuration);
@@ -1354,7 +1355,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task PatchAllAsync_WhenScriptPatchAndMonthlyIndexMissing_CreatesIndex()
+    public async Task PatchAllAsync_WhenScriptPatchAndMonthlyIndexMissing_DoesNotCreateIndex()
     {
         // Arrange
         var index = new MonthlyLogEventIndex(_configuration);
