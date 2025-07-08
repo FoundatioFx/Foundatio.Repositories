@@ -1083,8 +1083,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await Assert.ThrowsAsync<DocumentException>(async () => await repository.PatchAsync(id, patch));
 
         // Assert
-        var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.True(exists.Exists);
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id));
+        Assert.True(response.Exists);
     }
 
     [Fact]
@@ -1102,8 +1104,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await Assert.ThrowsAsync<DocumentException>(async () => await repository.PatchAsync(id, patch));
 
         // Assert
-        var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.True(exists.Exists);
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id));
+        Assert.True(response.Exists);
     }
 
     [Fact]
@@ -1123,8 +1127,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await Assert.ThrowsAsync<DocumentException>(async () => await repository.PatchAsync(id, patch));
 
         // Assert
-        var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.True(exists.Exists);
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id));
+        Assert.True(response.Exists);
     }
 
     [Fact]
@@ -1142,8 +1148,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await Assert.ThrowsAsync<DocumentException>(async () => await repository.PatchAsync(id, patch));
 
         // Assert
-        var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.True(exists.Exists);
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id));
+        Assert.True(response.Exists);
     }
 
     [Fact]
@@ -1160,8 +1168,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await repository.PatchAllAsync(q => q, patch);
 
         // Assert
-        var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.True(exists.Exists);
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
     }
 
     [Fact]
@@ -1178,8 +1186,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await repository.PatchAllAsync(q => q, patch);
 
         // Assert
-        var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.True(exists.Exists);
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
     }
 
     [Fact]
@@ -1198,8 +1206,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await repository.PatchAllAsync(q => q, patch);
 
         // Assert
-        var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.True(exists.Exists);
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
     }
 
     [Fact]
@@ -1216,8 +1224,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await repository.PatchAllAsync(q => q, patch);
 
         // Assert
-        var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.True(exists.Exists);
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
     }
 
     [Fact]
@@ -1235,8 +1243,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await Assert.ThrowsAsync<DocumentException>(async () => await repository.PatchAsync(id, patch));
 
         // Assert
-        var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.False(exists.Exists); // Monthly index may not create immediately
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id));
+        Assert.True(response.Exists);
     }
 
     [Fact]
@@ -1254,8 +1264,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await Assert.ThrowsAsync<DocumentException>(async () => await repository.PatchAsync(id, patch));
 
         // Assert
-        var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.True(exists.Exists);
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id));
+        Assert.True(response.Exists);
     }
 
     [Fact]
@@ -1275,8 +1287,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await Assert.ThrowsAsync<DocumentException>(async () => await repository.PatchAsync(id, patch));
 
         // Assert
-        var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.True(exists.Exists);
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id));
+        Assert.True(response.Exists);
     }
 
     [Fact]
@@ -1294,8 +1308,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await Assert.ThrowsAsync<DocumentException>(async () => await repository.PatchAsync(id, patch));
 
         // Assert
-        var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.True(exists.Exists);
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id));
+        Assert.True(response.Exists);
     }
 
     [Fact]
@@ -1312,8 +1328,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await repository.PatchAllAsync(q => q, patch);
 
         // Assert
-        var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.False(exists.Exists);
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.False(response.Exists);
     }
 
     [Fact]
@@ -1330,8 +1346,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await repository.PatchAllAsync(q => q, patch);
 
         // Assert
-        var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.False(exists.Exists);
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.False(response.Exists);
     }
 
     [Fact]
@@ -1350,8 +1366,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await repository.PatchAllAsync(q => q, patch);
 
         // Assert
-        var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.False(exists.Exists);
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.False(response.Exists);
     }
 
     [Fact]
@@ -1368,8 +1384,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await repository.PatchAllAsync(q => q, patch);
 
         // Assert
-        var exists = await _client.Indices.ExistsAsync(index.Name);
-        Assert.False(exists.Exists);
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.False(response.Exists);
     }
 
     [Fact]
@@ -1388,7 +1404,11 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await repository.PatchAllAsync(q => q.Id(id1, id2), new ActionPatch<Employee>(e => e.Name = "Patched"));
 
         // Assert
-        var response = await _client.Indices.ExistsAsync(index.GetIndex(id1));
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id1));
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id2));
         Assert.True(response.Exists);
     }
 
@@ -1408,9 +1428,11 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await repository.PatchAllAsync(q => q.Id(id1, id2), new ActionPatch<Employee>(e => e.Name = "Patched"));
 
         // Assert
-        var existsDay1 = await _client.Indices.ExistsAsync(index.GetIndex(id1));
-        Assert.True(existsDay1.Exists);
-        var existsDay2 = await _client.Indices.ExistsAsync(index.GetIndex(id2));
-        Assert.True(existsDay2.Exists);
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id1));
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id2));
+        Assert.True(response.Exists);
     }
 }
