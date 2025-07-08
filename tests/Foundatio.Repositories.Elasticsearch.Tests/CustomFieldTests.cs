@@ -318,8 +318,6 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
     [Fact]
     public async Task CanAutoCreateUnmappedCustomField()
     {
-        Log.DefaultMinimumLevel = LogLevel.Trace;
-
         await _customFieldDefinitionRepository.AddAsync([
             new CustomFieldDefinition
             {
