@@ -23,7 +23,6 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 {
     public IndexTests(ITestOutputHelper output) : base(output)
     {
-        Log.DefaultMinimumLevel = LogLevel.Trace;
         Log.SetLogLevel<EmployeeRepository>(LogLevel.Trace);
     }
 
