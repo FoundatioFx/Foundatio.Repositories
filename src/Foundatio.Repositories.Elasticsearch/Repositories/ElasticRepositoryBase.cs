@@ -19,6 +19,7 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Queries;
 using Foundatio.Repositories.Utility;
+using Foundatio.Resilience;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Nest;
@@ -203,13 +204,19 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             if (jsonOperation.Patch == null || jsonOperation.Patch.Operations.Count == 0)
                 return;
 
-            await Run.WithRetriesAsync(async () =>
+            var policy = _resiliencePolicyProvider.GetPolicy(GetType().Name);
+            if (policy is ResiliencePolicy resiliencePolicy)
+                policy = resiliencePolicy.Clone(options.GetRetryCount());
+            else
+                _logger.LogWarning("Unable to override resilience policy max attempts");
+
+            await policy.ExecuteAsync(async ct =>
             {
                 var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
 
-                var response = await _client.LowLevel.GetAsync<GetResponse<IDictionary<string, object>>>(ElasticIndex.GetIndex(id), id.Value).AnyContext();
+                var response = await _client.LowLevel.GetAsync<GetResponse<IDictionary<string, object>>>(ElasticIndex.GetIndex(id), id.Value, ctx: ct).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
                 if (!response.IsValid)
                     throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
@@ -232,7 +239,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     indexParameters.IfPrimaryTerm = response.PrimaryTerm;
                 }
 
-                var updateResponse = await _client.LowLevel.IndexAsync<VoidResponse>(ElasticIndex.GetIndex(id), id.Value, PostData.String(target.ToString()), indexParameters).AnyContext();
+                var updateResponse = await _client.LowLevel.IndexAsync<VoidResponse>(ElasticIndex.GetIndex(id), id.Value, PostData.String(target.ToString()), indexParameters, ct).AnyContext();
                 _logger.LogRequest(updateResponse, options.GetQueryLogLevel());
 
                 if (!updateResponse.Success)
@@ -242,19 +249,25 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     throw new DocumentException(response.GetErrorMessage("Error saving document"), response.OriginalException);
                 }
-            }, options.GetRetryCount());
+            });
         }
         else if (operation is ActionPatch<T> actionPatch)
         {
             if (actionPatch.Actions == null || actionPatch.Actions.Count == 0)
                 return;
 
-            await Run.WithRetriesAsync(async () =>
+            var policy = _resiliencePolicyProvider.GetPolicy(GetType().Name);
+            if (policy is ResiliencePolicy resiliencePolicy)
+                policy = resiliencePolicy.Clone(options.GetRetryCount());
+            else
+                _logger.LogWarning("Unable to override resilience policy max attempts");
+
+            await policy.ExecuteAsync(async ct =>
             {
                 var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
-                var response = await _client.GetAsync<T>(request).AnyContext();
+                var response = await _client.GetAsync<T>(request, ct).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
 
                 if (!response.IsValid)
@@ -267,7 +280,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     action?.Invoke(response.Source);
 
                 await IndexDocumentsAsync([response.Source], false, options);
-            }, options.GetRetryCount());
+            });
         }
         else
         {

@@ -16,6 +16,7 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Queries;
+using Foundatio.Resilience;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Nest;
@@ -38,6 +39,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected readonly ILogger _logger;
     protected readonly Lazy<IElasticClient> _lazyClient;
     protected IElasticClient _client => _lazyClient.Value;
+    protected readonly IResiliencePolicyProvider _resiliencePolicyProvider;
 
     private ScopedCacheClient _scopedCacheClient;
 
@@ -49,6 +51,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         _lazyClient = new Lazy<IElasticClient>(() => index.Configuration.Client);
 
         SetCacheClient(index.Configuration.Cache);
+        _resiliencePolicyProvider = index.Configuration.ResiliencePolicyProvider;
         _logger = index.Configuration.LoggerFactory.CreateLogger(GetType());
     }
 

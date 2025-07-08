@@ -297,7 +297,8 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         _employeeRepository.TimeProvider = new FakeTimeProvider(new DateTimeOffset(utcNow, TimeSpan.Zero));
         var today = utcNow.Floor(TimeSpan.FromMilliseconds(1));
 
-        await _employeeRepository.AddAsync(new List<Employee> {
+        await _employeeRepository.AddAsync(new List<Employee>
+        {
             EmployeeGenerator.Generate(nextReview: today.SubtractDays(2)),
             EmployeeGenerator.Generate(nextReview: today.SubtractDays(1)),
             EmployeeGenerator.Generate(nextReview: today)

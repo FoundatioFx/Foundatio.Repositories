@@ -19,7 +19,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 public class MyAppElasticConfiguration : ElasticConfiguration
 {
     public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, IMessageBus messageBus, ILoggerFactory loggerFactory)
-        : base(workItemQueue, cacheClient, messageBus, null, loggerFactory)
+        : base(workItemQueue, cacheClient, messageBus, null, null, loggerFactory)
     {
         AddIndex(Identities = new IdentityIndex(this));
         AddIndex(Employees = new EmployeeIndex(this));
