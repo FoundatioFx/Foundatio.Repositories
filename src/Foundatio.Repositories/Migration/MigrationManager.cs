@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Foundatio.Lock;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
+using Foundatio.Resilience;
 using Foundatio.Utility;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -20,6 +21,7 @@ public class MigrationManager
     protected readonly IServiceProvider _serviceProvider;
     protected readonly IMigrationStateRepository _migrationStatusRepository;
     protected readonly ILockProvider _lockProvider;
+    protected readonly IResiliencePolicyProvider _resiliencePolicyProvider;
     protected readonly TimeProvider _timeProvider;
     protected readonly ILoggerFactory _loggerFactory;
     protected readonly ILogger _logger;
@@ -29,6 +31,7 @@ public class MigrationManager
     {
         _serviceProvider = serviceProvider;
         _timeProvider = serviceProvider.GetService<TimeProvider>() ?? TimeProvider.System;
+        _resiliencePolicyProvider = serviceProvider.GetService<IResiliencePolicyProvider>() ?? new ResiliencePolicyProvider();
         _migrationStatusRepository = migrationStatusRepository;
         _lockProvider = lockProvider;
         _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
@@ -99,6 +102,12 @@ public class MigrationManager
             if (!migrationStatus.NeedsMigration)
                 return MigrationResult.Success;
 
+            var policy = _resiliencePolicyProvider.GetPolicy<MigrationManager>();
+            if (policy is ResiliencePolicy resiliencePolicy)
+                policy = resiliencePolicy.Clone(3, delay: TimeSpan.Zero);
+            else
+                _logger.LogWarning("Unable to override resilience policy max attempts or retry interval for {JobType}", GetType().Name);
+
             foreach (var migrationInfo in migrationStatus.PendingMigrations)
             {
                 if (cancellationToken.IsCancellationRequested)
@@ -117,14 +126,15 @@ public class MigrationManager
                 {
                     var context = new MigrationContext(migrationsLock, _loggerFactory.CreateLogger(migrationInfo.Migration.GetType()), cancellationToken);
                     if (migrationInfo.Migration.MigrationType != MigrationType.Versioned)
-                        await Run.WithRetriesAsync<object>(async () =>
+                        await policy.ExecuteAsync(async () =>
                         {
                             await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30));
                             if (cancellationToken.IsCancellationRequested)
                                 return MigrationResult.Cancelled;
+
                             await migrationInfo.Migration.RunAsync(context).AnyContext();
-                            return null;
-                        }, 3, retryInterval: TimeSpan.Zero, _timeProvider, cancellationToken: CancellationToken.None, _logger).AnyContext();
+                            return MigrationResult.Success;
+                        }, cancellationToken).AnyContext();
                     else
                         await migrationInfo.Migration.RunAsync(context).AnyContext();
                 }
@@ -161,9 +171,10 @@ public class MigrationManager
             {
                 Id = info.Migration.GetId(),
                 MigrationType = info.Migration.MigrationType,
-                Version = info.Migration.Version ?? 0
+                Version = info.Migration.Version ?? 0,
+                StartedUtc = _timeProvider.GetUtcNow().UtcDateTime
             };
-            info.State.StartedUtc = _timeProvider.GetUtcNow().UtcDateTime;
+
             await _migrationStatusRepository.AddAsync(info.State);
         }
         else
@@ -179,7 +190,7 @@ public class MigrationManager
         info.State.CompletedUtc = _timeProvider.GetUtcNow().UtcDateTime;
         info.State.ErrorMessage = null;
         await _migrationStatusRepository.SaveAsync(info.State).AnyContext();
-        _logger.LogInformation("Completed migration {Id}.", info.State.Id);
+        _logger.LogInformation("Completed migration {Id}", info.State.Id);
     }
 
     public async Task<MigrationStatus> GetMigrationStatus()

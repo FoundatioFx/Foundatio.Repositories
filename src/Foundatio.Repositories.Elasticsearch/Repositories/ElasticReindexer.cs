@@ -9,6 +9,7 @@ using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
+using Foundatio.Resilience;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -22,6 +23,7 @@ public class ElasticReindexer
     private readonly IElasticClient _client;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
+    private readonly IResiliencePolicyProvider _resiliencePolicyProvider;
     private const string ID_FIELD = "id";
     private const int MAX_STATUS_FAILS = 10;
 
@@ -29,10 +31,15 @@ public class ElasticReindexer
     {
     }
 
-    public ElasticReindexer(IElasticClient client, TimeProvider timeProvider, ILogger logger = null)
+    public ElasticReindexer(IElasticClient client, TimeProvider timeProvider, ILogger logger = null) : this(client, timeProvider ?? TimeProvider.System, new ResiliencePolicyProvider(), logger ?? NullLogger.Instance)
+    {
+    }
+
+    public ElasticReindexer(IElasticClient client, TimeProvider timeProvider, IResiliencePolicyProvider resiliencePolicyProvider, ILogger logger = null)
     {
         _client = client;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _resiliencePolicyProvider = resiliencePolicyProvider ?? new ResiliencePolicyProvider();
         _logger = logger ?? NullLogger.Instance;
     }
 
@@ -120,7 +127,13 @@ public class ElasticReindexer
     {
         var query = await GetResumeQueryAsync(workItem.NewIndex, workItem.TimestampField, startTime).AnyContext();
 
-        var result = await Run.WithRetriesAsync(async () =>
+        var policy = _resiliencePolicyProvider.GetPolicy<ElasticReindexer>();
+        if (policy is ResiliencePolicy resiliencePolicy)
+            policy = resiliencePolicy.Clone(5, delay: TimeSpan.FromSeconds(10));
+        else
+            _logger.LogWarning("Unable to override resilience policy max attempts or retry interval for {JobType}", GetType().Name);
+
+        var result = await policy.ExecuteAsync(async (ct) =>
         {
             var response = await _client.ReindexOnServerAsync(d =>
             {
@@ -131,15 +144,15 @@ public class ElasticReindexer
                 .Conflicts(Conflicts.Proceed)
                 .WaitForCompletion(false);
 
-                //NEST client emitting script if null, inline this when that's fixed
+                // NEST client emitting a script if null, inline this when that's fixed
                 if (!String.IsNullOrWhiteSpace(workItem.Script))
                     d.Script(workItem.Script);
 
                 return d;
-            }, cancellationToken).AnyContext();
+            }, ct).AnyContext();
 
             return response;
-        }, 5, TimeSpan.FromSeconds(10), _timeProvider, cancellationToken, _logger).AnyContext();
+        }, cancellationToken).AnyContext();
 
         _logger.LogInformation("Reindex Task Id: {TaskId}", result.Task.FullyQualifiedId);
         _logger.LogRequest(result);
@@ -202,7 +215,7 @@ public class ElasticReindexer
             // waited more than 10 minutes with no progress made
             if (sw.Elapsed > TimeSpan.FromMinutes(10))
             {
-                _logger.LogError($"Timed out waiting for reindex {workItem.OldIndex} -> {workItem.NewIndex}.");
+                _logger.LogError("Timed out waiting for reindex {OldIndex} -> {NewIndex}", workItem.OldIndex, workItem.NewIndex);
                 break;
             }
 

@@ -28,7 +28,6 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
 
     public ElasticRepositoryTestBase(ITestOutputHelper output) : base(output)
     {
-        Log.DefaultMinimumLevel = LogLevel.Information;
         Log.SetLogLevel<ScheduledTimer>(LogLevel.Warning);
 
         _cache = new InMemoryCacheClient(new InMemoryCacheClientOptions { LoggerFactory = Log });
@@ -49,8 +48,8 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
 
     protected virtual async Task RemoveDataAsync(bool configureIndexes = true)
     {
-        var minimumLevel = Log.DefaultMinimumLevel;
-        Log.DefaultMinimumLevel = LogLevel.Warning;
+        var minimumLevel = Log.DefaultLogLevel;
+        Log.DefaultLogLevel = LogLevel.Warning;
 
         var sw = Stopwatch.StartNew();
         _logger.LogInformation("Starting remove data");
@@ -68,7 +67,7 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
         sw.Stop();
         _logger.LogInformation("Done removing data {Duration}", sw.Elapsed);
 
-        Log.DefaultMinimumLevel = minimumLevel;
+        Log.DefaultLogLevel = minimumLevel;
     }
 
     public virtual Task DisposeAsync() => Task.CompletedTask;
