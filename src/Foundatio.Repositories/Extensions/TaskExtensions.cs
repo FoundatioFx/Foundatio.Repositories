@@ -9,12 +9,14 @@ namespace Foundatio.Repositories.Extensions;
 internal static class TaskHelper
 {
     [DebuggerStepThrough]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static ConfiguredTaskAwaitable<TResult> AnyContext<TResult>(this Task<TResult> task)
     {
         return task.ConfigureAwait(continueOnCapturedContext: false);
     }
 
     [DebuggerStepThrough]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static ConfiguredTaskAwaitable AnyContext(this Task task)
     {
         return task.ConfigureAwait(continueOnCapturedContext: false);
