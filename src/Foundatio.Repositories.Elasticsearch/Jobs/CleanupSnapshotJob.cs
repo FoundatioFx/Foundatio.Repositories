@@ -9,7 +9,6 @@ using Foundatio.Jobs;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Resilience;
-using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Nest;
@@ -19,7 +18,8 @@ namespace Foundatio.Repositories.Elasticsearch.Jobs;
 public class CleanupSnapshotJob : IJob
 {
     protected readonly IElasticClient _client;
-    private readonly IResiliencePolicyProvider _resiliencePolicyProvider;
+    protected readonly IResiliencePolicyProvider _resiliencePolicyProvider;
+    protected readonly IResiliencePolicy _resiliencePolicy;
     protected readonly TimeProvider _timeProvider;
     protected readonly ILogger _logger;
     private readonly ICollection<RepositoryMaxAge> _repositories = new List<RepositoryMaxAge>();
@@ -39,6 +39,8 @@ public class CleanupSnapshotJob : IJob
         _resiliencePolicyProvider = resiliencePolicyProvider;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
+
+        _resiliencePolicy = _resiliencePolicyProvider.GetPolicy<CleanupSnapshotJob, IJob>(fallback => fallback.WithMaxAttempts(5).WithDelay(TimeSpan.Zero), _logger, _timeProvider);
     }
 
     public void AddRepository(string name, TimeSpan maxAge)
@@ -100,12 +102,6 @@ public class CleanupSnapshotJob : IJob
 
         _logger.LogInformation("Selected {SnapshotCount} snapshots for deletion", snapshotsToDelete.Count);
 
-        var policy = _resiliencePolicyProvider.GetPolicy<CleanupSnapshotJob>();
-        if (policy is ResiliencePolicy resiliencePolicy)
-            policy = resiliencePolicy.Clone(5, delay: TimeSpan.Zero);
-        else
-            _logger.LogWarning("Unable to override resilience policy max attempts or retry interval for {JobType}", GetType().Name);
-
         bool shouldContinue = true;
         int batchSize = snapshotsToDelete.Count > 10 ? 25 : 1;
         int batch = 0;
@@ -125,7 +121,7 @@ public class CleanupSnapshotJob : IJob
             {
                 sw.Restart();
 
-                await policy.ExecuteAsync(async pct =>
+                await _resiliencePolicy.ExecuteAsync(async pct =>
                 {
                     _logger.LogInformation("Deleting {SnapshotCount} expired snapshot(s) from {Repo}: {SnapshotNames}", snapshotCount, repo, snapshotNames);
 

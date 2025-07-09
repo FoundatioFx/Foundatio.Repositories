@@ -34,6 +34,11 @@ namespace Foundatio.Repositories.Options
             return options.SafeGetOption<TimeSpan>(TimeoutOptionsExtensions.QueryTimeoutKey, TimeSpan.FromSeconds(1));
         }
 
+        public static bool HasRetryCount(this ICommandOptions options)
+        {
+            return options.SafeHasOption(TimeoutOptionsExtensions.RetryCountKey);
+        }
+
         public static int GetRetryCount(this ICommandOptions options, int defaultRetryCount = 10)
         {
             return options.SafeGetOption<int>(TimeoutOptionsExtensions.RetryCountKey, defaultRetryCount);

@@ -11,7 +11,6 @@ using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Resilience;
-using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Nest;
@@ -22,7 +21,8 @@ public class SnapshotJob : IJob
 {
     protected readonly IElasticClient _client;
     protected readonly ILockProvider _lockProvider;
-    private readonly IResiliencePolicyProvider _resiliencePolicyProvider;
+    protected readonly IResiliencePolicyProvider _resiliencePolicyProvider;
+    protected readonly IResiliencePolicy _resiliencePolicy;
     protected readonly TimeProvider _timeProvider;
     protected readonly ILogger _logger;
 
@@ -37,6 +37,8 @@ public class SnapshotJob : IJob
         _resiliencePolicyProvider = resiliencePolicyProvider ?? new ResiliencePolicyProvider();
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = loggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
+
+        _resiliencePolicy = _resiliencePolicyProvider.GetPolicy<SnapshotJob, IJob>(fallback => fallback.WithMaxAttempts(5).WithDelay(TimeSpan.Zero), _logger, _timeProvider);
     }
 
     public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default)
@@ -56,15 +58,9 @@ public class SnapshotJob : IJob
         await _lockProvider.TryUsingAsync("es-snapshot", async lockCancellationToken =>
         {
             var sw = Stopwatch.StartNew();
-            var policy = _resiliencePolicyProvider.GetPolicy<SnapshotJob>();
-            if (policy is ResiliencePolicy resiliencePolicy)
-                policy = resiliencePolicy.Clone(5, delay: TimeSpan.FromSeconds(10));
-            else
-                _logger.LogWarning("Unable to override resilience policy max attempts or retry interval for {JobType}", GetType().Name);
-
             using var linkedCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lockCancellationToken);
 
-            var result = await policy.ExecuteAsync(async ct =>
+            var result = await _resiliencePolicy.ExecuteAsync(async ct =>
             {
                 var response = await _client.Snapshot.SnapshotAsync(
                     Repository,

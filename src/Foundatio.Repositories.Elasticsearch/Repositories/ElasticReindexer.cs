@@ -10,7 +10,6 @@ using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
 using Foundatio.Resilience;
-using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Nest;
@@ -24,6 +23,7 @@ public class ElasticReindexer
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
     private readonly IResiliencePolicyProvider _resiliencePolicyProvider;
+    private readonly IResiliencePolicy _resiliencePolicy;
     private const string ID_FIELD = "id";
     private const int MAX_STATUS_FAILS = 10;
 
@@ -41,6 +41,8 @@ public class ElasticReindexer
         _timeProvider = timeProvider ?? TimeProvider.System;
         _resiliencePolicyProvider = resiliencePolicyProvider ?? new ResiliencePolicyProvider();
         _logger = logger ?? NullLogger.Instance;
+
+        _resiliencePolicy = _resiliencePolicyProvider.GetPolicy<ElasticReindexer>(fallback => fallback.WithMaxAttempts(5).WithDelay(TimeSpan.FromSeconds(10)), _logger, _timeProvider);
     }
 
     public async Task ReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync = null)
@@ -127,13 +129,7 @@ public class ElasticReindexer
     {
         var query = await GetResumeQueryAsync(workItem.NewIndex, workItem.TimestampField, startTime).AnyContext();
 
-        var policy = _resiliencePolicyProvider.GetPolicy<ElasticReindexer>();
-        if (policy is ResiliencePolicy resiliencePolicy)
-            policy = resiliencePolicy.Clone(5, delay: TimeSpan.FromSeconds(10));
-        else
-            _logger.LogWarning("Unable to override resilience policy max attempts or retry interval for {JobType}", GetType().Name);
-
-        var result = await policy.ExecuteAsync(async (ct) =>
+        var result = await _resiliencePolicy.ExecuteAsync(async ct =>
         {
             var response = await _client.ReindexOnServerAsync(d =>
             {
