@@ -55,7 +55,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         _logger = index.Configuration.LoggerFactory.CreateLogger(GetType());
 
         _resiliencePolicyProvider = index.Configuration.ResiliencePolicyProvider;
-        _resiliencePolicy = _resiliencePolicyProvider.GetPolicy(GetType(), _logger, ElasticIndex.Configuration.TimeProvider);
+        _resiliencePolicy = _resiliencePolicyProvider.GetPolicy([GetType()], fallback => fallback.WithUnhandledException<DocumentNotFoundException>(), _logger, ElasticIndex.Configuration.TimeProvider);
     }
 
     protected IIndex ElasticIndex { get; private set; }

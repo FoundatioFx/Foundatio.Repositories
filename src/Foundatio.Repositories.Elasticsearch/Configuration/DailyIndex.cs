@@ -450,9 +450,10 @@ public class DailyIndex : VersionedIndex
         }
 
         if (target is ObjectId oid)
-        {
             return GetIndexByDate(oid.CreationTime);
-        }
+
+        if (target is string { Length: 24 } stringId && ObjectId.TryParse(stringId, out var stringObjectId))
+            return GetIndexByDate(stringObjectId.CreationTime);
 
         if (_getDocumentDateUtc == null)
             throw new ArgumentException("Unable to get document index", nameof(target));

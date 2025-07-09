@@ -161,6 +161,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (operation == null)
             throw new ArgumentNullException(nameof(operation));
 
+        await ElasticIndex.EnsureIndexAsync(id).AnyContext();
+
         options = ConfigureOptions(options.As<T>());
 
         if (operation is ScriptPatch scriptOperation)
@@ -179,7 +181,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
             if (!response.IsValid)
-                throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
+            {
+                if (response.ApiCall is { HttpStatusCode: 404 })
+                    throw new DocumentNotFoundException(id);
+
+                throw new DocumentException(
+                    response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"),
+                    response.OriginalException);
+            }
         }
         else if (operation is PartialPatch partialOperation)
         {
@@ -197,7 +206,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
             if (!response.IsValid)
-                throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
+            {
+                if (response.ApiCall is { HttpStatusCode: 404 })
+                    throw new DocumentNotFoundException(id);
+
+                throw new DocumentException(
+                    response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"),
+                    response.OriginalException);
+            }
         }
         else if (operation is JsonPatch jsonOperation)
         {
@@ -222,7 +238,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 var response = await _client.LowLevel.GetAsync<GetResponse<IDictionary<string, object>>>(ElasticIndex.GetIndex(id), id.Value, ctx: ct).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
                 if (!response.IsValid)
-                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
+                {
+                    if (!response.Found)
+                        throw new DocumentNotFoundException(id);
+
+                    throw new DocumentException(
+                        response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"),
+                        response.OriginalException);
+                }
 
                 var jObject = JObject.FromObject(response.Source);
                 var target = (JToken)jObject;
@@ -277,7 +300,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 _logger.LogRequest(response, options.GetQueryLogLevel());
 
                 if (!response.IsValid)
-                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
+                {
+                    if (!response.Found)
+                        throw new DocumentNotFoundException(id);
+
+                    throw new DocumentException(
+                        response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"),
+                        response.OriginalException);
+                }
 
                 if (response.Source is IVersioned versionedDoc && response.PrimaryTerm.HasValue)
                     versionedDoc.Version = response.GetElasticVersion();
