@@ -40,6 +40,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected readonly Lazy<IElasticClient> _lazyClient;
     protected IElasticClient _client => _lazyClient.Value;
     protected readonly IResiliencePolicyProvider _resiliencePolicyProvider;
+    protected readonly IResiliencePolicy _resiliencePolicy;
 
     private ScopedCacheClient _scopedCacheClient;
 
@@ -51,8 +52,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         _lazyClient = new Lazy<IElasticClient>(() => index.Configuration.Client);
 
         SetCacheClient(index.Configuration.Cache);
-        _resiliencePolicyProvider = index.Configuration.ResiliencePolicyProvider;
         _logger = index.Configuration.LoggerFactory.CreateLogger(GetType());
+
+        _resiliencePolicyProvider = index.Configuration.ResiliencePolicyProvider;
+        _resiliencePolicy = _resiliencePolicyProvider.GetPolicy(GetType(), _logger, ElasticIndex.Configuration.TimeProvider);
     }
 
     protected IIndex ElasticIndex { get; private set; }

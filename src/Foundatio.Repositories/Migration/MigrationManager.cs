@@ -9,7 +9,6 @@ using Foundatio.Lock;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Resilience;
-using Foundatio.Utility;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -22,6 +21,7 @@ public class MigrationManager
     protected readonly IMigrationStateRepository _migrationStatusRepository;
     protected readonly ILockProvider _lockProvider;
     protected readonly IResiliencePolicyProvider _resiliencePolicyProvider;
+    protected readonly IResiliencePolicy _resiliencePolicy;
     protected readonly TimeProvider _timeProvider;
     protected readonly ILoggerFactory _loggerFactory;
     protected readonly ILogger _logger;
@@ -31,11 +31,13 @@ public class MigrationManager
     {
         _serviceProvider = serviceProvider;
         _timeProvider = serviceProvider.GetService<TimeProvider>() ?? TimeProvider.System;
-        _resiliencePolicyProvider = serviceProvider.GetService<IResiliencePolicyProvider>() ?? new ResiliencePolicyProvider();
         _migrationStatusRepository = migrationStatusRepository;
         _lockProvider = lockProvider;
         _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _logger = _loggerFactory.CreateLogger<MigrationManager>();
+
+        _resiliencePolicyProvider = serviceProvider.GetService<IResiliencePolicyProvider>() ?? new ResiliencePolicyProvider();
+        _resiliencePolicy = _resiliencePolicyProvider.GetPolicy<MigrationManager>(fallback => fallback.WithMaxAttempts(3).WithDelay(TimeSpan.Zero), _logger, _timeProvider);
     }
 
     public void AddMigrationsFromLoadedAssemblies()
@@ -102,12 +104,6 @@ public class MigrationManager
             if (!migrationStatus.NeedsMigration)
                 return MigrationResult.Success;
 
-            var policy = _resiliencePolicyProvider.GetPolicy<MigrationManager>();
-            if (policy is ResiliencePolicy resiliencePolicy)
-                policy = resiliencePolicy.Clone(3, delay: TimeSpan.Zero);
-            else
-                _logger.LogWarning("Unable to override resilience policy max attempts or retry interval for {JobType}", GetType().Name);
-
             foreach (var migrationInfo in migrationStatus.PendingMigrations)
             {
                 if (cancellationToken.IsCancellationRequested)
@@ -126,7 +122,7 @@ public class MigrationManager
                 {
                     var context = new MigrationContext(migrationsLock, _loggerFactory.CreateLogger(migrationInfo.Migration.GetType()), cancellationToken);
                     if (migrationInfo.Migration.MigrationType != MigrationType.Versioned)
-                        await policy.ExecuteAsync(async () =>
+                        await _resiliencePolicy.ExecuteAsync(async () =>
                         {
                             await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30));
                             if (cancellationToken.IsCancellationRequested)

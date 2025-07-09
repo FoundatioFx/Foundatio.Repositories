@@ -14,7 +14,6 @@ using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Resilience;
-using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Nest;
@@ -40,6 +39,7 @@ public class ElasticConfiguration : IElasticConfiguration
         LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _logger = LoggerFactory.CreateLogger(GetType());
         ResiliencePolicyProvider = resiliencePolicyProvider ?? cacheClient?.GetResiliencePolicyProvider() ?? new ResiliencePolicyProvider();
+        ResiliencePolicy = ResiliencePolicyProvider.GetPolicy<ElasticConfiguration>(_logger, TimeProvider);
         Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { CloneValues = true, ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
         _lockProvider = new CacheLockProvider(Cache, messageBus, TimeProvider, ResiliencePolicyProvider, LoggerFactory);
         _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15), TimeProvider, ResiliencePolicyProvider, LoggerFactory);
@@ -80,6 +80,7 @@ public class ElasticConfiguration : IElasticConfiguration
     public IMessageBus MessageBus { get; }
     public ILoggerFactory LoggerFactory { get; }
     public IResiliencePolicyProvider ResiliencePolicyProvider { get; }
+    public IResiliencePolicy ResiliencePolicy { get; }
     public TimeProvider TimeProvider { get; set; }
     public IReadOnlyCollection<IIndex> Indexes => _frozenIndexes.Value;
     public ICustomFieldDefinitionRepository CustomFieldDefinitionRepository => _customFieldDefinitionRepository.Value;
@@ -200,12 +201,11 @@ public class ElasticConfiguration : IElasticConfiguration
         if (outdatedIndexes.Count == 0)
             return;
 
-        var policy = ResiliencePolicyProvider.GetPolicy(GetType().Name);
         foreach (var outdatedIndex in outdatedIndexes)
         {
             try
             {
-                await policy.ExecuteAsync(async () =>
+                await ResiliencePolicy.ExecuteAsync(async () =>
                 {
                     await outdatedIndex.ReindexAsync((progress, message) =>
                             progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask)

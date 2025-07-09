@@ -65,7 +65,7 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
         await _client.Indices.RefreshAsync(Indices.All);
         _messageBus.ResetMessagesSent();
         sw.Stop();
-        _logger.LogInformation("Done removing data {Duration}", sw.Elapsed);
+        _logger.LogInformation("Done removing data {Duration:g}", sw.Elapsed);
 
         Log.DefaultLogLevel = minimumLevel;
     }

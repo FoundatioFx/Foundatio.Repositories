@@ -204,11 +204,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             if (jsonOperation.Patch == null || jsonOperation.Patch.Operations.Count == 0)
                 return;
 
-            var policy = _resiliencePolicyProvider.GetPolicy(GetType().Name);
-            if (policy is ResiliencePolicy resiliencePolicy)
-                policy = resiliencePolicy.Clone(options.GetRetryCount());
-            else
-                _logger.LogWarning("Unable to override resilience policy max attempts");
+            var policy = _resiliencePolicy;
+            if (options.HasRetryCount())
+            {
+                if (policy is ResiliencePolicy resiliencePolicy)
+                    policy = resiliencePolicy.Clone(options.GetRetryCount());
+                else
+                    _logger.LogWarning("Unable to override resilience policy max attempts");
+            }
 
             await policy.ExecuteAsync(async ct =>
             {
@@ -256,11 +259,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             if (actionPatch.Actions == null || actionPatch.Actions.Count == 0)
                 return;
 
-            var policy = _resiliencePolicyProvider.GetPolicy(GetType().Name);
-            if (policy is ResiliencePolicy resiliencePolicy)
-                policy = resiliencePolicy.Clone(options.GetRetryCount());
-            else
-                _logger.LogWarning("Unable to override resilience policy max attempts");
+            var policy = _resiliencePolicy;
+            if (options.HasRetryCount())
+            {
+                if (policy is ResiliencePolicy resiliencePolicy)
+                    policy = resiliencePolicy.Clone(options.GetRetryCount());
+                else
+                    _logger.LogWarning("Unable to override resilience policy max attempts");
+            }
 
             await policy.ExecuteAsync(async ct =>
             {
