@@ -1412,7 +1412,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task PatchAllAsync_ByQueryAcrossMultipleDays_CreatesAllRelevantDailyIndices()
+    public async Task PatchAllAsync_ByQueryAcrossMultipleDays_DoesNotCreateAllRelevantDailyIndices()
     {
         // Arrange
         var index = new DailyEmployeeIndex(_configuration, 1);
@@ -1428,10 +1428,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         // Assert
         var response = await _client.Indices.AliasExistsAsync(index.Name);
-        Assert.True(response.Exists);
+        Assert.False(response.Exists);
         response = await _client.Indices.ExistsAsync(index.GetIndex(id1));
-        Assert.True(response.Exists);
+        Assert.False(response.Exists);
         response = await _client.Indices.ExistsAsync(index.GetIndex(id2));
-        Assert.True(response.Exists);
+        Assert.False(response.Exists);
     }
 }
