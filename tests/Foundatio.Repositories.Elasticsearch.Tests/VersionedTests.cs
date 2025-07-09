@@ -122,6 +122,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         };
 
         var response = await _client.UpdateAsync(request);
+        Assert.True(response.IsValid);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
         Assert.Equal("1:1", employee.Version);

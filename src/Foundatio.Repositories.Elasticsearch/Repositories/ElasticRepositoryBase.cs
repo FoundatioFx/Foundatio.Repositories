@@ -181,7 +181,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
             if (!response.IsValid)
-                throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
+            {
+                if (response.ApiCall is { HttpStatusCode: 404 })
+                    throw new DocumentNotFoundException(id);
+
+                throw new DocumentException(
+                    response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"),
+                    response.OriginalException);
+            }
         }
         else if (operation is PartialPatch partialOperation)
         {
@@ -199,7 +206,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
             if (!response.IsValid)
-                throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
+            {
+                if (response.ApiCall is { HttpStatusCode: 404 })
+                    throw new DocumentNotFoundException(id);
+
+                throw new DocumentException(
+                    response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"),
+                    response.OriginalException);
+            }
         }
         else if (operation is JsonPatch jsonOperation)
         {
