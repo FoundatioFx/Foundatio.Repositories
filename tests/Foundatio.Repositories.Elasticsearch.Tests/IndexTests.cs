@@ -1079,7 +1079,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var patch = new ActionPatch<Employee>(e => e.Name = "Patched");
 
         // Act
-        await Assert.ThrowsAsync<DocumentException>(async () => await repository.PatchAsync(id, patch));
+        await Assert.ThrowsAsync<DocumentNotFoundException>(async () => await repository.PatchAsync(id, patch));
 
         // Assert
         var response = await _client.Indices.ExistsAsync(index.Name);
@@ -1100,7 +1100,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var patch = new PartialPatch(new { Name = "Patched" });
 
         // Act
-        await Assert.ThrowsAsync<DocumentException>(async () => await repository.PatchAsync(id, patch));
+        await Assert.ThrowsAsync<DocumentNotFoundException>(async () => await repository.PatchAsync(id, patch));
 
         // Assert
         var response = await _client.Indices.ExistsAsync(index.Name);
@@ -1123,7 +1123,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var patch = new JsonPatch(patchDoc);
 
         // Act
-        await Assert.ThrowsAsync<DocumentException>(async () => await repository.PatchAsync(id, patch));
+        await Assert.ThrowsAsync<DocumentNotFoundException>(async () => await repository.PatchAsync(id, patch));
 
         // Assert
         var response = await _client.Indices.ExistsAsync(index.Name);
@@ -1144,7 +1144,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var patch = new ScriptPatch("ctx._source.name = 'Patched';");
 
         // Act
-        await Assert.ThrowsAsync<DocumentException>(async () => await repository.PatchAsync(id, patch));
+        await Assert.ThrowsAsync<DocumentNotFoundException>(async () => await repository.PatchAsync(id, patch));
 
         // Assert
         var response = await _client.Indices.ExistsAsync(index.Name);
@@ -1239,7 +1239,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var patch = new ActionPatch<LogEvent>(e => e.Value = 99);
 
         // Act
-        await Assert.ThrowsAsync<DocumentException>(async () => await repository.PatchAsync(id, patch));
+        await Assert.ThrowsAsync<DocumentNotFoundException>(async () => await repository.PatchAsync(id, patch));
 
         // Assert
         var response = await _client.Indices.AliasExistsAsync(index.Name);
@@ -1260,7 +1260,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var patch = new PartialPatch(new { Value = 99 });
 
         // Act
-        await Assert.ThrowsAsync<DocumentException>(async () => await repository.PatchAsync(id, patch));
+        await Assert.ThrowsAsync<DocumentNotFoundException>(async () => await repository.PatchAsync(id, patch));
 
         // Assert
         var response = await _client.Indices.AliasExistsAsync(index.Name);
@@ -1283,7 +1283,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var patch = new JsonPatch(patchDoc);
 
         // Act
-        await Assert.ThrowsAsync<DocumentException>(async () => await repository.PatchAsync(id, patch));
+        await Assert.ThrowsAsync<DocumentNotFoundException>(async () => await repository.PatchAsync(id, patch));
 
         // Assert
         var response = await _client.Indices.AliasExistsAsync(index.Name);
@@ -1304,7 +1304,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var patch = new ScriptPatch("ctx._source.value = 99;");
 
         // Act
-        await Assert.ThrowsAsync<DocumentException>(async () => await repository.PatchAsync(id, patch));
+        await Assert.ThrowsAsync<DocumentNotFoundException>(async () => await repository.PatchAsync(id, patch));
 
         // Assert
         var response = await _client.Indices.AliasExistsAsync(index.Name);
