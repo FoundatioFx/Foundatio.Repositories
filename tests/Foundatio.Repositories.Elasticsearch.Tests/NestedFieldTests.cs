@@ -31,7 +31,8 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
     public async Task FindAsync_WithNestedPeerReviewOrCondition_ReturnsMatchingEmployees()
     {
         // Arrange
-        List<Employee> employees = [
+        List<Employee> employees =
+        [
             EmployeeGenerator.Generate("alice_123", "Alice", peerReviews:
             [
                 new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 5 }
@@ -54,15 +55,16 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
 
         // Assert
         Assert.Equal(2, results.Documents.Count);
-        Assert.Contains(results.Documents, e => e.Name == "Alice");
-        Assert.Contains(results.Documents, e => e.Name == "Bob");
+        Assert.Contains(results.Documents, e => String.Equals(e.Name, "Alice"));
+        Assert.Contains(results.Documents, e => String.Equals(e.Name, "Bob"));
     }
 
     [Fact]
     public async Task CountAsync_WithNestedPeerReviewAggregation_ReturnsAggregationData()
     {
         // Arrange
-        List<Employee> employees = [
+        List<Employee> employees =
+        [
             EmployeeGenerator.Generate("alice_123", "Alice", peerReviews:
             [
                 new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 5 },
@@ -132,7 +134,8 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
     {
         // Arrange
         var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
-        List<Employee> employees = [
+        List<Employee> employees =
+        [
             EmployeeGenerator.Generate("employee1", nextReview: utcToday.SubtractDays(2), peerReviews:
             [
                 new PeerReview { ReviewerEmployeeId = "employee2", Rating = 4 }
@@ -233,10 +236,111 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task CountAsync_WithNestedAggregationsIncludeFiltering_ReturnsFilteredResults()
+    {
+        // Arrange
+        var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
+        List<Employee> employees =
+        [
+            EmployeeGenerator.Generate("employee1", nextReview: utcToday.SubtractDays(2), peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "employee2", Rating = 4 },
+                new PeerReview { ReviewerEmployeeId = "employee3", Rating = 5 }
+            ]),
+            EmployeeGenerator.Generate("employee2", nextReview: utcToday.SubtractDays(1), peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "employee1", Rating = 5 },
+                new PeerReview { ReviewerEmployeeId = "employee3", Rating = 3 }
+            ]),
+            EmployeeGenerator.Generate("employee3", nextReview: utcToday.SubtractDays(3), peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "employee1", Rating = 4 },
+                new PeerReview { ReviewerEmployeeId = "employee2", Rating = 5 }
+            ])
+        ];
+
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        // Act
+        const string aggregationsWithInclude = "terms:(peerReviews.reviewerEmployeeId~@include:employee1,employee2 peerReviews.rating~@include:4,5) max:peerReviews.rating min:peerReviews.rating";
+        var resultWithInclude = await _employeeRepository.CountAsync(q => q.AggregationsExpression(aggregationsWithInclude));
+
+        // Assert
+        Assert.Equal(3, resultWithInclude.Total);
+        Assert.Equal(2, resultWithInclude.Aggregations.Count);
+
+        var nestedPeerReviewsAggWithInclude = resultWithInclude.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
+        Assert.NotNull(nestedPeerReviewsAggWithInclude);
+
+        var reviewerTermsAggWithInclude = nestedPeerReviewsAggWithInclude.Aggregations.Terms<string>("terms_peerReviews.reviewerEmployeeId");
+        Assert.Equal(2, reviewerTermsAggWithInclude.Buckets.Count); // Only employee1 and employee2 should be included
+        Assert.Contains(reviewerTermsAggWithInclude.Buckets, b => String.Equals(b.Key, "employee1"));
+        Assert.Contains(reviewerTermsAggWithInclude.Buckets, b => String.Equals(b.Key, "employee2"));
+        Assert.DoesNotContain(reviewerTermsAggWithInclude.Buckets, b => String.Equals(b.Key, "employee3"));
+
+        var ratingTermsAggWithInclude = nestedPeerReviewsAggWithInclude.Aggregations.Terms<int>("terms_peerReviews.rating");
+        Assert.Equal(2, ratingTermsAggWithInclude.Buckets.Count); // Only ratings 4 and 5 should be included
+        Assert.Contains(ratingTermsAggWithInclude.Buckets, b => b.Key == 4);
+        Assert.Contains(ratingTermsAggWithInclude.Buckets, b => b.Key == 5);
+        Assert.DoesNotContain(ratingTermsAggWithInclude.Buckets, b => b.Key == 3);
+    }
+
+    [Fact]
+    public async Task CountAsync_WithNestedAggregationsExcludeFiltering_ReturnsFilteredResults()
+    {
+        // Arrange
+        var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
+        List<Employee> employees =
+        [
+            EmployeeGenerator.Generate("employee1", nextReview: utcToday.SubtractDays(2), peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "employee2", Rating = 4 },
+                new PeerReview { ReviewerEmployeeId = "employee3", Rating = 5 }
+            ]),
+            EmployeeGenerator.Generate("employee2", nextReview: utcToday.SubtractDays(1), peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "employee1", Rating = 5 },
+                new PeerReview { ReviewerEmployeeId = "employee3", Rating = 3 }
+            ]),
+            EmployeeGenerator.Generate("employee3", nextReview: utcToday.SubtractDays(3), peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "employee1", Rating = 4 },
+                new PeerReview { ReviewerEmployeeId = "employee2", Rating = 5 }
+            ])
+        ];
+
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        // Act
+        const string aggregationsWithExclude = "terms:(peerReviews.reviewerEmployeeId~@exclude:employee3 peerReviews.rating~@exclude:3) max:peerReviews.rating min:peerReviews.rating";
+        var resultWithExclude = await _employeeRepository.CountAsync(q => q.AggregationsExpression(aggregationsWithExclude));
+
+        // Assert
+        Assert.Equal(3, resultWithExclude.Total);
+        Assert.Equal(2, resultWithExclude.Aggregations.Count);
+
+        var nestedPeerReviewsAggWithExclude = resultWithExclude.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
+        Assert.NotNull(nestedPeerReviewsAggWithExclude);
+
+        var reviewerTermsAggWithExclude = nestedPeerReviewsAggWithExclude.Aggregations.Terms<string>("terms_peerReviews.reviewerEmployeeId");
+        Assert.Equal(2, reviewerTermsAggWithExclude.Buckets.Count); // employee3 should be excluded
+        Assert.Contains(reviewerTermsAggWithExclude.Buckets, b => String.Equals(b.Key, "employee1"));
+        Assert.Contains(reviewerTermsAggWithExclude.Buckets, b => String.Equals(b.Key, "employee2"));
+        Assert.DoesNotContain(reviewerTermsAggWithExclude.Buckets, b => String.Equals(b.Key, "employee3"));
+
+        var ratingTermsAggWithExclude = nestedPeerReviewsAggWithExclude.Aggregations.Terms<int>("terms_peerReviews.rating");
+        Assert.Equal(2, ratingTermsAggWithExclude.Buckets.Count); // rating 3 should be excluded
+        Assert.Contains(ratingTermsAggWithExclude.Buckets, b => b.Key == 4);
+        Assert.Contains(ratingTermsAggWithExclude.Buckets, b => b.Key == 5);
+        Assert.DoesNotContain(ratingTermsAggWithExclude.Buckets, b => b.Key == 3);
+    }
+
+    [Fact]
     public async Task CountAsync_WithNestedAggregationsSerialization_CanRoundtripBothSerializers()
     {
         // Arrange
-        List<Employee> employees = [
+        List<Employee> employees =
+        [
             EmployeeGenerator.Generate("alice_123", "Alice", peerReviews:
             [
                 new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 5 },
