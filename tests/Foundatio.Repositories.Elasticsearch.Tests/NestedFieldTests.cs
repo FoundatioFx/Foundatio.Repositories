@@ -32,13 +32,16 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
     {
         // Arrange
         List<Employee> employees = [
-            EmployeeGenerator.Generate("alice_123", "Alice", peerReviews: [
+            EmployeeGenerator.Generate("alice_123", "Alice", peerReviews:
+            [
                 new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 5 }
             ]),
-            EmployeeGenerator.Generate("bob_456", "Bob", peerReviews: [
+            EmployeeGenerator.Generate("bob_456", "Bob", peerReviews:
+            [
                 new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 4 }
             ]),
-            EmployeeGenerator.Generate("charlie_789", "Charlie", peerReviews: [
+            EmployeeGenerator.Generate("charlie_789", "Charlie", peerReviews:
+            [
                 new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 2 }
             ])
         ];
@@ -60,15 +63,18 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
     {
         // Arrange
         List<Employee> employees = [
-            EmployeeGenerator.Generate("alice_123", "Alice", peerReviews: [
+            EmployeeGenerator.Generate("alice_123", "Alice", peerReviews:
+            [
                 new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 5 },
                 new PeerReview { ReviewerEmployeeId = "charlie_789", Rating = 4 }
             ]),
-            EmployeeGenerator.Generate("bob_456", "Bob", peerReviews: [
+            EmployeeGenerator.Generate("bob_456", "Bob", peerReviews:
+            [
                 new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 3 },
                 new PeerReview { ReviewerEmployeeId = "charlie_789", Rating = 5 }
             ]),
-            EmployeeGenerator.Generate("charlie_789", "Charlie", peerReviews: [
+            EmployeeGenerator.Generate("charlie_789", "Charlie", peerReviews:
+            [
                 new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 4 },
                 new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 2 }
             ])
@@ -96,13 +102,16 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         const string specialReviewerId = "special_reviewer_123";
         List<Employee> employees =
         [
-            EmployeeGenerator.Generate("alice_123", "Alice", peerReviews: [
+            EmployeeGenerator.Generate("alice_123", "Alice", peerReviews:
+            [
                 new PeerReview { ReviewerEmployeeId = specialReviewerId, Rating = 5 }
             ]),
-            EmployeeGenerator.Generate("bob_456", "Bob", peerReviews: [
+            EmployeeGenerator.Generate("bob_456", "Bob", peerReviews:
+            [
                 new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 4 }
             ]),
-            EmployeeGenerator.Generate("charlie_789", "Charlie", peerReviews: [
+            EmployeeGenerator.Generate("charlie_789", "Charlie", peerReviews:
+            [
                 new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 3 }
             ])
         ];
@@ -124,10 +133,12 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         // Arrange
         var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
         List<Employee> employees = [
-            EmployeeGenerator.Generate("employee1", nextReview: utcToday.SubtractDays(2), peerReviews: [
+            EmployeeGenerator.Generate("employee1", nextReview: utcToday.SubtractDays(2), peerReviews:
+            [
                 new PeerReview { ReviewerEmployeeId = "employee2", Rating = 4 }
             ]),
-            EmployeeGenerator.Generate("employee2", nextReview: utcToday.SubtractDays(1), peerReviews: [
+            EmployeeGenerator.Generate("employee2", nextReview: utcToday.SubtractDays(1), peerReviews:
+            [
                 new PeerReview { ReviewerEmployeeId = "employee1", Rating = 5 }
             ])
         ];
@@ -145,7 +156,10 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         Assert.Single(result);
 
         var nestedReviewRatingAgg = result["nested_reviewRating"] as SingleBucketAggregate;
+        Assert.NotNull(nestedReviewRatingAgg);
+
         var termsRatingAgg = nestedReviewRatingAgg.Aggregations["terms_rating"] as BucketAggregate;
+        Assert.NotNull(termsRatingAgg);
         Assert.Equal(2, termsRatingAgg.Items.Count);
 
         // Act - Test nested aggregation with filter
@@ -161,6 +175,8 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         Assert.Single(result);
 
         var nestedReviewRatingFilteredAgg = result["nested_reviewRating"] as SingleBucketAggregate;
+        Assert.NotNull(nestedReviewRatingFilteredAgg);
+
         var userFilteredAgg = nestedReviewRatingFilteredAgg.Aggregations["user_" + employees[0].Id] as SingleBucketAggregate;
         Assert.NotNull(userFilteredAgg);
         Assert.Single(userFilteredAgg.Aggregations.Terms("terms_rating").Buckets);
@@ -173,16 +189,20 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
     {
         // Arrange
         var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
-        List<Employee> employees = [
-            EmployeeGenerator.Generate("employee1", nextReview: utcToday.SubtractDays(2), peerReviews: [
+        List<Employee> employees =
+        [
+            EmployeeGenerator.Generate("employee1", nextReview: utcToday.SubtractDays(2), peerReviews:
+            [
                 new PeerReview { ReviewerEmployeeId = "employee2", Rating = 4 },
                 new PeerReview { ReviewerEmployeeId = "employee3", Rating = 5 }
             ]),
-            EmployeeGenerator.Generate("employee2", nextReview: utcToday.SubtractDays(1), peerReviews: [
+            EmployeeGenerator.Generate("employee2", nextReview: utcToday.SubtractDays(1), peerReviews:
+            [
                 new PeerReview { ReviewerEmployeeId = "employee1", Rating = 5 },
                 new PeerReview { ReviewerEmployeeId = "employee3", Rating = 3 }
             ]),
-            EmployeeGenerator.Generate("employee3", nextReview: utcToday.SubtractDays(3), peerReviews: [
+            EmployeeGenerator.Generate("employee3", nextReview: utcToday.SubtractDays(3), peerReviews:
+            [
                 new PeerReview { ReviewerEmployeeId = "employee1", Rating = 4 },
                 new PeerReview { ReviewerEmployeeId = "employee2", Rating = 5 }
             ])
@@ -217,15 +237,18 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
     {
         // Arrange
         List<Employee> employees = [
-            EmployeeGenerator.Generate("alice_123", "Alice", peerReviews: [
+            EmployeeGenerator.Generate("alice_123", "Alice", peerReviews:
+            [
                 new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 5 },
                 new PeerReview { ReviewerEmployeeId = "charlie_789", Rating = 4 }
             ]),
-            EmployeeGenerator.Generate("bob_456", "Bob", peerReviews: [
+            EmployeeGenerator.Generate("bob_456", "Bob", peerReviews:
+            [
                 new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 3 },
                 new PeerReview { ReviewerEmployeeId = "charlie_789", Rating = 5 }
             ]),
-            EmployeeGenerator.Generate("charlie_789", "Charlie", peerReviews: [
+            EmployeeGenerator.Generate("charlie_789", "Charlie", peerReviews:
+            [
                 new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 4 },
                 new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 2 }
             ])
