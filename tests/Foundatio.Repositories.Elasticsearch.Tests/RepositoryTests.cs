@@ -1109,7 +1109,6 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
             await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
             Assert.Equal(0, countdownEvent.CurrentCount);
-
         }
         finally
         {
@@ -1290,7 +1289,6 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             await _identityRepository.RemoveAllAsync(o => o.ImmediateConsistency());
             await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromMilliseconds(250)).Token);
             Assert.Equal(0, countdownEvent.CurrentCount);
-
         }
         finally
         {

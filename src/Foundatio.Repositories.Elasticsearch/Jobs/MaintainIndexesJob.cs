@@ -42,7 +42,6 @@ public class MaintainIndexesJob : IJob
 
             if (!success)
                 _logger.LogInformation("Unable to acquire index maintenance lock.");
-
         }
         catch (Exception ex)
         {

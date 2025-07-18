@@ -129,7 +129,6 @@ public class JsonDiffer
                 yield return operation;
             }
             commonHead++;
-
         }
 
         // separate common tail

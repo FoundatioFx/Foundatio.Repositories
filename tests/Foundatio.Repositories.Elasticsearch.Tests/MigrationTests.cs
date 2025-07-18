@@ -265,7 +265,6 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Assert.NotEqual(DateTime.MinValue, migrationState.StartedUtc);
         Assert.NotNull(migrationState.CompletedUtc);
         Assert.Null(migrationState.ErrorMessage);
-
     }
 }
 

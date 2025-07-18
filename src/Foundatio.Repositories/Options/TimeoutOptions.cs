@@ -5,7 +5,6 @@ namespace Foundatio.Repositories
 {
     public static class TimeoutOptionsExtensions
     {
-
         internal const string QueryTimeoutKey = "@QueryTimeout";
         public static T Timeout<T>(this T options, TimeSpan timeout) where T : ICommandOptions
         {
