@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -117,18 +117,20 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         var request = new UpdateRequest<Employee, Employee>(_configuration.Employees.Name, employee.Id)
         {
-            Script = new InlineScript("ctx._source.version = 112:2"),
+            Script = new InlineScript("ctx._source.version = '112:2'"),
             Refresh = Refresh.True
         };
 
         var response = await _client.UpdateAsync(request);
+        _logger.LogRequest(response);
+        Assert.True(response.IsValid);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
-        Assert.Equal("1:1", employee.Version);
+        Assert.Equal("1:2", employee.Version);
 
         employee.CompanyName = "updated again";
         employee = await _employeeRepository.SaveAsync(employee);
-        Assert.Equal("1:2", employee.Version);
+        Assert.Equal("1:3", employee.Version);
     }
 
     [Fact]

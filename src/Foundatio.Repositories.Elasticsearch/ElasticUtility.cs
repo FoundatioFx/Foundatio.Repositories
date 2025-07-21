@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Microsoft.Extensions.Logging;
@@ -30,18 +31,21 @@ public class ElasticUtility
     public async Task<bool> SnapshotRepositoryExistsAsync(string repository)
     {
         var repositoriesResponse = await _client.Snapshot.GetRepositoryAsync(new GetRepositoryRequest(repository)).AnyContext();
+        _logger.LogRequest(repositoriesResponse);
         return repositoriesResponse.Repositories.Count > 0;
     }
 
     public async Task<bool> SnapshotInProgressAsync()
     {
         var repositoriesResponse = await _client.Snapshot.GetRepositoryAsync().AnyContext();
+        _logger.LogRequest(repositoriesResponse);
         if (repositoriesResponse.Repositories.Count == 0)
             return false;
 
         foreach (string repo in repositoriesResponse.Repositories.Keys)
         {
             var snapshotsResponse = await _client.Cat.SnapshotsAsync(new CatSnapshotsRequest(repo)).AnyContext();
+            _logger.LogRequest(snapshotsResponse);
             foreach (var snapshot in snapshotsResponse.Records)
             {
                 if (snapshot.Status == "IN_PROGRESS")
@@ -50,6 +54,7 @@ public class ElasticUtility
         }
 
         var tasksResponse = await _client.Tasks.ListAsync().AnyContext();
+        _logger.LogRequest(tasksResponse);
         foreach (var node in tasksResponse.Nodes.Values)
         {
             foreach (var task in node.Tasks.Values)
@@ -65,12 +70,14 @@ public class ElasticUtility
     public async Task<ICollection<string>> GetSnapshotListAsync(string repository)
     {
         var snapshotsResponse = await _client.Cat.SnapshotsAsync(new CatSnapshotsRequest(repository)).AnyContext();
+        _logger.LogRequest(snapshotsResponse);
         return snapshotsResponse.Records.Select(r => r.Id).ToList();
     }
 
     public async Task<ICollection<string>> GetIndexListAsync()
     {
         var indicesResponse = await _client.Cat.IndicesAsync(new CatIndicesRequest()).AnyContext();
+        _logger.LogRequest(indicesResponse);
         return indicesResponse.Records.Select(r => r.Index).ToList();
     }
 
@@ -99,30 +106,31 @@ public class ElasticUtility
         if (!success)
             throw new RepositoryException();
 
-        var res = await _client.Snapshot.SnapshotAsync(new SnapshotRequest(options.Repository, options.Name)
+        var snapshotResponse = await _client.Snapshot.SnapshotAsync(new SnapshotRequest(options.Repository, options.Name)
         {
             Indices = options.Indices != null ? Indices.Index(options.Indices) : Indices.All,
             WaitForCompletion = false,
             IgnoreUnavailable = options.IgnoreUnavailable,
             IncludeGlobalState = options.IncludeGlobalState
         }).AnyContext();
+        _logger.LogRequest(snapshotResponse);
 
-        // wait for snapshot to be success in loop
+        // TODO: wait for snapshot to be success in loop
 
         return false;
-        // should we use lock provider as well as checking for WaitForSafeToSnapshotAsync?
-        // create a new snapshot in the repository with retries
+        // TODO: should we use lock provider as well as checking for WaitForSafeToSnapshotAsync?
+        // TODO: create a new snapshot in the repository with retries
     }
 
     public Task<bool> DeleteSnapshotsAsync(string repository, ICollection<string> snapshots, int? maxRetries = null, TimeSpan? retryInterval = null)
     {
-        // attempt to delete all indices with retries and wait interval
+        // TODO: attempt to delete all indices with retries and wait interval
         return Task.FromResult(true);
     }
 
     public Task<bool> DeleteIndicesAsync(ICollection<string> indices, int? maxRetries = null, TimeSpan? retryInterval = null)
     {
-        // attempt to delete all indices with retries
+        // TODO: attempt to delete all indices with retries
         return Task.FromResult(true);
     }
 }

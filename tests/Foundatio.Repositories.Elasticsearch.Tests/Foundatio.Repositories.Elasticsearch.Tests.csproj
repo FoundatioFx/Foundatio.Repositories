@@ -5,7 +5,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Exceptionless.RandomData" Version="1.2.2" />
-    <PackageReference Include="Jint" Version="4.3.0" />
+    <PackageReference Include="Jint" Version="4.4.0" />
     <PackageReference Include="NEST.JsonNetSerializer" Version="7.17.5" />
     <PackageReference Include="TimeZoneConverter" Version="7.0.0" />
   </ItemGroup>

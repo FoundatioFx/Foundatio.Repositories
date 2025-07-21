@@ -78,12 +78,18 @@ public sealed class DailyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public Task AddAsyncConcurrentUpdates()
+    public async Task AddAsyncConcurrentUpdates()
     {
-        return Parallel.ForEachAsync(Enumerable.Range(0, 50), async (i, _) =>
+        // The outer loop divides the iterations into 5 batches, each representing a different day offset.
+        // Within each batch, the inner Parallel.ForEachAsync loop performs 10 concurrent updates.
+        // This structure ensures controlled concurrency while simulating updates across multiple days.
+        for (int index = 0; index < 5; index++)
         {
-            var history = await _fileAccessHistoryRepository.AddAsync(new FileAccessHistory { AccessedDateUtc = DateTime.UtcNow });
-            Assert.NotNull(history?.Id);
-        });
+            await Parallel.ForEachAsync(Enumerable.Range(0, 10), async (_, _) =>
+            {
+                var history = await _fileAccessHistoryRepository.AddAsync(new FileAccessHistory { AccessedDateUtc = DateTime.UtcNow.AddDays(index) });
+                Assert.NotNull(history?.Id);
+            });
+        }
     }
 }
