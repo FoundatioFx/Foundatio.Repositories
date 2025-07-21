@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -115,6 +115,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         Assert.Equal(employee, await _employeeRepository.GetByIdAsync(employee.Id));
 
+        // Try and update the version directly which will fail.
         var request = new UpdateRequest<Employee, Employee>(_configuration.Employees.Name, employee.Id)
         {
             Script = new InlineScript("ctx._source.version = 112:2"),
@@ -122,6 +123,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         };
 
         var response = await _client.UpdateAsync(request);
+        _logger.LogRequest(response);
+        Assert.False(response.IsValid);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
         Assert.Equal("1:1", employee.Version);
