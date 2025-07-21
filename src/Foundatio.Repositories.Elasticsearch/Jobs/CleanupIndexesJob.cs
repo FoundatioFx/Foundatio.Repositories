@@ -57,10 +57,10 @@ public class CleanupIndexesJob : IJob
         var result = await _client.Cat.IndicesAsync(
             d => d.RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
         sw.Stop();
-        _logger.LogRequest(result);
 
         if (result.IsValid)
         {
+            _logger.LogRequest(result);
             _logger.LogInformation("Retrieved list of {IndexCount} indexes in {Duration:g}", result.Records?.Count, sw.Elapsed.ToWords(true));
         }
         else

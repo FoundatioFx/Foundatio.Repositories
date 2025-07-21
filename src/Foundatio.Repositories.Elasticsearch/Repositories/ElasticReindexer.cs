@@ -172,9 +172,11 @@ public class ElasticReindexer
         do
         {
             var status = await _client.Tasks.GetTaskAsync(result.Task, null, cancellationToken).AnyContext();
-            _logger.LogRequest(status);
-
-            if (!status.IsValid)
+            if (status.IsValid)
+            {
+                _logger.LogRequest(status);
+            }
+            else
             {
                 _logger.LogErrorRequest(status, "Error getting task status while reindexing: {OldIndex} -> {NewIndex}", workItem.OldIndex, workItem.NewIndex);
                 statusGetFails++;

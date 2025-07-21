@@ -631,13 +631,18 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     return b;
                 }).AnyContext();
-                _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
 
-                if (!bulkResult.IsValid)
+                if (bulkResult.IsValid)
+                {
+                    _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
+                }
+                else
                 {
                     if (bulkResult.ItemsWithErrors.All(i => i.Status == 409))
                     {
-                        var ids = bulkResult.ItemsWithErrors.Where(i => i.Status == 409).Select(i => i.Id).ToArray();
+                        _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
+
+                        string[] ids = bulkResult.ItemsWithErrors.Where(i => i.Status == 409).Select(i => i.Id).ToArray();
                         await PatchAsync(ids, operation, options);
                     }
                     else
@@ -700,13 +705,18 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     return b;
                 }).AnyContext();
-                _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
 
-                if (!bulkResult.IsValid)
+                if (bulkResult.IsValid)
+                {
+                    _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
+                }
+                else
                 {
                     if (bulkResult.ItemsWithErrors.All(i => i.Status == 409))
                     {
-                        var ids = bulkResult.ItemsWithErrors.Where(i => i.Status == 409).Select(i => i.Id).ToArray();
+                        _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
+
+                        string[] ids = bulkResult.ItemsWithErrors.Where(i => i.Status == 409).Select(i => i.Id).ToArray();
                         await PatchAsync(ids, operation, options);
                     }
                     else
@@ -816,9 +826,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                         return b;
                     }).AnyContext();
-                    _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
 
-                    if (!bulkResult.IsValid)
+                    if (bulkResult.IsValid)
+                    {
+                        _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
+                    }
+                    else
                     {
                         _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
                         return false;
