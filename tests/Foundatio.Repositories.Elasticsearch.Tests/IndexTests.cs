@@ -990,8 +990,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var index = new DailyEmployeeIndex(_configuration, 2);
         var negativeTimeSpan = TimeSpan.FromDays(-1);
 
-        // Act & Assert
+        // Act
         var ex = Assert.Throws<ArgumentException>(() => index.MaxIndexAge = negativeTimeSpan);
+
+        // Assert
         Assert.Contains("MaxIndexAge must be positive", ex.Message);
     }
 
@@ -1002,8 +1004,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var index = new DailyEmployeeIndex(_configuration, 2);
         var zeroTimeSpan = TimeSpan.Zero;
 
-        // Act & Assert
+        // Act
         var ex = Assert.Throws<ArgumentException>(() => index.MaxIndexAge = zeroTimeSpan);
+
+        // Assert
         Assert.Contains("MaxIndexAge must be positive", ex.Message);
     }
 

@@ -44,6 +44,7 @@ public class SnapshotJob : IJob
     public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default)
     {
         var hasSnapshotRepositoryResponse = await _client.Snapshot.GetRepositoryAsync(r => r.RepositoryName(Repository), cancellationToken);
+        _logger.LogRequest(hasSnapshotRepositoryResponse);
         if (!hasSnapshotRepositoryResponse.IsValid)
         {
             if (hasSnapshotRepositoryResponse.ApiCall.HttpStatusCode == 404)

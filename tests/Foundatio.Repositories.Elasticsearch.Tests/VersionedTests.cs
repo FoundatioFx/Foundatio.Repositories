@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -122,6 +122,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         };
 
         var response = await _client.UpdateAsync(request);
+        _logger.LogRequest(response);
         Assert.True(response.IsValid);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id);

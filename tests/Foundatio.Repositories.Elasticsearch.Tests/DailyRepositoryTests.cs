@@ -80,6 +80,9 @@ public sealed class DailyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task AddAsyncConcurrentUpdates()
     {
+        // The outer loop divides the iterations into 5 batches, each representing a different day offset.
+        // Within each batch, the inner Parallel.ForEachAsync loop performs 10 concurrent updates.
+        // This structure ensures controlled concurrency while simulating updates across multiple days.
         for (int index = 0; index < 5; index++)
         {
             await Parallel.ForEachAsync(Enumerable.Range(0, 10), async (_, _) =>

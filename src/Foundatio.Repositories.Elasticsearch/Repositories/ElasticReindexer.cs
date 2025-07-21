@@ -93,7 +93,8 @@ public class ElasticReindexer
             }
         }
 
-        await _client.Indices.RefreshAsync(Indices.All).AnyContext();
+        var refreshResponse = await _client.Indices.RefreshAsync(Indices.All).AnyContext();
+        _logger.LogRequest(refreshResponse);
 
         ReindexResult secondPassResult = null;
         if (!String.IsNullOrEmpty(workItem.TimestampField))
@@ -111,13 +112,21 @@ public class ElasticReindexer
         bool hasFailures = totalFailures > 0;
         if (!hasFailures && workItem.DeleteOld && workItem.OldIndex != workItem.NewIndex)
         {
-            await _client.Indices.RefreshAsync(Indices.All).AnyContext();
-            long newDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.NewIndex)).AnyContext()).Count;
-            long oldDocCount = (await _client.CountAsync<object>(d => d.Index(workItem.OldIndex)).AnyContext()).Count;
-            await progressCallbackAsync(98, $"Old Docs: {oldDocCount} New Docs: {newDocCount}").AnyContext();
-            if (newDocCount >= oldDocCount)
+            refreshResponse = await _client.Indices.RefreshAsync(Indices.All).AnyContext();
+            _logger.LogRequest(refreshResponse);
+
+            var newDocCountResponse = await _client.CountAsync<object>(d => d.Index(workItem.NewIndex)).AnyContext();
+            _logger.LogRequest(newDocCountResponse);
+
+            var oldDocCountResponse = await _client.CountAsync<object>(d => d.Index(workItem.OldIndex)).AnyContext();
+            _logger.LogRequest(oldDocCountResponse);
+
+            await progressCallbackAsync(98, $"Old Docs: {oldDocCountResponse.Count} New Docs: {newDocCountResponse.Count}").AnyContext();
+            if (newDocCountResponse.Count >= oldDocCountResponse.Count)
             {
-                await _client.Indices.DeleteAsync(Indices.Index(workItem.OldIndex)).AnyContext();
+                var deleteIndexResponse = await _client.Indices.DeleteAsync(Indices.Index(workItem.OldIndex)).AnyContext();
+                _logger.LogRequest(deleteIndexResponse);
+
                 await progressCallbackAsync(99, $"Deleted index: {workItem.OldIndex}").AnyContext();
             }
         }
@@ -146,6 +155,7 @@ public class ElasticReindexer
 
                 return d;
             }, ct).AnyContext();
+            _logger.LogRequest(response);
 
             return response;
         }, cancellationToken).AnyContext();
@@ -162,12 +172,9 @@ public class ElasticReindexer
         do
         {
             var status = await _client.Tasks.GetTaskAsync(result.Task, null, cancellationToken).AnyContext();
+            _logger.LogRequest(status);
 
-            if (status.IsValid)
-            {
-                _logger.LogRequest(status);
-            }
-            else
+            if (!status.IsValid)
             {
                 _logger.LogErrorRequest(status, "Error getting task status while reindexing: {OldIndex} -> {NewIndex}", workItem.OldIndex, workItem.NewIndex);
                 statusGetFails++;

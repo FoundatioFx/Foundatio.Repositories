@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -403,13 +403,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             return b;
         }).AnyContext();
+        _logger.LogRequest(bulkResponse, options.GetQueryLogLevel());
 
         // TODO: Is there a better way to handle failures?
-        if (bulkResponse.IsValid)
-        {
-            _logger.LogRequest(bulkResponse, options.GetQueryLogLevel());
-        }
-        else
+        if (!bulkResponse.IsValid)
         {
             throw new DocumentException(bulkResponse.GetErrorMessage("Error bulk patching documents"), bulkResponse.OriginalException);
         }
@@ -520,12 +517,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 request.Routing = GetParentIdFunc(document);
 
             var response = await _client.DeleteAsync(request).AnyContext();
+            _logger.LogRequest(response, options.GetQueryLogLevel());
 
-            if (response.IsValid || response.ApiCall.HttpStatusCode == 404)
-            {
-                _logger.LogRequest(response, options.GetQueryLogLevel());
-            }
-            else
+            if (!response.IsValid && response.ApiCall.HttpStatusCode != 404)
             {
                 throw new DocumentException(response.GetErrorMessage($"Error removing document {ElasticIndex.GetIndex(document)}/{document.Id}"), response.OriginalException);
             }
@@ -549,11 +543,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 return bulk;
             }).AnyContext();
 
-            if (response.IsValid)
-            {
-                _logger.LogRequest(response, options.GetQueryLogLevel());
-            }
-            else
+            _logger.LogRequest(response, options.GetQueryLogLevel());
+            if (!response.IsValid)
             {
                 throw new DocumentException(response.GetErrorMessage("Error bulk removing documents"), response.OriginalException);
             }
@@ -767,11 +758,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 };
 
                 var response = await _client.UpdateByQueryAsync(request).AnyContext();
-                if (response.IsValid)
-                {
-                    _logger.LogRequest(response, options.GetQueryLogLevel());
-                }
-                else
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+                if (!response.IsValid)
                 {
                     throw new DocumentException(response.GetErrorMessage("Error occurred while patching by query"), response.OriginalException);
                 }
@@ -782,6 +770,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 {
                     attempts++;
                     var taskStatus = await _client.Tasks.GetTaskAsync(taskId, t => t.WaitForCompletion(false)).AnyContext();
+                    _logger.LogRequest(taskStatus, options.GetQueryLogLevel());
+
                     var status = taskStatus.Task.Status;
                     if (taskStatus.Completed)
                     {
@@ -826,12 +816,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                         return b;
                     }).AnyContext();
+                    _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
 
-                    if (bulkResult.IsValid)
-                    {
-                        _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
-                    }
-                    else
+                    if (!bulkResult.IsValid)
                     {
                         _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
                         return false;
@@ -905,12 +892,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             Conflicts = Conflicts.Proceed,
             Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext()
         }).AnyContext();
+        _logger.LogRequest(response, options.GetQueryLogLevel());
 
-        if (response.IsValid)
-        {
-            _logger.LogRequest(response, options.GetQueryLogLevel());
-        }
-        else
+        if (!response.IsValid)
         {
             throw new DocumentException(response.GetErrorMessage("Error removing documents"), response.OriginalException);
         }

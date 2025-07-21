@@ -406,7 +406,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             // clear the scroll
             string scrollId = result.GetScrollId();
             if (!String.IsNullOrEmpty(scrollId))
-                await _client.ClearScrollAsync(s => s.ScrollId(result.GetScrollId()));
+            {
+                var response = await _client.ClearScrollAsync(s => s.ScrollId(result.GetScrollId())).AnyContext();
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+            }
         }
 
         if (allowCaching && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
@@ -417,9 +420,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return result;
     }
 
-    public Task RemoveQueryAsync(string queryId)
+    public async Task RemoveQueryAsync(string queryId)
     {
-        return _client.AsyncSearch.DeleteAsync(queryId);
+        var response = await _client.AsyncSearch.DeleteAsync(queryId);
+        _logger.LogRequest(response);
     }
 
     private async Task<FindResults<TResult>> GetNextPageFunc<TResult>(FindResults<TResult> previousResults, IRepositoryQuery query, ICommandOptions options) where TResult : class, new()
@@ -438,7 +442,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
             // clear the scroll
             if (!results.HasMore)
-                await _client.ClearScrollAsync(s => s.ScrollId(scrollId));
+            {
+                var clearScrollResponse = await _client.ClearScrollAsync(s => s.ScrollId(scrollId));
+                _logger.LogRequest(clearScrollResponse, options.GetQueryLogLevel());
+            }
 
             return results;
         }
@@ -475,12 +482,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
         searchDescriptor.Size(1);
         var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
+        _logger.LogRequest(response, options.GetQueryLogLevel());
 
-        if (response.IsValid)
-        {
-            _logger.LogRequest(response, options.GetQueryLogLevel());
-        }
-        else
+        if (!response.IsValid)
         {
             if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                 return FindHit<T>.Empty;
@@ -532,11 +536,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                     s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
                 return s;
             }).AnyContext();
+            _logger.LogRequest(response, options.GetQueryLogLevel());
 
             if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
                 await RemoveQueryAsync(queryId);
 
-            _logger.LogRequest(response, options.GetQueryLogLevel());
             result = response.ToCountResult(options);
         }
         else if (options.ShouldUseAsyncQuery())
@@ -578,12 +582,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(0);
         searchDescriptor.DocValueFields(_idField.Value);
         var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
+        _logger.LogRequest(response, options.GetQueryLogLevel());
 
-        if (response.IsValid)
-        {
-            _logger.LogRequest(response, options.GetQueryLogLevel());
-        }
-        else
+        if (!response.IsValid)
         {
             if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                 return false;
