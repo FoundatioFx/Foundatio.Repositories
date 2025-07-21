@@ -995,7 +995,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     protected Task AddDocumentsToCacheWithKeyAsync(string cacheKey, T document, TimeSpan expiresIn)
     {
-
         return AddDocumentsToCacheWithKeyAsync(cacheKey, ToFindHit(document), expiresIn);
     }
 

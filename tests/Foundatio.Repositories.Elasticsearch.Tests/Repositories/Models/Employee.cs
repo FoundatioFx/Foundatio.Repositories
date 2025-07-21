@@ -201,7 +201,6 @@ public static class EmployeeGenerator
     }
 }
 
-
 public static class EmployeeWithCustomFieldsGenerator
 {
     public static readonly string DefaultCompanyId = ObjectId.GenerateNewId().ToString();

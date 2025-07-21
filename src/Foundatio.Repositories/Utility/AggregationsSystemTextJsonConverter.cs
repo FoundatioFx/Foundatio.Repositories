@@ -6,7 +6,6 @@ namespace Foundatio.Repositories.Utility;
 
 public class AggregationsSystemTextJsonConverter : System.Text.Json.Serialization.JsonConverter<IAggregate>
 {
-
     public override bool CanConvert(Type type)
     {
         return typeof(IAggregate).IsAssignableFrom(type);
@@ -41,7 +40,7 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
                     value = element.Deserialize<StatsAggregate>(options);
                     break;
                 case "tophits":
-                    // TODO: Have to get all the docs as JToken and 
+                    // TODO: Have to get all the docs as JToken and
                     //value = new TopHitsAggregate();
                     break;
                 case "value":

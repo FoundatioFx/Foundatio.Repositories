@@ -135,7 +135,6 @@ internal class JsonUtility
 
             default:
                 throw new NotImplementedException($"Kind: {element.ValueKind}");
-
         }
     }
 }
