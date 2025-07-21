@@ -105,7 +105,8 @@ public sealed class QueryableReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task SearchByAnalyzedTextFieldAsync()
     {
-        await _employeeRepository.AddAsync(new List<Employee> {
+        await _employeeRepository.AddAsync(new List<Employee>
+        {
             EmployeeGenerator.Generate(age: 19, name: "Blake Niemyjski")
         }, o => o.ImmediateConsistency());
 
