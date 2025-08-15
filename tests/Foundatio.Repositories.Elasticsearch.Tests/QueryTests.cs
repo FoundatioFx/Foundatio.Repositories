@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
@@ -13,11 +13,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 public sealed class QueryTests : ElasticRepositoryTestBase
 {
     private readonly ILogEventRepository _dailyRepository;
+    private readonly ILogEventRepository _dailyWithCompanyDefaultExcludeRepository;
     private readonly IEmployeeRepository _employeeRepository;
 
     public QueryTests(ITestOutputHelper output) : base(output)
     {
         _dailyRepository = new DailyLogEventRepository(_configuration);
+        _dailyWithCompanyDefaultExcludeRepository = new DailyLogEventWithCompanyDefaultExcludeRepository(_configuration);
         _employeeRepository = new EmployeeRepository(_configuration);
     }
 
@@ -259,6 +261,31 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
         Assert.Equal(default, companyLog.Date);
         Assert.Null(companyLog.Message);
+        Assert.Null(companyLog.CompanyId);
+    }
+
+    [Fact]
+    public async Task GetByCompanyWithIncludeWillOverrideDefaultExclude()
+    {
+        var log = await _dailyWithCompanyDefaultExcludeRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+        Assert.NotNull(log?.Id);
+
+        var results = await _dailyWithCompanyDefaultExcludeRepository.FindAsync(q => q.Include(e => e.CompanyId), o => o.QueryLogLevel(LogLevel.Warning));
+        Assert.Single(results.Documents);
+        var companyLog = results.Documents.Single();
+        Assert.Equal(log.Id, companyLog.Id);
+        Assert.NotNull(companyLog.CompanyId);
+
+        results = await _dailyWithCompanyDefaultExcludeRepository.FindAsync(q => q.Company(log.CompanyId), o => o.Include(e => e.CompanyId).QueryLogLevel(LogLevel.Warning));
+        Assert.Single(results.Documents);
+        companyLog = results.Documents.Single();
+        Assert.Equal(log.Id, companyLog.Id);
+        Assert.NotNull(companyLog.CompanyId);
+
+        results = await _dailyWithCompanyDefaultExcludeRepository.FindAsync(q => q.Company(log.CompanyId), o => o.QueryLogLevel(LogLevel.Warning));
+        Assert.Single(results.Documents);
+        companyLog = results.Documents.Single();
+        Assert.Equal(log.Id, companyLog.Id);
         Assert.Null(companyLog.CompanyId);
     }
 

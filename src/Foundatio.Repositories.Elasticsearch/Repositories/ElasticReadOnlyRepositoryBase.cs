@@ -771,32 +771,33 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     private (Field[] Includes, Field[] Excludes) GetResolvedIncludesAndExcludes(IRepositoryQuery query, ICommandOptions options)
     {
-        // includes
-
         var includes = new HashSet<Field>();
         includes.AddRange(query.GetIncludes());
         includes.AddRange(options.GetIncludes());
+        if (HasIdentity && includes.Count > 0)
+            includes.Add(_idField.Value);
 
-        var optionIncludeMask = options.GetIncludeMask();
+        string optionIncludeMask = options.GetIncludeMask();
         if (!String.IsNullOrEmpty(optionIncludeMask))
             includes.AddRange(FieldIncludeParser.ParseFieldPaths(optionIncludeMask).Select(f => (Field)f));
 
         var resolvedIncludes = ElasticIndex.MappingResolver.GetResolvedFields(includes).ToArray();
 
-        // excludes
-
         var excludes = new HashSet<Field>();
-        includes.AddRange(query.GetExcludes());
+        excludes.AddRange(query.GetExcludes());
         excludes.AddRange(options.GetExcludes());
 
         if (_defaultExcludes.Count > 0 && excludes.Count == 0)
             excludes.AddRange(_defaultExcludes.Select(f => f.Value));
 
-        var optionExcludeMask = options.GetExcludeMask();
+        string optionExcludeMask = options.GetExcludeMask();
         if (!String.IsNullOrEmpty(optionExcludeMask))
             excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
 
-        var resolvedExcludes = ElasticIndex.MappingResolver.GetResolvedFields(excludes).ToArray();
+        // Remove any included fields from excludes
+        var resolvedExcludes = ElasticIndex.MappingResolver.GetResolvedFields(excludes)
+            .Where(f => !resolvedIncludes.Contains(f))
+            .ToArray();
 
         return (resolvedIncludes, resolvedExcludes);
     }
@@ -810,7 +811,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             return true;
 
         var mode = options.GetSoftDeleteMode();
-        bool returnSoftDeletes = mode == SoftDeleteQueryMode.All || mode == SoftDeleteQueryMode.DeletedOnly;
+        bool returnSoftDeletes = mode is SoftDeleteQueryMode.All or SoftDeleteQueryMode.DeletedOnly;
         return returnSoftDeletes || !((ISupportSoftDeletes)document).IsDeleted;
     }
 

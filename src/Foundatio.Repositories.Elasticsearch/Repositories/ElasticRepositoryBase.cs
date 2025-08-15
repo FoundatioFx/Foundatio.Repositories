@@ -798,7 +798,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             }
             else
             {
-                if (!query.GetIncludes().Contains(_idField.Value))
+                if (HasIdentity && !query.GetIncludes().Contains(_idField.Value))
                     query.Include(_idField.Value);
 
                 affectedRecords += await BatchProcessAsync(query, async results =>
@@ -881,8 +881,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         bool hasRemoveListeners = DocumentsChanging.HasHandlers || DocumentsChanged.HasHandlers || DocumentsRemoving.HasHandlers || DocumentsRemoved.HasHandlers;
         if (hasRemoveListeners || (IsCacheEnabled && options.ShouldUseCache(true)))
         {
+            var includes = query.GetIncludes();
             foreach (var field in _propertiesRequiredForRemove.Select(f => f.Value))
-                if (field != null && !query.GetIncludes().Contains(field))
+                if (field != null && !includes.Contains(field))
                     query.Include(field);
 
             if (!options.HasPageLimit())
@@ -916,6 +917,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         {
             if (IsCacheEnabled)
                 await InvalidateCacheByQueryAsync(query.As<T>());
+
             await OnDocumentsRemovedAsync(EmptyList, options).AnyContext();
             await SendQueryNotificationsAsync(ChangeType.Removed, query, options).AnyContext();
         }
