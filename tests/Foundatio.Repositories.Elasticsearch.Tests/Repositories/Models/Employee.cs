@@ -150,7 +150,7 @@ public static class EmployeeGenerator
         EmploymentType = EmploymentType.FullTime
     };
 
-    public static Employee Generate(string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, string location = null, DateTime? lastReview = null, DateTimeOffset? nextReview = null, DateTime? createdUtc = null, DateTime? updatedUtc = null, EmploymentType? employmentType = null)
+    public static Employee Generate(string id = null, string name = null, int? age = null, int? yearsEmployed = null, string companyName = null, string companyId = null, string location = null, DateTime? lastReview = null, DateTimeOffset? nextReview = null, DateTime? createdUtc = null, DateTime? updatedUtc = null, EmploymentType? employmentType = null, PeerReview[] peerReviews = null)
     {
         return new Employee
         {
@@ -165,7 +165,8 @@ public static class EmployeeGenerator
             NextReview = nextReview.GetValueOrDefault(),
             CreatedUtc = createdUtc.GetValueOrDefault(),
             UpdatedUtc = updatedUtc.GetValueOrDefault(),
-            Location = location ?? RandomData.GetCoordinate()
+            Location = location ?? RandomData.GetCoordinate(),
+            PeerReviews = peerReviews
         };
     }
 
