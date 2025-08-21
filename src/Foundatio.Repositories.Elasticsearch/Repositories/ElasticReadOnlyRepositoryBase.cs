@@ -970,7 +970,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             await Cache.SetAsync(options.GetCacheKey(), findHits, options.GetExpiresIn()).AnyContext();
 
             // NOTE: Custom cache keys store the complete filtered result, but ID-based caching is skipped when includes/excludes are present to avoid incomplete data.
-            // Do not cache any find hits if you have includes or excludes set.
+            // This method also doesn't take into account any query includes or excludes but GetById(s) requests don't specify a query.
             if (options.GetIncludes().Count > 0 || options.GetExcludes().Count > 0)
                 return;
         }
