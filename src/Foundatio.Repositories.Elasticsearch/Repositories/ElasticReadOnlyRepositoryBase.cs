@@ -97,7 +97,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         if (IsCacheEnabled && options.ShouldReadCache())
         {
-            var value = await GetCachedFindHit(id).AnyContext();
+            var value = await GetCachedFindHit(id, options.GetCacheKey()).AnyContext();
 
             if (value?.Document != null)
             {
@@ -144,7 +144,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         var hits = new List<FindHit<T>>();
         if (IsCacheEnabled && options.ShouldReadCache())
-            hits.AddRange(await GetCachedFindHit(idList).AnyContext());
+            hits.AddRange(await GetCachedFindHit(idList, options.GetCacheKey()).AnyContext());
 
         var itemsToFind = idList.Except(hits.Select(i => (Id)i.Id)).ToList();
         if (itemsToFind.Count == 0)
@@ -892,7 +892,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 : null;
 
             _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey ?? id);
-
             return result;
         }
         catch (Exception ex)
@@ -967,7 +966,14 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected virtual async Task AddDocumentsToCacheAsync(ICollection<FindHit<T>> findHits, ICommandOptions options, bool isDirtyRead)
     {
         if (options.HasCacheKey())
+        {
             await Cache.SetAsync(options.GetCacheKey(), findHits, options.GetExpiresIn()).AnyContext();
+
+            // NOTE: This doesn't take into account any query includes or excludes but that isn't used by get by id/ids
+            // Do not cache any find hits if you have includes or excludes set.
+            if (options.GetIncludes().Count > 0 || options.GetExcludes().Count > 0)
+                return;
+        }
 
         // don't add dirty read documents by id as they may be out of sync due to eventual consistency
         if (isDirtyRead)
