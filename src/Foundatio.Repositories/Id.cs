@@ -5,11 +5,7 @@ using System.Linq;
 
 namespace Foundatio.Repositories;
 
-#if NETSTANDARD
-public struct Id : IEquatable<Id>
-#else
 public record struct Id
-#endif
 {
     public static readonly Id Null = new();
 
@@ -33,39 +29,6 @@ public record struct Id
         return String.Concat(Routing, "-", Value);
     }
 
-#if NETSTANDARD
-    public bool Equals(Id other)
-    {
-        if (ReferenceEquals(null, other)) return false;
-        if (ReferenceEquals(this, other)) return true;
-        return Equals(Value, other.Value) && Equals(Routing, other.Routing);
-    }
-
-    public override bool Equals(object obj)
-    {
-        if (ReferenceEquals(null, obj)) return false;
-        if (ReferenceEquals(this, obj)) return true;
-        return obj.GetType() == GetType() && Equals((Id)obj);
-    }
-
-    public override int GetHashCode()
-    {
-        unchecked
-        {
-            return ((Value?.GetHashCode() ?? 0) * 397) ^ (Routing?.GetHashCode() ?? 0);
-        }
-    }
-
-    public static bool operator ==(Id left, Id right)
-    {
-        return Equals(left, right);
-    }
-
-    public static bool operator !=(Id left, Id right)
-    {
-        return !Equals(left, right);
-    }
-#endif
 }
 
 public class Ids : List<Id>
