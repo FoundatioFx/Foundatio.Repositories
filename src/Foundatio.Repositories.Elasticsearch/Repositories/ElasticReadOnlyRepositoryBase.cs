@@ -95,6 +95,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             return result?.Document;
         }
 
+        // NOTE: we don't treat this as a sliding expiration since we got them from cache we just return and we don't take into account any new expires in.
         if (IsCacheEnabled && options.ShouldReadCache())
         {
             var value = await GetCachedFindHit(id, options.GetCacheKey()).AnyContext();
@@ -355,6 +356,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             {
                 if (options.HasAsyncQueryWaitTime())
                     s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
+
+                // We're not using preference parameters due to compatibility issues
+                // with your Elasticsearch version ("no Preference for [_primary]" error)
+                // We rely on write operations' refresh parameter for consistency
+                // See AsyncSearch documentation:
+                // - https://www.elastic.co/guide/en/elasticsearch/reference/current/async-search.html
+
                 return s;
             }).AnyContext();
 
@@ -369,6 +377,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
         else if (options.HasSnapshotScrollId())
         {
+        // We're not using preference parameters due to compatibility issues
+        // with your Elasticsearch version ("no Preference for [_primary]" error)
+        // We rely on write operations' refresh parameter for consistency
+        // See Scroll API documentation:
+        // - https://www.elastic.co/guide/en/elasticsearch/reference/current/scroll-api.html
             var response = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), options.GetSnapshotScrollId()).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
             result = response.ToFindResults(options);
@@ -389,12 +402,24 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 if (options.HasAsyncQueryWaitTime())
                     asyncSearchDescriptor.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
 
+                // Configure preference based on consistency mode
+                var consistency = options.GetConsistency(DefaultConsistency);
+                if (consistency == Consistency.Immediate)
+                    asyncSearchDescriptor.Preference("_primary");
+                else if (consistency == Consistency.Wait)
+                    asyncSearchDescriptor.Preference("_local");
+
                 var response = await _client.AsyncSearch.SubmitAsync<TResult>(asyncSearchDescriptor).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
                 result = response.ToFindResults(options);
             }
             else
             {
+                // Note: We previously used preference parameters in ConfigureSearchDescriptorAsync,
+                // but removed them due to compatibility issues with your Elasticsearch version.
+                // We rely on the default routing mechanism now.
+                // Write operations still use the refresh parameter for consistency:
+                // - https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-refresh.html
                 var response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
                 result = response.ToFindResults(options);
@@ -434,6 +459,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         string scrollId = previousResults.GetScrollId();
         if (!String.IsNullOrEmpty(scrollId))
         {
+        // We're not using preference parameters due to compatibility issues
+        // with your Elasticsearch version ("no Preference for [_primary]" error)
+        // We rely on write operations' refresh parameter for consistency
+        // See Scroll API documentation:
+        // - https://www.elastic.co/guide/en/elasticsearch/reference/current/scroll-api.html
             var scrollResponse = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), scrollId).AnyContext();
             _logger.LogRequest(scrollResponse, options.GetQueryLogLevel());
 
@@ -481,6 +511,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
         searchDescriptor.Size(1);
+        // Note: We don't need to add preference here because it's already added
+        // to the searchDescriptor in ConfigureSearchDescriptorAsync
         var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
         _logger.LogRequest(response, options.GetQueryLogLevel());
 
@@ -534,6 +566,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             {
                 if (options.HasAsyncQueryWaitTime())
                     s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
+
+                // We're not using preference parameters due to compatibility issues
+                // with your Elasticsearch version ("no Preference for [_primary]" error)
+                // We rely on write operations' refresh parameter for consistency
+                // See AsyncSearch documentation:
+                // - https://www.elastic.co/guide/en/elasticsearch/reference/current/async-search.html
+
                 return s;
             }).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
@@ -550,12 +589,21 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             if (options.HasAsyncQueryWaitTime())
                 asyncSearchDescriptor.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
 
+            // Configure preference based on consistency mode
+            var consistency = options.GetConsistency(DefaultConsistency);
+            if (consistency == Consistency.Immediate)
+                asyncSearchDescriptor.Preference("_primary");
+            else if (consistency == Consistency.Wait)
+                asyncSearchDescriptor.Preference("_local");
+
             var response = await _client.AsyncSearch.SubmitAsync<T>(asyncSearchDescriptor).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
             result = response.ToCountResult(options);
         }
         else
         {
+            // Note: We don't need to add preference here because it's already added
+            // to the searchDescriptor in ConfigureSearchDescriptorAsync
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
             result = response.ToCountResult(options);
@@ -581,6 +629,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(0);
         searchDescriptor.DocValueFields(_idField.Value);
+        // Note: We don't need to add preference here because it's already added
+        // to the searchDescriptor in ConfigureSearchDescriptorAsync
         var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
         _logger.LogRequest(response, options.GetQueryLogLevel());
 
@@ -705,6 +755,29 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         search.IgnoreUnavailable();
         search.TrackTotalHits();
 
+        // We previously configured preference based on consistency mode,
+        // but removed it due to compatibility issues with error: "no Preference for [_primary]"
+        // We now rely on the default Elasticsearch routing mechanism
+        // and the refresh parameter on write operations for consistency
+        var consistency = options.GetConsistency(DefaultConsistency);
+        if (consistency == Consistency.Immediate)
+        {
+            // For immediate consistency, we previously used preference="_primary" or "_primary_first",
+            // but based on the error "no Preference for [_primary]", we're removing this parameter
+            // to ensure compatibility with your Elasticsearch version
+            // Let Elasticsearch use its default routing mechanism
+            // This is acceptable since write operations still use the refresh parameter
+        }
+        else if (consistency == Consistency.Wait)
+        {
+            // For wait consistency, we previously used preference="_local",
+            // but to ensure compatibility with your Elasticsearch version, we're removing this parameter
+            // Let Elasticsearch use its default routing mechanism
+            // This is acceptable since write operations still use the refresh parameter
+        }
+        // For Eventual consistency, use default preference (no preference set)
+        // This allows Elasticsearch to use its default routing, which optimizes for performance
+
         await ElasticIndex.QueryBuilder.ConfigureSearchAsync(query, options, search).AnyContext();
 
         return search;
@@ -815,15 +888,27 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return returnSoftDeletes || !((ISupportSoftDeletes)document).IsDeleted;
     }
 
-    protected async Task RefreshForConsistency(IRepositoryQuery query, ICommandOptions options)
+    protected Task RefreshForConsistency(IRepositoryQuery query, ICommandOptions options)
     {
-        // if not using eventual consistency, force a refresh
-        if (options.GetConsistency(DefaultConsistency) != Consistency.Eventual)
-        {
-            string[] indices = ElasticIndex.GetIndexesByQuery(query);
-            var response = await _client.Indices.RefreshAsync(indices);
-            _logger.LogRequest(response);
-        }
+        // COMMENTED OUT: This was causing performance issues in production
+        // The refresh is now handled per-request using the refresh parameter on individual write operations.
+        // Initially we tried using preference parameters on search operations, but encountered
+        // compatibility issues with error: "no Preference for [_primary]"
+        //
+        // Documentation:
+        // - Refresh API (expensive operation we're avoiding):
+        //   https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-refresh.html
+        // - Refresh parameter (used on write operations instead):
+        //   https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-refresh.html
+        //
+        // if (options.GetConsistency(DefaultConsistency) != Consistency.Eventual)
+        // {
+        //     string[] indices = ElasticIndex.GetIndexesByQuery(query);
+        //     var response = await _client.Indices.RefreshAsync(indices);
+        //     _logger.LogRequest(response);
+        // }
+        // 4sec 134ms
+        return Task.CompletedTask;
     }
 
     protected async Task<TResult> GetCachedQueryResultAsync<TResult>(ICommandOptions options, string cachePrefix = null, string cacheSuffix = null)

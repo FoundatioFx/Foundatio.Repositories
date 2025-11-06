@@ -972,8 +972,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             recordsProcessed += results.Documents.Count;
         } while (await results.NextPageAsync().AnyContext());
 
-        if (options.GetConsistency() != Consistency.Eventual)
-            await RefreshForConsistency(query, options).AnyContext();
+        await RefreshForConsistency(query, options).AnyContext();
 
         _logger.LogTrace("{Processed} records processed", recordsProcessed);
         return recordsProcessed;
