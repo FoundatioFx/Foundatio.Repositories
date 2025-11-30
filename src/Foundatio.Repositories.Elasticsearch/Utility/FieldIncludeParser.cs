@@ -12,6 +12,7 @@ public ref struct FieldIncludeParser
     private readonly FieldIncludeParseResult _result = new();
     private readonly Stack<FieldInclude> _includeStack = new();
     private FieldInclude _current = null;
+    private int _openParenCount = 0;
 
     public FieldIncludeParser(in ReadOnlySpan<char> source)
     {
@@ -29,15 +30,21 @@ public ref struct FieldIncludeParser
             }
             else if (Current == '(')
             {
-                _includeStack.Push(_current);
+                _openParenCount++;
+                if (_current is not null)
+                    _includeStack.Push(_current);
+
                 Advance();
             }
             else if (Current == ')')
             {
-                if (_includeStack.Count == 0)
+                if (_openParenCount == 0)
                     return new FieldIncludeParseResult { IsValid = false, ValidationMessage = "Found unexpected ')' character" };
 
-                _includeStack.Pop();
+                _openParenCount--;
+                if (_includeStack.Count > 0)
+                    _includeStack.Pop();
+
                 Advance();
             }
             else
@@ -51,7 +58,7 @@ public ref struct FieldIncludeParser
                         continue;
 
                     var existing = fieldList.FirstOrDefault(f => String.Equals(f.Name, fieldNameString, StringComparison.OrdinalIgnoreCase));
-                    if (existing != null)
+                    if (existing is not null)
                     {
                         _current = existing;
                     }
@@ -64,7 +71,7 @@ public ref struct FieldIncludeParser
             }
         }
 
-        if (_includeStack.Count > 0)
+        if (_openParenCount > 0)
             return new FieldIncludeParseResult { IsValid = false, ValidationMessage = "Missing end of group ')' character" };
 
         return _result;

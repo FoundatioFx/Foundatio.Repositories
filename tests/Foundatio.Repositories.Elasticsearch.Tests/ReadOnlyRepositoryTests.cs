@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -1057,7 +1057,6 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.False(results.HasMore);
         Assert.Equal(1, results.Total);
     }
-
 
     [Fact]
     public async Task GetWithDateRangeHonoringTimeZoneAsync()

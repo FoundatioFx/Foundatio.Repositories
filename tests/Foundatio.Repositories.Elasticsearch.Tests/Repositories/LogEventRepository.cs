@@ -87,6 +87,14 @@ public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent>, ILogEven
     }
 }
 
+public class DailyLogEventWithCompanyDefaultExcludeRepository : DailyLogEventRepository
+{
+    public DailyLogEventWithCompanyDefaultExcludeRepository(MyAppElasticConfiguration configuration) : base(configuration)
+    {
+        AddDefaultExclude(e => e.CompanyId);
+    }
+}
+
 public class DailyLogEventWithNoCachingRepository : DailyLogEventRepository
 {
     public DailyLogEventWithNoCachingRepository(MyAppElasticConfiguration configuration) : base(configuration)

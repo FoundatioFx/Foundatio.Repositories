@@ -15,11 +15,12 @@ public class FieldIncludeParserTests
     [InlineData("Results(id,applicant,program(name,id,properties),application_id,cas_id,application_status,cas_date_submitted),NextPageToken,Results(applicant(givenName))", "Results(id,applicant(givenName),program(name,id,properties),application_id,cas_id,application_status,cas_date_submitted),NextPageToken", "Results.id,Results.applicant.givenName,Results.program.name,Results.program.id,Results.program.properties,Results.application_id,Results.cas_id,Results.application_status,Results.cas_date_submitted,NextPageToken")]
     [InlineData("meTa(sTuFf)  ,  CreaTedUtc", "meTa(sTuFf),CreaTedUtc", "meTa.sTuFf,CreaTedUtc")]
     [InlineData("", "", "")]
+    [InlineData("(id,name)", "id,name", "id,name")]
     public void CanParse(string expression, string mask, string fields)
     {
         var result = FieldIncludeParser.Parse(expression);
         Assert.Equal(mask, result.ToString());
-        Assert.Equal(fields, string.Join(',', result.ToFieldPaths()));
+        Assert.Equal(fields, String.Join(',', result.ToFieldPaths()));
     }
 
     [Theory]

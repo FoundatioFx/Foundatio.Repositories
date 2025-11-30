@@ -97,7 +97,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         if (IsCacheEnabled && options.ShouldReadCache())
         {
-            var value = await GetCachedFindHit(id).AnyContext();
+            var value = await GetCachedFindHit(id, options.GetCacheKey()).AnyContext();
 
             if (value?.Document != null)
             {
@@ -144,7 +144,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         var hits = new List<FindHit<T>>();
         if (IsCacheEnabled && options.ShouldReadCache())
-            hits.AddRange(await GetCachedFindHit(idList).AnyContext());
+            hits.AddRange(await GetCachedFindHit(idList, options.GetCacheKey()).AnyContext());
 
         var itemsToFind = idList.Except(hits.Select(i => (Id)i.Id)).ToList();
         if (itemsToFind.Count == 0)
@@ -649,7 +649,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     }
 
     public bool IsCacheEnabled { get; private set; } = false;
-    protected ScopedCacheClient Cache => _scopedCacheClient ?? new ScopedCacheClient(new NullCacheClient());
+    protected ScopedCacheClient Cache => _scopedCacheClient ?? new ScopedCacheClient(new NullCacheClient(), null);
 
     private void SetCacheClient(ICacheClient cache)
     {
@@ -771,32 +771,33 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     private (Field[] Includes, Field[] Excludes) GetResolvedIncludesAndExcludes(IRepositoryQuery query, ICommandOptions options)
     {
-        // includes
-
         var includes = new HashSet<Field>();
         includes.AddRange(query.GetIncludes());
         includes.AddRange(options.GetIncludes());
+        if (HasIdentity && includes.Count > 0)
+            includes.Add(_idField.Value);
 
-        var optionIncludeMask = options.GetIncludeMask();
+        string optionIncludeMask = options.GetIncludeMask();
         if (!String.IsNullOrEmpty(optionIncludeMask))
             includes.AddRange(FieldIncludeParser.ParseFieldPaths(optionIncludeMask).Select(f => (Field)f));
 
         var resolvedIncludes = ElasticIndex.MappingResolver.GetResolvedFields(includes).ToArray();
 
-        // excludes
-
         var excludes = new HashSet<Field>();
-        includes.AddRange(query.GetExcludes());
+        excludes.AddRange(query.GetExcludes());
         excludes.AddRange(options.GetExcludes());
 
         if (_defaultExcludes.Count > 0 && excludes.Count == 0)
             excludes.AddRange(_defaultExcludes.Select(f => f.Value));
 
-        var optionExcludeMask = options.GetExcludeMask();
+        string optionExcludeMask = options.GetExcludeMask();
         if (!String.IsNullOrEmpty(optionExcludeMask))
             excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
 
-        var resolvedExcludes = ElasticIndex.MappingResolver.GetResolvedFields(excludes).ToArray();
+        // Remove any included fields from excludes
+        var resolvedExcludes = ElasticIndex.MappingResolver.GetResolvedFields(excludes)
+            .Where(f => !resolvedIncludes.Contains(f))
+            .ToArray();
 
         return (resolvedIncludes, resolvedExcludes);
     }
@@ -810,7 +811,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             return true;
 
         var mode = options.GetSoftDeleteMode();
-        bool returnSoftDeletes = mode == SoftDeleteQueryMode.All || mode == SoftDeleteQueryMode.DeletedOnly;
+        bool returnSoftDeletes = mode is SoftDeleteQueryMode.All or SoftDeleteQueryMode.DeletedOnly;
         return returnSoftDeletes || !((ISupportSoftDeletes)document).IsDeleted;
     }
 
@@ -891,7 +892,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 : null;
 
             _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey ?? id);
-
             return result;
         }
         catch (Exception ex)
@@ -966,7 +966,14 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected virtual async Task AddDocumentsToCacheAsync(ICollection<FindHit<T>> findHits, ICommandOptions options, bool isDirtyRead)
     {
         if (options.HasCacheKey())
+        {
             await Cache.SetAsync(options.GetCacheKey(), findHits, options.GetExpiresIn()).AnyContext();
+
+            // NOTE: Custom cache keys store the complete filtered result, but ID-based caching is skipped when includes/excludes are present to avoid incomplete data.
+            // This method also doesn't take into account any query includes or excludes but GetById(s) requests don't specify a query.
+            if (options.GetIncludes().Count > 0 || options.GetExcludes().Count > 0)
+                return;
+        }
 
         // don't add dirty read documents by id as they may be out of sync due to eventual consistency
         if (isDirtyRead)
