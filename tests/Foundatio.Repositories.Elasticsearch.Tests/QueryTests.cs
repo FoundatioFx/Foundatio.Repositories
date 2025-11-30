@@ -248,7 +248,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Null(companyLog.CompanyId);
     }
 
-
     [Fact]
     public async Task CanHandleIncludeAndExcludeOnGetByIdWithCaching()
     {

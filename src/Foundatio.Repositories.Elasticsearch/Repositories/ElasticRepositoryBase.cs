@@ -52,7 +52,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     protected string DefaultPipeline { get; set; } = null;
     protected bool AutoCreateCustomFields { get; set; } = false;
 
-
     #region IRepository
 
     public Task<T> AddAsync(T document, CommandOptionsDescriptor<T> options)
