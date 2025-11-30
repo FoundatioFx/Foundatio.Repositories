@@ -13,7 +13,7 @@ using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
-using Foundatio.Utility;
+using Foundatio.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Newtonsoft.Json;
@@ -25,6 +25,8 @@ public class ElasticReindexer
     private readonly ElasticsearchClient _client;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
+    private readonly IResiliencePolicyProvider _resiliencePolicyProvider;
+    private readonly IResiliencePolicy _resiliencePolicy;
     private const string ID_FIELD = "id";
     private const int MAX_STATUS_FAILS = 10;
 
@@ -32,11 +34,18 @@ public class ElasticReindexer
     {
     }
 
-    public ElasticReindexer(ElasticsearchClient client, TimeProvider timeProvider, ILogger logger = null)
+    public ElasticReindexer(ElasticsearchClient client, TimeProvider timeProvider, ILogger logger = null) : this(client, timeProvider ?? TimeProvider.System, new ResiliencePolicyProvider(), logger ?? NullLogger.Instance)
+    {
+    }
+
+    public ElasticReindexer(ElasticsearchClient client, TimeProvider timeProvider, IResiliencePolicyProvider resiliencePolicyProvider, ILogger logger = null)
     {
         _client = client;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _resiliencePolicyProvider = resiliencePolicyProvider ?? new ResiliencePolicyProvider();
         _logger = logger ?? NullLogger.Instance;
+
+        _resiliencePolicy = _resiliencePolicyProvider.GetPolicy<ElasticReindexer>(fallback => fallback.WithMaxAttempts(5).WithDelay(TimeSpan.FromSeconds(10)), _logger, _timeProvider);
     }
 
     public async Task ReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync = null)
@@ -87,7 +96,8 @@ public class ElasticReindexer
             }
         }
 
-        await _client.Indices.RefreshAsync(Indices.All).AnyContext();
+        var refreshResponse = await _client.Indices.RefreshAsync(Indices.All).AnyContext();
+        _logger.LogRequest(refreshResponse);
 
         ReindexResult secondPassResult = null;
         if (!String.IsNullOrEmpty(workItem.TimestampField))
@@ -105,13 +115,21 @@ public class ElasticReindexer
         bool hasFailures = totalFailures > 0;
         if (!hasFailures && workItem.DeleteOld && workItem.OldIndex != workItem.NewIndex)
         {
-            await _client.Indices.RefreshAsync(Indices.All).AnyContext();
-            long newDocCount = (await _client.CountAsync<object>(d => d.Indices(workItem.NewIndex)).AnyContext()).Count;
-            long oldDocCount = (await _client.CountAsync<object>(d => d.Indices(workItem.OldIndex)).AnyContext()).Count;
-            await progressCallbackAsync(98, $"Old Docs: {oldDocCount} New Docs: {newDocCount}").AnyContext();
-            if (newDocCount >= oldDocCount)
+            refreshResponse = await _client.Indices.RefreshAsync(Indices.All).AnyContext();
+            _logger.LogRequest(refreshResponse);
+
+            var newDocCountResponse = await _client.CountAsync<object>(d => d.Index(workItem.NewIndex)).AnyContext();
+            _logger.LogRequest(newDocCountResponse);
+
+            var oldDocCountResponse = await _client.CountAsync<object>(d => d.Index(workItem.OldIndex)).AnyContext();
+            _logger.LogRequest(oldDocCountResponse);
+
+            await progressCallbackAsync(98, $"Old Docs: {oldDocCountResponse.Count} New Docs: {newDocCountResponse.Count}").AnyContext();
+            if (newDocCountResponse.Count >= oldDocCountResponse.Count)
             {
-                await _client.Indices.DeleteAsync(Indices.Index(workItem.OldIndex)).AnyContext();
+                var deleteIndexResponse = await _client.Indices.DeleteAsync(Indices.Index(workItem.OldIndex)).AnyContext();
+                _logger.LogRequest(deleteIndexResponse);
+
                 await progressCallbackAsync(99, $"Deleted index: {workItem.OldIndex}").AnyContext();
             }
         }
@@ -123,7 +141,7 @@ public class ElasticReindexer
     {
         var query = await GetResumeQueryAsync(workItem.NewIndex, workItem.TimestampField, startTime).AnyContext();
 
-        var result = await Run.WithRetriesAsync(async () =>
+        var result = await _resiliencePolicy.ExecuteAsync(async ct =>
         {
             var response = await _client.ReindexAsync(d =>
             {
@@ -134,15 +152,16 @@ public class ElasticReindexer
                 .Conflicts(Conflicts.Proceed)
                 .WaitForCompletion(false);
 
-                //NEST client emitting script if null, inline this when that's fixed
+                // NEST client emitting a script if null, inline this when that's fixed
                 if (!String.IsNullOrWhiteSpace(workItem.Script))
                     d.Script(workItem.Script);
 
                 return d;
-            }, cancellationToken).AnyContext();
+            }, ct).AnyContext();
+            _logger.LogRequest(response);
 
             return response;
-        }, 5, TimeSpan.FromSeconds(10), _timeProvider, cancellationToken, _logger).AnyContext();
+        }, cancellationToken).AnyContext();
 
         _logger.LogInformation("Reindex Task Id: {TaskId}", result.Task.FullyQualifiedId);
         _logger.LogRequest(result);
@@ -156,7 +175,6 @@ public class ElasticReindexer
         do
         {
             var status = await _client.Tasks.GetAsync(result.Task, null, cancellationToken).AnyContext();
-
             if (status.IsValidResponse)
             {
                 _logger.LogRequest(status);
@@ -205,7 +223,7 @@ public class ElasticReindexer
             // waited more than 10 minutes with no progress made
             if (sw.Elapsed > TimeSpan.FromMinutes(10))
             {
-                _logger.LogError("Timed out waiting for reindex {WorkItemOldIndex} -> {WorkItemNewIndex}", workItem.OldIndex, workItem.NewIndex);
+                _logger.LogError("Timed out waiting for reindex {OldIndex} -> {NewIndex}", workItem.OldIndex, workItem.NewIndex);
                 break;
             }
 

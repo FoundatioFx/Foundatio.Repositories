@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -391,7 +391,6 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
     {
         var version1Index = new VersionedEmployeeIndex(_configuration, 1);
         await version1Index.DeleteAsync();
-
 
         var version22Index = new VersionedEmployeeIndex(_configuration, 22) { DiscardIndexesOnReindex = false };
         await version22Index.DeleteAsync();

@@ -20,6 +20,7 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Queries;
+using Foundatio.Resilience;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 
@@ -41,6 +42,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected readonly ILogger _logger;
     protected readonly Lazy<ElasticsearchClient> _lazyClient;
     protected ElasticsearchClient _client => _lazyClient.Value;
+    protected readonly IResiliencePolicyProvider _resiliencePolicyProvider;
+    protected readonly IResiliencePolicy _resiliencePolicy;
 
     private ScopedCacheClient _scopedCacheClient;
 
@@ -53,6 +56,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         SetCacheClient(index.Configuration.Cache);
         _logger = index.Configuration.LoggerFactory.CreateLogger(GetType());
+
+        _resiliencePolicyProvider = index.Configuration.ResiliencePolicyProvider;
+        _resiliencePolicy = _resiliencePolicyProvider.GetPolicy([GetType()], fallback => fallback.WithUnhandledException<DocumentNotFoundException>(), _logger, ElasticIndex.Configuration.TimeProvider);
     }
 
     protected IIndex ElasticIndex { get; private set; }
@@ -94,7 +100,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         if (IsCacheEnabled && options.ShouldReadCache())
         {
-            var value = await GetCachedFindHit(id).AnyContext();
+            var value = await GetCachedFindHit(id, options.GetCacheKey()).AnyContext();
 
             if (value?.Document != null)
             {
@@ -141,7 +147,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         var hits = new List<FindHit<T>>();
         if (IsCacheEnabled && options.ShouldReadCache())
-            hits.AddRange(await GetCachedFindHit(idList).AnyContext());
+            hits.AddRange(await GetCachedFindHit(idList, options.GetCacheKey()).AnyContext());
 
         var itemsToFind = idList.Except(hits.Select(i => (Id)i.Id)).ToList();
         if (itemsToFind.Count == 0)
@@ -403,7 +409,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             // clear the scroll
             string scrollId = result.GetScrollId();
             if (!String.IsNullOrEmpty(scrollId))
-                await _client.ClearScrollAsync(s => s.ScrollId(result.GetScrollId()));
+            {
+                var response = await _client.ClearScrollAsync(s => s.ScrollId(result.GetScrollId())).AnyContext();
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+            }
         }
 
         if (allowCaching && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
@@ -414,9 +423,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return result;
     }
 
-    public Task RemoveQueryAsync(string queryId)
+    public async Task RemoveQueryAsync(string queryId)
     {
-        return _client.AsyncSearch.DeleteAsync(queryId);
+        var response = await _client.AsyncSearch.DeleteAsync(queryId);
+        _logger.LogRequest(response);
     }
 
     private async Task<FindResults<TResult>> GetNextPageFunc<TResult>(FindResults<TResult> previousResults, IRepositoryQuery query, ICommandOptions options) where TResult : class, new()
@@ -435,7 +445,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
             // clear the scroll
             if (!results.HasMore)
-                await _client.ClearScrollAsync(s => s.ScrollId(scrollId));
+            {
+                var clearScrollResponse = await _client.ClearScrollAsync(s => s.ScrollId(scrollId));
+                _logger.LogRequest(clearScrollResponse, options.GetQueryLogLevel());
+            }
 
             return results;
         }
@@ -472,12 +485,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
         searchDescriptor.Size(1);
         var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
+        _logger.LogRequest(response, options.GetQueryLogLevel());
 
-        if (response.IsValidResponse)
-        {
-            _logger.LogRequest(response, options.GetQueryLogLevel());
-        }
-        else
+        if (!response.IsValidResponse)
         {
             if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 return FindHit<T>.Empty;
@@ -529,11 +539,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                     s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
                 return s;
             }).AnyContext();
+            _logger.LogRequest(response, options.GetQueryLogLevel());
 
             if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
                 await RemoveQueryAsync(queryId);
 
-            _logger.LogRequest(response, options.GetQueryLogLevel());
             result = response.ToCountResult(options);
         }
         else if (options.ShouldUseAsyncQuery())
@@ -575,12 +585,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(0);
         searchDescriptor.DocvalueFields(_idField.Value);
         var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
+        _logger.LogRequest(response, options.GetQueryLogLevel());
 
-        if (response.IsValidResponse)
-        {
-            _logger.LogRequest(response, options.GetQueryLogLevel());
-        }
-        else
+        if (!response.IsValidResponse)
         {
             if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 return false;
@@ -645,7 +652,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     }
 
     public bool IsCacheEnabled { get; private set; } = false;
-    protected ScopedCacheClient Cache => _scopedCacheClient ?? new ScopedCacheClient(new NullCacheClient());
+    protected ScopedCacheClient Cache => _scopedCacheClient ?? new ScopedCacheClient(new NullCacheClient(), null);
 
     private void SetCacheClient(ICacheClient cache)
     {
@@ -767,32 +774,33 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     private (Field[] Includes, Field[] Excludes) GetResolvedIncludesAndExcludes(IRepositoryQuery query, ICommandOptions options)
     {
-        // includes
-
         var includes = new HashSet<Field>();
         includes.AddRange(query.GetIncludes());
         includes.AddRange(options.GetIncludes());
+        if (HasIdentity && includes.Count > 0)
+            includes.Add(_idField.Value);
 
-        var optionIncludeMask = options.GetIncludeMask();
+        string optionIncludeMask = options.GetIncludeMask();
         if (!String.IsNullOrEmpty(optionIncludeMask))
             includes.AddRange(FieldIncludeParser.ParseFieldPaths(optionIncludeMask).Select(f => (Field)f));
 
         var resolvedIncludes = ElasticIndex.MappingResolver.GetResolvedFields(includes).ToArray();
 
-        // excludes
-
         var excludes = new HashSet<Field>();
-        includes.AddRange(query.GetExcludes());
+        excludes.AddRange(query.GetExcludes());
         excludes.AddRange(options.GetExcludes());
 
         if (_defaultExcludes.Count > 0 && excludes.Count == 0)
             excludes.AddRange(_defaultExcludes.Select(f => f.Value));
 
-        var optionExcludeMask = options.GetExcludeMask();
+        string optionExcludeMask = options.GetExcludeMask();
         if (!String.IsNullOrEmpty(optionExcludeMask))
             excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
 
-        var resolvedExcludes = ElasticIndex.MappingResolver.GetResolvedFields(excludes).ToArray();
+        // Remove any included fields from excludes
+        var resolvedExcludes = ElasticIndex.MappingResolver.GetResolvedFields(excludes)
+            .Where(f => !resolvedIncludes.Contains(f))
+            .ToArray();
 
         return (resolvedIncludes, resolvedExcludes);
     }
@@ -806,7 +814,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             return true;
 
         var mode = options.GetSoftDeleteMode();
-        bool returnSoftDeletes = mode == SoftDeleteQueryMode.All || mode == SoftDeleteQueryMode.DeletedOnly;
+        bool returnSoftDeletes = mode is SoftDeleteQueryMode.All or SoftDeleteQueryMode.DeletedOnly;
         return returnSoftDeletes || !((ISupportSoftDeletes)document).IsDeleted;
     }
 
@@ -834,8 +842,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             cacheKey += ":" + cacheSuffix;
 
         var result = await Cache.GetAsync<TResult>(cacheKey, default).AnyContext();
-        if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-            _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey);
+        _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey);
 
         return result;
     }
@@ -853,8 +860,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             cacheKey += ":" + cacheSuffix;
 
         await Cache.SetAsync(cacheKey, result, options.GetExpiresIn()).AnyContext();
-        if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-            _logger.LogTrace("Set cache: type={EntityType} key={CacheKey}", EntityTypeName, cacheKey);
+        _logger.LogTrace("Set cache: type={EntityType} key={CacheKey}", EntityTypeName, cacheKey);
     }
 
     protected async Task<ICollection<FindHit<T>>> GetCachedFindHit(ICommandOptions options)
@@ -866,8 +872,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
             var result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull ? cacheKeyHits.Value : null;
 
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey);
+            _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey);
 
             return result;
         }
@@ -889,9 +894,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 ? cacheKeyHits.Value.FirstOrDefault(v => v?.Document != null && String.Equals(v.Id, id))
                 : null;
 
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey ?? id);
-
+            _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey ?? id);
             return result;
         }
         catch (Exception ex)
@@ -928,8 +931,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             // Note: the distinct by is an extra safety check just in case we ever get into a weird state.
             var distinctResults = result.DistinctBy(v => v.Id).ToList();
 
-            if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-                _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (distinctResults.Count > 0 ? "hit" : "miss"), EntityTypeName, cacheKey ?? String.Join(", ", idList));
+            _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (distinctResults.Count > 0 ? "hit" : "miss"), EntityTypeName, cacheKey ?? String.Join(", ", idList));
 
             return distinctResults;
         }
@@ -967,7 +969,14 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected virtual async Task AddDocumentsToCacheAsync(ICollection<FindHit<T>> findHits, ICommandOptions options, bool isDirtyRead)
     {
         if (options.HasCacheKey())
+        {
             await Cache.SetAsync(options.GetCacheKey(), findHits, options.GetExpiresIn()).AnyContext();
+
+            // NOTE: Custom cache keys store the complete filtered result, but ID-based caching is skipped when includes/excludes are present to avoid incomplete data.
+            // This method also doesn't take into account any query includes or excludes but GetById(s) requests don't specify a query.
+            if (options.GetIncludes().Count > 0 || options.GetExcludes().Count > 0)
+                return;
+        }
 
         // don't add dirty read documents by id as they may be out of sync due to eventual consistency
         if (isDirtyRead)
@@ -982,8 +991,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         await Cache.SetAllAsync(findHitsById, options.GetExpiresIn()).AnyContext();
 
-        if (_logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Trace))
-            _logger.LogTrace("Add documents to cache: type={EntityType} ids={Ids}", EntityTypeName, String.Join(", ", findHits.Select(h => h?.Id)));
+        _logger.LogTrace("Add documents to cache: type={EntityType} ids={Ids}", EntityTypeName, String.Join(", ", findHits.Select(h => h?.Id)));
     }
 
     protected Task AddDocumentsToCacheWithKeyAsync(IDictionary<string, T> documents, TimeSpan expiresIn)
@@ -998,7 +1006,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     protected Task AddDocumentsToCacheWithKeyAsync(string cacheKey, T document, TimeSpan expiresIn)
     {
-
         return AddDocumentsToCacheWithKeyAsync(cacheKey, ToFindHit(document), expiresIn);
     }
 

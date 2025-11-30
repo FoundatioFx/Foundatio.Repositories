@@ -33,7 +33,7 @@ public class DailyIndex : VersionedIndex
     private TimeSpan? _maxIndexAge;
     protected readonly Func<object, DateTime> _getDocumentDateUtc;
     protected readonly string[] _defaultIndexes;
-    private readonly ConcurrentDictionary<DateTime, object> _ensuredDates = new();
+    private readonly ConcurrentDictionary<DateTime, string> _ensuredDates = new();
 
     public DailyIndex(IElasticConfiguration configuration, string name, int version = 1, Func<object, DateTime> getDocumentDateUtc = null)
         : base(configuration, name, version)
@@ -42,7 +42,7 @@ public class DailyIndex : VersionedIndex
         _frozenAliases = new Lazy<IReadOnlyCollection<IndexAliasAge>>(() => _aliases.AsReadOnly());
         _aliasCache = new ScopedCacheClient(configuration.Cache, "alias");
         _getDocumentDateUtc = getDocumentDateUtc;
-        _defaultIndexes = new[] { Name };
+        _defaultIndexes = [Name];
         HasMultipleIndexes = true;
 
         if (_getDocumentDateUtc != null)
@@ -76,7 +76,7 @@ public class DailyIndex : VersionedIndex
         set
         {
             if (value.HasValue && value.Value <= TimeSpan.Zero)
-                throw new ArgumentException($"{nameof(MaxIndexAge)} cannot be negative. ");
+                throw new ArgumentException($"{nameof(MaxIndexAge)} must be positive");
 
             _maxIndexAge = value;
         }
@@ -350,9 +350,14 @@ public class DailyIndex : VersionedIndex
             try
             {
                 await DeleteIndexAsync(index.Index).AnyContext();
-                _logger.LogInformation("Deleted index {Index} of age {Age:g} in {Duration:g}", index.Index, Configuration.TimeProvider.GetUtcNow().UtcDateTime.Subtract(index.DateUtc), sw.Elapsed);
+                _logger.LogInformation("Deleted index {Index} of age {Age:g} in {Duration:g}", index.Index,
+                    Configuration.TimeProvider.GetUtcNow().UtcDateTime.Subtract(index.DateUtc), sw.Elapsed);
             }
-            catch (Exception) { }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting index {Index} of age {Age:g} in {Duration:g}", index.Index,
+                    Configuration.TimeProvider.GetUtcNow().UtcDateTime.Subtract(index.DateUtc), sw.Elapsed);
+            }
 
             sw.Stop();
         }
@@ -446,9 +451,10 @@ public class DailyIndex : VersionedIndex
         }
 
         if (target is ObjectId oid)
-        {
             return GetIndexByDate(oid.CreationTime);
-        }
+
+        if (target is string { Length: 24 } stringId && ObjectId.TryParse(stringId, out var stringObjectId))
+            return GetIndexByDate(stringObjectId.CreationTime);
 
         if (_getDocumentDateUtc == null)
             throw new ArgumentException("Unable to get document index", nameof(target));
@@ -495,6 +501,12 @@ public class DailyIndex : VersionedIndex
 
         var date = _getDocumentDateUtc(target);
         return EnsureDateIndexAsync(date);
+    }
+
+    public override void Dispose()
+    {
+        _ensuredDates.Clear();
+        base.Dispose();
     }
 
     [DebuggerDisplay("Name: {Name} Max Age: {MaxAge}")]

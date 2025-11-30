@@ -5,9 +5,8 @@ using System.Linq;
 
 namespace Foundatio.Repositories;
 
-public struct Id : IEquatable<Id>
+public record struct Id
 {
-
     public static readonly Id Null = new();
 
     public Id(string id, string routing = null)
@@ -30,37 +29,6 @@ public struct Id : IEquatable<Id>
         return String.Concat(Routing, "-", Value);
     }
 
-    public bool Equals(Id other)
-    {
-        if (ReferenceEquals(null, other)) return false;
-        if (ReferenceEquals(this, other)) return true;
-        return Equals(Value, other.Value) && Equals(Routing, other.Routing);
-    }
-
-    public override bool Equals(object obj)
-    {
-        if (ReferenceEquals(null, obj)) return false;
-        if (ReferenceEquals(this, obj)) return true;
-        return obj.GetType() == GetType() && Equals((Id)obj);
-    }
-
-    public override int GetHashCode()
-    {
-        unchecked
-        {
-            return ((Value?.GetHashCode() ?? 0) * 397) ^ (Routing?.GetHashCode() ?? 0);
-        }
-    }
-
-    public static bool operator ==(Id left, Id right)
-    {
-        return Equals(left, right);
-    }
-
-    public static bool operator !=(Id left, Id right)
-    {
-        return !Equals(left, right);
-    }
 }
 
 public class Ids : List<Id>

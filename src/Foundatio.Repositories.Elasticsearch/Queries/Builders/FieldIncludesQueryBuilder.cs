@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -206,37 +206,37 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
         {
             var resolver = ctx.GetMappingResolver();
 
-            // includes
-
             var includes = new HashSet<Field>();
             includes.AddRange(ctx.Source.GetIncludes());
             includes.AddRange(ctx.Options.GetIncludes());
+            if (includes.Count > 0 && typeof(Models.IIdentity).IsAssignableFrom(typeof(T)))
+                includes.Add(nameof(Models.IIdentity.Id));
 
-            var queryIncludeMask = ctx.Source.GetIncludeMask();
+            string queryIncludeMask = ctx.Source.GetIncludeMask();
             if (!String.IsNullOrEmpty(queryIncludeMask))
                 includes.AddRange(FieldIncludeParser.ParseFieldPaths(queryIncludeMask).Select(f => (Field)f));
 
-            var optionIncludeMask = ctx.Options.GetIncludeMask();
+            string optionIncludeMask = ctx.Options.GetIncludeMask();
             if (!String.IsNullOrEmpty(optionIncludeMask))
                 includes.AddRange(FieldIncludeParser.ParseFieldPaths(optionIncludeMask).Select(f => (Field)f));
 
             var resolvedIncludes = resolver.GetResolvedFields(includes).ToArray();
 
-            // excludes
-
             var excludes = new HashSet<Field>();
             excludes.AddRange(ctx.Source.GetExcludes());
             excludes.AddRange(ctx.Options.GetExcludes());
 
-            var queryExcludeMask = ctx.Source.GetExcludeMask();
+            string queryExcludeMask = ctx.Source.GetExcludeMask();
             if (!String.IsNullOrEmpty(queryExcludeMask))
                 excludes.AddRange(FieldIncludeParser.ParseFieldPaths(queryExcludeMask).Select(f => (Field)f));
 
-            var optionExcludeMask = ctx.Options.GetExcludeMask();
+            string optionExcludeMask = ctx.Options.GetExcludeMask();
             if (!String.IsNullOrEmpty(optionExcludeMask))
                 excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
 
-            var resolvedExcludes = resolver.GetResolvedFields(excludes).ToArray();
+            var resolvedExcludes = resolver.GetResolvedFields(excludes)
+                .Where(f => !resolvedIncludes.Contains(f))
+                .ToArray();
 
             if (resolvedIncludes.Length > 0 && resolvedExcludes.Length > 0)
                 ctx.Search.Source(s => s.Includes(i => i.Fields(resolvedIncludes)).Excludes(i => i.Fields(resolvedExcludes)));

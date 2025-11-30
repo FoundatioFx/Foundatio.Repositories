@@ -12,7 +12,6 @@ public class JsonPatchTests
     [Fact]
     public void Add_an_array_element()
     {
-
         var sample = GetSample2();
 
         var patchDocument = new PatchDocument();
@@ -31,7 +30,6 @@ public class JsonPatchTests
     [Fact]
     public void Add_an_array_element_to_non_existent_property()
     {
-
         var sample = GetSample2();
 
         var patchDocument = new PatchDocument();
@@ -50,7 +48,6 @@ public class JsonPatchTests
     [Fact]
     public void Remove_array_item_by_matching()
     {
-
         var sample = JToken.Parse(@"{
     'books': [
         {
@@ -83,8 +80,7 @@ public class JsonPatchTests
     [Fact]
     public void Remove_array_item_by_value()
     {
-
-        var sample = JToken.Parse(@"{ 'tags': [ 'tag1', 'tag2', 'tag3' ] }");
+        var sample = JToken.Parse("{ 'tags': [ 'tag1', 'tag2', 'tag3' ] }");
 
         var patchDocument = new PatchDocument();
         string pointer = "$.tags[?(@ == 'tag2')]";
@@ -101,7 +97,6 @@ public class JsonPatchTests
     [Fact]
     public void Add_an_existing_member_property()  // Why isn't this replace?
     {
-
         var sample = GetSample2();
 
         var patchDocument = new PatchDocument();
@@ -345,7 +340,7 @@ public class JsonPatchTests
 
         Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer).Value<string>());
 
-        sample = JToken.Parse(@"{}");
+        sample = JToken.Parse("{}");
 
         patchDocument = new PatchDocument();
         pointer = "/data/author";
@@ -356,7 +351,7 @@ public class JsonPatchTests
 
         Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer).Value<string>());
 
-        sample = JToken.Parse(@"{}");
+        sample = JToken.Parse("{}");
 
         patchDocument = new PatchDocument();
         pointer = "/";
@@ -367,7 +362,7 @@ public class JsonPatchTests
 
         Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer).Value<string>());
 
-        sample = JToken.Parse(@"{}");
+        sample = JToken.Parse("{}");
 
         patchDocument = new PatchDocument();
         pointer = "/hey/now/0/you";
@@ -398,7 +393,6 @@ public class JsonPatchTests
     [Fact]
     public void Replace_multiple_property_values_with_jsonpath()
     {
-
         var sample = JToken.Parse(@"{
     'books': [
         {

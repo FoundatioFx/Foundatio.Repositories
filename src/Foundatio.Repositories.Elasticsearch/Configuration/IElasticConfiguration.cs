@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
@@ -7,6 +7,7 @@ using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Resilience;
 using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
@@ -17,6 +18,7 @@ public interface IElasticConfiguration : IDisposable
     ICacheClient Cache { get; }
     IMessageBus MessageBus { get; }
     ILoggerFactory LoggerFactory { get; }
+    IResiliencePolicyProvider ResiliencePolicyProvider { get; }
     TimeProvider TimeProvider { get; set; }
     IReadOnlyCollection<IIndex> Indexes { get; }
     ICustomFieldDefinitionRepository CustomFieldDefinitionRepository { get; }

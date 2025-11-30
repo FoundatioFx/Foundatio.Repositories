@@ -5,7 +5,7 @@ using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
-public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes, IHaveData
+public record CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes, IHaveData
 {
     public string Id { get; set; }
 
@@ -55,7 +55,7 @@ public class CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes,
 
     /// <summary>
     /// The reserved indexing slot for this custom field. This name will be pooled across tenants for the same index
-    /// type in order to keep dynamic indexes in Elasticsearch from exploding.
+    /// type to keep dynamic indexes in Elasticsearch from exploding.
     /// </summary>
     public int IndexSlot { get; set; }
 

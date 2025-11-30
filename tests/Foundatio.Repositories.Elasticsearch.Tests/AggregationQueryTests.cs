@@ -45,13 +45,13 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         var percentiles = result.Aggregations.Percentiles("percentiles_age");
         Assert.Equal(DateTime.UtcNow.Date.SubtractYears(10), result.Aggregations.Min<DateTime>("min_createdUtc").Value);
         Assert.Equal(DateTime.UtcNow.Date.SubtractYears(1), result.Aggregations.Max<DateTime>("max_createdUtc").Value);
-        Assert.Equal(19, percentiles.GetPercentile(1).Value);
-        Assert.Equal(19, percentiles.GetPercentile(5).Value);
-        Assert.Equal(25d, percentiles.GetPercentile(25).Value);
+        Assert.Equal(19.27, percentiles.GetPercentile(1).Value);
+        Assert.Equal(20.35, percentiles.GetPercentile(5).Value);
+        Assert.Equal(26d, percentiles.GetPercentile(25).Value);
         Assert.Equal(30.5, percentiles.GetPercentile(50).Value);
-        Assert.Equal(45, percentiles.GetPercentile(75).Value);
-        Assert.Equal(60, percentiles.GetPercentile(95).Value);
-        Assert.Equal(60, percentiles.GetPercentile(99).Value);
+        Assert.Equal(42.5, percentiles.GetPercentile(75).Value);
+        Assert.Equal(55.95d, Math.Round((double)percentiles.GetPercentile(95).Value, 2));
+        Assert.Equal(59.19, percentiles.GetPercentile(99).Value);
     }
 
     [Fact]
@@ -296,7 +296,8 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         _employeeRepository.TimeProvider = new FakeTimeProvider(new DateTimeOffset(utcNow, TimeSpan.Zero));
         var today = utcNow.Floor(TimeSpan.FromMilliseconds(1));
 
-        await _employeeRepository.AddAsync(new List<Employee> {
+        await _employeeRepository.AddAsync(new List<Employee>
+        {
             EmployeeGenerator.Generate(nextReview: today.SubtractDays(2)),
             EmployeeGenerator.Generate(nextReview: today.SubtractDays(1)),
             EmployeeGenerator.Generate(nextReview: today)

@@ -1,0 +1,22 @@
+<Solution>
+  <Folder Name="/Samples/">
+    <Project Path="samples/Foundatio.SampleApp/Client/Foundatio.SampleApp.Client.csproj" />
+    <Project Path="samples/Foundatio.SampleApp/Server/Foundatio.SampleApp.Server.csproj" />
+    <Project Path="samples/Foundatio.SampleApp/Shared/Foundatio.SampleApp.Shared.csproj" />
+  </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path=".github/workflows/build.yml" />
+    <File Path="build/common.props" />
+    <File Path="docker-compose.yml" />
+    <File Path="global.json" />
+    <File Path="NuGet.config" />
+    <File Path="README.md" />
+    <File Path="src/Directory.Build.props" />
+    <File Path="tests/Directory.Build.props" />
+  </Folder>
+  <Project Path="src/Foundatio.Repositories.Elasticsearch/Foundatio.Repositories.Elasticsearch.csproj" />
+  <Project Path="src/Foundatio.Repositories/Foundatio.Repositories.csproj" />
+  <Project Path="tests/Foundatio.Repositories.Elasticsearch.Tests/Foundatio.Repositories.Elasticsearch.Tests.csproj" />
+  <Project Path="tests/Foundatio.Repositories.Tests/Foundatio.Repositories.Tests.csproj" />
+</Solution>

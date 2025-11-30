@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
@@ -13,11 +13,13 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 public sealed class QueryTests : ElasticRepositoryTestBase
 {
     private readonly ILogEventRepository _dailyRepository;
+    private readonly ILogEventRepository _dailyWithCompanyDefaultExcludeRepository;
     private readonly IEmployeeRepository _employeeRepository;
 
     public QueryTests(ITestOutputHelper output) : base(output)
     {
         _dailyRepository = new DailyLogEventRepository(_configuration);
+        _dailyWithCompanyDefaultExcludeRepository = new DailyLogEventWithCompanyDefaultExcludeRepository(_configuration);
         _employeeRepository = new EmployeeRepository(_configuration);
     }
 
@@ -45,8 +47,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetByCompanyAsync()
     {
-        Log.DefaultMinimumLevel = LogLevel.Trace;
-
         var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId), o => o.ImmediateConsistency());
         var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20, name: "Eric J. Smith", employmentType: EmploymentType.Contract), o => o.ImmediateConsistency());
 
@@ -249,6 +249,44 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task CanHandleIncludeAndExcludeOnGetByIdWithCaching()
+    {
+        var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", stuff: "stuff"), o => o.ImmediateConsistency());
+        Assert.NotNull(log?.Id);
+
+        Assert.Equal(1, _cache.Misses);
+        Assert.Equal(0, _cache.Hits);
+        Assert.Equal(1, _cache.Writes);
+        Assert.Collection(_cache.Items, c => Assert.StartsWith("alias:daily-logevents-", c.Key));
+
+        const string cacheKey = "company:1234567890";
+        var companyLog = await _dailyRepository.GetByIdAsync(log!.Id, o => o.QueryLogLevel(LogLevel.Warning).Exclude(e => e.Date).Include(e => e.Id).Include("createdUtc").Cache(cacheKey));
+        Assert.Equal(log.Id, companyLog.Id);
+        Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
+        Assert.Equal(default, companyLog.Date);
+        Assert.Null(companyLog.Message);
+        Assert.Null(companyLog.CompanyId);
+
+        Assert.Equal(2, _cache.Misses);
+        Assert.Equal(0, _cache.Hits);
+        Assert.Equal(2, _cache.Writes);
+        Assert.Collection(_cache.Items, c => Assert.StartsWith("alias:daily-logevents-", c.Key), c => Assert.Equal($"LogEvent:{cacheKey}", c.Key));
+
+        // Ensure cache hit by cache key.
+        companyLog = await _dailyRepository.GetByIdAsync(log!.Id, o => o.QueryLogLevel(LogLevel.Warning).Exclude(e => e.Date).Include(e => e.Id).Include("createdUtc").Cache(cacheKey));
+        Assert.Equal(log.Id, companyLog.Id);
+        Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
+        Assert.Equal(default, companyLog.Date);
+        Assert.Null(companyLog.Message);
+        Assert.Null(companyLog.CompanyId);
+
+        Assert.Equal(2, _cache.Misses);
+        Assert.Equal(1, _cache.Hits);
+        Assert.Equal(2, _cache.Writes);
+        Assert.Collection(_cache.Items, c => Assert.StartsWith("alias:daily-logevents-", c.Key), c => Assert.Equal($"LogEvent:{cacheKey}", c.Key));
+    }
+
+    [Fact]
     public async Task CanHandleIncludeAndExcludeOnGetByIds()
     {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", stuff: "stuff"), o => o.ImmediateConsistency());
@@ -261,6 +299,73 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
         Assert.Equal(default, companyLog.Date);
         Assert.Null(companyLog.Message);
+        Assert.Null(companyLog.CompanyId);
+    }
+
+    [Fact]
+    public async Task CanHandleIncludeAndExcludeOnGetByIdsWithCaching()
+    {
+        var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", stuff: "stuff"), o => o.ImmediateConsistency());
+        Assert.NotNull(log?.Id);
+
+        Assert.Equal(1, _cache.Misses);
+        Assert.Equal(0, _cache.Hits);
+        Assert.Equal(1, _cache.Writes);
+        Assert.Collection(_cache.Items, c => Assert.StartsWith("alias:daily-logevents-", c.Key));
+
+        const string cacheKey = "company:1234567890";
+        var results = await _dailyRepository.GetByIdsAsync([log!.Id], o => o.QueryLogLevel(LogLevel.Warning).Exclude(e => e.Date).Include(e => e.Id).Include("createdUtc").Cache(cacheKey));
+        Assert.Single(results);
+        var companyLog = results.First();
+        Assert.Equal(log.Id, companyLog.Id);
+        Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
+        Assert.Equal(default, companyLog.Date);
+        Assert.Null(companyLog.Message);
+        Assert.Null(companyLog.CompanyId);
+
+        Assert.Equal(2, _cache.Misses);
+        Assert.Equal(0, _cache.Hits);
+        Assert.Equal(2, _cache.Writes);
+        Assert.Collection(_cache.Items, c => Assert.StartsWith("alias:daily-logevents-", c.Key), c => Assert.Equal($"LogEvent:{cacheKey}", c.Key));
+
+        // Ensure cache hit by cache key.
+        results = await _dailyRepository.GetByIdsAsync([log!.Id], o => o.QueryLogLevel(LogLevel.Warning).Exclude(e => e.Date).Include(e => e.Id).Include("createdUtc").Cache(cacheKey));
+        Assert.Single(results);
+        companyLog = results.First();
+        Assert.Equal(log.Id, companyLog.Id);
+        Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
+        Assert.Equal(default, companyLog.Date);
+        Assert.Null(companyLog.Message);
+        Assert.Null(companyLog.CompanyId);
+
+        Assert.Equal(2, _cache.Misses);
+        Assert.Equal(1, _cache.Hits);
+        Assert.Equal(2, _cache.Writes);
+        Assert.Collection(_cache.Items, c => Assert.StartsWith("alias:daily-logevents-", c.Key), c => Assert.Equal($"LogEvent:{cacheKey}", c.Key));
+    }
+
+    [Fact]
+    public async Task GetByCompanyWithIncludeWillOverrideDefaultExclude()
+    {
+        var log = await _dailyWithCompanyDefaultExcludeRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+        Assert.NotNull(log?.Id);
+
+        var results = await _dailyWithCompanyDefaultExcludeRepository.FindAsync(q => q.Include(e => e.CompanyId), o => o.QueryLogLevel(LogLevel.Warning));
+        Assert.Single(results.Documents);
+        var companyLog = results.Documents.Single();
+        Assert.Equal(log.Id, companyLog.Id);
+        Assert.NotNull(companyLog.CompanyId);
+
+        results = await _dailyWithCompanyDefaultExcludeRepository.FindAsync(q => q.Company(log.CompanyId), o => o.Include(e => e.CompanyId).QueryLogLevel(LogLevel.Warning));
+        Assert.Single(results.Documents);
+        companyLog = results.Documents.Single();
+        Assert.Equal(log.Id, companyLog.Id);
+        Assert.NotNull(companyLog.CompanyId);
+
+        results = await _dailyWithCompanyDefaultExcludeRepository.FindAsync(q => q.Company(log.CompanyId), o => o.QueryLogLevel(LogLevel.Warning));
+        Assert.Single(results.Documents);
+        companyLog = results.Documents.Single();
+        Assert.Equal(log.Id, companyLog.Id);
         Assert.Null(companyLog.CompanyId);
     }
 

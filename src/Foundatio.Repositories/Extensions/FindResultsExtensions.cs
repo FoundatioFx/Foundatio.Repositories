@@ -10,7 +10,7 @@ public static class FindResultsExtensions
     }
 
     /// <summary>
-    /// Whether or not the query completed successfully or was interupted (will also be true while the query is still running)
+    /// Whether the query completed successfully or was interrupted (will also be true while the query is still running)
     /// </summary>
     public static bool IsAsyncQueryPartial(this IHaveData results)
     {
@@ -18,7 +18,7 @@ public static class FindResultsExtensions
     }
 
     /// <summary>
-    /// Whether or not the query is still running
+    /// Whether the query is still running
     /// </summary>
     public static bool IsAsyncQueryRunning(this IHaveData results)
     {

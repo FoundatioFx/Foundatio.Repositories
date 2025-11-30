@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
@@ -15,7 +15,7 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
 
     public ReindexWorkItemHandler(ElasticsearchClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory = null)
     {
-        _reindexer = new ElasticReindexer(client, loggerFactory.CreateLogger<ReindexWorkItemHandler>());
+        _reindexer = new ElasticReindexer(client, loggerFactory?.CreateLogger<ReindexWorkItemHandler>());
         _lockProvider = lockProvider;
         AutoRenewLockOnProgress = true;
     }

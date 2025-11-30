@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -10,8 +10,6 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
 using Xunit;
 using Xunit.Abstractions;
-using LogLevel = Microsoft.Extensions.Logging.LogLevel;
-using Refresh = Elasticsearch.Net.Refresh;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -118,18 +116,20 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         var request = new UpdateRequest<Employee, Employee>(_configuration.Employees.Name, employee.Id)
         {
-            Script = new InlineScript("ctx._source.version = 112:2"),
+            Script = new InlineScript("ctx._source.version = '112:2'"),
             Refresh = Refresh.True
         };
 
         var response = await _client.UpdateAsync(request);
+        _logger.LogRequest(response);
+        Assert.True(response.IsValid);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
-        Assert.Equal("1:1", employee.Version);
+        Assert.Equal("1:2", employee.Version);
 
         employee.CompanyName = "updated again";
         employee = await _employeeRepository.SaveAsync(employee);
-        Assert.Equal("1:2", employee.Version);
+        Assert.Equal("1:3", employee.Version);
     }
 
     [Fact]
@@ -231,7 +231,6 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         const int NUMBER_OF_EMPLOYEES = 1000;
         const int PAGE_SIZE = 100;
 
-        Log.DefaultMinimumLevel = LogLevel.Warning;
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
@@ -263,7 +262,6 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         const int NUMBER_OF_EMPLOYEES = 100;
         const int PAGE_SIZE = 50;
 
-        Log.DefaultMinimumLevel = LogLevel.Warning;
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
@@ -301,7 +299,6 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         const int NUMBER_OF_EMPLOYEES = 100;
         const int PAGE_SIZE = 10;
 
-        Log.DefaultMinimumLevel = LogLevel.Warning;
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees);
         await _client.Indices.RefreshAsync(Indices.All);
@@ -338,7 +335,6 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         const int NUMBER_OF_EMPLOYEES = 100;
         const int PAGE_SIZE = 10;
 
-        Log.DefaultMinimumLevel = LogLevel.Warning;
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees);
         await _client.Indices.RefreshAsync(Indices.All);
@@ -376,7 +372,6 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
     {
         const int NUMBER_OF_EMPLOYEES = 67;
         const int PAGE_SIZE = 12;
-        Log.DefaultMinimumLevel = LogLevel.Warning;
 
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
@@ -407,7 +402,6 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
     public async Task UpdateAllWithPageLimitAsync()
     {
         const int NUMBER_OF_EMPLOYEES = 100;
-        Log.DefaultMinimumLevel = LogLevel.Warning;
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
         Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "Test Company", limit: 100));

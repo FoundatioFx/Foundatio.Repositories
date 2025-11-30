@@ -7,6 +7,9 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Exceptions;
+using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
@@ -19,7 +22,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 {
     public IndexTests(ITestOutputHelper output) : base(output)
     {
-        Log.SetLogLevel<EmployeeRepository>(LogLevel.Warning);
+        Log.SetLogLevel<EmployeeRepository>(LogLevel.Trace);
     }
 
     public override async Task InitializeAsync()
@@ -111,8 +114,6 @@ public sealed class IndexTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetByDateBasedIndexAsync()
     {
-        Log.DefaultMinimumLevel = LogLevel.Trace;
-
         await _configuration.DailyLogEvents.ConfigureAsync();
 
         var indexes = await _client.GetIndicesPointingToAliasAsync(_configuration.DailyLogEvents.Name);
@@ -830,5 +831,610 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         aliases.Sort();
         return String.Join(", ", aliases);
+    }
+
+    [Fact]
+    public async Task Index_MaintainThenIndexing_ShouldCreateIndexWhenNeeded()
+    {
+        // Arrange
+        var utcNow = new DateTimeOffset(2025, 6, 15, 0, 0, 0, TimeSpan.Zero);
+        var timeProvider = new FakeTimeProvider(utcNow);
+        _configuration.TimeProvider = timeProvider;
+
+        var index = new MonthlyEmployeeIndex(_configuration, 2);
+        await index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+
+        // Act
+        // Simulate calling MaintainAsync before any documents are indexed
+        await index.MaintainAsync();
+
+        // Now index a document
+        var repository = new EmployeeRepository(index);
+        var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.UtcDateTime));
+
+        // Assert
+        Assert.NotNull(employee?.Id);
+
+        // Verify the correct versioned index was created
+        string expectedVersionedIndex = index.GetVersionedIndex(utcNow.UtcDateTime);
+        var indexExists = await _client.Indices.ExistsAsync(expectedVersionedIndex);
+        Assert.True(indexExists.Exists);
+
+        // Verify the alias exists
+        string expectedAlias = index.GetIndex(utcNow.UtcDateTime);
+        var aliasExists = await _client.Indices.AliasExistsAsync(expectedAlias);
+        Assert.True(aliasExists.Exists);
+    }
+
+    [Fact]
+    public async Task Index_ParallelOperations_ShouldNotInterfereWithEachOther()
+    {
+        // Arrange
+        var utcNow = new DateTimeOffset(2025, 6, 15, 0, 0, 0, TimeSpan.Zero);
+        var timeProvider = new FakeTimeProvider(utcNow);
+        _configuration.TimeProvider = timeProvider;
+
+        var index = new MonthlyEmployeeIndex(_configuration, 2);
+        await index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+
+        // Act
+        // Run multiple operations in parallel
+        var task1 = index.ConfigureAsync();
+        var task2 = Task.Run(async () =>
+        {
+            var repository = new EmployeeRepository(index);
+            return await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.UtcDateTime));
+        });
+        var task3 = index.MaintainAsync();
+
+        // Wait for all tasks to complete
+        await Task.WhenAll(task1, task3);
+        var employee = await task2;
+
+        // Assert
+        Assert.NotNull(employee?.Id);
+
+        // Verify the index was created correctly despite the race condition
+        string expectedVersionedIndex = "monthly-employees-v2-2025.06";
+        string expectedAlias = "monthly-employees-2025.06";
+
+        var indexExistsResponse = await _client.Indices.ExistsAsync(expectedVersionedIndex);
+        Assert.True(indexExistsResponse.Exists, $"Versioned index {expectedVersionedIndex} should exist");
+
+        var aliasResponse = await _client.Indices.GetAliasAsync(expectedAlias);
+        Assert.True(aliasResponse.IsValid, $"Alias {expectedAlias} should exist");
+    }
+
+    [Fact]
+    public async Task EnsureDateIndexAsync_MultipleCallsSimultaneously_ShouldNotThrowException()
+    {
+        // Arrange
+        var utcNow = new DateTimeOffset(2025, 6, 15, 0, 0, 0, TimeSpan.Zero);
+        var timeProvider = new FakeTimeProvider(utcNow);
+        _configuration.TimeProvider = timeProvider;
+
+        var index = new DailyEmployeeIndex(_configuration, 2);
+        await index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+
+        int concurrency = 20;
+
+        // Act & Assert
+        // We expect no exceptions when running multiple tasks concurrently
+        await Parallel.ForEachAsync(
+            Enumerable.Range(0, concurrency),
+            async (_, _) =>
+            {
+                await index.EnsureIndexAsync(utcNow.UtcDateTime);
+            }
+        );
+    }
+
+    [Fact]
+    public async Task EnsuredDates_AddingManyDates_CouldLeakMemory()
+    {
+        // Arrange
+        var index = new DailyEmployeeIndex(_configuration, 2);
+        await index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+
+        var repository = new EmployeeRepository(index);
+        const int UNIQUE_DATES = 1000;
+        var baseDate = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        // Act
+        for (int i = 0; i < UNIQUE_DATES; i++)
+        {
+            var testDate = baseDate.AddDays(i);
+            var employee = EmployeeGenerator.Generate(createdUtc: testDate);
+            await repository.AddAsync(employee);
+        }
+
+        // This test verifies that adding many dates doesn't throw exceptions,
+        // but it highlights the fact that _ensuredDates will grow unbounded.
+        // A proper fix would implement a cleanup mechanism.
+    }
+
+    [Fact(Skip = "Shows an issue where we cannot recover if an index exists with an alias name")]
+    public async Task UpdateAliasesAsync_CreateAliasFailure_ShouldHandleGracefully()
+    {
+        // Arrange
+        var index = new DailyEmployeeIndex(_configuration, 2);
+        await index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+
+        // Create a scenario that causes alias creation to fail
+        string indexName = index.GetIndex(DateTime.UtcNow);
+
+        // First create a conflicting index without the alias
+        await _client.Indices.CreateAsync(indexName, d => d
+            .Map<Employee>(m => m.AutoMap())
+            .Settings(s => s.NumberOfReplicas(0)));
+
+        // Act
+        var repository = new EmployeeRepository(index);
+        var employee = EmployeeGenerator.Generate(createdUtc: DateTime.UtcNow);
+
+        // This should handle the conflict gracefully in the future
+        await repository.AddAsync(employee);
+    }
+
+    [Fact]
+    public void MaxIndexAge_NegativeValue_ShouldThrowArgumentException()
+    {
+        // Arrange
+        var index = new DailyEmployeeIndex(_configuration, 2);
+        var negativeTimeSpan = TimeSpan.FromDays(-1);
+
+        // Act
+        var ex = Assert.Throws<ArgumentException>(() => index.MaxIndexAge = negativeTimeSpan);
+
+        // Assert
+        Assert.Contains("MaxIndexAge must be positive", ex.Message);
+    }
+
+    [Fact]
+    public void MaxIndexAge_ZeroValue_ShouldThrowArgumentException()
+    {
+        // Arrange
+        var index = new DailyEmployeeIndex(_configuration, 2);
+        var zeroTimeSpan = TimeSpan.Zero;
+
+        // Act
+        var ex = Assert.Throws<ArgumentException>(() => index.MaxIndexAge = zeroTimeSpan);
+
+        // Assert
+        Assert.Contains("MaxIndexAge must be positive", ex.Message);
+    }
+
+    [Fact]
+    public void MaxIndexAge_ValidValue_ShouldSetSuccessfully()
+    {
+        // Arrange
+        var index = new DailyEmployeeIndex(_configuration, 2);
+        var validTimeSpan = TimeSpan.FromDays(30);
+
+        // Act
+        index.MaxIndexAge = validTimeSpan;
+
+        // Assert
+        Assert.Equal(validTimeSpan, index.MaxIndexAge);
+    }
+
+    [Fact]
+    public void GetIndexes_LargeTimeRange_ShouldReturnEmptyForExcessivePeriod()
+    {
+        // Arrange
+        var index = new DailyEmployeeIndex(_configuration, 2);
+        index.MaxIndexAge = TimeSpan.FromDays(30);
+        var startDate = DateTime.UtcNow.AddDays(-100); // 100 days ago
+        var endDate = DateTime.UtcNow;
+
+        // Act
+        string[] indexes = index.GetIndexes(startDate, endDate);
+
+        // Assert
+        Assert.Empty(indexes);
+    }
+
+    [Fact]
+    public void GetIndexes_ThreeMonthPeriod_ShouldReturnEmptyForDailyIndex()
+    {
+        // Arrange
+        var index = new DailyEmployeeIndex(_configuration, 2);
+        var startDate = DateTime.UtcNow.AddMonths(-3);
+        var endDate = DateTime.UtcNow;
+
+        // Act
+        string[] indexes = index.GetIndexes(startDate, endDate);
+
+        // Assert
+        Assert.Empty(indexes); // Should return empty for periods >= 3 months
+    }
+
+    [Fact]
+    public void GetIndexes_OneYearPeriod_ShouldReturnEmptyForMonthlyIndex()
+    {
+        // Arrange
+        var index = new MonthlyEmployeeIndex(_configuration, 2);
+        var startDate = DateTime.UtcNow.AddYears(-2);
+        var endDate = DateTime.UtcNow;
+
+        // Act
+        string[] indexes = index.GetIndexes(startDate, endDate);
+
+        // Assert
+        Assert.Empty(indexes); // Should return empty for periods > 1 year
+    }
+
+    [Fact]
+    public async Task PatchAsync_WhenActionPatchAndSingleIndexMissing_CreatesIndex()
+    {
+        // Arrange
+        var index = new EmployeeIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new EmployeeRepository(index);
+        string id = ObjectId.GenerateNewId().ToString();
+        var patch = new ActionPatch<Employee>(e => e.Name = "Patched");
+
+        // Act
+        await Assert.ThrowsAsync<DocumentNotFoundException>(async () => await repository.PatchAsync(id, patch));
+
+        // Assert
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id));
+        Assert.True(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WhenPartialPatchAndSingleIndexMissing_CreatesIndex()
+    {
+        // Arrange
+        var index = new EmployeeIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new EmployeeRepository(index);
+        string id = ObjectId.GenerateNewId().ToString();
+        var patch = new PartialPatch(new { Name = "Patched" });
+
+        // Act
+        await Assert.ThrowsAsync<DocumentNotFoundException>(async () => await repository.PatchAsync(id, patch));
+
+        // Assert
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id));
+        Assert.True(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WhenJsonPatchAndSingleIndexMissing_CreatesIndex()
+    {
+        // Arrange
+        var index = new EmployeeIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new EmployeeRepository(index);
+        string id = ObjectId.GenerateNewId().ToString();
+        var patchDoc = new PatchDocument();
+        patchDoc.Replace("/name", "Patched");
+        var patch = new JsonPatch(patchDoc);
+
+        // Act
+        await Assert.ThrowsAsync<DocumentNotFoundException>(async () => await repository.PatchAsync(id, patch));
+
+        // Assert
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id));
+        Assert.True(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WhenScriptPatchAndSingleIndexMissing_CreatesIndex()
+    {
+        // Arrange
+        var index = new EmployeeIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new EmployeeRepository(index);
+        string id = ObjectId.GenerateNewId().ToString();
+        var patch = new ScriptPatch("ctx._source.name = 'Patched';");
+
+        // Act
+        await Assert.ThrowsAsync<DocumentNotFoundException>(async () => await repository.PatchAsync(id, patch));
+
+        // Assert
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id));
+        Assert.True(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_WhenActionPatchAndSingleIndexMissing_CreatesIndex()
+    {
+        // Arrange
+        var index = new EmployeeIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new EmployeeRepository(index);
+        var patch = new ActionPatch<Employee>(e => e.Name = "Patched");
+
+        // Act
+        await repository.PatchAllAsync(q => q, patch);
+
+        // Assert
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_WhenPartialPatchAndSingleIndexMissing_CreatesIndex()
+    {
+        // Arrange
+        var index = new EmployeeIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new EmployeeRepository(index);
+        var patch = new PartialPatch(new { Name = "Patched" });
+
+        // Act
+        await repository.PatchAllAsync(q => q, patch);
+
+        // Assert
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_WhenJsonPatchAndSingleIndexMissing_CreatesIndex()
+    {
+        // Arrange
+        var index = new EmployeeIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new EmployeeRepository(index);
+        var patchDoc = new PatchDocument();
+        patchDoc.Replace("/name", "Patched");
+        var patch = new JsonPatch(patchDoc);
+
+        // Act
+        await repository.PatchAllAsync(q => q, patch);
+
+        // Assert
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_WhenScriptPatchAndSingleIndexMissing_CreatesIndex()
+    {
+        // Arrange
+        var index = new EmployeeIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new EmployeeRepository(index);
+        var patch = new ScriptPatch("ctx._source.name = 'Patched';");
+
+        // Act
+        await repository.PatchAllAsync(q => q, patch);
+
+        // Assert
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WhenActionPatchAndMonthlyIndexMissing_CreatesIndex()
+    {
+        // Arrange
+        var index = new MonthlyLogEventIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new DailyLogEventRepository(index);
+        string id = ObjectId.GenerateNewId().ToString();
+        var patch = new ActionPatch<LogEvent>(e => e.Value = 99);
+
+        // Act
+        await Assert.ThrowsAsync<DocumentNotFoundException>(async () => await repository.PatchAsync(id, patch));
+
+        // Assert
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id));
+        Assert.True(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WhenPartialPatchAndMonthlyIndexMissing_CreatesIndex()
+    {
+        // Arrange
+        var index = new MonthlyLogEventIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new DailyLogEventRepository(index);
+        string id = ObjectId.GenerateNewId().ToString();
+        var patch = new PartialPatch(new { Value = 99 });
+
+        // Act
+        await Assert.ThrowsAsync<DocumentNotFoundException>(async () => await repository.PatchAsync(id, patch));
+
+        // Assert
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id));
+        Assert.True(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WhenJsonPatchAndMonthlyIndexMissing_CreatesIndex()
+    {
+        // Arrange
+        var index = new MonthlyLogEventIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new DailyLogEventRepository(index);
+        string id = ObjectId.GenerateNewId().ToString();
+        var patchDoc = new PatchDocument();
+        patchDoc.Replace("/value", 99);
+        var patch = new JsonPatch(patchDoc);
+
+        // Act
+        await Assert.ThrowsAsync<DocumentNotFoundException>(async () => await repository.PatchAsync(id, patch));
+
+        // Assert
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id));
+        Assert.True(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAsync_WhenScriptPatchAndMonthlyIndexMissing_CreatesIndex()
+    {
+        // Arrange
+        var index = new MonthlyLogEventIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new DailyLogEventRepository(index);
+        string id = ObjectId.GenerateNewId().ToString();
+        var patch = new ScriptPatch("ctx._source.value = 99;");
+
+        // Act
+        await Assert.ThrowsAsync<DocumentNotFoundException>(async () => await repository.PatchAsync(id, patch));
+
+        // Assert
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id));
+        Assert.True(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_WhenActionPatchAndMonthlyIndexMissing_DoesNotCreateIndex()
+    {
+        // Arrange
+        var index = new MonthlyLogEventIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new DailyLogEventRepository(index);
+        var patch = new ActionPatch<LogEvent>(e => e.Value = 42);
+
+        // Act
+        await repository.PatchAllAsync(q => q, patch);
+
+        // Assert
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.False(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_WhenPartialPatchAndMonthlyIndexMissing_DoesNotCreateIndex()
+    {
+        // Arrange
+        var index = new MonthlyLogEventIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new DailyLogEventRepository(index);
+        var patch = new PartialPatch(new { Value = 42 });
+
+        // Act
+        await repository.PatchAllAsync(q => q, patch);
+
+        // Assert
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.False(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_WhenJsonPatchAndMonthlyIndexMissing_DoesNotCreateIndex()
+    {
+        // Arrange
+        var index = new MonthlyLogEventIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new DailyLogEventRepository(index);
+        var patchDoc = new PatchDocument();
+        patchDoc.Replace("/value", 42);
+        var patch = new JsonPatch(patchDoc);
+
+        // Act
+        await repository.PatchAllAsync(q => q, patch);
+
+        // Assert
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.False(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_WhenScriptPatchAndMonthlyIndexMissing_DoesNotCreateIndex()
+    {
+        // Arrange
+        var index = new MonthlyLogEventIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new DailyLogEventRepository(index);
+        var patch = new ScriptPatch("ctx._source.value = 42;");
+
+        // Act
+        await repository.PatchAllAsync(q => q, patch);
+
+        // Assert
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.False(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_ByQuery_CreatesAllRelevantDailyIndices()
+    {
+        // Arrange
+        var index = new EmployeeIndex(_configuration);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new EmployeeRepository(index);
+
+        string id1 = ObjectId.GenerateNewId().ToString();
+        string id2 = ObjectId.GenerateNewId(DateTime.UtcNow.SubtractDays(1)).ToString();
+
+        // Act
+        await repository.PatchAllAsync(q => q.Id(id1, id2), new ActionPatch<Employee>(e => e.Name = "Patched"));
+
+        // Assert
+        var response = await _client.Indices.ExistsAsync(index.Name);
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id1));
+        Assert.True(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id2));
+        Assert.True(response.Exists);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_ByQueryAcrossMultipleDays_DoesNotCreateAllRelevantDailyIndices()
+    {
+        // Arrange
+        var index = new DailyEmployeeIndex(_configuration, 1);
+        await index.DeleteAsync();
+        await using var _ = new AsyncDisposableAction(() => index.DeleteAsync());
+        var repository = new EmployeeRepository(index);
+
+        string id1 = ObjectId.GenerateNewId().ToString();
+        string id2 = ObjectId.GenerateNewId(DateTime.UtcNow.SubtractDays(1)).ToString();
+
+        // Act
+        await repository.PatchAllAsync(q => q.Id(id1, id2), new ActionPatch<Employee>(e => e.Name = "Patched"));
+
+        // Assert
+        var response = await _client.Indices.AliasExistsAsync(index.Name);
+        Assert.False(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id1));
+        Assert.False(response.Exists);
+        response = await _client.Indices.ExistsAsync(index.GetIndex(id2));
+        Assert.False(response.Exists);
     }
 }

@@ -413,7 +413,6 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
 
     internal static class Utils
     {
-
         public static byte[] ParseHexString(string s)
         {
             if (s == null)

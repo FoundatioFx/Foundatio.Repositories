@@ -1,8 +1,10 @@
-﻿using System;
+using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Foundatio.AsyncEx;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Analysis;
 using Elastic.Clients.Elasticsearch.Fluent;
@@ -30,8 +32,9 @@ public class Index : IIndex
     private readonly Lazy<ElasticQueryParser> _queryParser;
     private readonly Lazy<ElasticMappingResolver> _mappingResolver;
     private readonly Lazy<QueryFieldResolver> _fieldResolver;
+    private readonly ConcurrentDictionary<string, ICustomFieldType> _customFieldTypes = new();
+    private readonly AsyncLock _lock = new();
     protected readonly ILogger _logger;
-    private readonly IDictionary<string, ICustomFieldType> _customFieldTypes = new Dictionary<string, ICustomFieldType>();
 
     public Index(IElasticConfiguration configuration, string name = null)
     {
@@ -153,14 +156,14 @@ public class Index : IIndex
         if (_isEnsured)
             return;
 
-        bool existsResult = await IndexExistsAsync(Name).AnyContext();
-        if (existsResult)
+        using (await _lock.LockAsync().AnyContext())
         {
-            _isEnsured = true;
-            return;
-        }
+            if (_isEnsured)
+                return;
 
-        await ConfigureAsync().AnyContext();
+            await ConfigureAsync().AnyContext();
+            _isEnsured = true;
+        }
     }
 
     public virtual Task MaintainAsync(bool includeOptionalTasks = true)
@@ -179,9 +182,13 @@ public class Index : IIndex
 
     public int BulkBatchSize { get; set; } = 1000;
 
-    public virtual Task DeleteAsync()
+    public virtual async Task DeleteAsync()
     {
-        return DeleteIndexAsync(Name);
+        using (await _lock.LockAsync().AnyContext())
+        {
+            await DeleteIndexAsync(Name).AnyContext();
+            _isEnsured = false;
+        }
     }
 
     protected virtual async Task CreateIndexAsync(string name, Func<CreateIndexRequestDescriptor, CreateIndexRequestDescriptor> descriptor = null)
@@ -192,13 +199,13 @@ public class Index : IIndex
         descriptor ??= ConfigureIndex;
 
         var response = await Configuration.Client.Indices.CreateAsync(name, descriptor).AnyContext();
+        _logger.LogRequest(response);
         _isEnsured = true;
 
         // check for valid response or that the index already exists
         if (response.IsValidResponse || response.ElasticsearchServerError?.Status == 400 &&
             response.ElasticsearchServerError.Error.Type is "index_already_exists_exception" or "resource_already_exists_exception")
         {
-            _logger.LogRequest(response);
             return;
         }
 
@@ -315,7 +322,7 @@ public class Index : IIndex
             return;
         }
 
-        throw new RepositoryException(response.GetErrorMessage("Error deleting the index {names}"), response.OriginalException);
+        throw new RepositoryException(response.GetErrorMessage($"Error deleting the index {names}"), response.OriginalException);
     }
 
     protected async Task<bool> IndexExistsAsync(string name)

@@ -1,7 +1,7 @@
 <Project>
 
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0</TargetFrameworks>
+    <TargetFrameworks>net8.0</TargetFrameworks>
     <Product>Foundatio Elasticsearch Repositories</Product>
     <Description>Generic Repository implementations for Elasticsearch.</Description>
     <PackageProjectUrl>https://github.com/FoundatioFx/Foundatio.Repositories</PackageProjectUrl>
@@ -12,7 +12,7 @@
     <ReferenceFoundatioRepositoriesSource>false</ReferenceFoundatioRepositoriesSource>
     <FoundatioProjectsDir>$(ProjectDir)..\..\..\</FoundatioProjectsDir>
 
-    <Copyright>Copyright (c) 2024 Foundatio.  All rights reserved.</Copyright>
+    <Copyright>Copyright (c) 2025 Foundatio.  All rights reserved.</Copyright>
     <Authors>FoundatioFx</Authors>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <WarningsAsErrors>true</WarningsAsErrors>

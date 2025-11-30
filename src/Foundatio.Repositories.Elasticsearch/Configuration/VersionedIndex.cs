@@ -247,6 +247,7 @@ public class VersionedIndex : Index, IVersionedIndex
         var sw = Stopwatch.StartNew();
         var response = await Configuration.Client.Cat.IndicesAsync(i => i.Pri().Index(Indices.Index((IndexName)filter))).AnyContext();
         sw.Stop();
+        _logger.LogRequest(response);
 
         if (!response.IsValidResponse)
             throw new RepositoryException(response.GetErrorMessage($"Error getting indices {filter}"), response.OriginalException);
@@ -255,11 +256,11 @@ public class VersionedIndex : Index, IVersionedIndex
             return new List<IndexInfo>();
 
         var aliasResponse = await Configuration.Client.Cat.AliasesAsync(i => i.Name($"{Name}-*")).AnyContext();
+        _logger.LogRequest(aliasResponse);
 
         if (!aliasResponse.IsValidResponse)
             throw new RepositoryException(response.GetErrorMessage($"Error getting index aliases for {filter}"), response.OriginalException);
 
-        _logger.LogRequest(response);
         var indices = response.Records
             .Where(i => version < 0 || GetIndexVersion(i.Index) == version)
             .Select(i =>

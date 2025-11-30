@@ -8,7 +8,9 @@ public abstract class MigrationBase : IMigration
 {
     protected ILogger _logger;
 
-    public MigrationBase() { }
+    public MigrationBase()
+    {
+    }
 
     public MigrationBase(ILoggerFactory loggerFactory)
     {

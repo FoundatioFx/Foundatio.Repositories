@@ -5,7 +5,6 @@ namespace Foundatio.Repositories
 {
     public static class TimeoutOptionsExtensions
     {
-
         internal const string QueryTimeoutKey = "@QueryTimeout";
         public static T Timeout<T>(this T options, TimeSpan timeout) where T : ICommandOptions
         {
@@ -32,6 +31,11 @@ namespace Foundatio.Repositories.Options
         public static TimeSpan GetQueryTimeout(this ICommandOptions options)
         {
             return options.SafeGetOption<TimeSpan>(TimeoutOptionsExtensions.QueryTimeoutKey, TimeSpan.FromSeconds(1));
+        }
+
+        public static bool HasRetryCount(this ICommandOptions options)
+        {
+            return options.SafeHasOption(TimeoutOptionsExtensions.RetryCountKey);
         }
 
         public static int GetRetryCount(this ICommandOptions options, int defaultRetryCount = 10)

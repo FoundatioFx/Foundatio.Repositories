@@ -87,7 +87,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
             IndexType = "string"
         });
         Assert.Equal(1, customField.IndexSlot);
-        Assert.Equal(3, _repocache.Count);
+        Assert.Equal(2, _repocache.Count);
         var mapping = await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
         Assert.Contains(mapping.Keys, c => c == "MyField1");
         await _customFieldDefinitionRepository.GetFieldMappingAsync(nameof(EmployeeWithCustomFields), "1");
@@ -318,8 +318,6 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
     [Fact]
     public async Task CanAutoCreateUnmappedCustomField()
     {
-        Log.DefaultMinimumLevel = LogLevel.Trace;
-
         await _customFieldDefinitionRepository.AddAsync([
             new CustomFieldDefinition
             {

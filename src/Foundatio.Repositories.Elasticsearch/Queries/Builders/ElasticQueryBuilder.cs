@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -13,7 +13,6 @@ public class ElasticQueryBuilder : IElasticQueryBuilder
 {
     private readonly List<ElasticQueryBuilderRegistration> _registrations = new();
     private IElasticQueryBuilder[] _queryBuilders = null;
-
 
     public ElasticQueryBuilder(bool registerDefaultBuilders = true)
     {

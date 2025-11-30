@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using Elastic.Clients.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries;
@@ -25,10 +26,10 @@ public static class ResolverExtensions
 
     public static Field ResolveFieldName(this ElasticMappingResolver resolver, Field field)
     {
-        if (field?.Name == null)
-            return field;
+        if (field is null)
+            throw new ArgumentNullException(nameof(field));
 
-        return new Field(resolver.GetResolvedField(field.Name), field.Boost, field.Format);
+        return new Field(resolver.GetResolvedField(field), field.Boost, field.Format);
     }
 
     public static SortOptions ResolveFieldSort(this ElasticMappingResolver resolver, SortOptions sort)

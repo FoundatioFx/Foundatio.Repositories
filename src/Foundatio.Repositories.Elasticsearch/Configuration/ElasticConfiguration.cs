@@ -13,6 +13,7 @@ using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Resilience;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -31,17 +32,19 @@ public class ElasticConfiguration : IElasticConfiguration
     private readonly Lazy<ICustomFieldDefinitionRepository> _customFieldDefinitionRepository;
     protected readonly bool _shouldDisposeCache;
 
-    public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, TimeProvider timeProvider = null, ILoggerFactory loggerFactory = null)
+    public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, TimeProvider timeProvider = null, IResiliencePolicyProvider resiliencePolicyProvider = null, ILoggerFactory loggerFactory = null)
     {
         _workItemQueue = workItemQueue;
         TimeProvider = timeProvider ?? TimeProvider.System;
         LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _logger = LoggerFactory.CreateLogger(GetType());
-        Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { LoggerFactory = loggerFactory, CloneValues = true, TimeProvider = TimeProvider });
-        _lockProvider = new CacheLockProvider(Cache, messageBus, TimeProvider, loggerFactory);
-        _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15), TimeProvider, loggerFactory);
+        ResiliencePolicyProvider = resiliencePolicyProvider ?? cacheClient?.GetResiliencePolicyProvider() ?? new ResiliencePolicyProvider();
+        ResiliencePolicy = ResiliencePolicyProvider.GetPolicy<ElasticConfiguration>(_logger, TimeProvider);
+        Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { CloneValues = true, ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
+        _lockProvider = new CacheLockProvider(Cache, messageBus, TimeProvider, ResiliencePolicyProvider, LoggerFactory);
+        _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15), TimeProvider, ResiliencePolicyProvider, LoggerFactory);
         _shouldDisposeCache = cacheClient == null;
-        MessageBus = messageBus ?? new InMemoryMessageBus(new InMemoryMessageBusOptions { LoggerFactory = loggerFactory, TimeProvider = TimeProvider });
+        MessageBus = messageBus ?? new InMemoryMessageBus(new InMemoryMessageBusOptions { ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
         _frozenIndexes = new Lazy<IReadOnlyCollection<IIndex>>(() => _indexes.AsReadOnly());
         _customFieldDefinitionRepository = new Lazy<ICustomFieldDefinitionRepository>(CreateCustomFieldDefinitionRepository);
         _client = new Lazy<ElasticsearchClient>(CreateElasticClient);
@@ -76,6 +79,8 @@ public class ElasticConfiguration : IElasticConfiguration
     public ICacheClient Cache { get; }
     public IMessageBus MessageBus { get; }
     public ILoggerFactory LoggerFactory { get; }
+    public IResiliencePolicyProvider ResiliencePolicyProvider { get; }
+    public IResiliencePolicy ResiliencePolicy { get; }
     public TimeProvider TimeProvider { get; set; }
     public IReadOnlyCollection<IIndex> Indexes => _frozenIndexes.Value;
     public ICustomFieldDefinitionRepository CustomFieldDefinitionRepository => _customFieldDefinitionRepository.Value;
@@ -200,8 +205,12 @@ public class ElasticConfiguration : IElasticConfiguration
         {
             try
             {
-                await Run.WithRetriesAsync(() => outdatedIndex.ReindexAsync((progress, message) => progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask),
-                    logger: _logger).AnyContext();
+                await ResiliencePolicy.ExecuteAsync(async () =>
+                {
+                    await outdatedIndex.ReindexAsync((progress, message) =>
+                            progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask)
+                        .AnyContext();
+                }).AnyContext();
             }
             catch (Exception)
             {

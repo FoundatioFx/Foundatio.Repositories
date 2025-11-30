@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -669,8 +669,6 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetAllWithAsyncQueryAsync()
     {
-        Log.DefaultMinimumLevel = LogLevel.Trace;
-
         var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(identity1?.Id);
 
@@ -744,8 +742,6 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task CountWithAsyncQueryAsync()
     {
-        Log.DefaultMinimumLevel = LogLevel.Trace;
-
         var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(identity1?.Id);
 
@@ -806,8 +802,6 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task FindWithRuntimeFieldsAsync()
     {
-        Log.DefaultMinimumLevel = LogLevel.Trace;
-
         var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(employee1?.Id);
 
@@ -822,8 +816,6 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task FindWithResolvedRuntimeFieldsAsync()
     {
-        Log.DefaultMinimumLevel = LogLevel.Trace;
-
         var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(employee1?.Id);
 
@@ -838,8 +830,6 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task CanUseOptInRuntimeFieldResolving()
     {
-        Log.DefaultMinimumLevel = LogLevel.Trace;
-
         var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(employee1?.Id);
 
@@ -862,8 +852,6 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task FindWithSearchAfterPagingAsync()
     {
-        Log.DefaultMinimumLevel = LogLevel.Trace;
-
         var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(employee1?.Id);
 
@@ -1033,7 +1021,6 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetWithDateRangeFilterExpressionHonoringTimeZoneAsync()
     {
-        Log.DefaultMinimumLevel = LogLevel.Trace;
         var chicagoTimeZone = TZConvert.GetTimeZoneInfo("America/Chicago");
         var asiaTimeZone = TZConvert.GetTimeZoneInfo("Asia/Shanghai");
         var utcNow = DateTime.UtcNow;
@@ -1071,12 +1058,9 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(1, results.Total);
     }
 
-
     [Fact]
     public async Task GetWithDateRangeHonoringTimeZoneAsync()
     {
-        Log.DefaultMinimumLevel = LogLevel.Trace;
-
         var chicagoTimeZone = TZConvert.GetTimeZoneInfo("America/Chicago");
         var asiaTimeZone = TZConvert.GetTimeZoneInfo("Asia/Shanghai");
 
@@ -1084,13 +1068,13 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         var chicagoNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, chicagoTimeZone);
         var asiaNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, asiaTimeZone);
 
-        _logger.LogInformation($"UTC: {utcNow:o} Chicago: {chicagoNow:o} Asia: {asiaNow:o}");
+        _logger.LogInformation("UTC: {UtcNow} Chicago: {ChicagoNow} Asia: {AsiaNow}", utcNow, chicagoNow, asiaNow);
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(nextReview: utcNow), o => o.ImmediateConsistency());
         Assert.NotNull(employee?.Id);
 
         var results = await _employeeRepository.FindAsync(o => o.DateRange(utcNow.SubtractHours(1), utcNow, "next"));
-        _logger.LogInformation($"Count: {results.Total} - UTC range");
+        _logger.LogInformation("Count: {Total} - UTC range", results.Total);
 
         Assert.NotNull(results);
         Assert.Single(results.Documents);
@@ -1099,7 +1083,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(1, results.Total);
 
         results = await _employeeRepository.FindAsync(o => o.DateRange(chicagoNow.SubtractHours(1), chicagoNow, "next", "America/Chicago"));
-        _logger.LogInformation($"Count: {results.Total} - Chicago range");
+        _logger.LogInformation("Count: {Total} - Chicago range", results.Total);
 
         Assert.NotNull(results);
         Assert.Single(results.Documents);
