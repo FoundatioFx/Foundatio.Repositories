@@ -84,6 +84,7 @@ public sealed class EmployeeIndex : Index<Employee>
         config.UseIncludes(ResolveIncludeAsync).UseOptInRuntimeFieldResolver(ResolveRuntimeFieldAsync);
         config.SetDefaultFields([
             nameof(Employee.Id).ToLower(),
+            nameof(Employee.Name).ToLower(),
             "peerReviews.reviewerEmployeeId"
         ]);
     }
