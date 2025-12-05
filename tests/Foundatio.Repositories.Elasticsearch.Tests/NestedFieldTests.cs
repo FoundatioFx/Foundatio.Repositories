@@ -212,14 +212,14 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         ];
 
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
-        const string aggregations = "terms:(peerReviews.reviewerEmployeeId peerReviews.rating) max:peerReviews.rating min:peerReviews.rating cardinality:peerReviews.reviewerEmployeeId";
+        const string aggregations = "terms:peerReviews.reviewerEmployeeId terms:peerReviews.rating max:peerReviews.rating min:peerReviews.rating cardinality:peerReviews.reviewerEmployeeId";
 
         // Act
         var result = await _employeeRepository.CountAsync(q => q.AggregationsExpression(aggregations));
 
         // Assert
         Assert.Equal(3, result.Total);
-        Assert.Equal(2, result.Aggregations.Count);
+        Assert.Single(result.Aggregations);
 
         var nestedPeerReviewsAgg = result.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
         Assert.NotNull(nestedPeerReviewsAgg);
@@ -262,12 +262,12 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
         // Act
-        const string aggregationsWithInclude = "terms:(peerReviews.reviewerEmployeeId~@include:employee1,employee2 peerReviews.rating~@include:4,5) max:peerReviews.rating min:peerReviews.rating";
+        const string aggregationsWithInclude = "terms:(peerReviews.reviewerEmployeeId @include:employee1 @include:employee2) terms:(peerReviews.rating @include:4 @include:5) max:peerReviews.rating min:peerReviews.rating";
         var resultWithInclude = await _employeeRepository.CountAsync(q => q.AggregationsExpression(aggregationsWithInclude));
 
         // Assert
         Assert.Equal(3, resultWithInclude.Total);
-        Assert.Equal(2, resultWithInclude.Aggregations.Count);
+        Assert.Single(resultWithInclude.Aggregations);
 
         var nestedPeerReviewsAggWithInclude = resultWithInclude.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
         Assert.NotNull(nestedPeerReviewsAggWithInclude);
@@ -312,12 +312,12 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
         // Act
-        const string aggregationsWithExclude = "terms:(peerReviews.reviewerEmployeeId~@exclude:employee3 peerReviews.rating~@exclude:3) max:peerReviews.rating min:peerReviews.rating";
+        const string aggregationsWithExclude = "terms:(peerReviews.reviewerEmployeeId @exclude:employee3) terms:(peerReviews.rating @exclude:3) max:peerReviews.rating min:peerReviews.rating";
         var resultWithExclude = await _employeeRepository.CountAsync(q => q.AggregationsExpression(aggregationsWithExclude));
 
         // Assert
         Assert.Equal(3, resultWithExclude.Total);
-        Assert.Equal(2, resultWithExclude.Aggregations.Count);
+        Assert.Single(resultWithExclude.Aggregations);
 
         var nestedPeerReviewsAggWithExclude = resultWithExclude.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
         Assert.NotNull(nestedPeerReviewsAggWithExclude);
@@ -385,6 +385,7 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         Assert.NotNull(roundTrippedNestedAgg);
 
         var roundTrippedRatingTermsAgg = roundTrippedNestedAgg.Aggregations.Terms<int>("terms_peerReviews.rating");
+        Assert.NotNull(roundTrippedRatingTermsAgg);
         Assert.Equal(4, roundTrippedRatingTermsAgg.Buckets.Count);
         bucket = roundTrippedRatingTermsAgg.Buckets.First(f => f.Key == 5);
         Assert.Equal(2, bucket.Total);
