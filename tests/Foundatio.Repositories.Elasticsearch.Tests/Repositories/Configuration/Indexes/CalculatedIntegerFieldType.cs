@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
@@ -63,19 +63,27 @@ public class ScriptService
     {
         using (await _lock.LockAsync().ConfigureAwait(false))
         {
-            string functionName = EnsureExpressionFunction(expression);
-            SetSource(source);
-            return GetValue(functionName);
+            string functionName = EnsureExpressionFunctionInternal(expression);
+            SetSourceInternal(source);
+            return GetValueInternal(functionName);
         }
     }
 
     public string EnsureExpressionFunction(string expression)
     {
+        using (_lock.Lock())
+        {
+            return EnsureExpressionFunctionInternal(expression);
+        }
+    }
+
+    private string EnsureExpressionFunctionInternal(string expression)
+    {
         if (_registeredExpressions.TryGetValue(expression, out string functionName))
             return functionName;
 
         functionName = "_" + ComputeSha256Hash(expression);
-        RegisterFunction(functionName, expression);
+        RegisterFunctionInternal(functionName, expression);
 
         _registeredExpressions.TryAdd(expression, functionName);
 
@@ -83,6 +91,14 @@ public class ScriptService
     }
 
     public void RegisterFunction(string name, string body)
+    {
+        using (_lock.Lock())
+        {
+            RegisterFunctionInternal(name, body);
+        }
+    }
+
+    private void RegisterFunctionInternal(string name, string body)
     {
         if (String.IsNullOrEmpty(name))
             throw new ArgumentNullException(nameof(name));
@@ -113,6 +129,14 @@ public class ScriptService
 
     public void SetSource(object source)
     {
+        using (_lock.Lock())
+        {
+            SetSourceInternal(source);
+        }
+    }
+
+    private void SetSourceInternal(object source)
+    {
         string json = _serializer.SerializeToString(source);
         if (json is null)
             json = "null";
@@ -122,6 +146,14 @@ public class ScriptService
     }
 
     public ScriptValueResult GetValue(string functionName)
+    {
+        using (_lock.Lock())
+        {
+            return GetValueInternal(functionName);
+        }
+    }
+
+    private ScriptValueResult GetValueInternal(string functionName)
     {
         string script = $"{functionName}()";
         try
@@ -139,6 +171,14 @@ public class ScriptService
     }
 
     public object ExecuteExpression(string expression)
+    {
+        using (_lock.Lock())
+        {
+            return ExecuteExpressionInternal(expression);
+        }
+    }
+
+    private object ExecuteExpressionInternal(string expression)
     {
         if (String.IsNullOrEmpty(expression))
             throw new ArgumentNullException(nameof(expression));
