@@ -1154,9 +1154,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     private async Task OnDocumentsAddingAsync(IReadOnlyCollection<T> documents, ICommandOptions options)
     {
         if (HasDates)
-            documents.OfType<IHaveDates>().SetDates();
+            documents.OfType<IHaveDates>().SetDates(ElasticIndex.Configuration.TimeProvider);
         else if (HasCreatedDate)
-            documents.OfType<IHaveCreatedDate>().SetCreatedDates();
+            documents.OfType<IHaveCreatedDate>().SetCreatedDates(ElasticIndex.Configuration.TimeProvider);
 
         if (DocumentsAdding != null && DocumentsAdding.HasHandlers)
             await DocumentsAdding.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
@@ -1186,7 +1186,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return;
 
         if (HasDates)
-            documents.Cast<IHaveDates>().SetDates();
+            documents.Cast<IHaveDates>().SetDates(ElasticIndex.Configuration.TimeProvider);
 
         documents.EnsureIds(ElasticIndex.CreateDocumentId, ElasticIndex.Configuration.TimeProvider);
 
