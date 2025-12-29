@@ -158,7 +158,7 @@ public class MigrationManager
         return MigrationResult.Success;
     }
 
-    private async Task MarkMigrationStartedAsync(MigrationInfo info)
+    private Task MarkMigrationStartedAsync(MigrationInfo info)
     {
         _logger.LogInformation("Starting migration {Id}...", info.Migration.GetId());
         if (info.State == null)
@@ -171,13 +171,13 @@ public class MigrationManager
                 StartedUtc = _timeProvider.GetUtcNow().UtcDateTime
             };
 
-            await _migrationStatusRepository.AddAsync(info.State);
+            return _migrationStatusRepository.AddAsync(info.State);
         }
         else
         {
             info.State.StartedUtc = _timeProvider.GetUtcNow().UtcDateTime;
             info.State.Version = info.Migration.Version ?? 0;
-            await _migrationStatusRepository.SaveAsync(info.State);
+            return _migrationStatusRepository.SaveAsync(info.State);
         }
     }
 
