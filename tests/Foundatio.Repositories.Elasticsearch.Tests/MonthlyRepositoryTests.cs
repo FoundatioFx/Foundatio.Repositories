@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
@@ -6,7 +6,6 @@ using Foundatio.Repositories.Models;
 using Foundatio.Utility;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -19,7 +18,7 @@ public sealed class MonthlyRepositoryTests : ElasticRepositoryTestBase
         _fileAccessHistoryRepository = new FileAccessHistoryRepository(_configuration.MonthlyFileAccessHistory);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         await RemoveDataAsync();

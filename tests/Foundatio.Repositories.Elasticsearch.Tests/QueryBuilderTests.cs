@@ -1,4 +1,4 @@
-﻿using System.Linq;
+using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
@@ -6,7 +6,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Xunit;
 using Nest;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 

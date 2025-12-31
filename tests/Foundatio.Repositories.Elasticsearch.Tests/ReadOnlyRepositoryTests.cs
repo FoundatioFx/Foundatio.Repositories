@@ -14,7 +14,6 @@ using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using TimeZoneConverter;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -31,7 +30,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         _employeeRepository = new EmployeeRepository(_configuration);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         await RemoveDataAsync();
@@ -583,7 +582,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
         Assert.NotNull(identity2?.Id);
 
-        await _client.ClearScrollAsync();
+        await _client.ClearScrollAsync(ct: TestCancellationToken);
         long baselineScrollCount = await GetCurrentScrollCountAsync();
 
         var results = await _identityRepository.GetAllAsync(o => o.PageLimit(1).SnapshotPagingLifetime(TimeSpan.FromMinutes(10)));

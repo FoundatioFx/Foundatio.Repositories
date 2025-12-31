@@ -1,8 +1,7 @@
-﻿using System.Threading.Tasks;
+using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -17,7 +16,7 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase
         _childRepository = new ChildRepository(_configuration);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         await RemoveDataAsync();

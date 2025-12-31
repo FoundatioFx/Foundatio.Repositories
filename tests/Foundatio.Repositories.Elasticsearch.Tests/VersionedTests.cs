@@ -10,7 +10,6 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
 using Nest;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -23,7 +22,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         _employeeRepository = new EmployeeRepository(_configuration);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         await RemoveDataAsync();
@@ -121,7 +120,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
             Refresh = Refresh.True
         };
 
-        var response = await _client.UpdateAsync(request);
+        var response = await _client.UpdateAsync(request, TestCancellationToken);
         _logger.LogRequest(response);
         Assert.True(response.IsValid);
 
@@ -302,7 +301,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees);
-        await _client.Indices.RefreshAsync(Indices.All);
+        await _client.Indices.RefreshAsync(Indices.All, ct: TestCancellationToken);
 
         Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
@@ -338,7 +337,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees);
-        await _client.Indices.RefreshAsync(Indices.All);
+        await _client.Indices.RefreshAsync(Indices.All, ct: TestCancellationToken);
 
         Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 

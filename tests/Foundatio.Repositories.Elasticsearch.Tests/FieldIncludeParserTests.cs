@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Foundatio.Repositories.Elasticsearch.Utility;
 using Xunit;
 

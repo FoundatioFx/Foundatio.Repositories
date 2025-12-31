@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
@@ -7,7 +7,6 @@ using Foundatio.Repositories.Models;
 using Foundatio.Utility;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -20,7 +19,7 @@ public sealed class DailyRepositoryTests : ElasticRepositoryTestBase
         _fileAccessHistoryRepository = new FileAccessHistoryRepository(_configuration.DailyFileAccessHistory);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         await RemoveDataAsync();

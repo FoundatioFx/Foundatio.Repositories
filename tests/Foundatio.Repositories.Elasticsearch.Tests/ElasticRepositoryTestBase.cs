@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,7 +12,7 @@ using Foundatio.Utility;
 using Foundatio.Xunit;
 using Microsoft.Extensions.Logging;
 using Nest;
-using Xunit.Abstractions;
+using Xunit;
 using IAsyncLifetime = Xunit.IAsyncLifetime;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
@@ -38,7 +38,7 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
     }
 
     private static bool _elasticsearchReady;
-    public virtual async Task InitializeAsync()
+    public virtual async ValueTask InitializeAsync()
     {
         if (!_elasticsearchReady)
             await _client.WaitForReadyAsync(new CancellationTokenSource(TimeSpan.FromMinutes(1)).Token);
@@ -70,5 +70,5 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
         Log.DefaultLogLevel = minimumLevel;
     }
 
-    public virtual Task DisposeAsync() => Task.CompletedTask;
+    public virtual ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

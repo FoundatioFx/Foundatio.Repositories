@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -15,7 +15,6 @@ using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
-using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -37,7 +36,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _identityRepositoryWithNoCaching = new IdentityWithNoCachingRepository(_configuration);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         _logger.LogInformation("Starting init");
         await base.InitializeAsync();
@@ -325,7 +324,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
                 Assert.Equal(ChangeType.Saved, msg.ChangeType);
                 countdownEvent.Signal();
                 return Task.CompletedTask;
-            });
+            }, TestCancellationToken);
 
             log.CompanyId = ObjectId.GenerateNewId().ToString();
             var result = await _dailyRepository.SaveAsync(log);
@@ -373,7 +372,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
                 Assert.Equal(ChangeType.Saved, msg.ChangeType);
                 notificationCountdownEvent.Signal();
                 return Task.CompletedTask;
-            });
+            }, TestCancellationToken);
 
             logEntry.CompanyId = ObjectId.GenerateNewId().ToString();
             await _dailyRepository.SaveAsync(new List<LogEvent> { logEntry, addedLog });
@@ -801,7 +800,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _logger.LogInformation("Done patching name");
 
         await cts.CancelAsync();
-        await Task.Delay(100);
+        await Task.Delay(100, TestCancellationToken);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
@@ -856,7 +855,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _logger.LogInformation("Done patching name");
 
         await cts.CancelAsync();
-        await Task.Delay(100);
+        await Task.Delay(100, TestCancellationToken);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
@@ -934,7 +933,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _logger.LogInformation("Done patching name");
 
         await cts.CancelAsync();
-        await Task.Delay(100);
+        await Task.Delay(100, TestCancellationToken);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
@@ -1011,7 +1010,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _logger.LogInformation("Done patching name");
 
         await cts.CancelAsync();
-        await Task.Delay(100);
+        await Task.Delay(100, TestCancellationToken);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
@@ -1103,7 +1102,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(BATCH_SIZE));
             added += BATCH_SIZE;
         } while (added < COUNT);
-        await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name);
+        await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name, ct: TestCancellationToken);
         Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Trace);
 
         Assert.Equal(COUNT, await _dailyRepository.IncrementValueAsync(Array.Empty<string>()));
@@ -1121,7 +1120,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(BATCH_SIZE));
             added += BATCH_SIZE;
         } while (added < COUNT);
-        await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name);
+        await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name, ct: TestCancellationToken);
         Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Trace);
 
         var tasks = Enumerable.Range(1, 6).Select(async i =>
