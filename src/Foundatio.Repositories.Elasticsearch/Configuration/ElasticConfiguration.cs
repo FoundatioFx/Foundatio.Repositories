@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -157,7 +157,7 @@ public class ElasticConfiguration : IElasticConfiguration
 
         // enqueue reindex to new version, only allowed every 15 minutes
         string enqueueReindexLockName = String.Join(":", "enqueue-reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex);
-        await _beginReindexLockProvider.TryUsingAsync(enqueueReindexLockName, () => _workItemQueue.EnqueueAsync(reindexWorkItem), TimeSpan.Zero, new CancellationToken(true)).AnyContext();
+        await _beginReindexLockProvider.TryUsingAsync(enqueueReindexLockName, async () => { await _workItemQueue.EnqueueAsync(reindexWorkItem).AnyContext(); }, TimeSpan.Zero, new CancellationToken(true)).AnyContext();
     }
 
     public Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null)
