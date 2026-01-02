@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch.Core.Search;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
@@ -120,20 +121,23 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
 
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
-        var nestedAggQuery = _client.Search<Employee>(d => d.Index("employees").Aggregations(a => a
-           .Nested("nested_reviewRating", h => h.Path("peerReviews")
-               .Aggregations(a1 => a1.Terms("terms_rating", t => t.Field("peerReviews.rating").Meta(m => m.Add("@field_type", "integer")))))
+        var nestedAggQuery = _client.Search<Employee>(d => d.Indices("employees").Aggregations(a => a
+           .Add("nested_reviewRating", agg => agg
+               .Nested(h => h.Path("peerReviews"))
+               .Aggregations(a1 => a1.Add("terms_rating", t => t.Terms(t1 => t1.Field("peerReviews.rating")).Meta(m => m.Add("@field_type", "integer")))))
             ));
 
         var result = nestedAggQuery.Aggregations.ToAggregations();
         Assert.Single(result);
         Assert.Equal(2, ((result["nested_reviewRating"] as Foundatio.Repositories.Models.SingleBucketAggregate).Aggregations["terms_rating"] as Foundatio.Repositories.Models.BucketAggregate).Items.Count);
 
-        var nestedAggQueryWithFilter = _client.Search<Employee>(d => d.Index("employees").Aggregations(a => a
-           .Nested("nested_reviewRating", h => h.Path("peerReviews")
-                .Aggregations(a1 => a1
-                    .Filter("user_" + employees[0].Id, f => f.Filter(q => q.Term(t => t.Field("peerReviews.reviewerEmployeeId").Value(employees[0].Id)))
-                        .Aggregations(a2 => a2.Terms("terms_rating", t => t.Field("peerReviews.rating").Meta(m => m.Add("@field_type", "integer")))))
+        var nestedAggQueryWithFilter = _client.Search<Employee>(d => d.Indices("employees").Aggregations(a => a
+           .Add("nested_reviewRating", agg => agg
+               .Nested(h => h.Path("peerReviews"))
+               .Aggregations(a1 => a1
+                    .Add("user_" + employees[0].Id, f => f
+                        .Filter(q => q.Term(t => t.Field("peerReviews.reviewerEmployeeId").Value(employees[0].Id)))
+                        .Aggregations(a2 => a2.Add("terms_rating", t => t.Terms(t1 => t1.Field("peerReviews.rating")).Meta(m => m.Add("@field_type", "integer")))))
             ))));
 
         result = nestedAggQueryWithFilter.Aggregations.ToAggregations();
@@ -562,7 +566,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
                 }
             }";
 
-        var employeeHit = _configuration.Client.ElasticsearchClientSettings.RequestResponseSerializer.Deserialize<IHit<Employee>>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(json)));
+        var employeeHit = _configuration.Client.ElasticsearchClientSettings.RequestResponseSerializer.Deserialize<Hit<Employee>>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(json)));
         Assert.Equal("employees", employeeHit.Index);
         Assert.Equal("62d982efd3e0d1fed81452f3", employeeHit.Source.CompanyId);
     }

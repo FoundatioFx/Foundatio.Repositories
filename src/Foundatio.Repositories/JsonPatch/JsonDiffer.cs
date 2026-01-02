@@ -1,11 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Foundatio.Repositories.Utility;
 
+/// <summary>
+/// Computes the difference between two JSON documents and generates a JSON Patch document.
+/// Converted from Newtonsoft.Json (JToken) to System.Text.Json (JsonNode) to align with
+/// Elastic.Clients.Elasticsearch which exclusively uses System.Text.Json for serialization.
+/// </summary>
 public class JsonDiffer
 {
     internal static string Extend(string path, string extension)
@@ -14,17 +19,17 @@ public class JsonDiffer
         return path + "/" + extension;
     }
 
-    private static Operation Build(string op, string path, string key, JToken value)
+    private static Operation Build(string op, string path, string key, JsonNode value)
     {
         if (String.IsNullOrEmpty(key))
-            return Operation.Parse("{ 'op' : '" + op + "' , path: '" + path + "', value: " +
-                                (value == null ? "null" : value.ToString(Formatting.None)) + "}");
+            return Operation.Parse("{ \"op\" : \"" + op + "\" , \"path\": \"" + path + "\", \"value\": " +
+                                (value == null ? "null" : value.ToJsonString()) + "}");
 
-        return Operation.Parse("{ op : '" + op + "' , path : '" + Extend(path, key) + "' , value : " +
-                            (value == null ? "null" : value.ToString(Formatting.None)) + "}");
+        return Operation.Parse("{ \"op\" : \"" + op + "\" , \"path\" : \"" + Extend(path, key) + "\" , \"value\" : " +
+                            (value == null ? "null" : value.ToJsonString()) + "}");
     }
 
-    internal static Operation Add(string path, string key, JToken value)
+    internal static Operation Add(string path, string key, JsonNode value)
     {
         return Build("add", path, key, value);
     }
@@ -34,21 +39,21 @@ public class JsonDiffer
         return Build("remove", path, key, null);
     }
 
-    internal static Operation Replace(string path, string key, JToken value)
+    internal static Operation Replace(string path, string key, JsonNode value)
     {
         return Build("replace", path, key, value);
     }
 
-    internal static IEnumerable<Operation> CalculatePatch(JToken left, JToken right, bool useIdToDetermineEquality,
+    internal static IEnumerable<Operation> CalculatePatch(JsonNode left, JsonNode right, bool useIdToDetermineEquality,
         string path = "")
     {
-        if (left.Type != right.Type)
+        if (GetNodeType(left) != GetNodeType(right))
         {
             yield return JsonDiffer.Replace(path, "", right);
             yield break;
         }
 
-        if (left.Type == JTokenType.Array)
+        if (left is JsonArray)
         {
             Operation prev = null;
             foreach (var operation in ProcessArray(left, right, path, useIdToDetermineEquality))
@@ -69,23 +74,23 @@ public class JsonDiffer
             if (prev != null)
                 yield return prev;
         }
-        else if (left.Type == JTokenType.Object)
+        else if (left is JsonObject leftObj && right is JsonObject rightObj)
         {
-            var lprops = ((IDictionary<string, JToken>)left).OrderBy(p => p.Key);
-            var rprops = ((IDictionary<string, JToken>)right).OrderBy(p => p.Key);
+            var lprops = leftObj.OrderBy(p => p.Key).ToList();
+            var rprops = rightObj.OrderBy(p => p.Key).ToList();
 
-            foreach (var removed in lprops.Except(rprops, MatchesKey.Instance))
+            foreach (var removed in lprops.Where(l => !rprops.Any(r => r.Key == l.Key)))
             {
                 yield return JsonDiffer.Remove(path, removed.Key);
             }
 
-            foreach (var added in rprops.Except(lprops, MatchesKey.Instance))
+            foreach (var added in rprops.Where(r => !lprops.Any(l => l.Key == r.Key)))
             {
                 yield return JsonDiffer.Add(path, added.Key, added.Value);
             }
 
             var matchedKeys = lprops.Select(x => x.Key).Intersect(rprops.Select(y => y.Key));
-            var zipped = matchedKeys.Select(k => new { key = k, left = left[k], right = right[k] });
+            var zipped = matchedKeys.Select(k => new { key = k, left = leftObj[k], right = rightObj[k] });
 
             foreach (var match in zipped)
             {
@@ -97,25 +102,42 @@ public class JsonDiffer
         }
         else
         {
-            // Two values, same type, not JObject so no properties
+            // Two values, same type, not JsonObject so no properties
 
-            if (left.ToString() == right.ToString())
+            if (JsonNodeToString(left) == JsonNodeToString(right))
                 yield break;
             else
                 yield return JsonDiffer.Replace(path, "", right);
         }
     }
 
-    private static IEnumerable<Operation> ProcessArray(JToken left, JToken right, string path,
+    private static string GetNodeType(JsonNode node)
+    {
+        return node switch
+        {
+            null => "null",
+            JsonObject => "object",
+            JsonArray => "array",
+            JsonValue v => v.GetValueKind().ToString(),
+            _ => "unknown"
+        };
+    }
+
+    private static string JsonNodeToString(JsonNode node)
+    {
+        return node?.ToJsonString() ?? "null";
+    }
+
+    private static IEnumerable<Operation> ProcessArray(JsonNode left, JsonNode right, string path,
         bool useIdPropertyToDetermineEquality)
     {
-        var comparer = new CustomCheckEqualityComparer(useIdPropertyToDetermineEquality, new JTokenEqualityComparer());
+        var comparer = new CustomCheckEqualityComparer(useIdPropertyToDetermineEquality);
 
         int commonHead = 0;
         int commonTail = 0;
-        var array1 = left.ToArray();
+        var array1 = (left as JsonArray)?.ToArray() ?? Array.Empty<JsonNode>();
         int len1 = array1.Length;
-        var array2 = right.ToArray();
+        var array2 = (right as JsonArray)?.ToArray() ?? Array.Empty<JsonNode>();
         int len2 = array2.Length;
         //    if (len1 == 0 && len2 ==0 ) yield break;
         while (commonHead < len1 && commonHead < len2)
@@ -151,7 +173,7 @@ public class JsonDiffer
             yield return new ReplaceOperation
             {
                 Path = path,
-                Value = new JArray(array2)
+                Value = new JsonArray(array2.Select(n => n?.DeepClone()).ToArray())
             };
             yield break;
         }
@@ -169,85 +191,68 @@ public class JsonDiffer
         {
             yield return new AddOperation
             {
-                Value = rightMiddle[i],
+                Value = rightMiddle[i]?.DeepClone(),
                 Path = path + "/" + (i + commonHead)
             };
         }
     }
 
-    private class MatchesKey : IEqualityComparer<KeyValuePair<string, JToken>>
-    {
-        public static MatchesKey Instance = new();
-
-        public bool Equals(KeyValuePair<string, JToken> x, KeyValuePair<string, JToken> y)
-        {
-            return x.Key.Equals(y.Key);
-        }
-
-        public int GetHashCode(KeyValuePair<string, JToken> obj)
-        {
-            return obj.Key.GetHashCode();
-        }
-    }
-
-    public PatchDocument Diff(JToken @from, JToken to, bool useIdPropertyToDetermineEquality)
+    public PatchDocument Diff(JsonNode @from, JsonNode to, bool useIdPropertyToDetermineEquality)
     {
         return new PatchDocument(CalculatePatch(@from, to, useIdPropertyToDetermineEquality).ToArray());
     }
 }
 
-internal class CustomCheckEqualityComparer : IEqualityComparer<JToken>
+internal class CustomCheckEqualityComparer : IEqualityComparer<JsonNode>
 {
     private readonly bool _enableIdCheck;
-    private readonly IEqualityComparer<JToken> _inner;
 
-    public CustomCheckEqualityComparer(bool enableIdCheck, IEqualityComparer<JToken> inner)
+    public CustomCheckEqualityComparer(bool enableIdCheck)
     {
         _enableIdCheck = enableIdCheck;
-        _inner = inner;
     }
 
-    public bool Equals(JToken x, JToken y)
+    public bool Equals(JsonNode x, JsonNode y)
     {
-        if (!_enableIdCheck || x.Type != JTokenType.Object || y.Type != JTokenType.Object)
-            return _inner.Equals(x, y);
+        if (!_enableIdCheck || x is not JsonObject || y is not JsonObject)
+            return JsonNode.DeepEquals(x, y);
 
-        var xIdToken = x["id"];
-        var yIdToken = y["id"];
+        var xObj = x as JsonObject;
+        var yObj = y as JsonObject;
 
-        string xId = xIdToken?.Value<string>();
-        string yId = yIdToken?.Value<string>();
+        string xId = xObj?["id"]?.GetValue<string>();
+        string yId = yObj?["id"]?.GetValue<string>();
         if (xId != null && xId == yId)
         {
             return true;
         }
 
-        return _inner.Equals(x, y);
+        return JsonNode.DeepEquals(x, y);
     }
 
-    public int GetHashCode(JToken obj)
+    public int GetHashCode(JsonNode obj)
     {
-        if (!_enableIdCheck || obj.Type != JTokenType.Object)
-            return _inner.GetHashCode(obj);
+        if (!_enableIdCheck || obj is not JsonObject)
+            return obj?.ToJsonString()?.GetHashCode() ?? 0;
 
-        var xIdToken = obj["id"];
-        string xId = xIdToken != null && xIdToken.HasValues ? xIdToken.Value<string>() : null;
+        var xObj = obj as JsonObject;
+        string xId = xObj?["id"]?.GetValue<string>();
         if (xId != null)
-            return xId.GetHashCode() + _inner.GetHashCode(obj);
+            return xId.GetHashCode() + (obj?.ToJsonString()?.GetHashCode() ?? 0);
 
-        return _inner.GetHashCode(obj);
+        return obj?.ToJsonString()?.GetHashCode() ?? 0;
     }
 
-    public static bool HaveEqualIds(JToken x, JToken y)
+    public static bool HaveEqualIds(JsonNode x, JsonNode y)
     {
-        if (x.Type != JTokenType.Object || y.Type != JTokenType.Object)
+        if (x is not JsonObject || y is not JsonObject)
             return false;
 
-        var xIdToken = x["id"];
-        var yIdToken = y["id"];
+        var xObj = x as JsonObject;
+        var yObj = y as JsonObject;
 
-        string xId = xIdToken?.Value<string>();
-        string yId = yIdToken?.Value<string>();
+        string xId = xObj?["id"]?.GetValue<string>();
+        string yId = yObj?["id"]?.GetValue<string>();
 
         return xId != null && xId == yId;
     }

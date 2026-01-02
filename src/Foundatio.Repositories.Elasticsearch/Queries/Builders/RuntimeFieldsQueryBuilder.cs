@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Parsers;
 using Foundatio.Parsers.ElasticQueries.Visitors;
@@ -105,34 +106,37 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
             // fields need to be added to the context from the query before this
             if (elasticContext.RuntimeFields.Count > 0)
-                ctx.Search.RuntimeFields<T>(f =>
+            {
+                var runtimeMappings = new Dictionary<Field, RuntimeField>();
+                foreach (var field in elasticContext.RuntimeFields)
                 {
-                    foreach (var field in elasticContext.RuntimeFields)
-                        f.RuntimeField(field.Name, GetFieldType(field.FieldType), d =>
-                        {
-                            if (!String.IsNullOrEmpty(field.Script))
-                                d.Script(field.Script);
+                    var runtimeField = new RuntimeField
+                    {
+                        Type = GetFieldType(field.FieldType)
+                    };
+                    if (!String.IsNullOrEmpty(field.Script))
+                        runtimeField.Script = new Script { Source = field.Script };
 
-                            return d;
-                        });
-                    return f;
-                });
+                    runtimeMappings[new Field(field.Name)] = runtimeField;
+                }
+                ctx.Search.RuntimeMappings(runtimeMappings);
+            }
 
             return Task.CompletedTask;
         }
 
-        private FieldType GetFieldType(ElasticRuntimeFieldType fieldType)
+        private RuntimeFieldType GetFieldType(ElasticRuntimeFieldType fieldType)
         {
             return fieldType switch
             {
-                ElasticRuntimeFieldType.Boolean => FieldType.Boolean,
-                ElasticRuntimeFieldType.Date => FieldType.Date,
-                ElasticRuntimeFieldType.Double => FieldType.Double,
-                ElasticRuntimeFieldType.GeoPoint => FieldType.GeoPoint,
-                ElasticRuntimeFieldType.Ip => FieldType.Ip,
-                ElasticRuntimeFieldType.Keyword => FieldType.Keyword,
-                ElasticRuntimeFieldType.Long => FieldType.Long,
-                _ => FieldType.Keyword,
+                ElasticRuntimeFieldType.Boolean => RuntimeFieldType.Boolean,
+                ElasticRuntimeFieldType.Date => RuntimeFieldType.Date,
+                ElasticRuntimeFieldType.Double => RuntimeFieldType.Double,
+                ElasticRuntimeFieldType.GeoPoint => RuntimeFieldType.GeoPoint,
+                ElasticRuntimeFieldType.Ip => RuntimeFieldType.Ip,
+                ElasticRuntimeFieldType.Keyword => RuntimeFieldType.Keyword,
+                ElasticRuntimeFieldType.Long => RuntimeFieldType.Long,
+                _ => RuntimeFieldType.Keyword,
             };
         }
     }

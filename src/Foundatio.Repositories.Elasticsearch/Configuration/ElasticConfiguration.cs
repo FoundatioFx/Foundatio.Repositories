@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Transport;
 using Foundatio.Caching;
 using Foundatio.Jobs;
 using Foundatio.Lock;
@@ -52,8 +53,7 @@ public class ElasticConfiguration : IElasticConfiguration
 
     protected virtual ElasticsearchClient CreateElasticClient()
     {
-        var settings = new ElasticsearchClientSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")));
-        settings.EnableApiVersioningHeader();
+        var settings = new ElasticsearchClientSettings(CreateConnectionPool() ?? new SingleNodePool(new Uri("http://localhost:9200")));
         ConfigureSettings(settings);
         foreach (var index in Indexes)
             index.ConfigureSettings(settings);
@@ -70,7 +70,7 @@ public class ElasticConfiguration : IElasticConfiguration
         settings.EnableTcpKeepAlive(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2));
     }
 
-    protected virtual IConnectionPool CreateConnectionPool()
+    protected virtual NodePool CreateConnectionPool()
     {
         return null;
     }

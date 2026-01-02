@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Net.NetworkInformation;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Transport;
 using Foundatio.Caching;
 using Foundatio.Jobs;
 using Foundatio.Messaging;
@@ -32,7 +33,7 @@ public class MyAppElasticConfiguration : ElasticConfiguration
         CustomFields = AddCustomFieldIndex(replicas: 0);
     }
 
-    protected override IConnectionPool CreateConnectionPool()
+    protected override NodePool CreateConnectionPool()
     {
         string connectionString = null;
         bool fiddlerIsRunning = Process.GetProcessesByName("fiddler").Length > 0;
@@ -53,7 +54,7 @@ public class MyAppElasticConfiguration : ElasticConfiguration
                 servers.Add(new Uri($"http://{(fiddlerIsRunning ? "ipv4.fiddler" : "localhost")}:9202"));
         }
 
-        return new StaticConnectionPool(servers);
+        return new StaticNodePool(servers);
     }
 
     private static bool IsPortOpen(int port)
@@ -72,9 +73,8 @@ public class MyAppElasticConfiguration : ElasticConfiguration
 
     protected override ElasticsearchClient CreateElasticClient()
     {
-        //var settings = new ElasticsearchClientSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")), sourceSerializer: (serializer, values) => new ElasticsearchJsonNetSerializer(serializer, values));
-        var settings = new ElasticsearchClientSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")));
-        settings.EnableApiVersioningHeader();
+        //var settings = new ElasticsearchClientSettings(CreateConnectionPool() ?? new SingleNodePool(new Uri("http://localhost:9200")), sourceSerializer: (serializer, values) => new ElasticsearchJsonNetSerializer(serializer, values));
+        var settings = new ElasticsearchClientSettings(CreateConnectionPool() ?? new SingleNodePool(new Uri("http://localhost:9200")));
         ConfigureSettings(settings);
         foreach (var index in Indexes)
             index.ConfigureSettings(settings);

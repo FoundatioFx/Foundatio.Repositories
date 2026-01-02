@@ -18,7 +18,7 @@ public class ParentRepository : ElasticRepositoryBase<Parent>, IParentRepository
 
     private Task OnDocumentsChanging(object sender, DocumentsChangeEventArgs<Parent> args)
     {
-        foreach (var doc in args.Documents.Select(d => d.Value).Cast<IParentChildDocument>())
+        foreach (var doc in args.Documents.Select(d => d.Value))
             doc.Discriminator = JoinField.Root<Parent>();
 
         return Task.CompletedTask;

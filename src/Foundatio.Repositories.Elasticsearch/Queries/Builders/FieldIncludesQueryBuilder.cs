@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Core.Search;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Utility;
@@ -238,12 +239,15 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 .Where(f => !resolvedIncludes.Contains(f))
                 .ToArray();
 
-            if (resolvedIncludes.Length > 0 && resolvedExcludes.Length > 0)
-                ctx.Search.Source(s => s.Includes(i => i.Fields(resolvedIncludes)).Excludes(i => i.Fields(resolvedExcludes)));
-            else if (resolvedIncludes.Length > 0)
-                ctx.Search.Source(s => s.Includes(i => i.Fields(resolvedIncludes)));
-            else if (resolvedExcludes.Length > 0)
-                ctx.Search.Source(s => s.Excludes(i => i.Fields(resolvedExcludes)));
+            if (resolvedIncludes.Length > 0 || resolvedExcludes.Length > 0)
+            {
+                var filter = new SourceFilter();
+                if (resolvedIncludes.Length > 0)
+                    filter.Includes = resolvedIncludes;
+                if (resolvedExcludes.Length > 0)
+                    filter.Excludes = resolvedExcludes;
+                ctx.Search.Source(new SourceConfig(filter));
+            }
 
             return Task.CompletedTask;
         }

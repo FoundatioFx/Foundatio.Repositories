@@ -6,8 +6,10 @@ using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Parsers;
 using Foundatio.Parsers.ElasticQueries;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
@@ -26,46 +28,45 @@ public sealed class EmployeeWithCustomFieldsIndex : VersionedIndex<EmployeeWithC
         AddCustomFieldType(new CalculatedIntegerFieldType(new ScriptService(new SystemTextJsonSerializer(), NullLogger<ScriptService>.Instance)));
     }
 
-    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        return base.ConfigureIndex(idx.Settings(s => s
-            .Setting("index.mapping.ignore_malformed", "true")
+        base.ConfigureIndex(idx.Settings(s => s
+            .AddOtherSetting("index.mapping.ignore_malformed", "true")
             .NumberOfReplicas(0)
             .NumberOfShards(1)
             .Analysis(a => a.AddSortNormalizer())));
     }
 
-    public override TypeMappingDescriptor<EmployeeWithCustomFields> ConfigureIndexMapping(TypeMappingDescriptor<EmployeeWithCustomFields> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<EmployeeWithCustomFields> map)
     {
-        return map
-            .Dynamic(false)
+        map
+            .Dynamic(DynamicMapping.False)
             .Properties(p => p
                 .SetupDefaults()
-                .Text(f => f.Name("_all"))
-                .Keyword(f => f.Name(e => e.Id))
-                .Keyword(f => f.Name(e => e.EmailAddress))
-                .Keyword(f => f.Name(e => e.CompanyId))
-                .Keyword(f => f.Name(e => e.CompanyName))
-                .Text(f => f.Name(e => e.Name).AddKeywordAndSortFields().CopyTo(c => c.Field("_all")))
-                .Scalar(f => f.Age, f => f.Name(e => e.Age))
-                .FieldAlias(a => a.Name("aliasedage").Path(f => f.Age))
-                .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
-                .FieldAlias(a => a.Name("next").Path(f => f.NextReview))
-                .GeoPoint(f => f.Name(e => e.Location))
-                .FieldAlias(a => a.Name("phone").Path(f => f.PhoneNumbers.First().Number))
-                .Object<PhoneInfo>(f => f
-                    .Name(u => u.PhoneNumbers.First()).Properties(mp => mp
-                        .Text(fu => fu.Name(m => m.Number).CopyTo(c => c.Field("_all")))))
-                .FieldAlias(a => a.Name("twitter").Path("data.@user_meta.twitter_id"))
-                .FieldAlias(a => a.Name("followers").Path("data.@user_meta.twitter_followers"))
-                .Object<Dictionary<string, object>>(f => f.Name(e => e.Data).Properties(p1 => p1
-                    .Object<object>(f2 => f2.Name("@user_meta").Properties(p2 => p2
-                        .Keyword(f3 => f3.Name("twitter_id").CopyTo(c => c.Field("_all")))
-                        .Number(f3 => f3.Name("twitter_followers"))
-                    ))))
-                .Nested<PeerReview>(f => f.Name(e => e.PeerReviews).Properties(p1 => p1
-                    .Keyword(f2 => f2.Name(p2 => p2.ReviewerEmployeeId))
-                    .Scalar(p3 => p3.Rating, f2 => f2.Name(p3 => p3.Rating))))
+                .Text("_all")
+                .Keyword(e => e.EmailAddress)
+                .Keyword(e => e.CompanyId)
+                .Keyword(e => e.CompanyName)
+                .Text(e => e.Name, t => t.AddKeywordAndSortFields().CopyTo("_all"))
+                .IntegerNumber(e => e.Age)
+                .FieldAlias("aliasedage", a => a.Path(e => e.Age))
+                .Date(e => e.NextReview)
+                .FieldAlias("next", a => a.Path(e => e.NextReview))
+                .GeoPoint(e => e.Location)
+                .FieldAlias("phone", a => a.Path("phoneNumbers.number"))
+                .Object(e => e.PhoneNumbers, mp => mp
+                    .Properties(p => p.Text("number", t => t.CopyTo("_all"))))
+                .FieldAlias("twitter", a => a.Path("data.@user_meta.twitter_id"))
+                .FieldAlias("followers", a => a.Path("data.@user_meta.twitter_followers"))
+                .Object(e => e.Data, p1 => p1
+                    .Properties(p => p.Object("@user_meta", p2 => p2
+                        .Properties(p3 => p3
+                            .Keyword("twitter_id", f3 => f3.CopyTo("_all"))
+                            .LongNumber("twitter_followers")))))
+                .Nested(e => e.PeerReviews, p1 => p1
+                    .Properties(p => p
+                        .Keyword("reviewerEmployeeId")
+                        .IntegerNumber("rating")))
                 );
     }
 

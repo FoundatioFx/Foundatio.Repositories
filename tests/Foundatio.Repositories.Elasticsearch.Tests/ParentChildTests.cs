@@ -1,6 +1,7 @@
 ﻿using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Microsoft.Extensions.Logging;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -97,16 +98,16 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase
     public async Task CanQueryByParent()
     {
         var parent = ParentGenerator.Default;
-        parent = await _parentRepository.AddAsync(parent);
+        parent = await _parentRepository.AddAsync(parent, o => o.ImmediateConsistency());
         Assert.NotNull(parent?.Id);
 
-        await _parentRepository.AddAsync(ParentGenerator.Generate());
+        await _parentRepository.AddAsync(ParentGenerator.Generate(), o => o.ImmediateConsistency());
 
         var child = ChildGenerator.Default;
         child = await _childRepository.AddAsync(child, o => o.ImmediateConsistency());
         Assert.NotNull(child?.Id);
 
-        var childResults = await _childRepository.FindAsync(q => q.ParentQuery(p => p.Id(parent.Id)));
+        var childResults = await _childRepository.FindAsync(q => q.ParentQuery(p => p.Id(parent.Id)), o => o.QueryLogLevel(LogLevel.Warning));
         Assert.Equal(1, childResults.Total);
     }
 

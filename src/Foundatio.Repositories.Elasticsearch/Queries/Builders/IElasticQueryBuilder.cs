@@ -21,7 +21,7 @@ public interface IElasticQueryBuilder
 
 public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitorContext, IQueryVisitorContextWithFieldResolver, IQueryVisitorContextWithIncludeResolver, IQueryVisitorContextWithValidation where T : class, new()
 {
-    public QueryBuilderContext(IRepositoryQuery source, ICommandOptions options, SearchRequestDescriptor<T> search = null, IQueryBuilderContext parentContext = null)
+    public QueryBuilderContext(IRepositoryQuery source, ICommandOptions options, SearchRequestDescriptor<T>? search = null, IQueryBuilderContext parentContext = null)
     {
         Source = source;
         Options = options;
@@ -54,6 +54,7 @@ public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitor
     ICollection<ElasticRuntimeField> IElasticQueryVisitorContext.RuntimeFields { get; } = new List<ElasticRuntimeField>();
     bool? IElasticQueryVisitorContext.EnableRuntimeFieldResolver { get; set; }
     RuntimeFieldResolver IElasticQueryVisitorContext.RuntimeFieldResolver { get; set; }
+    Func<string, Task<string>> IElasticQueryVisitorContext.GeoLocationResolver { get; set; }
 
     GroupOperator IQueryVisitorContext.DefaultOperator { get; set; }
     Func<Task<string>> IElasticQueryVisitorContext.DefaultTimeZone { get; set; }
@@ -127,10 +128,9 @@ public static class ElasticQueryBuilderExtensions
 
     public static async Task ConfigureSearchAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, ICommandOptions options, SearchRequestDescriptor<T> search) where T : class, new()
     {
-        if (search == null)
-            throw new ArgumentNullException(nameof(search));
+        ArgumentNullException.ThrowIfNull(search);
 
         var q = await builder.BuildQueryAsync(query, options, search).AnyContext();
-        search.Query(d => q);
+        search.Query(q);
     }
 }

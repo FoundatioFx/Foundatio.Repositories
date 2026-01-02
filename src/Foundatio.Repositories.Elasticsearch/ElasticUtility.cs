@@ -30,26 +30,29 @@ public class ElasticUtility
 
     public async Task<bool> SnapshotRepositoryExistsAsync(string repository)
     {
-        var repositoriesResponse = await _client.Snapshot.GetRepositoryAsync(new GetRepositoryRequest(repository)).AnyContext();
+        var repositoriesResponse = await _client.Snapshot.GetRepositoryAsync(r => r.Name(repository)).AnyContext();
         _logger.LogRequest(repositoriesResponse);
-        return repositoriesResponse.Repositories.Count > 0;
+        return repositoriesResponse.IsValidResponse && repositoriesResponse.Repositories.Count() > 0;
     }
 
     public async Task<bool> SnapshotInProgressAsync()
     {
         var repositoriesResponse = await _client.Snapshot.GetRepositoryAsync().AnyContext();
         _logger.LogRequest(repositoriesResponse);
-        if (repositoriesResponse.Repositories.Count == 0)
+        if (!repositoriesResponse.IsValidResponse || repositoriesResponse.Repositories.Count() == 0)
             return false;
 
-        foreach (string repo in repositoriesResponse.Repositories.Keys)
+        foreach (var repo in repositoriesResponse.Repositories)
         {
-            var snapshotsResponse = await _client.Cat.SnapshotsAsync(new CatSnapshotsRequest(repo)).AnyContext();
+            var snapshotsResponse = await _client.Snapshot.GetAsync(new Elastic.Clients.Elasticsearch.Snapshot.GetSnapshotRequest(repo.Key, "*")).AnyContext();
             _logger.LogRequest(snapshotsResponse);
-            foreach (var snapshot in snapshotsResponse.Records)
+            if (snapshotsResponse.IsValidResponse)
             {
-                if (snapshot.Status == "IN_PROGRESS")
-                    return true;
+                foreach (var snapshot in snapshotsResponse.Snapshots)
+                {
+                    if (snapshot.State == "IN_PROGRESS")
+                        return true;
+                }
             }
         }
 
@@ -69,16 +72,16 @@ public class ElasticUtility
 
     public async Task<ICollection<string>> GetSnapshotListAsync(string repository)
     {
-        var snapshotsResponse = await _client.Cat.SnapshotsAsync(new CatSnapshotsRequest(repository)).AnyContext();
+        var snapshotsResponse = await _client.Snapshot.GetAsync(new Elastic.Clients.Elasticsearch.Snapshot.GetSnapshotRequest(repository, "*")).AnyContext();
         _logger.LogRequest(snapshotsResponse);
-        return snapshotsResponse.Records.Select(r => r.Id).ToList();
+        return snapshotsResponse.Snapshots.Select(s => s.Snapshot).ToList();
     }
 
     public async Task<ICollection<string>> GetIndexListAsync()
     {
-        var indicesResponse = await _client.Cat.IndicesAsync(new CatIndicesRequest()).AnyContext();
+        var indicesResponse = await _client.Indices.GetAsync(Indices.All).AnyContext();
         _logger.LogRequest(indicesResponse);
-        return indicesResponse.Records.Select(r => r.Index).ToList();
+        return indicesResponse.Indices.Keys.Select(k => k.ToString()).ToList();
     }
 
     public Task<bool> WaitForTaskAsync(string taskId, TimeSpan? maxWaitTime = null, TimeSpan? waitInterval = null)
@@ -106,13 +109,12 @@ public class ElasticUtility
         if (!success)
             throw new RepositoryException();
 
-        var snapshotResponse = await _client.Snapshot.SnapshotAsync(new SnapshotRequest(options.Repository, options.Name)
-        {
-            Indices = options.Indices != null ? Indices.Index(options.Indices) : Indices.All,
-            WaitForCompletion = false,
-            IgnoreUnavailable = options.IgnoreUnavailable,
-            IncludeGlobalState = options.IncludeGlobalState
-        }).AnyContext();
+        var snapshotResponse = await _client.Snapshot.CreateAsync(options.Repository, options.Name, s => s
+            .Indices(options.Indices != null ? Indices.Parse(String.Join(",", options.Indices)) : Indices.All)
+            .WaitForCompletion(false)
+            .IgnoreUnavailable(options.IgnoreUnavailable)
+            .IncludeGlobalState(options.IncludeGlobalState)
+        ).AnyContext();
         _logger.LogRequest(snapshotResponse);
 
         // TODO: wait for snapshot to be success in loop

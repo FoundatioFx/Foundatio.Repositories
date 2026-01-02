@@ -5,7 +5,10 @@ using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Aggregations;
+using Elastic.Clients.Elasticsearch.AsyncSearch;
+using Elastic.Clients.Elasticsearch.Core.MGet;
 using Elastic.Clients.Elasticsearch.Core.Search;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Elastic.Transport;
 using Elastic.Transport.Products.Elasticsearch;
 using Foundatio.Caching;
@@ -153,27 +156,31 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (itemsToFind.Count == 0)
             return hits.Where(h => h.Document != null && ShouldReturnDocument(h.Document, options)).Select(h => h.Document).ToList().AsReadOnly();
 
-        var multiGet = new MultiGetRequestDescriptor();
-        foreach (var id in itemsToFind.Where(i => i.Routing != null || !HasParent))
+        // Build MultiGetOperation objects for each ID
+        var itemsForMultiGet = itemsToFind.Where(i => i.Routing != null || !HasParent).ToList();
+        if (itemsForMultiGet.Count > 0)
         {
-            multiGet.Get<T>(f =>
+            var docOperations = itemsForMultiGet
+                .Select(id =>
+                {
+                    var op = new MultiGetOperation(id.Value) { Index = ElasticIndex.GetIndex(id) };
+                    if (id.Routing != null)
+                        op.Routing = id.Routing;
+                    return op;
+                })
+                .ToList();
+
+            var multiGet = new MultiGetRequestDescriptor().Docs(docOperations);
+
+            ConfigureMultiGetRequest(multiGet, options);
+            var multiGetResults = await _client.MultiGetAsync<T>(multiGet).AnyContext();
+            _logger.LogRequest(multiGetResults, options.GetQueryLogLevel());
+
+            foreach (var findHit in multiGetResults.ToFindHits())
             {
-                f.Id(id.Value).Index(ElasticIndex.GetIndex(id));
-                if (id.Routing != null)
-                    f.Routing(id.Routing);
-
-                return f;
-            });
-        }
-
-        ConfigureMultiGetRequest(multiGet, options);
-        var multiGetResults = await _client.MultiGetAsync<T>(multiGet).AnyContext();
-        _logger.LogRequest(multiGetResults, options.GetQueryLogLevel());
-
-        foreach (var doc in multiGetResults.Hits)
-        {
-            hits.Add(((IMultiGetHit<T>)doc).ToFindHit());
-            itemsToFind.Remove(new Id(doc.Id, doc.Routing));
+                hits.Add(findHit);
+                itemsToFind.Remove(new Id(findHit.Id, findHit.Routing));
+            }
         }
 
         // fallback to doing a find
@@ -183,12 +190,24 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             do
             {
                 if (response.Hits.Count > 0)
-                    hits.AddRange(response.Hits.Where(h => h.Document != null));
+                {
+                    foreach (var hit in response.Hits.Where(h => h.Document != null))
+                    {
+                        hits.Add(hit);
+                        itemsToFind.Remove(new Id(hit.Id, hit.Routing));
+                    }
+                }
             } while (await response.NextPageAsync().AnyContext());
         }
 
         if (IsCacheEnabled && options.ShouldUseCache())
+        {
+            // Add null markers for IDs that were not found (to cache the "not found" result)
+            foreach (var id in itemsToFind)
+                hits.Add(new FindHit<T>(id, null, 0));
+
             await AddDocumentsToCacheAsync(hits, options, false).AnyContext();
+        }
 
         return hits.Where(h => h.Document != null && ShouldReturnDocument(h.Document, options)).Select(h => h.Document).ToList().AsReadOnly();
     }
@@ -216,14 +235,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         // documents that use soft deletes or have parents without a routing id need to use search for exists
         if (!SupportsSoftDeletes && (!HasParent || id.Routing != null))
         {
-            var response = await _client.DocumentExistsAsync(new DocumentPath<T>(id.Value), d =>
-            {
-                d.Index(ElasticIndex.GetIndex(id));
-                if (id.Routing != null)
-                    d.Routing(id.Routing);
+            var request = new ExistsRequest(ElasticIndex.GetIndex(id), id.Value);
+            if (id.Routing != null)
+                request.Routing = id.Routing;
 
-                return d;
-            }).AnyContext();
+            var response = await _client.ExistsAsync(request).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
             return response.Exists;
@@ -358,7 +374,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             {
                 if (options.HasAsyncQueryWaitTime())
                     s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
-                return s;
             }).AnyContext();
 
             if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
@@ -372,7 +387,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
         else if (options.HasSnapshotScrollId())
         {
-            var response = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), options.GetSnapshotScrollId()).AnyContext();
+            var scrollRequest = new ScrollRequest(options.GetSnapshotScrollId()) { Scroll = options.GetSnapshotLifetime() };
+            var response = await _client.ScrollAsync<TResult>(scrollRequest).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
             result = response.ToFindResults(options);
         }
@@ -387,12 +403,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
             if (options.ShouldUseAsyncQuery())
             {
-                var asyncSearchDescriptor = searchDescriptor.ToAsyncSearchSubmitDescriptor();
+                SearchRequest searchRequest = searchDescriptor;
+                var asyncSearchRequest = searchRequest.ToAsyncSearchSubmitRequest<TResult>();
 
                 if (options.HasAsyncQueryWaitTime())
-                    asyncSearchDescriptor.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
+                    asyncSearchRequest.WaitForCompletionTimeout = options.GetAsyncQueryWaitTime();
 
-                var response = await _client.AsyncSearch.SubmitAsync<TResult>(asyncSearchDescriptor).AnyContext();
+                var response = await _client.AsyncSearch.SubmitAsync<TResult>(asyncSearchRequest).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
                 result = response.ToFindResults(options);
             }
@@ -437,7 +454,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         string scrollId = previousResults.GetScrollId();
         if (!String.IsNullOrEmpty(scrollId))
         {
-            var scrollResponse = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), scrollId).AnyContext();
+            var scrollRequest = new ScrollRequest(scrollId) { Scroll = options.GetSnapshotLifetime() };
+            var scrollResponse = await _client.ScrollAsync<TResult>(scrollRequest).AnyContext();
             _logger.LogRequest(scrollResponse, options.GetQueryLogLevel());
 
             var results = scrollResponse.ToFindResults(options);
@@ -492,7 +510,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 return FindHit<T>.Empty;
 
-            throw new DocumentException(response.GetErrorMessage("Error while finding document"), response.OriginalException);
+            throw new DocumentException(response.GetErrorMessage("Error while finding document"), response.OriginalException());
         }
 
         result = response.Hits.Select(h => h.ToFindHit()).ToList();
@@ -537,7 +555,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             {
                 if (options.HasAsyncQueryWaitTime())
                     s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
-                return s;
             }).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
@@ -548,12 +565,16 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
         else if (options.ShouldUseAsyncQuery())
         {
-            var asyncSearchDescriptor = searchDescriptor.ToAsyncSearchSubmitDescriptor();
+            var response = await _client.AsyncSearch.SubmitAsync<T>(s =>
+            {
+                string[] indices = ElasticIndex.GetIndexesByQuery(query);
+                if (indices?.Length > 0)
+                    s.Indices(String.Join(",", indices));
+                s.Size(0);
 
-            if (options.HasAsyncQueryWaitTime())
-                asyncSearchDescriptor.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
-
-            var response = await _client.AsyncSearch.SubmitAsync<T>(asyncSearchDescriptor).AnyContext();
+                if (options.HasAsyncQueryWaitTime())
+                    s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
+            }).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
             result = response.ToCountResult(options);
         }
@@ -583,7 +604,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         await RefreshForConsistency(query, options).AnyContext();
 
         var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(0);
-        searchDescriptor.DocvalueFields(_idField.Value);
+        searchDescriptor.DocvalueFields(new FieldAndFormat[] { new() { Field = _idField.Value } });
         var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
         _logger.LogRequest(response, options.GetQueryLogLevel());
 
@@ -592,7 +613,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 return false;
 
-            throw new DocumentException(response.GetErrorMessage("Error checking if document exists"), response.OriginalException);
+            throw new DocumentException(response.GetErrorMessage("Error checking if document exists"), response.OriginalException());
         }
 
         return response.Total > 0;
@@ -666,11 +687,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         _scopedCacheClient = new ScopedCacheClient(new NullCacheClient(), EntityTypeName);
     }
 
-    protected virtual Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>> documents, ChangeType? changeType = null)
+    protected virtual Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>> documents, Foundatio.Repositories.Models.ChangeType? changeType = null)
     {
         var keysToRemove = new HashSet<string>();
 
-        if (IsCacheEnabled && HasIdentity && changeType != ChangeType.Added)
+        if (IsCacheEnabled && HasIdentity && changeType != Foundatio.Repositories.Models.ChangeType.Added)
         {
             foreach (var document in documents)
             {
@@ -688,25 +709,24 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     protected virtual Task<SearchRequestDescriptor<T>> CreateSearchDescriptorAsync(IRepositoryQuery query, ICommandOptions options)
     {
-        return ConfigureSearchDescriptorAsync(null, query, options);
+        return ConfigureSearchDescriptorAsync(new SearchRequestDescriptor<T>(), query, options);
     }
 
     protected virtual async Task<SearchRequestDescriptor<T>> ConfigureSearchDescriptorAsync(SearchRequestDescriptor<T> search, IRepositoryQuery query, ICommandOptions options)
     {
-        search ??= new SearchRequestDescriptor<T>();
 
         query = ConfigureQuery(query.As<T>()).Unwrap();
         string[] indices = ElasticIndex.GetIndexesByQuery(query);
         if (indices?.Length > 0)
-            search.Index(String.Join(",", indices));
+            search.Indices(String.Join(",", indices));
         if (HasVersion)
             search.SeqNoPrimaryTerm(HasVersion);
 
         if (options.HasQueryTimeout())
-            search.Timeout(new Time(options.GetQueryTimeout()).ToString());
+            search.Timeout(options.GetQueryTimeout().ToString());
 
         search.IgnoreUnavailable();
-        search.TrackTotalHits();
+        search.TrackTotalHits(new TrackHits(true));
 
         await ElasticIndex.QueryBuilder.ConfigureSearchAsync(query, options, search).AnyContext();
 
@@ -1012,45 +1032,5 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected Task AddDocumentsToCacheWithKeyAsync(string cacheKey, FindHit<T> findHit, TimeSpan expiresIn)
     {
         return Cache.SetAsync<ICollection<FindHit<T>>>(cacheKey, new[] { findHit }, expiresIn);
-    }
-}
-
-internal class SearchResponse<TDocument> : ElasticsearchResponse where TDocument : class
-{
-    public ApiCallDetails ApiCall
-    {
-        get => throw new NotImplementedException();
-        set => throw new NotImplementedException();
-    }
-
-    public string DebugInformation => throw new NotImplementedException();
-
-    public bool IsValid => throw new NotImplementedException();
-
-    public Exception OriginalException => throw new NotImplementedException();
-
-    public ElasticsearchServerError ServerError => throw new NotImplementedException();
-
-    AggregateDictionary Aggregations { get; }
-    bool TimedOut { get; }
-    bool TerminatedEarly { get; }
-    SuggestDictionary<TDocument> Suggest { get; }
-    ShardStatistics Shards { get; }
-    string ScrollId { get; }
-    Profile Profile { get; }
-    long Took { get; }
-    string PointInTimeId { get; }
-    double MaxScore { get; }
-    HitsMetadata<TDocument> HitsMetadata { get; }
-    IReadOnlyCollection<IHit<TDocument>> Hits { get; }
-    IReadOnlyCollection<FieldValues> Fields { get; }
-    IReadOnlyCollection<TDocument> Documents { get; }
-    ClusterStatistics Clusters { get; }
-    long NumberOfReducePhases { get; }
-    long Total { get; }
-
-    public bool TryGetServerErrorReason(out string reason)
-    {
-        throw new NotImplementedException();
     }
 }

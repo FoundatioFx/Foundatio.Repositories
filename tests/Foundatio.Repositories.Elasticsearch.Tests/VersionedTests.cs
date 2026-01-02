@@ -116,13 +116,13 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         var request = new UpdateRequest<Employee, Employee>(_configuration.Employees.Name, employee.Id)
         {
-            Script = new InlineScript("ctx._source.version = '112:2'"),
+            Script = new Script { Source = "ctx._source.version = '112:2'" },
             Refresh = Refresh.True
         };
 
         var response = await _client.UpdateAsync(request);
         _logger.LogRequest(response);
-        Assert.True(response.IsValid);
+        Assert.True(response.IsValidResponse);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
         Assert.Equal("1:2", employee.Version);

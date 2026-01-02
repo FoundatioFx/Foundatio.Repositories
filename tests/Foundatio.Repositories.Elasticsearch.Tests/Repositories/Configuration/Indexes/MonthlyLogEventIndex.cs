@@ -13,8 +13,8 @@ public sealed class MonthlyLogEventIndex : MonthlyIndex<LogEvent>
         AddAlias($"{Name}-last3months", TimeSpan.FromDays(100));
     }
 
-    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+        base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
 }

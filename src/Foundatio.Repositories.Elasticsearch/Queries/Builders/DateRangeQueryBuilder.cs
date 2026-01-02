@@ -111,9 +111,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             {
                 var rangeQuery = new DateRangeQuery { Field = resolver.ResolveFieldName(dateRange.Field) };
                 if (dateRange.UseStartDate)
-                    rangeQuery.GreaterThanOrEqualTo = dateRange.GetStartDate();
+                    rangeQuery.Gte = dateRange.GetStartDate();
                 if (dateRange.UseEndDate)
-                    rangeQuery.LessThanOrEqualTo = dateRange.GetEndDate();
+                    rangeQuery.Lte = dateRange.GetEndDate();
                 if (!String.IsNullOrEmpty(dateRange.TimeZone))
                     rangeQuery.TimeZone = dateRange.TimeZone;
 

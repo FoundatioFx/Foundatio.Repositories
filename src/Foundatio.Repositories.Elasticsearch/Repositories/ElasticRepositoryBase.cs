@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Core.Bulk;
@@ -25,7 +27,7 @@ using Foundatio.Repositories.Utility;
 using Foundatio.Resilience;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json.Linq;
+using Tasks = Elastic.Clients.Elasticsearch.Tasks;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
@@ -171,7 +173,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             // TODO: Figure out how to specify a pipeline here.
             var request = new UpdateRequest<T, T>(ElasticIndex.GetIndex(id), id.Value)
             {
-                Script = new InlineScript(scriptOperation.Script) { Params = scriptOperation.Params },
+                Script = new Script { Source = scriptOperation.Script, Params = scriptOperation.Params },
                 RetryOnConflict = options.GetRetryCount(),
                 Refresh = options.GetRefreshMode(DefaultConsistency)
             };
@@ -183,10 +185,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             if (!response.IsValidResponse)
             {
-                if (response.ApiCall is { HttpStatusCode: 404 })
+                if (response.ApiCallDetails is { HttpStatusCode: 404 })
                     throw new DocumentNotFoundException(id);
 
-                throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
+                throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
             }
         }
         else if (operation is PartialPatch partialOperation)
@@ -206,10 +208,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             if (!response.IsValidResponse)
             {
-                if (response.ApiCall is { HttpStatusCode: 404 })
+                if (response.ApiCallDetails is { HttpStatusCode: 404 })
                     throw new DocumentNotFoundException(id);
 
-                throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
+                throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
             }
         }
         else if (operation is JsonPatch jsonOperation)
@@ -232,43 +234,47 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 if (id.Routing != null)
                     request.Routing = id.Routing;
 
-                var response = await _client.LowLevel.GetAsync<GetResponse<IDictionary<string, object>>>(ElasticIndex.GetIndex(id), id.Value, ctx: ct).AnyContext();
+                var response = await _client.GetAsync<T>(request, ct).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
                 if (!response.IsValidResponse)
                 {
                     if (!response.Found)
                         throw new DocumentNotFoundException(id);
-                    
-                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
+
+                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
                 }
 
-                var jObject = JObject.FromObject(response.Source);
-                var target = (JToken)jObject;
+                // Serialize to JSON string, apply patch, deserialize back
+                // Using System.Text.Json.Nodes.JsonNode since Elastic.Clients.Elasticsearch uses System.Text.Json exclusively
+                var json = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(response.Source);
+                var target = JsonNode.Parse(json);
                 new JsonPatcher().Patch(ref target, jsonOperation.Patch);
 
-                var indexParameters = new IndexRequestParameters
+                var patchedDocument = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToJsonString())));
+
+                var indexRequest = new IndexRequest<T>(patchedDocument, ElasticIndex.GetIndex(id), id.Value)
                 {
                     Pipeline = DefaultPipeline,
                     Refresh = options.GetRefreshMode(DefaultConsistency)
                 };
                 if (id.Routing != null)
-                    indexParameters.Routing = id.Routing;
+                    indexRequest.Routing = id.Routing;
 
                 if (HasVersion && !options.ShouldSkipVersionCheck())
                 {
-                    indexParameters.IfSeqNo = response.SequenceNumber;
-                    indexParameters.IfPrimaryTerm = response.PrimaryTerm;
+                    indexRequest.IfSeqNo = response.SeqNo;
+                    indexRequest.IfPrimaryTerm = response.PrimaryTerm;
                 }
 
-                var updateResponse = await _client.LowLevel.IndexAsync<VoidResponse>(ElasticIndex.GetIndex(id), id.Value, PostData.String(target.ToString()), indexParameters, ct).AnyContext();
+                var updateResponse = await _client.IndexAsync(indexRequest, ct).AnyContext();
                 _logger.LogRequest(updateResponse, options.GetQueryLogLevel());
 
-                if (!updateResponse.Success)
+                if (!updateResponse.IsValidResponse)
                 {
-                    if (response.ElasticsearchServerError?.Status == 409)
-                        throw new VersionConflictDocumentException(response.GetErrorMessage("Error saving document"), response.OriginalException);
+                    if (updateResponse.ElasticsearchServerError?.Status == 409)
+                        throw new VersionConflictDocumentException(updateResponse.GetErrorMessage("Error saving document"), updateResponse.OriginalException());
 
-                    throw new DocumentException(response.GetErrorMessage("Error saving document"), response.OriginalException);
+                    throw new DocumentException(updateResponse.GetErrorMessage("Error saving document"), updateResponse.OriginalException());
                 }
             });
         }
@@ -298,8 +304,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 {
                     if (!response.Found)
                         throw new DocumentNotFoundException(id);
-                    
-                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException);
+
+                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
                 }
 
                 if (response.Source is IVersioned versionedDoc && response.PrimaryTerm.HasValue)
@@ -376,8 +382,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                         if (id.Routing != null)
                             u.Routing(id.Routing);
-
-                        return u;
                     });
                 else if (partialOperation != null)
                     b.Update<T, object>(u =>
@@ -389,19 +393,15 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                         if (id.Routing != null)
                             u.Routing(id.Routing);
-
-                        return u;
                     });
             }
-
-            return b;
         }).AnyContext();
         _logger.LogRequest(bulkResponse, options.GetQueryLogLevel());
 
         // TODO: Is there a better way to handle failures?
         if (!bulkResponse.IsValidResponse)
         {
-            throw new DocumentException(bulkResponse.GetErrorMessage("Error bulk patching documents"), bulkResponse.OriginalException);
+            throw new DocumentException(bulkResponse.GetErrorMessage("Error bulk patching documents"), bulkResponse.OriginalException());
         }
 
         // TODO: Find a good way to invalidate cache and send changed notification
@@ -514,7 +514,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode != 404)
             {
-                throw new DocumentException(response.GetErrorMessage($"Error removing document {ElasticIndex.GetIndex(document)}/{document.Id}"), response.OriginalException);
+                throw new DocumentException(response.GetErrorMessage($"Error removing document {ElasticIndex.GetIndex(document)}/{document.Id}"), response.OriginalException());
             }
         }
         else
@@ -529,17 +529,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                         if (GetParentIdFunc != null)
                             d.Routing(GetParentIdFunc(doc));
-
-                        return d;
                     });
-
-                return bulk;
             }).AnyContext();
 
             _logger.LogRequest(response, options.GetQueryLogLevel());
             if (!response.IsValidResponse)
             {
-                throw new DocumentException(response.GetErrorMessage("Error bulk removing documents"), response.OriginalException);
+                throw new DocumentException(response.GetErrorMessage("Error bulk removing documents"), response.OriginalException());
             }
         }
 
@@ -598,16 +594,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     b.Refresh(options.GetRefreshMode(DefaultConsistency));
                     foreach (var h in results.Hits)
                     {
+                        // Using System.Text.Json.Nodes.JsonNode since Elastic.Clients.Elasticsearch uses System.Text.Json exclusively
                         var json = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(h.Document);
-                        var target = JToken.Parse(json);
+                        var target = JsonNode.Parse(json);
                         patcher.Patch(ref target, jsonOperation.Patch);
-                        var doc = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToString())));
+                        var doc = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToJsonString())));
                         var elasticVersion = h.GetElasticVersion();
 
-                        b.Index<T>(i =>
+                        b.Index(doc, i =>
                         {
-                            i.Document(doc)
-                             .Id(h.Id)
+                            i.Id(h.Id)
                              .Routing(h.Routing)
                              .Index(h.GetIndex())
                              .Pipeline(DefaultPipeline);
@@ -617,12 +613,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                                 i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
                                 i.IfSequenceNumber(elasticVersion.SequenceNumber);
                             }
-
-                            return i;
                         });
                     }
-
-                    return b;
                 }).AnyContext();
 
                 if (bulkResult.IsValidResponse)
@@ -678,10 +670,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                         var elasticVersion = h.GetElasticVersion();
 
-                        b.Index<T>(i =>
+                        b.Index(h.Document, i =>
                         {
-                            i.Document(h.Document)
-                                .Id(h.Id)
+                            i.Id(h.Id)
                                 .Routing(h.Routing)
                                 .Index(h.GetIndex())
                                 .Pipeline(DefaultPipeline);
@@ -691,12 +682,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                                 i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
                                 i.IfSequenceNumber(elasticVersion.SequenceNumber);
                             }
-
-                            return i;
                         });
                     }
-
-                    return b;
                 }).AnyContext();
 
                 if (bulkResult.IsValidResponse)
@@ -752,7 +739,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 {
                     Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchRequestDescriptor<T>()).AnyContext(),
                     Conflicts = Conflicts.Proceed,
-                    Script = new InlineScript(scriptOperation.Script) { Params = scriptOperation.Params },
+                    Script = new Script { Source = scriptOperation.Script, Params = scriptOperation.Params },
                     Pipeline = DefaultPipeline,
                     Version = HasVersion,
                     Refresh = options.GetRefreshMode(DefaultConsistency) != Refresh.False,
@@ -764,27 +751,38 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 _logger.LogRequest(response, options.GetQueryLogLevel());
                 if (!response.IsValidResponse)
                 {
-                    throw new DocumentException(response.GetErrorMessage("Error occurred while patching by query"), response.OriginalException);
+                    throw new DocumentException(response.GetErrorMessage("Error occurred while patching by query"), response.OriginalException());
                 }
 
-                var taskId = response.Task;
+                var taskId = response.Task.ToString();
                 int attempts = 0;
                 do
                 {
                     attempts++;
-                    var taskStatus = await _client.Tasks.GetAsync(taskId, t => t.WaitForCompletion(false)).AnyContext();
+                    var taskRequest = new Tasks.GetTasksRequest(taskId) { WaitForCompletion = false };
+                    var taskStatus = await _client.Tasks.GetAsync(taskRequest).AnyContext();
                     _logger.LogRequest(taskStatus, options.GetQueryLogLevel());
 
-                    var status = taskStatus.Task.Status;
+                    // Extract status values from the raw JSON. The Status property is object? and gets deserialized as JsonElement
+                    long? created = null, updated = null, deleted = null, versionConflicts = null, total = null;
+                    if (taskStatus.Task.Status is JsonElement jsonElement)
+                    {
+                        total = jsonElement.TryGetProperty("total", out var totalProp) ? totalProp.GetInt64() : 0;
+                        created = jsonElement.TryGetProperty("created", out var createdProp) ? createdProp.GetInt64() : 0;
+                        updated = jsonElement.TryGetProperty("updated", out var updatedProp) ? updatedProp.GetInt64() : 0;
+                        deleted = jsonElement.TryGetProperty("deleted", out var deletedProp) ? deletedProp.GetInt64() : 0;
+                        versionConflicts = jsonElement.TryGetProperty("version_conflicts", out var conflictsProp) ? conflictsProp.GetInt64() : 0;
+                    }
+
                     if (taskStatus.Completed)
                     {
                         // TODO: need to check to see if the task failed or completed successfully. Throw if it failed.
-                        _logger.LogInformation("Script operation task ({TaskId}) completed: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, status.Created, status.Updated, status.Deleted, status.VersionConflicts, status.Total);
-                        affectedRecords += status.Created + status.Updated + status.Deleted;
+                        _logger.LogInformation("Script operation task ({TaskId}) completed: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, created, updated, deleted, versionConflicts, total);
+                        affectedRecords += (created ?? 0) + (updated ?? 0) + (deleted ?? 0);
                         break;
                     }
 
-                    _logger.LogDebug("Checking script operation task ({TaskId}) status: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, status.Created, status.Updated, status.Deleted, status.VersionConflicts, status.Total);
+                    _logger.LogDebug("Checking script operation task ({TaskId}) status: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, created, updated, deleted, versionConflicts, total);
                     var delay = TimeSpan.FromSeconds(attempts <= 5 ? 1 : 5);
                     await Task.Delay(delay).AnyContext();
                 } while (true);
@@ -816,8 +814,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                                     .Index(h.GetIndex())
                                     .Doc(partialOperation.Document));
                         }
-
-                        return b;
                     }).AnyContext();
 
                     if (bulkResult.IsValidResponse)
@@ -903,10 +899,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         if (!response.IsValidResponse)
         {
-            throw new DocumentException(response.GetErrorMessage("Error removing documents"), response.OriginalException);
+            throw new DocumentException(response.GetErrorMessage("Error removing documents"), response.OriginalException());
         }
 
-        if (response.Deleted > 0)
+        if (response.Deleted.HasValue && response.Deleted > 0)
         {
             if (IsCacheEnabled)
                 await InvalidateCacheByQueryAsync(query.As<T>());
@@ -916,7 +912,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
 
         Debug.Assert(response.Total == response.Deleted, "All records were not removed");
-        return response.Deleted;
+        return response.Deleted ?? 0;
     }
 
     public Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<FindResults<T>, Task<bool>> processFunc, CommandOptionsDescriptor<T> options = null)
@@ -1323,10 +1319,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 {
                     var elasticVersion = ((IVersioned)document).GetElasticVersion();
                     i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
-                    i.IfSequenceNumber(elasticVersion.SequenceNumber);
+                    i.IfSeqNo(elasticVersion.SequenceNumber);
                 }
-
-                return i;
             }).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
@@ -1334,11 +1328,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             {
                 string message = $"Error {(isCreateOperation ? "adding" : "saving")} document";
                 if (isCreateOperation && response.ElasticsearchServerError?.Status == 409)
-                    throw new DuplicateDocumentException(response.GetErrorMessage(message), response.OriginalException);
+                    throw new DuplicateDocumentException(response.GetErrorMessage(message), response.OriginalException());
                 else if (!isCreateOperation && response.ElasticsearchServerError?.Status == 409)
-                    throw new VersionConflictDocumentException(response.GetErrorMessage(message), response.OriginalException);
+                    throw new VersionConflictDocumentException(response.GetErrorMessage(message), response.OriginalException());
 
-                throw new DocumentException(response.GetErrorMessage(message), response.OriginalException);
+                throw new DocumentException(response.GetErrorMessage(message), response.OriginalException());
             }
 
             if (HasVersion)
@@ -1355,12 +1349,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             {
                 var createOperation = new BulkCreateOperation<T>(d) { Pipeline = DefaultPipeline };
                 var indexOperation = new BulkIndexOperation<T>(d) { Pipeline = DefaultPipeline };
-                var baseOperation = isCreateOperation ? (IBulkOperation)createOperation : indexOperation;
 
                 if (GetParentIdFunc != null)
-                    baseOperation.Routing = GetParentIdFunc(d);
-                //baseOperation.Routing = GetParentIdFunc != null ? GetParentIdFunc(d) : d.Id;
-                baseOperation.Index = ElasticIndex.GetIndex(d);
+                {
+                    createOperation.Routing = GetParentIdFunc(d);
+                    indexOperation.Routing = GetParentIdFunc(d);
+                }
+                createOperation.Index = ElasticIndex.GetIndex(d);
+                indexOperation.Index = ElasticIndex.GetIndex(d);
 
                 if (HasVersion && !isCreateOperation && !options.ShouldSkipVersionCheck())
                 {
@@ -1369,7 +1365,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     indexOperation.IfPrimaryTerm = elasticVersion.PrimaryTerm;
                 }
 
-                return baseOperation;
+                return isCreateOperation ? (IBulkOperation)createOperation : indexOperation;
             }).ToList();
             bulkRequest.Operations = list;
             bulkRequest.Refresh = options.GetRefreshMode(DefaultConsistency);
@@ -1381,7 +1377,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             {
                 foreach (var hit in response.Items)
                 {
-                    if (!hit.IsValidResponse)
+                    if (hit.Status != 200 && hit.Status != 201)
                         continue;
 
                     var document = documents.FirstOrDefault(d => d.Id == hit.Id);
@@ -1412,11 +1408,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             if (!response.IsValidResponse)
             {
                 if (isCreateOperation && allErrors.Any(e => e.Status == 409))
-                    throw new DuplicateDocumentException(response.GetErrorMessage("Error adding duplicate documents"), response.OriginalException);
+                    throw new DuplicateDocumentException(response.GetErrorMessage("Error adding duplicate documents"), response.OriginalException());
                 else if (allErrors.Any(e => e.Status == 409))
-                    throw new VersionConflictDocumentException(response.GetErrorMessage("Error saving documents"), response.OriginalException);
+                    throw new VersionConflictDocumentException(response.GetErrorMessage("Error saving documents"), response.OriginalException());
 
-                throw new DocumentException(response.GetErrorMessage($"Error {(isCreateOperation ? "adding" : "saving")} documents"), response.OriginalException);
+                throw new DocumentException(response.GetErrorMessage($"Error {(isCreateOperation ? "adding" : "saving")} documents"), response.OriginalException());
             }
         }
         // 429 // 503

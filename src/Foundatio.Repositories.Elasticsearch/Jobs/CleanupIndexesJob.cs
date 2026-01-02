@@ -55,14 +55,14 @@ public class CleanupIndexesJob : IJob
         _logger.LogInformation("Starting index cleanup...");
 
         var sw = Stopwatch.StartNew();
-        var result = await _client.Cat.IndicesAsync(
+        var result = await _client.Indices.GetAsync(Indices.All,
             d => d.RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
         sw.Stop();
 
         if (result.IsValidResponse)
         {
             _logger.LogRequest(result);
-            _logger.LogInformation("Retrieved list of {IndexCount} indexes in {Duration:g}", result.Records?.Count, sw.Elapsed.ToWords(true));
+            _logger.LogInformation("Retrieved list of {IndexCount} indexes in {Duration:g}", result.Indices?.Count, sw.Elapsed.ToWords(true));
         }
         else
         {
@@ -70,8 +70,8 @@ public class CleanupIndexesJob : IJob
         }
 
         var indexes = new List<IndexDate>();
-        if (result.IsValidResponse && result.Records != null)
-            indexes = result.Records?.Select(r => GetIndexDate(r.Index)).Where(r => r != null).ToList();
+        if (result.IsValidResponse && result.Indices != null)
+            indexes = result.Indices?.Keys.Select(r => GetIndexDate(r.ToString())).Where(r => r != null).ToList();
 
         if (indexes == null || indexes.Count == 0)
             return JobResult.Success;
@@ -108,7 +108,7 @@ public class CleanupIndexesJob : IJob
                 {
                     _logger.LogInformation("Got lock to delete index {OldIndex}", oldIndex.Index);
                     sw.Restart();
-                    var response = await _client.Indices.DeleteAsync(oldIndex.Index, d => d, t).AnyContext();
+                    var response = await _client.Indices.DeleteAsync((Indices)oldIndex.Index, t).AnyContext();
                     sw.Stop();
                     _logger.LogRequest(response);
 

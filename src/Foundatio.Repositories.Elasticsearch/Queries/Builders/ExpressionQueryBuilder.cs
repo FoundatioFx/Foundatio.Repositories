@@ -144,7 +144,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
                 var sortFields = GetSortFieldsVisitor.Run(result, ctx).ToList();
 
-                ctx.Search.Sort(sortFields);
+                // Store sorts in context data - SearchAfterQueryBuilder will apply them
+                ctx.Data[SortQueryBuilder.SortFieldsKey] = sortFields;
             }
 
             return Task.CompletedTask;
@@ -184,7 +185,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
                 var sortFields = GetSortFieldsVisitor.Run(result, ctx).ToList();
 
-                ctx.Search.Sort(sortFields);
+                // Store sorts in context data - SearchAfterQueryBuilder will apply them
+                ctx.Data[SortQueryBuilder.SortFieldsKey] = sortFields;
             }
 
             return Task.CompletedTask;
@@ -217,7 +219,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             {
                 var sortFields = (await _parser.BuildSortAsync(sort, ctx).AnyContext()).ToList();
 
-                ctx.Search.Sort(sortFields);
+                // Store sorts in context data - SearchAfterQueryBuilder will apply them
+                ctx.Data[SortQueryBuilder.SortFieldsKey] = sortFields;
             }
         }
     }

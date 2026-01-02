@@ -1,28 +1,34 @@
 ﻿using System;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace Foundatio.Repositories.Utility;
 
-public class PatchDocumentConverter : JsonConverter
+/// <summary>
+/// JSON converter for PatchDocument using System.Text.Json.
+/// Converted from Newtonsoft.Json to align with Elastic.Clients.Elasticsearch
+/// which exclusively uses System.Text.Json for serialization.
+/// </summary>
+public class PatchDocumentConverter : JsonConverter<PatchDocument>
 {
-    public override bool CanConvert(Type objectType)
+    public override PatchDocument Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        return true;
-    }
-
-    public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
-    {
-        if (objectType != typeof(PatchDocument))
-            throw new ArgumentException("Object must be of type PatchDocument", nameof(objectType));
+        if (typeToConvert != typeof(PatchDocument))
+            throw new ArgumentException("Object must be of type PatchDocument", nameof(typeToConvert));
 
         try
         {
-            if (reader.TokenType == JsonToken.Null)
+            if (reader.TokenType == JsonTokenType.Null)
                 return null;
 
-            var patch = JArray.Load(reader);
-            return PatchDocument.Parse(patch.ToString());
+            var node = JsonNode.Parse(ref reader);
+            if (node is JsonArray array)
+            {
+                return PatchDocument.Load(array);
+            }
+
+            throw new ArgumentException("Invalid patch document: expected array");
         }
         catch (Exception ex)
         {
@@ -30,14 +36,16 @@ public class PatchDocumentConverter : JsonConverter
         }
     }
 
-    public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+    public override void Write(Utf8JsonWriter writer, PatchDocument value, JsonSerializerOptions options)
     {
-        if (!(value is PatchDocument))
+        if (value == null)
+        {
+            writer.WriteNullValue();
             return;
+        }
 
-        var jsonPatchDoc = (PatchDocument)value;
         writer.WriteStartArray();
-        foreach (var op in jsonPatchDoc.Operations)
+        foreach (var op in value.Operations)
             op.Write(writer);
         writer.WriteEndArray();
     }

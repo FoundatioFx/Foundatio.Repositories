@@ -275,7 +275,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         await _cache.RemoveAsync(GetMappingCacheKey(entityTypeCondition.Value.ToString(), GetTenantKey(query))).AnyContext();
     }
 
-    protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<CustomFieldDefinition>> documents, ChangeType? changeType = null)
+    protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<CustomFieldDefinition>> documents, Foundatio.Repositories.Models.ChangeType? changeType = null)
     {
         await base.InvalidateCacheAsync(documents, changeType).AnyContext();
 
@@ -299,25 +299,23 @@ public class CustomFieldDefinitionIndex : VersionedIndex<CustomFieldDefinition>
         _replicas = replicas;
     }
 
-    public override TypeMappingDescriptor<CustomFieldDefinition> ConfigureIndexMapping(TypeMappingDescriptor<CustomFieldDefinition> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<CustomFieldDefinition> map)
     {
-        return map
-            .Dynamic(false)
+        map
+            .Dynamic(DynamicMapping.False)
             .Properties(p => p
                 .SetupDefaults()
-                .Keyword(f => f.Name(e => e.Id))
-                .Keyword(f => f.Name(e => e.EntityType))
-                .Keyword(f => f.Name(e => e.TenantKey))
-                .Keyword(f => f.Name(e => e.IndexType))
-                .Number(f => f.Name(e => e.IndexSlot))
-                .Date(f => f.Name(e => e.CreatedUtc))
-                .Date(f => f.Name(e => e.UpdatedUtc))
+                .Keyword(e => e.EntityType)
+                .Keyword(e => e.TenantKey)
+                .Keyword(e => e.IndexType)
+                .IntegerNumber(e => e.IndexSlot)
             );
     }
 
-    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        return base.ConfigureIndex(idx).Settings(s => s
+        base.ConfigureIndex(idx);
+        idx.Settings(s => s
             .NumberOfShards(1)
             .NumberOfReplicas(_replicas));
     }

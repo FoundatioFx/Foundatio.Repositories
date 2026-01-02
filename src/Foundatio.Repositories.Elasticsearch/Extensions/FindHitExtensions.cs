@@ -29,8 +29,39 @@ public static class FindHitExtensions
         if (hit == null || !hit.Data.TryGetValue(ElasticDataKeys.Sorts, out object sorts))
             return Array.Empty<object>();
 
-        object[] sortsArray = sorts as object[];
-        return sortsArray;
+        // Handle different collection types - new ES client returns IReadOnlyCollection<FieldValue>
+        if (sorts is object[] sortsArray)
+            return sortsArray;
+
+        if (sorts is IEnumerable<FieldValue> fieldValues)
+        {
+            // Extract actual values from FieldValue objects
+            return fieldValues.Select(fv => GetFieldValueAsObject(fv)).ToArray();
+        }
+
+        if (sorts is IEnumerable<object> sortsList)
+            return sortsList.ToArray();
+
+        return Array.Empty<object>();
+    }
+
+    private static object GetFieldValueAsObject(FieldValue fv)
+    {
+        // FieldValue is a tagged union in the new ES client
+        // We need to extract the actual value based on the variant
+        if (fv.TryGetLong(out var longVal))
+            return longVal;
+        if (fv.TryGetDouble(out var doubleVal))
+            return doubleVal;
+        if (fv.TryGetString(out var strVal))
+            return strVal;
+        if (fv.TryGetBool(out var boolVal))
+            return boolVal;
+        if (fv.IsNull)
+            return null;
+
+        // Fallback - return the FieldValue itself
+        return fv;
     }
 
     public static string GetSearchBeforeToken<T>(this FindResults<T> results) where T : class
@@ -78,16 +109,37 @@ public static class FindHitExtensions
         return Encode(JsonSerializer.Serialize(sorts));
     }
 
-    public static ISort ReverseOrder(this ISort sort)
+    public static SortOptions ReverseOrder(this SortOptions sort)
     {
         if (sort == null)
             return null;
 
-        sort.Order = !sort.Order.HasValue || sort.Order == SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
+        // SortOptions is a discriminated union - we need to reverse the order on the underlying variant
+        if (sort.Field != null)
+        {
+            sort.Field.Order = !sort.Field.Order.HasValue || sort.Field.Order == SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
+        }
+        else if (sort.Score != null)
+        {
+            sort.Score.Order = !sort.Score.Order.HasValue || sort.Score.Order == SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
+        }
+        else if (sort.Doc != null)
+        {
+            sort.Doc.Order = !sort.Doc.Order.HasValue || sort.Doc.Order == SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
+        }
+        else if (sort.GeoDistance != null)
+        {
+            sort.GeoDistance.Order = !sort.GeoDistance.Order.HasValue || sort.GeoDistance.Order == SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
+        }
+        else if (sort.Script != null)
+        {
+            sort.Script.Order = !sort.Script.Order.HasValue || sort.Script.Order == SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
+        }
+
         return sort;
     }
 
-    public static IEnumerable<ISort> ReverseOrder(this IEnumerable<ISort> sorts)
+    public static IEnumerable<SortOptions> ReverseOrder(this IEnumerable<SortOptions> sorts)
     {
         if (sorts == null)
             return null;

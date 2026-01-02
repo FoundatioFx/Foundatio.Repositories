@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch.Mapping;
 
@@ -7,7 +8,7 @@ public interface ICustomFieldType
 {
     string Type { get; }
     Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class;
-    IProperty ConfigureMapping<T>(SingleMappingSelector<T> map) where T : class;
+    Func<PropertyFactory<T>, IProperty> ConfigureMapping<T>() where T : class;
 }
 
 public class ProcessFieldValueResult

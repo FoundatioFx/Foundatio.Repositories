@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
@@ -56,7 +57,7 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
 
         await _workItemQueue.DeleteQueueAsync();
         await _configuration.DeleteIndexesAsync();
-        await _client.Indices.DeleteAsync(Indices.Parse("employee*"));
+        await DeleteWildcardIndicesAsync("employee*");
         if (configureIndexes)
             await _configuration.ConfigureIndexesAsync(null, false);
 
@@ -68,6 +69,17 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
         _logger.LogInformation("Done removing data {Duration:g}", sw.Elapsed);
 
         Log.DefaultLogLevel = minimumLevel;
+    }
+
+    protected async Task DeleteWildcardIndicesAsync(string pattern)
+    {
+        // Resolve wildcards to actual index names to avoid issues with action.destructive_requires_name=true
+        var resolveResponse = await _client.Indices.ResolveIndexAsync(pattern);
+        if (resolveResponse.IsValidResponse && resolveResponse.Indices != null && resolveResponse.Indices.Count > 0)
+        {
+            var indexNames = resolveResponse.Indices.Select(i => i.Name).ToArray();
+            await _client.Indices.DeleteAsync((Indices)indexNames, i => i.IgnoreUnavailable());
+        }
     }
 
     public virtual Task DisposeAsync() => Task.CompletedTask;

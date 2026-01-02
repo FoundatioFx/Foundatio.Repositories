@@ -2,6 +2,7 @@
 using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Repositories.Elasticsearch.Configuration;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
@@ -17,15 +18,14 @@ public sealed class DailyLogEventIndex : DailyIndex<LogEvent>
         AddAlias($"{Name}-last30days", TimeSpan.FromDays(30));
     }
 
-    public override TypeMappingDescriptor<LogEvent> ConfigureIndexMapping(TypeMappingDescriptor<LogEvent> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<LogEvent> map)
     {
-        return base.ConfigureIndexMapping(map)
-            .Dynamic(false)
+        map
+            .Dynamic(DynamicMapping.False)
             .Properties(p => p
-                .Keyword(f => f.Name(e => e.Id))
-                .Keyword(f => f.Name(e => e.CompanyId))
-                .Date(f => f.Name(e => e.Date))
-                .Date(f => f.Name(e => e.CreatedUtc))
+                .SetupDefaults()
+                .Keyword(e => e.CompanyId)
+                .Date(e => e.Date)
             );
     }
 
@@ -34,8 +34,8 @@ public sealed class DailyLogEventIndex : DailyIndex<LogEvent>
         builder.Register<CompanyQueryBuilder>();
     }
 
-    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+        base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
 }
