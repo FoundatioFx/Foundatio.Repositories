@@ -273,7 +273,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     public AsyncEvent<BeforeGetEventArgs<T>> BeforeGet { get; } = new AsyncEvent<BeforeGetEventArgs<T>>();
 
-    private async Task OnBeforeGetAsync(Ids ids, ICommandOptions options, Type resultType)
+    protected async Task OnBeforeGetAsync(Ids ids, ICommandOptions options, Type resultType)
     {
         if (BeforeGet is not { HasHandlers: true })
             return;
@@ -283,7 +283,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     public AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; } = new AsyncEvent<BeforeQueryEventArgs<T>>();
 
-    private async Task OnBeforeQueryAsync(IRepositoryQuery query, ICommandOptions options, Type resultType)
+    protected async Task OnBeforeQueryAsync(IRepositoryQuery query, ICommandOptions options, Type resultType)
     {
         if (SupportsSoftDeletes && IsCacheEnabled && options.GetSoftDeleteMode() == SoftDeleteQueryMode.ActiveOnly)
         {
@@ -764,12 +764,12 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
     }
 
-    private (Field[] Includes, Field[] Excludes) GetResolvedIncludesAndExcludes(ICommandOptions options)
+    protected (Field[] Includes, Field[] Excludes) GetResolvedIncludesAndExcludes(ICommandOptions options)
     {
         return GetResolvedIncludesAndExcludes(null, options);
     }
 
-    private (Field[] Includes, Field[] Excludes) GetResolvedIncludesAndExcludes(IRepositoryQuery query, ICommandOptions options)
+    protected (Field[] Includes, Field[] Excludes) GetResolvedIncludesAndExcludes(IRepositoryQuery query, ICommandOptions options)
     {
         var includes = new HashSet<Field>();
         includes.AddRange(query.GetIncludes());
@@ -802,7 +802,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return (resolvedIncludes, resolvedExcludes);
     }
 
-    private bool ShouldReturnDocument(T document, ICommandOptions options)
+    protected bool ShouldReturnDocument(T document, ICommandOptions options)
     {
         if (document == null)
             return true;
