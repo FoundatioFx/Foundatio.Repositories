@@ -1216,7 +1216,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             string[] undeletedIds = modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Value).IsDeleted == false).Select(m => m.Value.Id).ToArray();
             if (undeletedIds.Length > 0)
-                await Cache.ListRemoveAsync("deleted", undeletedIds, TimeSpan.FromSeconds(30)).AnyContext();
+                await Cache.ListRemoveAsync("deleted", undeletedIds).AnyContext();
         }
 
         if (DocumentsSaved is { HasHandlers: true })
