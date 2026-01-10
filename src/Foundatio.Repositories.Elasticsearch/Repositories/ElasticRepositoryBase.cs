@@ -1158,7 +1158,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         else if (HasCreatedDate)
             documents.OfType<IHaveCreatedDate>().SetCreatedDates(ElasticIndex.Configuration.TimeProvider);
 
-        if (DocumentsAdding != null && DocumentsAdding.HasHandlers)
+        if (DocumentsAdding is { HasHandlers: true })
             await DocumentsAdding.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
         documents.EnsureIds(ElasticIndex.CreateDocumentId, ElasticIndex.Configuration.TimeProvider);
@@ -1170,7 +1170,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     private async Task OnDocumentsAddedAsync(IReadOnlyCollection<T> documents, ICommandOptions options)
     {
-        if (DocumentsAdded != null && DocumentsAdded.HasHandlers)
+        if (DocumentsAdded is { HasHandlers: true })
             await DocumentsAdded.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
         var modifiedDocs = documents.Select(d => new ModifiedDocument<T>(d, null)).ToList();
@@ -1194,7 +1194,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             documents, cf => cf.Id, cf => cf.Id,
             (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m => new ModifiedDocument<T>(m.Modified, m.Original)).ToList();
 
-        if (DocumentsSaving != null && DocumentsSaving.HasHandlers)
+        if (DocumentsSaving is { HasHandlers: true })
             await DocumentsSaving.InvokeAsync(this, new ModifiedDocumentsEventArgs<T>(modifiedDocs, this, options)).AnyContext();
 
         await OnDocumentsChangingAsync(ChangeType.Saved, modifiedDocs, options).AnyContext();
@@ -1219,7 +1219,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 await Cache.ListRemoveAsync("deleted", undeletedIds, TimeSpan.FromSeconds(30)).AnyContext();
         }
 
-        if (DocumentsSaved != null && DocumentsSaved.HasHandlers)
+        if (DocumentsSaved is { HasHandlers: true })
             await DocumentsSaved.InvokeAsync(this, new ModifiedDocumentsEventArgs<T>(modifiedDocs, this, options)).AnyContext();
 
         await OnDocumentsChangedAsync(ChangeType.Saved, modifiedDocs, options).AnyContext();
@@ -1230,7 +1230,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     private async Task OnDocumentsRemovingAsync(IReadOnlyCollection<T> documents, ICommandOptions options)
     {
-        if (DocumentsRemoving != null && DocumentsRemoving.HasHandlers)
+        if (DocumentsRemoving is { HasHandlers: true })
             await DocumentsRemoving.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
         await OnDocumentsChangingAsync(ChangeType.Removed, documents, options).AnyContext();
@@ -1240,7 +1240,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     private async Task OnDocumentsRemovedAsync(IReadOnlyCollection<T> documents, ICommandOptions options)
     {
-        if (DocumentsRemoved != null && DocumentsRemoved.HasHandlers)
+        if (DocumentsRemoved is { HasHandlers: true })
             await DocumentsRemoved.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
         await OnDocumentsChangedAsync(ChangeType.Removed, documents, options).AnyContext();
@@ -1549,7 +1549,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (!NotificationsEnabled || _messagePublisher == null)
             return;
 
-        if (BeforePublishEntityChanged != null && BeforePublishEntityChanged.HasHandlers)
+        if (BeforePublishEntityChanged is { HasHandlers: true })
         {
             var eventArgs = new BeforePublishEntityChangedEventArgs<T>(this, message);
             await BeforePublishEntityChanged.InvokeAsync(this, eventArgs).AnyContext();
