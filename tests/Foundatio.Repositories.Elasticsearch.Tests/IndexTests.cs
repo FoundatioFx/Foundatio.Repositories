@@ -886,7 +886,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         {
             var repository = new EmployeeRepository(index);
             return await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.UtcDateTime));
-        });
+        }, TestCancellationToken);
         var task3 = index.MaintainAsync();
 
         // Wait for all tasks to complete
