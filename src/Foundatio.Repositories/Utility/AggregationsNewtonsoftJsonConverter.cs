@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using Foundatio.Repositories.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -36,7 +37,9 @@ public class AggregationsNewtonsoftJsonConverter : JsonConverter
                     value = new PercentilesAggregate();
                     break;
                 case "sbucket":
-                    value = new SingleBucketAggregate();
+                    var aggregationsToken = item.SelectToken("Aggregations") ?? item.SelectToken("aggregations");
+                    var aggregations = aggregationsToken?.ToObject<IReadOnlyDictionary<string, IAggregate>>(serializer);
+                    value = new SingleBucketAggregate(aggregations);
                     break;
                 case "stats":
                     value = new StatsAggregate();
