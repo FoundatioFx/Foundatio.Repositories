@@ -1432,6 +1432,18 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     protected bool OriginalsEnabled { get; set; }
     public bool BatchNotifications { get; set; }
 
+    private TimeSpan? _notificationDeliveryDelay;
+    protected TimeSpan? NotificationDeliveryDelay
+    {
+        get => _notificationDeliveryDelay;
+        set
+        {
+            if (value.HasValue && value.Value < TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(nameof(value), "Delivery delay cannot be negative.");
+            _notificationDeliveryDelay = value;
+        }
+    }
+
     private Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<T> documents, ICommandOptions options)
     {
         return SendNotificationsAsync(changeType, documents.Select(d => new ModifiedDocument<T>(d, null)).ToList(), options);
@@ -1442,7 +1454,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (!NotificationsEnabled || !options.ShouldNotify())
             return Task.CompletedTask;
 
-        var delay = TimeSpan.FromSeconds(1.5);
+        var delay = NotificationDeliveryDelay;
         var ids = query.GetIds();
         if (ids.Count > 0)
         {
@@ -1472,7 +1484,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (!NotificationsEnabled || !options.ShouldNotify())
             return Task.CompletedTask;
 
-        var delay = TimeSpan.FromSeconds(1.5);
+        var delay = NotificationDeliveryDelay;
         if (documents.Count == 0)
             return PublishChangeTypeMessageAsync(changeType, null, delay);
 
@@ -1520,7 +1532,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return Task.WhenAll(tasks);
     }
 
-    protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, T document, TimeSpan delay)
+    protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, T document, TimeSpan? delay)
     {
         return PublishChangeTypeMessageAsync(changeType, document, null, delay);
     }
