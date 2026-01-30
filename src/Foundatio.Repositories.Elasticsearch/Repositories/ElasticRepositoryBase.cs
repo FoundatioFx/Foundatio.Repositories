@@ -1428,9 +1428,53 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         // 429 // 503
     }
 
+    /// <summary>
+    /// Gets or sets whether entity change notifications are published to the message bus.
+    /// When enabled, <see cref="Foundatio.Repositories.Models.EntityChanged"/> messages are published
+    /// after add, save, and remove operations. Defaults to <c>true</c> if a message bus is configured.
+    /// </summary>
     protected bool NotificationsEnabled { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether original document state is tracked during save operations.
+    /// When enabled, the original document is preserved before modifications, allowing
+    /// change detection (e.g., for soft delete transitions). Defaults to <c>false</c>.
+    /// </summary>
     protected bool OriginalsEnabled { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether notifications for multiple documents are batched together.
+    /// When enabled, bulk operations may consolidate notifications. Defaults to <c>false</c>.
+    /// </summary>
     public bool BatchNotifications { get; set; }
+
+    private TimeSpan? _notificationDeliveryDelay;
+
+    /// <summary>
+    /// Gets or sets the delivery delay for entity change notifications.
+    /// When set, notifications are delayed by the specified duration before being delivered
+    /// to subscribers. This can be useful to allow Elasticsearch indexing to complete before
+    /// consumers read the updated documents. Defaults to <c>null</c> (immediate delivery).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Warning:</b> Only set a delay if your message bus implementation supports delayed delivery.
+    /// Message buses that do not support delayed delivery may silently drop messages, resulting in
+    /// message loss. The in-memory message bus supports delayed delivery, but other implementations
+    /// may not.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
+    protected TimeSpan? NotificationDeliveryDelay
+    {
+        get => _notificationDeliveryDelay;
+        set
+        {
+            if (value.HasValue && value.Value < TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(nameof(value), "Delivery delay cannot be negative.");
+            _notificationDeliveryDelay = value;
+        }
+    }
 
     private Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<T> documents, ICommandOptions options)
     {
@@ -1442,7 +1486,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (!NotificationsEnabled || !options.ShouldNotify())
             return Task.CompletedTask;
 
-        var delay = TimeSpan.FromSeconds(1.5);
+        var delay = NotificationDeliveryDelay;
         var ids = query.GetIds();
         if (ids.Count > 0)
         {
@@ -1472,7 +1516,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (!NotificationsEnabled || !options.ShouldNotify())
             return Task.CompletedTask;
 
-        var delay = TimeSpan.FromSeconds(1.5);
+        var delay = NotificationDeliveryDelay;
         if (documents.Count == 0)
             return PublishChangeTypeMessageAsync(changeType, null, delay);
 
@@ -1520,7 +1564,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return Task.WhenAll(tasks);
     }
 
-    protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, T document, TimeSpan delay)
+    protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, T document, TimeSpan? delay)
     {
         return PublishChangeTypeMessageAsync(changeType, document, null, delay);
     }
