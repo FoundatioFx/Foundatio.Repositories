@@ -1456,6 +1456,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// to subscribers. This can be useful to allow Elasticsearch indexing to complete before
     /// consumers read the updated documents. Defaults to <c>null</c> (immediate delivery).
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Warning:</b> Only set a delay if your message bus implementation supports delayed delivery.
+    /// Message buses that do not support delayed delivery may silently drop messages, resulting in
+    /// message loss. The in-memory message bus supports delayed delivery, but other implementations
+    /// may not.
+    /// </para>
+    /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
     protected TimeSpan? NotificationDeliveryDelay
     {
