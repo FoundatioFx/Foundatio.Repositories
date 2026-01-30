@@ -1428,11 +1428,35 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         // 429 // 503
     }
 
+    /// <summary>
+    /// Gets or sets whether entity change notifications are published to the message bus.
+    /// When enabled, <see cref="Foundatio.Repositories.Models.EntityChanged"/> messages are published
+    /// after add, save, and remove operations. Defaults to <c>true</c> if a message bus is configured.
+    /// </summary>
     protected bool NotificationsEnabled { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether original document state is tracked during save operations.
+    /// When enabled, the original document is preserved before modifications, allowing
+    /// change detection (e.g., for soft delete transitions). Defaults to <c>false</c>.
+    /// </summary>
     protected bool OriginalsEnabled { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether notifications for multiple documents are batched together.
+    /// When enabled, bulk operations may consolidate notifications. Defaults to <c>false</c>.
+    /// </summary>
     public bool BatchNotifications { get; set; }
 
     private TimeSpan? _notificationDeliveryDelay;
+
+    /// <summary>
+    /// Gets or sets the delivery delay for entity change notifications.
+    /// When set, notifications are delayed by the specified duration before being delivered
+    /// to subscribers. This can be useful to allow Elasticsearch indexing to complete before
+    /// consumers read the updated documents. Defaults to <c>null</c> (immediate delivery).
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
     protected TimeSpan? NotificationDeliveryDelay
     {
         get => _notificationDeliveryDelay;
