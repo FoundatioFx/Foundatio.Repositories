@@ -543,6 +543,168 @@ services.AddStartupAction("ConfigureElasticsearch", async sp =>
 });
 ```
 
+## Parent-Child Relationships
+
+Elasticsearch supports parent-child relationships using join fields. This allows you to model hierarchical data where children are stored in the same index as parents but can be queried independently.
+
+### Defining Parent-Child Documents
+
+Implement `IParentChildDocument` for both parent and child entities:
+
+```csharp
+using Foundatio.Repositories.Elasticsearch;
+using Foundatio.Repositories.Models;
+using Nest;
+
+// Parent document
+public class Organization : IParentChildDocument, IHaveDates, ISupportSoftDeletes
+{
+    public string Id { get; set; }
+    
+    // IParentChildDocument - parent doesn't need a ParentId
+    string IParentChildDocument.ParentId { get; set; }
+    JoinField IParentChildDocument.Discriminator { get; set; }
+    
+    public string Name { get; set; }
+    public DateTime CreatedUtc { get; set; }
+    public DateTime UpdatedUtc { get; set; }
+    public bool IsDeleted { get; set; }
+}
+
+// Child document
+public class Employee : IParentChildDocument, IHaveDates, ISupportSoftDeletes
+{
+    public string Id { get; set; }
+    
+    // Child must have ParentId
+    public string ParentId { get; set; }
+    JoinField IParentChildDocument.Discriminator { get; set; }
+    
+    public string Name { get; set; }
+    public string Email { get; set; }
+    public DateTime CreatedUtc { get; set; }
+    public DateTime UpdatedUtc { get; set; }
+    public bool IsDeleted { get; set; }
+}
+```
+
+### Configuring the Index
+
+Create a single index with a join field mapping:
+
+```csharp
+public sealed class OrganizationIndex : VersionedIndex
+{
+    public OrganizationIndex(IElasticConfiguration configuration) 
+        : base(configuration, "organizations", version: 1) { }
+
+    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    {
+        return base.ConfigureIndex(idx
+            .Settings(s => s.NumberOfReplicas(0).NumberOfShards(1))
+            .Map<IParentChildDocument>(m => m
+                .AutoMap<Organization>()
+                .AutoMap<Employee>()
+                .Properties(p => p
+                    .SetupDefaults()
+                    .Keyword(k => k.Name(o => ((Organization)o).Name))
+                    .Keyword(k => k.Name(e => ((Employee)e).Email))
+                    // Configure the join field
+                    .Join(j => j
+                        .Name(n => n.Discriminator)
+                        .Relations(r => r.Join<Organization, Employee>())
+                    )
+                )));
+    }
+}
+```
+
+### Creating Repositories
+
+Create separate repositories for parent and child:
+
+```csharp
+// Parent repository
+public class OrganizationRepository : ElasticRepositoryBase<Organization>
+{
+    public OrganizationRepository(OrganizationIndex index) : base(index) { }
+}
+
+// Child repository - must set HasParent and GetParentIdFunc
+public class EmployeeRepository : ElasticRepositoryBase<Employee>
+{
+    public EmployeeRepository(OrganizationIndex index) : base(index)
+    {
+        HasParent = true;
+        GetParentIdFunc = e => e.ParentId;
+        
+        // Required for soft delete filtering on parent
+        DocumentType = typeof(Employee);
+        ParentDocumentType = typeof(Organization);
+    }
+}
+```
+
+### Working with Parent-Child Documents
+
+```csharp
+// Add parent
+var org = await orgRepository.AddAsync(new Organization { Name = "Acme Corp" });
+
+// Add child with parent reference
+var employee = await employeeRepository.AddAsync(new Employee 
+{ 
+    Name = "John Doe",
+    Email = "john@acme.com",
+    ParentId = org.Id  // Link to parent
+});
+
+// Get child by ID (requires routing for efficiency)
+var emp = await employeeRepository.GetByIdAsync(new Id(employee.Id, org.Id));
+
+// Or without routing (uses search fallback)
+var emp = await employeeRepository.GetByIdAsync(employee.Id);
+
+// Query children by parent
+var employees = await employeeRepository.FindAsync(q => q.ParentId("organization", org.Id));
+```
+
+### Parent-Child Soft Delete Behavior
+
+When a parent is soft-deleted, children are automatically filtered from queries:
+
+```csharp
+// Soft delete the parent
+org.IsDeleted = true;
+await orgRepository.SaveAsync(org);
+
+// Children are now filtered (even though they're not deleted)
+var count = await employeeRepository.CountAsync();  // Returns 0
+
+// Restore parent
+org.IsDeleted = false;
+await orgRepository.SaveAsync(org);
+
+// Children are visible again
+var count = await employeeRepository.CountAsync();  // Returns children count
+```
+
+### Querying with Parent Filters
+
+```csharp
+// Find children where parent matches criteria
+var results = await employeeRepository.FindAsync(q => q
+    .ParentQuery(pq => pq
+        .DocumentType<Organization>()
+        .FieldEquals(o => o.Name, "Acme Corp")));
+```
+
+::: warning Routing Considerations
+- Child documents are routed to the same shard as their parent using `ParentId`
+- For best performance, always provide routing when getting children by ID: `new Id(childId, parentId)`
+- Without routing, the repository falls back to a search query which is slower
+:::
+
 ## Health Checks
 
 Add Elasticsearch health checks:
