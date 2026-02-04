@@ -6,7 +6,9 @@ using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Elasticsearch.Tests.Utility;
 using Foundatio.Repositories.Models;
+using Foundatio.Serializer;
 using Microsoft.Extensions.Time.Testing;
 using Nest;
 using Newtonsoft.Json;
@@ -396,6 +398,17 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(10, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
         Assert.Equal(1, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19).Total);
 
+        // Test with all serializers
+        foreach (var serializer in SerializerTestHelper.GetTextSerializers())
+        {
+            json = serializer.SerializeToString(result);
+            roundTripped = serializer.Deserialize<CountResult>(json);
+            Assert.Equal(10, roundTripped.Total);
+            Assert.Single(roundTripped.Aggregations);
+            Assert.Equal(10, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
+            Assert.Equal(1, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19).Total);
+        }
+
         result = await _employeeRepository.CountAsync(q => q.AggregationsExpression("terms:(age~2 @missing:0 terms:(years~2 @missing:0))"));
         Assert.Equal(10, result.Total);
         Assert.Single(result.Aggregations);
@@ -405,17 +418,19 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Single(bucket.Aggregations);
         Assert.Single(bucket.Aggregations.Terms<int>("terms_years").Buckets);
 
-        json = JsonConvert.SerializeObject(result, Formatting.Indented);
-        roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
-        string roundTrippedJson = JsonConvert.SerializeObject(roundTripped, Formatting.Indented);
-        Assert.Equal(json, roundTrippedJson);
-        Assert.Equal(10, roundTripped.Total);
-        Assert.Single(roundTripped.Aggregations);
-        Assert.Equal(2, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
-        bucket = roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
-        Assert.Equal(1, bucket.Total);
-        Assert.Single(bucket.Aggregations);
-        Assert.Single(bucket.Aggregations.Terms<int>("terms_years").Buckets);
+        // Test nested aggregations with all serializers
+        foreach (var serializer in SerializerTestHelper.GetTextSerializers())
+        {
+            json = serializer.SerializeToString(result);
+            roundTripped = serializer.Deserialize<CountResult>(json);
+            Assert.Equal(10, roundTripped.Total);
+            Assert.Single(roundTripped.Aggregations);
+            Assert.Equal(2, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
+            bucket = roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
+            Assert.Equal(1, bucket.Total);
+            Assert.Single(bucket.Aggregations);
+            Assert.Single(bucket.Aggregations.Terms<int>("terms_years").Buckets);
+        }
     }
 
     [Fact]
@@ -455,6 +470,23 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
             Assert.Equal(1, bucket.Total);
             oldestDate = oldestDate.AddDays(1);
         }
+
+        // Test with all serializers
+        foreach (var serializer in SerializerTestHelper.GetTextSerializers())
+        {
+            json = serializer.SerializeToString(result);
+            roundTripped = serializer.Deserialize<CountResult>(json);
+
+            dateHistogramAgg = roundTripped.Aggregations.DateHistogram("date_nextReview");
+            Assert.Equal(3, dateHistogramAgg.Buckets.Count);
+            oldestDate = DateTime.SpecifyKind(utcToday.UtcDateTime.Date.SubtractDays(2).SubtractHours(1), DateTimeKind.Unspecified);
+            foreach (var bucket in dateHistogramAgg.Buckets)
+            {
+                AssertEqual(oldestDate, bucket.Date);
+                Assert.Equal(1, bucket.Total);
+                oldestDate = oldestDate.AddDays(1);
+            }
+        }
     }
 
     [Fact]
@@ -480,6 +512,16 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
 
         dateTermsAgg = roundTripped.Aggregations.Min<DateTime>("min_nextReview");
         Assert.Equal(utcToday.SubtractDays(2), dateTermsAgg.Value);
+
+        // Test with all serializers
+        foreach (var serializer in SerializerTestHelper.GetTextSerializers())
+        {
+            json = serializer.SerializeToString(result);
+            roundTripped = serializer.Deserialize<CountResult>(json);
+
+            dateTermsAgg = roundTripped.Aggregations.Min<DateTime>("min_nextReview");
+            Assert.Equal(utcToday.SubtractDays(2), dateTermsAgg.Value);
+        }
     }
 
     [Fact]
@@ -510,14 +552,17 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         bucket = roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
         Assert.Equal(1, bucket.Total);
 
-        string systemTextJson = System.Text.Json.JsonSerializer.Serialize(result);
-        Assert.Equal(json, systemTextJson);
-        roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(systemTextJson);
-        Assert.Equal(10, roundTripped.Total);
-        Assert.Single(roundTripped.Aggregations);
-        Assert.Equal(10, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
-        bucket = roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
-        Assert.Equal(1, bucket.Total);
+        // Test with all serializers
+        foreach (var serializer in SerializerTestHelper.GetTextSerializers())
+        {
+            json = serializer.SerializeToString(result);
+            roundTripped = serializer.Deserialize<CountResult>(json);
+            Assert.Equal(10, roundTripped.Total);
+            Assert.Single(roundTripped.Aggregations);
+            Assert.Equal(10, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
+            bucket = roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
+            Assert.Equal(1, bucket.Total);
+        }
 
         // TODO: Do we need to be able to roundtrip this? I think we need to for caching purposes.
 
@@ -532,35 +577,37 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
     [Fact]
     public void CanDeserializeHit()
     {
-        string json = @"
-            {
-                ""_index"" : ""employees"",
-                ""_type"" : ""_doc"",
-                ""_id"" : ""53cc5800d3e0d1fed81452fd"",
-                ""_score"" : 0.0,
-                ""_source"" : {
-                    ""id"" : ""53cc5800d3e0d1fed81452fd"",
-                    ""companyId"" : ""62d982efd3e0d1fed81452f3"",
-                    ""companyName"" : null,
-                    ""unmappedCompanyName"" : null,
-                    ""name"" : null,
-                    ""emailAddress"" : null,
-                    ""unmappedEmailAddress"" : null,
-                    ""age"" : 45,
-                    ""unmappedAge"" : 45,
-                    ""location"" : ""20,20"",
-                    ""yearsEmployed"" : 8,
-                    ""lastReview"" : ""0001-01-01T00:00:00"",
-                    ""nextReview"" : ""0001-01-01T00:00:00+00:00"",
-                    ""createdUtc"" : ""2014-07-21T00:00:00Z"",
-                    ""updatedUtc"" : ""2022-07-21T16:46:39.6914481Z"",
-                    ""version"" : null,
-                    ""isDeleted"" : false,
-                    ""peerReviews"" : null,
-                    ""phoneNumbers"" : [ ],
-                    ""data"" : { }
-                }
-            }";
+        /* language = json */
+        const string json = """
+                            {
+                                "_index" : "employees",
+                                "_type" : "_doc",
+                                "_id" : "53cc5800d3e0d1fed81452fd",
+                                "_score" : 0.0,
+                                "_source" : {
+                                    "id" : "53cc5800d3e0d1fed81452fd",
+                                    "companyId" : "62d982efd3e0d1fed81452f3",
+                                    "companyName" : null,
+                                    "unmappedCompanyName" : null,
+                                    "name" : null,
+                                    "emailAddress" : null,
+                                    "unmappedEmailAddress" : null,
+                                    "age" : 45,
+                                    "unmappedAge" : 45,
+                                    "location" : "20,20",
+                                    "yearsEmployed" : 8,
+                                    "lastReview" : "0001-01-01T00:00:00",
+                                    "nextReview" : "0001-01-01T00:00:00+00:00",
+                                    "createdUtc" : "2014-07-21T00:00:00Z",
+                                    "updatedUtc" : "2022-07-21T16:46:39.6914481Z",
+                                    "version" : null,
+                                    "isDeleted" : false,
+                                    "peerReviews" : null,
+                                    "phoneNumbers" : [ ],
+                                    "data" : { }
+                                }
+                            }
+                            """;
 
         var employeeHit = _configuration.Client.ConnectionSettings.RequestResponseSerializer.Deserialize<IHit<Employee>>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(json)));
         Assert.Equal("employees", employeeHit.Index);
@@ -592,7 +639,8 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
     private Task CreateDataAsync()
     {
         var utcToday = DateTime.UtcNow.Date;
-        return _employeeRepository.AddAsync(new List<Employee> {
+        return _employeeRepository.AddAsync(new List<Employee>
+        {
             EmployeeGenerator.Generate(age: 19, yearsEmployed: 1,  location: "10,10", createdUtc: utcToday.SubtractYears(1), updatedUtc: utcToday.SubtractYears(1)),
             EmployeeGenerator.Generate(age: 22, yearsEmployed: 2,  location: "10,10", createdUtc: utcToday.SubtractYears(2), updatedUtc: utcToday.SubtractYears(2)),
             EmployeeGenerator.Generate(age: 25, yearsEmployed: 3,  location: "10,10", createdUtc: utcToday.SubtractYears(3), updatedUtc: utcToday.SubtractYears(3)),

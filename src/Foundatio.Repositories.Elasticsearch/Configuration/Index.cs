@@ -104,8 +104,8 @@ public class Index : IIndex
 
     protected virtual void ConfigureQueryParser(ElasticQueryParserConfiguration config) { }
 
-    public string Name { get; protected set; }
-    public bool HasMultipleIndexes { get; protected set; } = false;
+    public string Name { get; init; }
+    public bool HasMultipleIndexes { get; init; } = false;
     public ISet<string> AllowedQueryFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     public ISet<string> AllowedAggregationFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     public ISet<string> AllowedSortFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

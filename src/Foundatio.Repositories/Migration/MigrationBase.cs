@@ -1,4 +1,4 @@
-﻿using System.Threading.Tasks;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -18,11 +18,11 @@ public abstract class MigrationBase : IMigration
         _logger = loggerFactory.CreateLogger(GetType());
     }
 
-    public MigrationType MigrationType { get; protected set; } = MigrationType.Versioned;
+    public MigrationType MigrationType { get; init; } = MigrationType.Versioned;
 
     public virtual int? Version { get; protected set; } = null;
 
-    public bool RequiresOffline { get; protected set; } = false;
+    public bool RequiresOffline { get; init; } = false;
 
     public virtual Task RunAsync()
     {
