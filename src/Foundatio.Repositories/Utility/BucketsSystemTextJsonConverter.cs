@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text.Json;
 using Foundatio.Repositories.Models;
@@ -25,15 +25,24 @@ public class BucketsSystemTextJsonConverter : System.Text.Json.Serialization.Jso
             switch (typeToken)
             {
                 case "datehistogram":
+                    // First deserialize as KeyedBucket<double> to get all properties
+                    var tempBucket = element.Deserialize<KeyedBucket<double>>(options);
+
+                    // Calculate date from Key (epoch milliseconds)
                     string timeZoneToken = GetDataToken(element, "@timezone");
                     var kind = timeZoneToken != null ? DateTimeKind.Unspecified : DateTimeKind.Utc;
-                    long key = GetProperty(element, "Key")?.GetInt64() ?? throw new InvalidOperationException();
-                    var date = new DateTime(_epochTicks + (key * TimeSpan.TicksPerMillisecond), kind);
+                    long keyAsLong = (long)tempBucket.Key;
+                    var date = new DateTime(_epochTicks + (keyAsLong * TimeSpan.TicksPerMillisecond), kind);
 
-                    var aggregationsElement = GetProperty(element, "Aggregations");
-                    var aggregations = aggregationsElement?.Deserialize<IReadOnlyDictionary<string, IAggregate>>(options);
-
-                    value = new DateHistogramBucket(date, aggregations);
+                    // Create DateHistogramBucket with all properties from the deserialized bucket
+                    var bucket = new DateHistogramBucket(date, tempBucket.Aggregations)
+                    {
+                        Key = tempBucket.Key,
+                        KeyAsString = tempBucket.KeyAsString,
+                        Total = tempBucket.Total,
+                        Data = tempBucket.Data
+                    };
+                    value = bucket;
                     break;
                 case "range":
                     value = element.Deserialize<RangeBucket>(options);
