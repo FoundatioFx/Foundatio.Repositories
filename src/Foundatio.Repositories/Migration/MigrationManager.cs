@@ -122,10 +122,10 @@ public class MigrationManager
                 {
                     var context = new MigrationContext(migrationsLock, _loggerFactory.CreateLogger(migrationInfo.Migration.GetType()), cancellationToken);
                     if (migrationInfo.Migration.MigrationType != MigrationType.Versioned)
-                        await _resiliencePolicy.ExecuteAsync(async () =>
+                        await _resiliencePolicy.ExecuteAsync(async ct =>
                         {
                             await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30));
-                            if (cancellationToken.IsCancellationRequested)
+                            if (ct.IsCancellationRequested)
                                 return MigrationResult.Cancelled;
 
                             await migrationInfo.Migration.RunAsync(context).AnyContext();

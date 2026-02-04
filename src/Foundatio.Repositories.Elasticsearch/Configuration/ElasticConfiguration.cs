@@ -206,7 +206,7 @@ public class ElasticConfiguration : IElasticConfiguration
         {
             try
             {
-                await ResiliencePolicy.ExecuteAsync(async () =>
+                await ResiliencePolicy.ExecuteAsync(async _ =>
                 {
                     await outdatedIndex.ReindexAsync((progress, message) =>
                             progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask)
