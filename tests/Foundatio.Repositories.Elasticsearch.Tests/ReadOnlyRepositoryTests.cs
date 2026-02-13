@@ -967,6 +967,68 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task GetAllAsync_WithNoSortAndPaging_ReturnsAllDocumentsWithoutDuplicates()
+    {
+        // Arrange
+        var identities = IdentityGenerator.GenerateIdentities(100);
+        await _identityRepository.AddAsync(identities, o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _identityRepository.GetAllAsync(o => o.PageLimit(10));
+        var viewedIds = new HashSet<string>();
+        int pagedRecords = 0;
+        do
+        {
+            viewedIds.AddRange(results.Hits.Select(h => h.Id));
+            pagedRecords += results.Documents.Count;
+        } while (await results.NextPageAsync());
+
+        // Assert
+        Assert.Equal(100, pagedRecords);
+        Assert.Equal(100, viewedIds.Count);
+        Assert.True(identities.All(e => viewedIds.Contains(e.Id)));
+    }
+
+    [Fact]
+    public async Task GetAllAsync_WithNoSort_ReturnsDocumentsSortedByIdAscending()
+    {
+        // Arrange
+        var identities = IdentityGenerator.GenerateIdentities(100);
+        await _identityRepository.AddAsync(identities, o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _identityRepository.GetAllAsync(o => o.PageLimit(100));
+        var ids = results.Documents.Select(d => d.Id).ToList();
+
+        // Assert
+        Assert.Equal(100, ids.Count);
+        Assert.Equal(ids.OrderBy(id => id).ToList(), ids);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithNoSortAndPaging_ReturnsAllDocumentsWithoutDuplicates()
+    {
+        // Arrange
+        var identities = IdentityGenerator.GenerateIdentities(100);
+        await _identityRepository.AddAsync(identities, o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _identityRepository.FindAsync(q => q, o => o.PageLimit(10));
+        var viewedIds = new HashSet<string>();
+        int pagedRecords = 0;
+        do
+        {
+            viewedIds.AddRange(results.Hits.Select(h => h.Id));
+            pagedRecords += results.Documents.Count;
+        } while (await results.NextPageAsync());
+
+        // Assert
+        Assert.Equal(100, pagedRecords);
+        Assert.Equal(100, viewedIds.Count);
+        Assert.True(identities.All(e => viewedIds.Contains(e.Id)));
+    }
+
+    [Fact]
     public async Task GetAllWithSearchAfterAsync()
     {
         var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
