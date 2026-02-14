@@ -1,10 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
+using System;
 using System.Linq;
 using System.Threading.Tasks;
-using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
-using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Nest;
 
@@ -122,29 +119,17 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 {
     public class SearchAfterQueryBuilder : IElasticQueryBuilder
     {
-        private const string Id = nameof(IIdentity.Id);
-
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
             if (!ctx.Options.ShouldUseSearchAfterPaging())
                 return Task.CompletedTask;
 
-            var resolver = ctx.GetMappingResolver();
-            string idField = resolver.GetResolvedField(Id) ?? "_id";
-
             if (ctx.Search is not ISearchRequest searchRequest)
                 return Task.CompletedTask;
 
-            searchRequest.Sort ??= new List<ISort>();
-            var sortFields = searchRequest.Sort;
-
-            // ensure id field is always added to the end of the sort fields list
-            if (!sortFields.Any(s => resolver.GetResolvedField(s.SortKey).Equals(idField)))
-                sortFields.Add(new FieldSort { Field = idField });
-
-            // reverse sort orders on all sorts
+            // reverse sort orders on all sorts for search before
             if (ctx.Options.HasSearchBefore())
-                sortFields.ReverseOrder();
+                searchRequest.Sort?.ReverseOrder();
 
             return Task.CompletedTask;
         }

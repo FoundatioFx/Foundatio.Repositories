@@ -159,6 +159,7 @@ public class ElasticQueryBuilder : IElasticQueryBuilder
         Register<ExpressionQueryBuilder>();
         Register<ElasticFilterQueryBuilder>();
         Register<FieldConditionsQueryBuilder>();
+        Register<DefaultSortQueryBuilder>(Int32.MaxValue - 1);
         Register<RuntimeFieldsQueryBuilder>(Int32.MaxValue);
         Register<SearchAfterQueryBuilder>(Int32.MaxValue);
     }
