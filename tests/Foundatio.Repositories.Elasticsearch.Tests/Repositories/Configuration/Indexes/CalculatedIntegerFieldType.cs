@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.AsyncEx;
 using Foundatio.Serializer;
@@ -39,12 +40,13 @@ public class CalculatedIntegerFieldType : IntegerFieldType
     }
 }
 
-public class ScriptService
+public class ScriptService : IDisposable
 {
     private readonly ITextSerializer _serializer;
     private readonly ILogger<ScriptService> _logger;
     private readonly ConcurrentDictionary<string, string> _registeredExpressions = new();
     private readonly AsyncLock _lock = new();
+    private readonly CancellationTokenSource _disposedCancellationTokenSource = new();
 
     public ScriptService(ITextSerializer jsonSerializer, ILogger<ScriptService> logger)
     {
@@ -61,7 +63,7 @@ public class ScriptService
     /// </summary>
     public async Task<ScriptValueResult> EvaluateForSourceAsync<T>(T source, string expression) where T : class
     {
-        using (await _lock.LockAsync().ConfigureAwait(false))
+        using (await _lock.LockAsync(_disposedCancellationTokenSource.Token).ConfigureAwait(false))
         {
             string functionName = EnsureExpressionFunctionInternal(expression);
             SetSourceInternal(source);
@@ -71,7 +73,7 @@ public class ScriptService
 
     public string EnsureExpressionFunction(string expression)
     {
-        using (_lock.Lock())
+        using (_lock.Lock(_disposedCancellationTokenSource.Token))
         {
             return EnsureExpressionFunctionInternal(expression);
         }
@@ -92,7 +94,7 @@ public class ScriptService
 
     public void RegisterFunction(string name, string body)
     {
-        using (_lock.Lock())
+        using (_lock.Lock(_disposedCancellationTokenSource.Token))
         {
             RegisterFunctionInternal(name, body);
         }
@@ -129,7 +131,7 @@ public class ScriptService
 
     public void SetSource(object source)
     {
-        using (_lock.Lock())
+        using (_lock.Lock(_disposedCancellationTokenSource.Token))
         {
             SetSourceInternal(source);
         }
@@ -147,7 +149,7 @@ public class ScriptService
 
     public ScriptValueResult GetValue(string functionName)
     {
-        using (_lock.Lock())
+        using (_lock.Lock(_disposedCancellationTokenSource.Token))
         {
             return GetValueInternal(functionName);
         }
@@ -172,7 +174,7 @@ public class ScriptService
 
     public object ExecuteExpression(string expression)
     {
-        using (_lock.Lock())
+        using (_lock.Lock(_disposedCancellationTokenSource.Token))
         {
             return ExecuteExpressionInternal(expression);
         }
@@ -191,6 +193,12 @@ public class ScriptService
         {
             Engine.Advanced.ResetCallStack();
         }
+    }
+
+    public void Dispose()
+    {
+        _disposedCancellationTokenSource.Cancel();
+        _disposedCancellationTokenSource.Dispose();
     }
 
     private static bool IsValidJavaScriptIdentifier(string identifier)
