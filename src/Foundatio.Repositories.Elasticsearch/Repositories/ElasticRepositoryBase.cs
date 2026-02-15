@@ -792,7 +792,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     _logger.LogDebug("Checking script operation task ({TaskId}) status: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, status.Created, status.Updated, status.Deleted, status.VersionConflicts, status.Total);
                     var delay = TimeSpan.FromSeconds(attempts <= 5 ? 1 : 5);
-                    await Task.Delay(delay).AnyContext();
+                    await ElasticIndex.Configuration.TimeProvider.Delay(delay).AnyContext();
                 } while (true);
             }
             else

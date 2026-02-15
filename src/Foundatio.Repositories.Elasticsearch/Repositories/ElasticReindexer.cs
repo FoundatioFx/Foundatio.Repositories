@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -228,7 +228,7 @@ public class ElasticReindexer
             if (status.Task.Status.Total < 100)
                 timeToWait = TimeSpan.FromMilliseconds(100);
 
-            await Task.Delay(timeToWait, cancellationToken).AnyContext();
+            await _timeProvider.Delay(timeToWait, cancellationToken).AnyContext();
         } while (!cancellationToken.IsCancellationRequested);
         sw.Stop();
 
