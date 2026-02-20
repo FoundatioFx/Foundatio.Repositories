@@ -136,16 +136,16 @@ var employees = await repository.GetByIdsAsync(ids, o => o.IncludeSoftDeletes())
 
 ```csharp
 // Default: Only active documents
-var results = await repository.FindAsync(q => q.FilterExpression("department:Engineering"));
+var results = await repository.FindAsync(q => q.FieldEquals(e => e.Department, "Engineering"));
 
 // Include soft-deleted
 var results = await repository.FindAsync(
-    q => q.FilterExpression("department:Engineering"),
+    q => q.FieldEquals(e => e.Department, "Engineering"),
     o => o.IncludeSoftDeletes());
 
 // Only deleted
 var results = await repository.FindAsync(
-    q => q.FilterExpression("department:Engineering"),
+    q => q.FieldEquals(e => e.Department, "Engineering"),
     o => o.SoftDeleteMode(SoftDeleteQueryMode.DeletedOnly));
 ```
 
@@ -156,12 +156,12 @@ var results = await repository.FindAsync(
 long activeCount = await repository.CountAsync();
 
 // Count all including deleted
-var result = await repository.CountAsync(null, o => o.IncludeSoftDeletes());
+var result = await repository.CountAsync(q => q, o => o.IncludeSoftDeletes());
 long totalCount = result.Total;
 
 // Count deleted only
-var result = await repository.CountAsync(null, o => o.SoftDeleteMode(SoftDeleteQueryMode.DeletedOnly));
-long deletedCount = result.Total;
+var deletedResult = await repository.CountAsync(q => q, o => o.SoftDeleteMode(SoftDeleteQueryMode.DeletedOnly));
+long deletedCount = deletedResult.Total;
 ```
 
 ### ExistsAsync
@@ -288,7 +288,7 @@ parent.IsDeleted = true;
 await parentRepository.SaveAsync(parent);
 
 // Children are now filtered out (even though they're not deleted)
-var children = await childRepository.FindAsync(q => q.ParentId(parent.Id));
+var children = await childRepository.FindAsync(q => q.ParentId("parent-child", parent.Id));
 // Returns empty - children are filtered because parent is deleted
 
 // Restore parent
@@ -296,7 +296,7 @@ parent.IsDeleted = false;
 await parentRepository.SaveAsync(parent);
 
 // Children are now visible again
-var children = await childRepository.FindAsync(q => q.ParentId(parent.Id));
+var children = await childRepository.FindAsync(q => q.ParentId("parent-child", parent.Id));
 // Returns children
 ```
 

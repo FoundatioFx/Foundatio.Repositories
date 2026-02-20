@@ -159,7 +159,7 @@ Console.WriteLine($"Updated {updated} documents");
 
 // Increment counter for all matching
 await repository.PatchAllAsync(
-    q => q.FilterExpression("status:active"),
+    q => q.FieldEquals(e => e.Status, "active"),
     new ScriptPatch("ctx._source.loginCount++"));
 
 // Conditional bulk update
@@ -383,7 +383,7 @@ catch (DocumentNotFoundException ex)
 catch (VersionConflictDocumentException ex)
 {
     // Concurrent modification (if version checking enabled)
-    Console.WriteLine($"Version conflict for {ex.Id}");
+    Console.WriteLine($"Version conflict: {ex.Message}");
 }
 ```
 

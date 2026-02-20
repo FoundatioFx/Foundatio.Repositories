@@ -48,15 +48,20 @@ public interface IMigration
 ```csharp
 public class AddDepartmentFieldMigration : IMigration
 {
+    private readonly IEmployeeRepository _repository;
+
+    public AddDepartmentFieldMigration(IEmployeeRepository repository)
+    {
+        _repository = repository;
+    }
+
     public MigrationType MigrationType => MigrationType.Versioned;
     public int? Version => 1;
     public bool RequiresOffline => false;
 
     public async Task RunAsync(MigrationContext context)
     {
-        var repository = context.ServiceProvider.GetRequiredService<IEmployeeRepository>();
-        
-        await repository.PatchAllAsync(
+        await _repository.PatchAllAsync(
             q => q.FieldEmpty(e => e.Department),
             new PartialPatch(new { Department = "General" }));
     }
@@ -73,9 +78,9 @@ public class AddDepartmentFieldMigration : MigrationBase
     public AddDepartmentFieldMigration(IEmployeeRepository repository)
     {
         _repository = repository;
+        MigrationType = MigrationType.Versioned;
     }
 
-    public override MigrationType MigrationType => MigrationType.Versioned;
     public override int? Version => 1;
 
     public override async Task RunAsync(MigrationContext context)
@@ -101,9 +106,9 @@ public class BackfillDataMigration : MigrationBase
     public BackfillDataMigration(IEmployeeRepository repository)
     {
         _repository = repository;
+        MigrationType = MigrationType.VersionedAndResumable;
     }
 
-    public override MigrationType MigrationType => MigrationType.VersionedAndResumable;
     public override int? Version => 2;
 
     public override async Task RunAsync(MigrationContext context)
@@ -142,9 +147,9 @@ public class CleanupExpiredDataMigration : MigrationBase
     public CleanupExpiredDataMigration(IEmployeeRepository repository)
     {
         _repository = repository;
+        MigrationType = MigrationType.Repeatable;
     }
 
-    public override MigrationType MigrationType => MigrationType.Repeatable;
     public override int? Version => null;  // No version for repeatable
 
     public override async Task RunAsync(MigrationContext context)
@@ -167,7 +172,7 @@ public class CleanupExpiredDataMigration : MigrationBase
 ```csharp
 var manager = new MigrationManager(
     serviceProvider,
-    migrationRepository,
+    migrationStateRepository,
     lockProvider,
     loggerFactory);
 
@@ -177,18 +182,18 @@ manager.AddMigrationsFromAssembly<AddDepartmentFieldMigration>();
 // Run all pending migrations
 var result = await manager.RunMigrationsAsync();
 
-Console.WriteLine($"Migrations run: {result.MigrationsRun}");
-Console.WriteLine($"Success: {result.Success}");
+Console.WriteLine($"Success: {result == MigrationResult.Success}");
 ```
 
 ### Migration Result
 
 ```csharp
-public class MigrationResult
+public enum MigrationResult
 {
-    public bool Success { get; }
-    public int MigrationsRun { get; }
-    public Exception Exception { get; }
+    Success,
+    Failed,
+    UnableToAcquireLock,
+    Cancelled
 }
 ```
 
@@ -196,7 +201,7 @@ public class MigrationResult
 
 ```csharp
 // Register migration services
-services.AddSingleton<IMigrationRepository, MigrationRepository>();
+services.AddSingleton<IMigrationStateRepository, MigrationStateRepository>();
 services.AddSingleton<ILockProvider>(new InMemoryLockProvider());
 
 // Register migrations
@@ -208,7 +213,7 @@ services.AddSingleton<MigrationManager>(sp =>
 {
     var manager = new MigrationManager(
         sp,
-        sp.GetRequiredService<IMigrationRepository>(),
+        sp.GetRequiredService<IMigrationStateRepository>(),
         sp.GetRequiredService<ILockProvider>(),
         sp.GetRequiredService<ILoggerFactory>());
     
@@ -237,13 +242,13 @@ public class MigrationStartupAction : IStartupAction
         
         var result = await _migrationManager.RunMigrationsAsync();
         
-        if (!result.Success)
+        if (result != MigrationResult.Success)
         {
-            _logger.LogError(result.Exception, "Migration failed");
-            throw result.Exception;
+            _logger.LogError("Migration failed: {Result}", result);
+            throw new InvalidOperationException($"Migration failed: {result}");
         }
         
-        _logger.LogInformation("Migrations completed: {Count} run", result.MigrationsRun);
+        _logger.LogInformation("Migrations completed successfully");
     }
 }
 
@@ -276,9 +281,9 @@ public class LongRunningMigration : MigrationBase
     public LongRunningMigration(IEmployeeRepository repository)
     {
         _repository = repository;
+        MigrationType = MigrationType.VersionedAndResumable;
     }
 
-    public override MigrationType MigrationType => MigrationType.VersionedAndResumable;
     public override int? Version => 10;
 
     public override async Task RunAsync(MigrationContext context)
@@ -364,15 +369,20 @@ public override async Task RunAsync(MigrationContext context)
 ```csharp
 public class RenameFieldMigration : MigrationBase
 {
-    public override MigrationType MigrationType => MigrationType.Versioned;
+    private readonly IEmployeeRepository _repository;
+
+    public RenameFieldMigration(IEmployeeRepository repository)
+    {
+        _repository = repository;
+        MigrationType = MigrationType.Versioned;
+    }
+
     public override int? Version => 3;
 
     public override async Task RunAsync(MigrationContext context)
     {
-        var repository = context.ServiceProvider.GetRequiredService<IEmployeeRepository>();
-        
         // Copy old field to new field
-        await repository.PatchAllAsync(
+        await _repository.PatchAllAsync(
             q => q.FieldHasValue(e => e.OldFieldName),
             new ScriptPatch(@"
                 ctx._source.newFieldName = ctx._source.oldFieldName;
@@ -387,14 +397,19 @@ public class RenameFieldMigration : MigrationBase
 ```csharp
 public class NormalizeEmailMigration : MigrationBase
 {
-    public override MigrationType MigrationType => MigrationType.Versioned;
+    private readonly IEmployeeRepository _repository;
+
+    public NormalizeEmailMigration(IEmployeeRepository repository)
+    {
+        _repository = repository;
+        MigrationType = MigrationType.Versioned;
+    }
+
     public override int? Version => 4;
 
     public override async Task RunAsync(MigrationContext context)
     {
-        var repository = context.ServiceProvider.GetRequiredService<IEmployeeRepository>();
-        
-        await repository.PatchAllAsync(
+        await _repository.PatchAllAsync(
             q => q.FieldHasValue(e => e.Email),
             new ScriptPatch("ctx._source.email = ctx._source.email.toLowerCase()"));
     }
@@ -406,14 +421,19 @@ public class NormalizeEmailMigration : MigrationBase
 ```csharp
 public class BackfillFullNameMigration : MigrationBase
 {
-    public override MigrationType MigrationType => MigrationType.VersionedAndResumable;
+    private readonly IEmployeeRepository _repository;
+
+    public BackfillFullNameMigration(IEmployeeRepository repository)
+    {
+        _repository = repository;
+        MigrationType = MigrationType.VersionedAndResumable;
+    }
+
     public override int? Version => 5;
 
     public override async Task RunAsync(MigrationContext context)
     {
-        var repository = context.ServiceProvider.GetRequiredService<IEmployeeRepository>();
-        
-        await repository.BatchProcessAsync(
+        await _repository.BatchProcessAsync(
             q => q.FieldEmpty(e => e.FullName),
             async batch =>
             {
@@ -421,7 +441,7 @@ public class BackfillFullNameMigration : MigrationBase
                 {
                     emp.FullName = $"{emp.FirstName} {emp.LastName}";
                 }
-                await repository.SaveAsync(batch.Documents, o => o.Notifications(false));
+                await _repository.SaveAsync(batch.Documents, o => o.Notifications(false));
                 return true;
             },
             o => o.PageLimit(500));
@@ -434,19 +454,26 @@ public class BackfillFullNameMigration : MigrationBase
 ```csharp
 public class RemoveOrphanedRecordsMigration : MigrationBase
 {
-    public override MigrationType MigrationType => MigrationType.Repeatable;
+    private readonly IEmployeeRepository _employeeRepo;
+    private readonly ICompanyRepository _companyRepo;
+
+    public RemoveOrphanedRecordsMigration(
+        IEmployeeRepository employeeRepo,
+        ICompanyRepository companyRepo)
+    {
+        _employeeRepo = employeeRepo;
+        _companyRepo = companyRepo;
+        MigrationType = MigrationType.Repeatable;
+    }
 
     public override async Task RunAsync(MigrationContext context)
     {
-        var employeeRepo = context.ServiceProvider.GetRequiredService<IEmployeeRepository>();
-        var companyRepo = context.ServiceProvider.GetRequiredService<ICompanyRepository>();
-        
         // Find all company IDs
-        var companies = await companyRepo.GetAllAsync();
+        var companies = await _companyRepo.GetAllAsync();
         var validCompanyIds = companies.Documents.Select(c => c.Id).ToHashSet();
         
         // Remove employees with invalid company IDs
-        await employeeRepo.BatchProcessAsync(
+        await _employeeRepo.BatchProcessAsync(
             q => q.All(),
             async batch =>
             {
@@ -456,7 +483,7 @@ public class RemoveOrphanedRecordsMigration : MigrationBase
                 
                 if (orphaned.Any())
                 {
-                    await employeeRepo.RemoveAsync(orphaned);
+                    await _employeeRepo.RemoveAsync(orphaned);
                     _logger.LogInformation("Removed {Count} orphaned employees", orphaned.Count);
                 }
                 
@@ -521,10 +548,11 @@ public async Task Migration_Should_Update_Department()
 {
     // Arrange
     var employee = await _repository.AddAsync(new Employee { Name = "Test" });
+    var lock_ = await _lockProvider.AcquireAsync("test");
     
     // Act
     var migration = new AddDepartmentFieldMigration(_repository);
-    await migration.RunAsync(new MigrationContext(_serviceProvider, CancellationToken.None));
+    await migration.RunAsync(new MigrationContext(lock_, _logger, CancellationToken.None));
     
     // Assert
     var updated = await _repository.GetByIdAsync(employee.Id);

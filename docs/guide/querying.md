@@ -55,7 +55,7 @@ var results = await repository.FindAsync(q => q.SearchExpression("john developer
 Get a single matching document:
 
 ```csharp
-var hit = await repository.FindOneAsync(q => q.FilterExpression("email:john@example.com"));
+var hit = await repository.FindOneAsync(q => q.FieldEquals(e => e.Email, "john@example.com"));
 var employee = hit?.Document;
 ```
 
@@ -76,15 +76,21 @@ var results = await repository.FindAsync(q => q.FieldEquals(e => e.Type, Employe
 
 ### Field Conditions
 
+`FieldCondition` supports equality, text matching, and existence checks:
+
 ```csharp
-// Comparison operators
+// Equality check
 var results = await repository.FindAsync(q => q
-    .FieldCondition(e => e.Age, ComparisonOperator.GreaterThanOrEquals, 25));
+    .FieldCondition(e => e.Name, ComparisonOperator.Equals, "John Smith"));
 
 // Contains (for text fields)
 var results = await repository.FindAsync(q => q
     .FieldCondition(e => e.Name, ComparisonOperator.Contains, "John"));
 ```
+
+Available operators: `Equals`, `NotEquals`, `IsEmpty`, `HasValue`, `Contains`, `NotContains`.
+
+> **Note:** For numeric range comparisons (e.g., age >= 25), use `FilterExpression` with Lucene syntax: `q.FilterExpression("age:[25 TO *]")`
 
 ### Field Empty/Has Value
 
@@ -145,7 +151,7 @@ var results = await repository.FindAsync(q => q
 
 ```csharp
 var results = await repository.FindAsync(
-    q => q.FilterExpression("department:Engineering"),
+    q => q.FieldEquals(e => e.Department, "Engineering"),
     o => o.PageNumber(1).PageLimit(25));
 
 Console.WriteLine($"Page {results.Page}, Total: {results.Total}, HasMore: {results.HasMore}");
@@ -210,7 +216,7 @@ var results = await repository.CountAsync(q => q
 var departmentAgg = results.Aggregations.Terms("terms_department");
 foreach (var bucket in departmentAgg.Buckets)
 {
-    Console.WriteLine($"{bucket.Key}: {bucket.DocCount}");
+    Console.WriteLine($"{bucket.Key}: {bucket.Total}");
 }
 ```
 
@@ -248,12 +254,12 @@ var results = await repository.CountAsync(q => q
 var deptAgg = results.Aggregations.Terms("terms_department");
 foreach (var bucket in deptAgg.Buckets)
 {
-    Console.WriteLine($"Department: {bucket.Key}, Count: {bucket.DocCount}");
+        Console.WriteLine($"Department: {bucket.Key}, Count: {bucket.Total}");
 }
 
 // Value aggregations
-var avgSalary = results.Aggs.Average("avg_salary");
-var maxDate = results.Aggs.Max<DateTime>("max_createdUtc");
+var avgSalary = results.Aggregations.Average("avg_salary")?.Value;
+var maxDate = results.Aggregations.Max<DateTime>("max_createdUtc")?.Value;
 
 Console.WriteLine($"Average Salary: {avgSalary}");
 Console.WriteLine($"Latest Created: {maxDate}");
@@ -378,7 +384,7 @@ If performance is important and you frequently fetch partial documents, consider
 ### Count with Query
 
 ```csharp
-var count = await repository.CountAsync(q => q.FilterExpression("department:Engineering"));
+var count = await repository.CountAsync(q => q.FieldEquals(e => e.Department, "Engineering"));
 Console.WriteLine($"Engineering employees: {count.Total}");
 ```
 
@@ -395,7 +401,7 @@ bool hasActiveEmployees = await repository.ExistsAsync(
 
 ```csharp
 var results = await repository.FindAsync(q => q
-    .FilterExpression("status:active")
+    .FieldEquals(e => e.Status, "active")
     .FieldEquals(e => e.Department, "Engineering")
     .DateRange(DateTime.UtcNow.AddYears(-1), DateTime.UtcNow, e => e.HireDate)
     .SortExpression("-salary")
@@ -408,7 +414,7 @@ var results = await repository.FindAsync(q => q
 ```csharp
 var query = new RepositoryQuery<Employee>()
     .FieldEquals(e => e.Department, "Engineering")
-    .FieldCondition(e => e.Age, ComparisonOperator.GreaterThanOrEquals, 25);
+    .FieldCondition(e => e.Name, ComparisonOperator.Contains, "John");
 
 var results = await repository.FindAsync(q => query);
 var count = await repository.CountAsync(q => query);
@@ -449,7 +455,7 @@ Enable query logging for debugging:
 ```csharp
 var results = await repository.FindAsync(
     query,
-    o => o.QueryLogLevel(LogLevel.Debug));
+    o => o.QueryLogLevel(Microsoft.Extensions.Logging.LogLevel.Debug));
 ```
 
 ## Async Queries
@@ -462,7 +468,7 @@ var results = await repository.FindAsync(
     query,
     o => o.AsyncQuery(waitTime: TimeSpan.FromSeconds(5), ttl: TimeSpan.FromHours(1)));
 
-if (results.Total == 0 && results.HasAsyncQueryId())
+if (results.Total == 0 && results.IsAsyncQueryRunning())
 {
     // Query is still running, get the ID
     var queryId = results.GetAsyncQueryId();

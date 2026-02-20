@@ -500,7 +500,7 @@ public class ArchiveOldDataJob : IJob
         long archived = 0;
         
         await _repository.BatchProcessAsync(
-            q => q.DateRange(null, cutoffDate, e => e.TerminationDate),
+            q => q.DateRange(null, cutoffDate, (Employee e) => e.TerminationDate),
             async batch =>
             {
                 // Archive to cold storage

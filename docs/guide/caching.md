@@ -5,8 +5,9 @@ Foundatio.Repositories provides built-in distributed caching with automatic inva
 ## Overview
 
 Caching in Foundatio.Repositories is built on Foundatio's `ICacheClient` abstraction, supporting:
-- In-memory caching
-- Redis
+- In-memory caching (development/testing)
+- Redis (distributed)
+- Hybrid (in-memory L1 + distributed L2 for reduced network round trips)
 - Any custom `ICacheClient` implementation
 
 ## Configuration
@@ -37,16 +38,12 @@ public class MyElasticConfiguration : ElasticConfiguration
 services.AddSingleton<ICacheClient>(new InMemoryCacheClient());
 
 // Redis
-services.AddSingleton<ICacheClient>(sp => 
-    new RedisCacheClient(new RedisConnection("localhost:6379")));
-
-// Hybrid (in-memory + distributed)
 services.AddSingleton<ICacheClient>(sp =>
-{
-    var redis = new RedisCacheClient(new RedisConnection("localhost:6379"));
-    var memory = new InMemoryCacheClient();
-    return new HybridCacheClient(memory, redis);
-});
+    new RedisCacheClient(o => o.ConnectionMultiplexer(sp.GetRequiredService<ConnectionMultiplexer>())));
+
+// Hybrid (in-memory L1 + distributed L2 - best for production, reduces network round trips)
+services.AddSingleton<ICacheClient>(sp =>
+    new RedisHybridCacheClient(o => o.ConnectionMultiplexer(sp.GetRequiredService<ConnectionMultiplexer>())));
 ```
 
 ### Repository Cache Settings
@@ -218,6 +215,7 @@ Override `InvalidateCacheAsync` to handle custom cache keys:
 ```csharp
 public class EmployeeRepository : ElasticRepositoryBase<Employee>
 {
+    // Override to invalidate email cache when documents change
     protected override async Task InvalidateCacheAsync(
         IReadOnlyCollection<ModifiedDocument<Employee>> documents, 
         ChangeType? changeType = null)
@@ -225,7 +223,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>
         // Call base implementation for ID-based invalidation
         await base.InvalidateCacheAsync(documents, changeType);
         
-        // Invalidate custom cache keys
+        // Invalidate custom cache keys for current email addresses
         var emailKeys = documents
             .Where(d => !string.IsNullOrEmpty(d.Value.Email))
             .Select(d => $"employee:email:{d.Value.Email.ToLowerInvariant()}")
@@ -478,7 +476,7 @@ public class UserRepository : ElasticRepositoryBase<User>
         
         // Use a custom cache key - this caches the result even for dirty reads
         var hit = await FindOneAsync(
-            q => q.ElasticFilter(Query<User>.Term(u => u.EmailAddress.Suffix("keyword"), emailAddress)),
+            q => q.FieldEquals(u => u.EmailAddress, emailAddress),
             o => o.Cache(EmailCacheKey(emailAddress)));
         
         return hit?.Document;
@@ -506,9 +504,9 @@ public class UserRepository : ElasticRepositoryBase<User>
         IReadOnlyCollection<ModifiedDocument<User>> documents, 
         ChangeType? changeType = null)
     {
-        // Use UnionOriginalAndModified to get both old and new email addresses
-        var keysToRemove = documents
-            .UnionOriginalAndModified()
+        // Union originals and modified values to handle field renames
+        var keysToRemove = documents.UnionOriginalAndModified()
+            .Where(u => !string.IsNullOrEmpty(u.EmailAddress))
             .Select(u => EmailCacheKey(u.EmailAddress))
             .Distinct();
         
@@ -578,24 +576,22 @@ DocumentsChanging.AddHandler(async (sender, args) =>
 });
 ```
 
-### UnionOriginalAndModified Helper
+### UnionOriginalAndModified Pattern
 
-The `UnionOriginalAndModified()` extension combines both original and modified documents, useful for cache invalidation:
+A common pattern for cache invalidation is to collect keys from both the original and modified documents (to handle field changes like email address renames). The built-in `UnionOriginalAndModified` extension method (in `Foundatio.Repositories.Extensions`) combines both the current and previous versions of each document:
 
 ```csharp
 protected override Task InvalidateCacheAsync(
     IReadOnlyCollection<ModifiedDocument<User>> documents, 
     ChangeType? changeType = null)
 {
-    // Gets both original.EmailAddress AND value.EmailAddress
-    var allEmails = documents
-        .UnionOriginalAndModified()
+    var keysToRemove = documents.UnionOriginalAndModified()
         .Where(u => !string.IsNullOrEmpty(u.EmailAddress))
         .Select(u => EmailCacheKey(u.EmailAddress))
         .Distinct();
     
     return Task.WhenAll(
-        Cache.RemoveAllAsync(allEmails),
+        Cache.RemoveAllAsync(keysToRemove),
         base.InvalidateCacheAsync(documents, changeType));
 }
 ```
@@ -610,7 +606,7 @@ await repository.SaveAsync(user, o => o.Originals(true));
 await repository.SaveAsync(user, o => o.Originals(false));
 
 // Pass known originals to avoid extra database fetch
-await repository.SaveAsync(user, o => o.Originals(originalUser));
+await repository.SaveAsync(user, o => o.AddOriginals(originalUser));
 ```
 
 ### Performance Consideration

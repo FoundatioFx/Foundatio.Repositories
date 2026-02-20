@@ -154,7 +154,7 @@ var results = await repository.FindAsync(query);
 
 ```csharp
 // Check filter expression
-var results = await repository.FindAsync(q => q.FilterExpression("status:active"));
+var results = await repository.FindAsync(q => q.FieldEquals(e => e.Status, "active"));
 
 // Debug: Log the query
 var results = await repository.FindAsync(query, o => o.QueryLogLevel(LogLevel.Debug));
@@ -188,7 +188,15 @@ var escaped = Regex.Escape(userInput);
 // Instead of filter expression
 var results = await repository.FindAsync(q => q
     .FieldEquals(e => e.Status, "active")
-    .FieldCondition(e => e.Age, ComparisonOperator.GreaterThan, 25));
+    .FieldCondition(e => e.Name, ComparisonOperator.Contains, "John"));
+```
+
+For numeric comparisons, use `FilterExpression` with Lucene syntax:
+
+```csharp
+var results = await repository.FindAsync(q => q
+    .FieldEquals(e => e.Status, "active")
+    .FilterExpression("age:[25 TO *]"));
 ```
 
 ## Cache Issues

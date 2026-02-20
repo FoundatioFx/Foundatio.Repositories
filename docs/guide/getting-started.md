@@ -66,6 +66,7 @@ public class Employee : IIdentity, IHaveDates
 Define how your entity is indexed in Elasticsearch:
 
 ```csharp
+using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Nest;

@@ -241,7 +241,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>
 
     private Task OnBeforeQuery(object sender, BeforeQueryEventArgs<Employee> args)
     {
-        // Add tenant filter to all queries
+        // Add tenant filter to all queries using typed expression
         args.Query.FieldEquals(e => e.TenantId, _currentTenantId);
         return Task.CompletedTask;
     }
@@ -427,12 +427,11 @@ DocumentsRemoving.AddHandler(async (sender, args) =>
 ```csharp
 BeforeQuery.AddHandler((sender, args) =>
 {
-    // Always filter by tenant
+    // Always filter by tenant using typed expression
     args.Query.FieldEquals(e => e.TenantId, _tenantId);
     
     // Exclude archived by default
-    if (!args.Options.GetIncludeArchived())
-        args.Query.FieldEquals(e => e.IsArchived, false);
+    args.Query.FieldEquals(e => e.IsArchived, false);
     
     return Task.CompletedTask;
 });
