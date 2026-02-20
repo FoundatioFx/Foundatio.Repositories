@@ -980,21 +980,30 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     #endregion
 
+    /// <summary>
+    /// Registers a field that must always be included when <see cref="RemoveAllAsync(IRepositoryQuery, ICommandOptions)"/>
+    /// fetches documents for deletion. This ensures critical fields (needed for cache invalidation,
+    /// notifications, or event handlers) are returned even when the caller has specified a restricted
+    /// include set. <c>Id</c> and <c>CreatedUtc</c> (when applicable) are registered automatically.
+    /// </summary>
     protected void AddPropertyRequiredForRemove(string field)
     {
         _propertiesRequiredForRemove.Add(new Lazy<Field>(() => field));
     }
 
+    /// <inheritdoc cref="AddPropertyRequiredForRemove(string)"/>
     protected void AddPropertyRequiredForRemove(Lazy<string> field)
     {
         _propertiesRequiredForRemove.Add(new Lazy<Field>(() => field.Value));
     }
 
+    /// <inheritdoc cref="AddPropertyRequiredForRemove(string)"/>
     protected void AddPropertyRequiredForRemove(Expression<Func<T, object>> objectPath)
     {
         _propertiesRequiredForRemove.Add(new Lazy<Field>(() => Infer.PropertyName(objectPath)));
     }
 
+    /// <inheritdoc cref="AddPropertyRequiredForRemove(string)"/>
     protected void AddPropertyRequiredForRemove(params Expression<Func<T, object>>[] objectPaths)
     {
         _propertiesRequiredForRemove.AddRange(objectPaths.Select(o => new Lazy<Field>(() => Infer.PropertyName(o))));

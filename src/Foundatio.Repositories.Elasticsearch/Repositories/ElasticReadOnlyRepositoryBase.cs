@@ -628,21 +628,29 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return InvalidateCacheAsync(query.GetIds());
     }
 
+    /// <summary>
+    /// Registers a field to be excluded by default from Elasticsearch <c>_source</c> filtering.
+    /// Default excludes are applied only when no explicit excludes are set on the query;
+    /// setting any explicit exclude on a query will cause all default excludes to be skipped.
+    /// </summary>
     protected void AddDefaultExclude(string field)
     {
         _defaultExcludes.Add(new Lazy<Field>(() => field));
     }
 
+    /// <inheritdoc cref="AddDefaultExclude(string)"/>
     protected void AddDefaultExclude(Lazy<string> field)
     {
         _defaultExcludes.Add(new Lazy<Field>(() => field.Value));
     }
 
+    /// <inheritdoc cref="AddDefaultExclude(string)"/>
     protected void AddDefaultExclude(Expression<Func<T, object>> objectPath)
     {
         _defaultExcludes.Add(new Lazy<Field>(() => InferPropertyName(objectPath)));
     }
 
+    /// <inheritdoc cref="AddDefaultExclude(string)"/>
     protected void AddDefaultExclude(params Expression<Func<T, object>>[] objectPaths)
     {
         _defaultExcludes.AddRange(objectPaths.Select(o => new Lazy<Field>(() => InferPropertyName(o))));

@@ -261,33 +261,117 @@ Console.WriteLine($"Latest Created: {maxDate}");
 
 ## Field Selection
 
-### Include Fields
+Field selection controls which fields are returned from Elasticsearch via `_source` filtering. This reduces network payload and deserialization cost when you only need a subset of fields from a document.
+
+### Including Fields
+
+Use `.Include()` to specify individual fields to return:
 
 ```csharp
-// Include specific fields only
 var results = await repository.FindAsync(
     query,
     o => o.Include(e => e.Id).Include(e => e.Name).Include(e => e.Email));
-
-// Using mask pattern
-var results = await repository.FindAsync(
-    query,
-    o => o.IncludeMask("id,name,email,address.*"));
 ```
 
-### Exclude Fields
+You can also pass multiple fields at once:
 
 ```csharp
-// Exclude large fields
+var results = await repository.FindAsync(
+    query,
+    o => o.Include(e => e.Id, e => e.Name, e => e.Email));
+```
+
+### Excluding Fields
+
+Use `.Exclude()` to omit specific fields while returning everything else:
+
+```csharp
 var results = await repository.FindAsync(
     query,
     o => o.Exclude(e => e.LargeContent).Exclude(e => e.Attachments));
+```
 
-// Using mask pattern
+### Field Mask Expressions
+
+For complex field selections, use `.IncludeMask()` or `.ExcludeMask()` with a Google FieldMask-style expression. Nested fields are grouped with parentheses and comma-separated:
+
+| Expression | Expanded Fields |
+|---|---|
+| `"id,name"` | `id`, `name` |
+| `"address(street,city)"` | `address.street`, `address.city` |
+| `"results(id,program(name,id))"` | `results.id`, `results.program.name`, `results.program.id` |
+
+```csharp
 var results = await repository.FindAsync(
     query,
-    o => o.ExcludeMask("largeContent,attachments,internal*"));
+    o => o.IncludeMask("id,name,address(street,city,state)"));
 ```
+
+Masks and individual `.Include()`/`.Exclude()` calls are additive -- they are merged into a single set at query time.
+
+### Query-Level vs Options-Level
+
+Field includes and excludes can be set on both the query and the command options. Both sources are merged at execution time:
+
+```csharp
+var results = await repository.FindAsync(
+    q => q.Include(e => e.Name),
+    o => o.Include(e => e.Email));
+// Both Name and Email are included
+```
+
+This is useful when a repository method sets default options-level field restrictions while callers add query-level overrides.
+
+### Merge and Precedence Rules
+
+At execution time, the repository merges all field selection settings:
+
+1. **All includes are merged**: individual fields from `.Include()` and parsed fields from `.IncludeMask()` from both the query and command options combine into one include set.
+2. **All excludes are merged**: same for `.Exclude()` and `.ExcludeMask()`.
+3. **Includes win over excludes**: if the same field appears in both includes and excludes, it is included (the exclude is dropped).
+4. **Automatic `Id` field**: when any includes are specified on an entity that implements `IIdentity`, the `Id` field is automatically added to ensure the document identity is always available.
+
+### Default Excludes
+
+Repositories can register fields to exclude by default by calling `AddDefaultExclude()` in the constructor:
+
+```csharp
+public class EmployeeRepository : ElasticRepositoryBase<Employee>
+{
+    public EmployeeRepository(/* ... */)
+    {
+        AddDefaultExclude(e => e.InternalNotes);
+        AddDefaultExclude(e => e.AuditLog);
+    }
+}
+```
+
+Default excludes are only applied when **no explicit excludes** are set on the query. As soon as the caller specifies any `.Exclude()` call, the defaults are skipped entirely. This prevents unexpected interactions between default and explicit excludes.
+
+### Properties Required for Remove
+
+When `RemoveAllAsync` processes batch deletions, it first queries for matching documents. The repository ensures that certain critical fields are always included in these queries (regardless of any field restrictions the caller may have set) by registering them with `AddPropertyRequiredForRemove()`:
+
+```csharp
+public class EmployeeRepository : ElasticRepositoryBase<Employee>
+{
+    public EmployeeRepository(/* ... */)
+    {
+        AddPropertyRequiredForRemove(e => e.DepartmentId);
+    }
+}
+```
+
+The `Id` and `CreatedUtc` fields (when applicable) are registered automatically. These fields are needed for cache invalidation, message bus notifications, and event handlers that fire during the delete process.
+
+### Caching Impact
+
+When includes or excludes are active, the repository skips ID-based caching to avoid storing incomplete documents in the cache. This means:
+
+- `GetByIdAsync` / `GetByIdsAsync` with field restrictions will always hit Elasticsearch directly.
+- Queries with custom cache keys still function normally since they cache the complete filtered result as-is.
+
+If performance is important and you frequently fetch partial documents, consider using a dedicated query with a custom cache key rather than relying on ID-based caching.
 
 ## Count and Exists
 

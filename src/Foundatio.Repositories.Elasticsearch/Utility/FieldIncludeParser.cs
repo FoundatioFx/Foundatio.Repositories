@@ -1,10 +1,27 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 
 namespace Foundatio.Repositories.Elasticsearch.Utility;
 
+/// <summary>
+/// Allocation-free parser for Google FieldMask-style expressions that specify nested field paths.
+/// </summary>
+/// <remarks>
+/// <para>Supported syntax:</para>
+/// <list type="bullet">
+///   <item>Simple fields: <c>"name"</c> produces <c>["name"]</c></item>
+///   <item>Comma-separated: <c>"name,age"</c> produces <c>["name", "age"]</c></item>
+///   <item>Dotted paths: <c>"address.street"</c> produces <c>["address.street"]</c></item>
+///   <item>Nested groups: <c>"address(street,city)"</c> produces <c>["address.street", "address.city"]</c></item>
+///   <item>Deep nesting: <c>"results(id,program(name,id))"</c> produces <c>["results.id", "results.program.name", "results.program.id"]</c></item>
+/// </list>
+/// <para>
+/// Duplicate field names at the same nesting level are merged so their sub-fields combine.
+/// Use <see cref="ParseFieldPaths(string)"/> for the common case of getting flattened dotted path strings.
+/// </para>
+/// </remarks>
 public ref struct FieldIncludeParser
 {
     private readonly ReadOnlySpan<char> _source;
@@ -105,11 +122,18 @@ public ref struct FieldIncludeParser
                 return;
     }
 
+    /// <summary>
+    /// Parses a field mask expression string and returns the structured result.
+    /// </summary>
     public static FieldIncludeParseResult Parse(string expression)
     {
         return Parse(expression.AsSpan());
     }
 
+    /// <summary>
+    /// Parses a field mask expression and returns the flattened dotted field paths.
+    /// For example, <c>"results(id,program(name))"</c> returns <c>["results.id", "results.program.name"]</c>.
+    /// </summary>
     public static IList<string> ParseFieldPaths(string expression)
     {
         return ParseFieldPaths(expression.AsSpan());
@@ -130,6 +154,11 @@ public ref struct FieldIncludeParser
     }
 }
 
+/// <summary>
+/// The result of parsing a field mask expression via <see cref="FieldIncludeParser"/>.
+/// Contains the hierarchical list of parsed fields and a validity flag.
+/// Use <see cref="ToFieldPaths"/> to flatten the result into dotted path strings.
+/// </summary>
 public class FieldIncludeParseResult
 {
     public IList<FieldInclude> Fields { get; set; } = new List<FieldInclude>();
@@ -155,6 +184,10 @@ public class FieldIncludeParseResult
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Flattens the hierarchical field structure into a list of dotted path strings
+    /// (e.g., <c>["results.id", "results.program.name"]</c>).
+    /// </summary>
     public IList<string> ToFieldPaths()
     {
         var fields = new List<string>();
@@ -166,6 +199,10 @@ public class FieldIncludeParseResult
     }
 }
 
+/// <summary>
+/// Represents a single field in a parsed field mask expression. A field has a <see cref="Name"/>
+/// and an optional list of <see cref="SubFields"/> representing nested fields grouped by parentheses.
+/// </summary>
 public class FieldInclude
 {
     public FieldInclude(string name)
