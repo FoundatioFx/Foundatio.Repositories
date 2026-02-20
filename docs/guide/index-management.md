@@ -111,6 +111,69 @@ public sealed class AuditLogIndex : MonthlyIndex<AuditLog>
 - `audit-v1-2024.01`
 - `audit-v1-2024.02`
 
+## Querying Time-Series Indexes
+
+### Index Selection vs. Document Filtering
+
+When working with `DailyIndex` or `MonthlyIndex`, two separate mechanisms control what data is returned:
+
+- **`.Index(start, end)`** — selects which physical index partitions to query. Without this, all partitions are queried via the umbrella alias.
+- **`.DateRange(start, end, field)`** — filters documents within the targeted indexes by a date field value.
+
+These must be set independently. `DateRange` alone does not narrow index selection.
+
+```csharp
+var start = DateTime.UtcNow.AddDays(-7);
+var end = DateTime.UtcNow;
+
+var results = await repository.FindAsync(q => q
+    .Index(start, end)                         // target only the relevant partitions
+    .DateRange(start, end, e => e.CreatedUtc)  // filter documents within those partitions
+);
+```
+
+Omitting `.Index()` is correct but less efficient — the query runs against all partitions and relies solely on the `DateRange` filter to narrow results.
+
+### Large Range Fallback
+
+Generating an individual index name for each day or month in a very wide range would produce an excessively long list. To avoid this, `.Index(start, end)` falls back to the umbrella alias (which covers all partitions) when the range is too broad:
+
+| Index type | Threshold | Behavior |
+|---|---|---|
+| `DailyIndex` | Range >= 3 months, or exceeds `MaxIndexAge` | Falls back to alias (all partitions) |
+| `MonthlyIndex` | Range > 1 year, or exceeds `MaxIndexAge` | Falls back to alias (all partitions) |
+
+In the fallback case, Elasticsearch receives the alias name rather than a list of specific index names. The query is still executed correctly, and the `.DateRange()` filter still restricts the returned documents — there is just no partition pruning at the index-routing level.
+
+```csharp
+// This range is 4 months — exceeds the DailyIndex threshold of 3 months.
+// GetIndexes returns an empty list, so the query targets the "logs" alias instead.
+var results = await repository.FindAsync(q => q
+    .Index(DateTime.UtcNow.AddMonths(-4), DateTime.UtcNow)
+    .DateRange(DateTime.UtcNow.AddMonths(-4), DateTime.UtcNow, e => e.CreatedUtc)
+);
+```
+
+### Best Practices for Time-Series Queries
+
+1. **Always pair `.Index()` with `.DateRange()`** — `.Index()` prunes partitions, `.DateRange()` filters documents. Both are needed for correct and efficient queries.
+2. **Keep ranges within the fallback threshold** — queries within 3 months (daily) or 1 year (monthly) benefit from partition pruning. Wider ranges fall back to alias-level querying.
+3. **Use time-based aliases for fixed windows** — for recurring queries like "last 7 days" or "last 30 days", configure named aliases via `AddAlias()` to avoid computing index ranges at query time.
+
+```csharp
+// In index configuration
+public LogEventIndex(IElasticConfiguration configuration) 
+    : base(configuration, "logs", version: 1)
+{
+    MaxIndexAge = TimeSpan.FromDays(90);
+    AddAlias("logs-last-7-days", TimeSpan.FromDays(7));
+    AddAlias("logs-last-30-days", TimeSpan.FromDays(30));
+}
+
+// In queries — use the alias directly instead of computing a range
+var results = await repository.FindAsync(q => q.Index("logs-last-7-days"));
+```
+
 ## Index Configuration
 
 ### Index Settings

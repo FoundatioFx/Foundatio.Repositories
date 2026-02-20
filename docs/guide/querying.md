@@ -104,6 +104,8 @@ var results = await repository.FindAsync(q => q.FieldHasValue(e => e.ManagerId))
 
 ### Date Range
 
+`.DateRange()` adds an Elasticsearch filter clause that restricts documents by a date field value. It does **not** select which physical indexes are queried — it only filters documents within whatever indexes are targeted.
+
 ```csharp
 var results = await repository.FindAsync(q => q
     .DateRange(
@@ -111,6 +113,35 @@ var results = await repository.FindAsync(q => q
         end: DateTime.UtcNow,
         field: e => e.CreatedUtc));
 ```
+
+#### Time-Series Indexes (DailyIndex / MonthlyIndex)
+
+When querying a `DailyIndex` or `MonthlyIndex`, each partition (day or month) is a separate physical Elasticsearch index. Without specifying which indexes to target, the query runs against the umbrella alias and scans all partitions regardless of the date range filter.
+
+To limit which physical indexes are queried, use `.Index(start, end)` alongside `.DateRange()`:
+
+```csharp
+var start = DateTime.UtcNow.AddDays(-7);
+var end = DateTime.UtcNow;
+
+var results = await repository.FindAsync(q => q
+    .Index(start, end)                         // target only the relevant daily index partitions
+    .DateRange(start, end, e => e.CreatedUtc)  // filter documents within those indexes
+);
+```
+
+> **Note:** `.Index(start, end)` and `.DateRange()` serve different purposes and must be set independently. `DateRange` without `.Index()` is still valid — it will filter documents correctly — but it queries all partitions, which is less efficient for large time-series datasets.
+
+#### Large Range Fallback
+
+To prevent generating an excessively long list of individual index names, index selection falls back to the alias (which covers all partitions) when the requested range is too broad:
+
+| Index type | Threshold | Behavior |
+|---|---|---|
+| `DailyIndex` | Range >= 3 months, or exceeds `MaxIndexAge` | Falls back to alias |
+| `MonthlyIndex` | Range > 1 year, or exceeds `MaxIndexAge` | Falls back to alias |
+
+The query is still executed correctly in the fallback case — Elasticsearch simply searches all partitions — but there is no index pruning optimization. The `.DateRange()` filter still narrows the returned documents.
 
 ### ID Queries
 
