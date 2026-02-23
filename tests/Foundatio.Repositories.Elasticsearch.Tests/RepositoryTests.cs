@@ -714,6 +714,26 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task AddAsync_IHaveCreatedDateWithFutureMockedTimeProvider_ShouldRespectMockedTime()
+    {
+        // Arrange
+        var futureTime = new DateTimeOffset(2030, 1, 15, 12, 0, 0, TimeSpan.Zero);
+        var timeProvider = new FakeTimeProvider(futureTime);
+        _configuration.TimeProvider = timeProvider;
+
+        var expectedTime = timeProvider.GetUtcNow().UtcDateTime;
+        var logEvent = new LogEvent { Message = "test", CompanyId = LogEventGenerator.DefaultCompanyId, Date = futureTime };
+
+        // Act
+        logEvent = await _dailyRepository.AddAsync(logEvent);
+
+        // Assert
+        // This will fail if SetCreatedDates doesn't receive the TimeProvider, because it defaults
+        // to TimeProvider.System which sees the future date as "in the future" and overwrites it
+        Assert.Equal(expectedTime, logEvent.CreatedUtc);
+    }
+
+    [Fact]
     public async Task CannotSetFutureCreatedAndModifiedTimesAsync()
     {
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(createdUtc: DateTime.MaxValue, updatedUtc: DateTime.MaxValue));
