@@ -627,7 +627,11 @@ After hard deletion, the freed slot number will be reassigned to the next new fi
 // Find all definitions for a tenant
 var tenantFields = await _customFieldDefinitionRepository.FindByTenantAsync(
     nameof(Employee), "tenant-123");
-var allFields = await tenantFields.GetAllPages();
+var allFields = new List<CustomFieldDefinition>();
+do
+{
+    allFields.AddRange(tenantFields.Documents);
+} while (await tenantFields.NextPageAsync());
 
 // Hard-delete all definitions for a tenant (frees all slots)
 await _customFieldDefinitionRepository.RemoveAllAsync(q => q
@@ -721,9 +725,10 @@ public class CustomFieldSyncService : IStartupAction
             {
                 var existing = await _customFieldDefinitionRepository.FindByTenantAsync(
                     nameof(Employee), tenantKey);
-                var allExisting = await existing.GetAllPages();
-
-                toDelete.AddRange(allExisting.Where(f => removedNames.Contains(f.Name)));
+                do
+                {
+                    toDelete.AddRange(existing.Documents.Where(f => removedNames.Contains(f.Name)));
+                } while (await existing.NextPageAsync());
             }
         }
 

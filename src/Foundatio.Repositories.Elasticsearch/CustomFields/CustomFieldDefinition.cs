@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Foundatio.Repositories.Models;
 using Foundatio.Utility;
@@ -80,6 +80,10 @@ public record CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes
     public bool IsDeleted { get; set; }
 
     private string _idxName = null;
+    /// <summary>
+    /// Returns the Elasticsearch sub-field name used under the <c>idx</c> object for this definition.
+    /// The format is <c>{IndexType}-{IndexSlot}</c> (e.g., <c>"string-1"</c>, <c>"int-3"</c>).
+    /// </summary>
     public string GetIdxName()
     {
         if (_idxName == null)
@@ -89,24 +93,75 @@ public record CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes
     }
 }
 
+/// <summary>
+/// Controls when a custom field's <see cref="ICustomFieldType.ProcessValueAsync{T}(T, object, CustomFieldDefinition)"/> is invoked during document save.
+/// </summary>
 public enum CustomFieldProcessMode
 {
+    /// <summary>
+    /// Process only when the document's <c>Data</c> dictionary contains a value for this field. This is the default.
+    /// </summary>
     ProcessOnValue,
+
+    /// <summary>
+    /// Always run the field type processor, even when no value is present. Use for calculated/computed fields
+    /// that derive their value from other fields. These fields are always processed after all <see cref="ProcessOnValue"/> fields.
+    /// </summary>
     AlwaysProcess
 }
 
+/// <summary>
+/// Implement this interface on entities that need custom fields with full control over how
+/// field values are read and written. Use instead of <see cref="IHaveCustomFields"/> when
+/// custom field values are not stored in a flat <see cref="IHaveData.Data"/> dictionary.
+/// </summary>
 public interface IHaveVirtualCustomFields
 {
+    /// <summary>
+    /// Returns all custom field values for this entity.
+    /// </summary>
     IDictionary<string, object> GetCustomFields();
+
+    /// <summary>
+    /// Returns the value of a custom field by name, or <c>null</c> if not set.
+    /// </summary>
     object GetCustomField(string name);
+
+    /// <summary>
+    /// Sets the value of a custom field by name.
+    /// </summary>
     void SetCustomField(string name, object value);
+
+    /// <summary>
+    /// Removes a custom field by name.
+    /// </summary>
     void RemoveCustomField(string name);
+
+    /// <summary>
+    /// Gets the indexed custom field values. The framework populates this automatically during save.
+    /// </summary>
     IDictionary<string, object> Idx { get; }
+
+    /// <summary>
+    /// Returns the tenant key used to scope custom field definitions for this entity.
+    /// </summary>
     string GetTenantKey();
 }
 
+/// <summary>
+/// Implement this interface on entities that store custom field values in their <see cref="IHaveData.Data"/> dictionary.
+/// The framework reads values from <c>Data</c>, processes them through <see cref="ICustomFieldType"/>, and writes
+/// indexed values to <see cref="Idx"/> during save.
+/// </summary>
 public interface IHaveCustomFields : IHaveData
 {
+    /// <summary>
+    /// Gets the indexed custom field values. The framework populates this automatically during save.
+    /// </summary>
     IDictionary<string, object> Idx { get; }
+
+    /// <summary>
+    /// Returns the tenant key used to scope custom field definitions for this entity.
+    /// </summary>
     string GetTenantKey();
 }
