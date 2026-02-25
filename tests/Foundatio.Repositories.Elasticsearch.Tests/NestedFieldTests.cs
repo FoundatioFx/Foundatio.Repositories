@@ -8,7 +8,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
 using Newtonsoft.Json;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -21,7 +20,7 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         _employeeRepository = new EmployeeRepository(_configuration);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         await RemoveDataAsync();
@@ -48,10 +47,9 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         ];
 
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
-        var searchRepository = (ISearchableReadOnlyRepository<Employee>)_employeeRepository;
 
         // Act
-        var results = await searchRepository.FindAsync(q => q.FilterExpression("peerReviews.rating:>=4 OR peerReviews.reviewerEmployeeId:bob_456"));
+        var results = await _employeeRepository.FindAsync(q => q.FilterExpression("peerReviews.rating:>=4 OR peerReviews.reviewerEmployeeId:bob_456"));
 
         // Assert
         Assert.Equal(2, results.Documents.Count);
@@ -90,7 +88,6 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         // Assert
         Assert.Equal(3, result.Total);
         Assert.Single(result.Aggregations);
-        Assert.NotEmpty(result.Aggregations);
 
         var nestedPeerReviewsAgg = result.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
         Assert.NotNull(nestedPeerReviewsAgg);
@@ -119,10 +116,9 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         ];
 
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
-        var searchRepository = (ISearchableReadOnlyRepository<Employee>)_employeeRepository;
 
         // Act
-        var results = await searchRepository.FindAsync(q => q.SearchExpression(specialReviewerId));
+        var results = await _employeeRepository.FindAsync(q => q.SearchExpression(specialReviewerId));
 
         // Assert
         Assert.Single(results.Documents);
@@ -404,5 +400,153 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         Assert.Equal(4, roundTrippedRatingTermsAgg.Buckets.Count);
         bucket = roundTrippedRatingTermsAgg.Buckets.First(f => f.Key == 5);
         Assert.Equal(2, bucket.Total);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithIndividualNestedFieldWithoutGroupSyntax_ReturnsMatchingEmployee()
+    {
+        // Arrange
+        List<Employee> employees =
+        [
+            EmployeeGenerator.Generate("alice_123", "Alice", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 5 }
+            ]),
+            EmployeeGenerator.Generate("bob_456", "Bob", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 3 }
+            ])
+        ];
+
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _employeeRepository.FindAsync(q => q.FilterExpression("peerReviews.rating:5"));
+
+        // Assert
+        Assert.Single(results.Documents);
+        Assert.Equal("Alice", results.Documents.Single().Name);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithNestedRangeQuery_ReturnsMatchingEmployees()
+    {
+        // Arrange
+        List<Employee> employees =
+        [
+            EmployeeGenerator.Generate("alice_123", "Alice", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 5 }
+            ]),
+            EmployeeGenerator.Generate("bob_456", "Bob", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 2 }
+            ]),
+            EmployeeGenerator.Generate("charlie_789", "Charlie", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 4 }
+            ])
+        ];
+
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _employeeRepository.FindAsync(q => q.FilterExpression("peerReviews.rating:[4 TO 5]"));
+
+        // Assert
+        Assert.Equal(2, results.Documents.Count);
+        Assert.Contains(results.Documents, e => String.Equals(e.Name, "Alice"));
+        Assert.Contains(results.Documents, e => String.Equals(e.Name, "Charlie"));
+    }
+
+    [Fact]
+    public async Task FindAsync_WithNestedAndConditionWithoutGroupSyntax_ReturnsMatchingEmployee()
+    {
+        // Arrange
+        List<Employee> employees =
+        [
+            EmployeeGenerator.Generate("alice_123", "Alice", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 5 }
+            ]),
+            EmployeeGenerator.Generate("bob_456", "Bob", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 5 }
+            ]),
+            EmployeeGenerator.Generate("charlie_789", "Charlie", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 3 }
+            ])
+        ];
+
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _employeeRepository.FindAsync(q => q.FilterExpression("peerReviews.rating:5 AND peerReviews.reviewerEmployeeId:bob_456"));
+
+        // Assert
+        Assert.Single(results.Documents);
+        Assert.Equal("Alice", results.Documents.Single().Name);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithMixedNestedAndNonNestedFields_ReturnsMatchingEmployee()
+    {
+        // Arrange
+        List<Employee> employees =
+        [
+            EmployeeGenerator.Generate("alice_123", "Alice", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 5 }
+            ]),
+            EmployeeGenerator.Generate("bob_456", "Bob", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 5 }
+            ]),
+            EmployeeGenerator.Generate("charlie_789", "Charlie", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 3 }
+            ])
+        ];
+
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _employeeRepository.FindAsync(q => q.FilterExpression("name:Alice peerReviews.rating:5"));
+
+        // Assert
+        Assert.Single(results.Documents);
+        Assert.Equal("Alice", results.Documents.Single().Name);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithNegatedNestedGroup_ExcludesMatchingEmployees()
+    {
+        // Arrange
+        List<Employee> employees =
+        [
+            EmployeeGenerator.Generate("alice_123", "Alice", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 5 }
+            ]),
+            EmployeeGenerator.Generate("bob_456", "Bob", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 3 }
+            ]),
+            EmployeeGenerator.Generate("charlie_789", "Charlie", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 4 }
+            ])
+        ];
+
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _employeeRepository.FindAsync(q => q.FilterExpression("NOT peerReviews.rating:5"));
+
+        // Assert
+        Assert.Equal(2, results.Documents.Count);
+        Assert.Contains(results.Documents, e => String.Equals(e.Name, "Bob"));
+        Assert.Contains(results.Documents, e => String.Equals(e.Name, "Charlie"));
     }
 }
