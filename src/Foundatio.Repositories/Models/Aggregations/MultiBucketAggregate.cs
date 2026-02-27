@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 
 namespace Foundatio.Repositories.Models;
 
@@ -7,7 +7,6 @@ public class MultiBucketAggregate<TBucket> : BucketAggregateBase
 {
     public MultiBucketAggregate() { }
 
-    [System.Text.Json.Serialization.JsonConstructor]
     public MultiBucketAggregate(IReadOnlyDictionary<string, IAggregate> aggregations) : base(aggregations) { }
 
     public IReadOnlyCollection<TBucket> Buckets { get; set; } = EmptyReadOnly<TBucket>.Collection;

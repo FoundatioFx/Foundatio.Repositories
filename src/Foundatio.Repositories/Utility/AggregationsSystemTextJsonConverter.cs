@@ -23,7 +23,7 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
             "exstats" => element.Deserialize<ExtendedStatsAggregate>(options),
             "ovalue" => element.Deserialize<ObjectValueAggregate>(options),
             "percentiles" => DeserializePercentiles(element, options),
-            "sbucket" => element.Deserialize<SingleBucketAggregate>(options),
+            "sbucket" => DeserializeSingleBucket(element, options),
             "stats" => element.Deserialize<StatsAggregate>(options),
             // TopHitsAggregate cannot be round-tripped: it holds ILazyDocument references (raw ES doc bytes) that require a serializer instance to materialize.
             "value" => element.Deserialize<ValueAggregate>(options),
@@ -51,6 +51,20 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
 
         if (agg.Items is null && GetProperty(element, "Items") is { } itemsElement)
             agg.Items = itemsElement.Deserialize<IReadOnlyList<PercentileItem>>(options);
+
+        return agg;
+    }
+
+    private static SingleBucketAggregate DeserializeSingleBucket(JsonElement element, JsonSerializerOptions options)
+    {
+        var aggregations = GetProperty(element, "Aggregations")?.Deserialize<IReadOnlyDictionary<string, IAggregate>>(options);
+        var agg = new SingleBucketAggregate(aggregations);
+
+        if (element.TryGetProperty("Total", out var totalElement) || element.TryGetProperty("total", out totalElement))
+            agg.Total = totalElement.GetInt64();
+
+        if (GetProperty(element, "Data") is { } dataElement)
+            agg.Data = dataElement.Deserialize<IReadOnlyDictionary<string, object>>(options);
 
         return agg;
     }
