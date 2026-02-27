@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Collections.Generic;
 using System.Text.Json;
 using Foundatio.Repositories.Models;
 
@@ -31,7 +32,14 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
                     value = element.Deserialize<ObjectValueAggregate>(options);
                     break;
                 case "percentiles":
-                    value = element.Deserialize<PercentilesAggregate>(options);
+                    var percentilesAgg = element.Deserialize<PercentilesAggregate>(options);
+                    if (percentilesAgg != null)
+                    {
+                        var itemsElement = GetProperty(element, "Items");
+                        if (itemsElement != null && percentilesAgg.Items == null)
+                            percentilesAgg.Items = itemsElement.Value.Deserialize<List<PercentileItem>>(options);
+                    }
+                    value = percentilesAgg;
                     break;
                 case "sbucket":
                     value = element.Deserialize<SingleBucketAggregate>(options);

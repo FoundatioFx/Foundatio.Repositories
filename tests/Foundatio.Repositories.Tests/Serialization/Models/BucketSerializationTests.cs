@@ -11,7 +11,7 @@ namespace Foundatio.Repositories.Tests.Serialization.Models;
 public class BucketSerializationTests
 {
     [Fact]
-    public void KeyedBucketString_WithInnerAggregations_RoundTrip()
+    public void KeyedBucketString_WithInnerAggregations_PreservesAggregations()
     {
         // Arrange
         var innerAggs = new Dictionary<string, IAggregate>
@@ -46,7 +46,7 @@ public class BucketSerializationTests
     }
 
     [Fact]
-    public void KeyedBucketDouble_RoundTrip()
+    public void KeyedBucketDouble_WithKeyAndTotal_PreservesValues()
     {
         // Arrange
         var original = new BucketAggregate
@@ -73,7 +73,7 @@ public class BucketSerializationTests
     }
 
     [Fact]
-    public void DateHistogramBucket_WithInnerAggregations_RoundTrip()
+    public void DateHistogramBucket_WithInnerAggregations_PreservesDateAndAggregations()
     {
         // Arrange
         var date = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -110,7 +110,7 @@ public class BucketSerializationTests
     }
 
     [Fact]
-    public void RangeBucket_WithInnerAggregations_RoundTrip()
+    public void RangeBucket_WithInnerAggregations_PreservesRangeAndAggregations()
     {
         // Arrange
         var innerAggs = new Dictionary<string, IAggregate>
@@ -153,7 +153,7 @@ public class BucketSerializationTests
     }
 
     [Fact]
-    public void SingleBucketAggregate_WithDeepNesting_RoundTrip()
+    public void SingleBucketAggregate_WithDeepNesting_PreservesAllLevels()
     {
         // Arrange: sbucket -> bucket -> string keyed bucket with inner value agg
         var innerAggs = new Dictionary<string, IAggregate>

@@ -55,7 +55,7 @@ public class FindResultsSerializationTests
     }
 
     [Fact]
-    public void CountResult_WithAggregations_RoundTrip()
+    public void CountResult_WithAggregations_PreservesAllProperties()
     {
         // Arrange
         var aggregations = new Dictionary<string, IAggregate>
@@ -77,7 +77,7 @@ public class FindResultsSerializationTests
     }
 
     [Fact]
-    public void CountResult_WithSingleBucketAggregate_RoundTrip()
+    public void CountResult_WithSingleBucketAggregate_PreservesInnerAggregations()
     {
         // Arrange
         var innerAggs = new Dictionary<string, IAggregate>
@@ -109,7 +109,7 @@ public class FindResultsSerializationTests
     }
 
     [Fact]
-    public void CountResult_WithBucketAggregate_RoundTrip()
+    public void CountResult_WithBucketAggregate_PreservesAllBuckets()
     {
         // Arrange
         var original = new CountResult(10, new Dictionary<string, IAggregate>
@@ -146,7 +146,7 @@ public class FindResultsSerializationTests
     }
 
     [Fact]
-    public void CountResult_WithValueAggregate_RoundTrip()
+    public void CountResult_WithValueAggregate_PreservesValues()
     {
         // Arrange
         var original = new CountResult(5, new Dictionary<string, IAggregate>
@@ -173,7 +173,7 @@ public class FindResultsSerializationTests
     }
 
     [Fact]
-    public void CountResult_WithStatsAggregate_RoundTrip()
+    public void CountResult_WithStatsAggregate_PreservesAllStats()
     {
         // Arrange
         var original = new CountResult(100, new Dictionary<string, IAggregate>
@@ -199,7 +199,7 @@ public class FindResultsSerializationTests
     }
 
     [Fact]
-    public void CountResult_WithPercentilesAggregate_RoundTrip()
+    public void CountResult_WithPercentilesAggregate_PreservesItems()
     {
         // Arrange
         var original = new CountResult(50, new Dictionary<string, IAggregate>
@@ -219,18 +219,15 @@ public class FindResultsSerializationTests
             // Assert
             var percentiles = roundTripped.Aggregations["percentiles_age"] as PercentilesAggregate;
             Assert.NotNull(percentiles);
-            // Items has internal set; Newtonsoft.Json Populate can set it (same serialization context),
-            // but System.Text.Json cannot. Verify the aggregate type round-trips correctly.
-            if (percentiles.Items != null)
-            {
-                Assert.Equal(2, percentiles.Items.Count);
-                Assert.Equal(50, percentiles.Items.First().Percentile);
-            }
+            Assert.NotNull(percentiles.Items);
+            Assert.Equal(2, percentiles.Items.Count);
+            Assert.Equal(50, percentiles.Items.First().Percentile);
+            Assert.Equal(30, percentiles.Items.First().Value);
         }
     }
 
     [Fact]
-    public void CountResult_WithObjectValueAggregate_RoundTrip()
+    public void CountResult_WithObjectValueAggregate_PreservesValue()
     {
         // Arrange
         var original = new CountResult(1, new Dictionary<string, IAggregate>
@@ -252,7 +249,7 @@ public class FindResultsSerializationTests
     }
 
     [Fact]
-    public void CountResult_WithDateValueAggregate_RoundTrip()
+    public void CountResult_WithDateValueAggregate_PreservesDate()
     {
         // Arrange
         var date = new DateTime(2026, 1, 15, 0, 0, 0, DateTimeKind.Utc);
@@ -275,7 +272,7 @@ public class FindResultsSerializationTests
     }
 
     [Fact]
-    public void CountResult_WithExtendedStatsAggregate_RoundTrip()
+    public void CountResult_WithExtendedStatsAggregate_PreservesExtendedStats()
     {
         // Arrange
         var original = new CountResult(100, new Dictionary<string, IAggregate>
@@ -325,7 +322,7 @@ public class FindResultsSerializationTests
     }
 
     [Fact]
-    public void FindResults_EmptyHits_RoundTrip()
+    public void FindResults_EmptyHits_PreservesZeroState()
     {
         // Arrange
         var original = new FindResults<TestDocument>(total: 0);
@@ -344,7 +341,7 @@ public class FindResultsSerializationTests
     }
 
     [Fact]
-    public void FindResults_WithMultipleHits_RoundTrip()
+    public void FindResults_WithMultipleHits_PreservesAllDocuments()
     {
         // Arrange
         var hits = new[]

@@ -82,7 +82,11 @@ public sealed class EmployeeIndex : Index<Employee>
     {
         base.ConfigureQueryParser(config);
         config.UseIncludes(ResolveIncludeAsync).UseOptInRuntimeFieldResolver(ResolveRuntimeFieldAsync);
-        config.SetDefaultFields(["id", "name", "peerReviews.reviewerEmployeeId"]);
+        config.SetDefaultFields([
+            nameof(Employee.Id).ToLower(),
+            nameof(Employee.Name).ToLower(),
+            "peerReviews.reviewerEmployeeId"
+        ]);
     }
 
     private async Task<string> ResolveIncludeAsync(string name)
