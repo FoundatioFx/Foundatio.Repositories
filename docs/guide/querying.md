@@ -296,6 +296,206 @@ Console.WriteLine($"Average Salary: {avgSalary}");
 Console.WriteLine($"Latest Created: {maxDate}");
 ```
 
+### Nested Field Aggregations
+
+When aggregating on fields that are mapped as `nested` in Elasticsearch, the framework automatically wraps the aggregation in a nested aggregation context. Use the same `parentObject.childField` syntax you use for flat fields:
+
+```csharp
+// Terms aggregation on a nested field
+var results = await repository.CountAsync(q => q
+    .AggregationsExpression("terms:peerReviews.rating"));
+
+// Multiple aggregation types on nested fields
+var results = await repository.CountAsync(q => q
+    .AggregationsExpression("terms:peerReviews.reviewerEmployeeId min:peerReviews.rating max:peerReviews.rating"));
+```
+
+The framework detects nested fields via the index mapping and groups all nested aggregations under a single `SingleBucketAggregate` keyed by the nested path. Access results through that wrapper:
+
+```csharp
+var results = await repository.CountAsync(q => q
+    .AggregationsExpression("terms:peerReviews.rating min:peerReviews.rating max:peerReviews.rating"));
+
+// All nested aggregations are grouped under a single-bucket aggregate
+var nestedAgg = results.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
+
+var ratingTerms = nestedAgg.Aggregations.Terms<int>("terms_peerReviews.rating");
+foreach (var bucket in ratingTerms.Buckets)
+{
+    Console.WriteLine($"Rating {bucket.Key}: {bucket.Total}");
+}
+
+var minRating = nestedAgg.Aggregations.Min("min_peerReviews.rating")?.Value;
+var maxRating = nestedAgg.Aggregations.Max("max_peerReviews.rating")?.Value;
+```
+
+Include and exclude filtering works the same way as non-nested aggregations:
+
+```csharp
+// Only include specific terms
+var results = await repository.CountAsync(q => q
+    .AggregationsExpression("terms:(peerReviews.reviewerEmployeeId @include:emp1 @include:emp2)"));
+
+// Exclude specific terms
+var results = await repository.CountAsync(q => q
+    .AggregationsExpression("terms:(peerReviews.rating @exclude:1 @exclude:2)"));
+```
+
+### Top Hits Aggregation
+
+The `tophits` sub-aggregation returns the top matching documents within each bucket:
+
+```csharp
+var results = await repository.CountAsync(q => q
+    .AggregationsExpression("terms:(age tophits:_)"));
+
+var bucket = results.Aggregations.Terms<int>("terms_age").Buckets.First();
+var topHits = bucket.Aggregations.TopHits();
+var employees = topHits.Documents<Employee>();
+```
+
+::: warning TopHitsAggregate Cannot Be Serialized
+`TopHitsAggregate` holds `ILazyDocument` references that contain raw Elasticsearch document bytes and require an active serializer instance to materialize into typed objects. These references are lost during JSON serialization, which means:
+
+- **Caching**: `CountResult` or `FindResults` containing `TopHitsAggregate` cannot be cached and restored via JSON serialization (Newtonsoft or System.Text.Json). The top hits data will be `null` after deserialization.
+- **Workaround**: If you need to cache results that include top hits, materialize the documents into concrete types *before* caching, and cache those typed results separately.
+:::
+
+## Nested Queries
+
+When querying fields inside [nested objects](https://www.elastic.co/guide/en/elasticsearch/reference/current/nested.html), the framework automatically wraps filter expressions in the required Elasticsearch `nested` query. You do not need to manually construct nested queries -- just use dotted field paths.
+
+### Prerequisites
+
+The field must be mapped as `nested` in your index configuration:
+
+```csharp
+public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(
+    TypeMappingDescriptor<Employee> map)
+{
+    return map
+        .Dynamic(false)
+        .Properties(p => p
+            .SetupDefaults()
+            .Keyword(f => f.Name(e => e.Id))
+            .Text(f => f.Name(e => e.Name).AddKeywordAndSortFields())
+            .Nested<PeerReview>(f => f.Name(e => e.PeerReviews).Properties(p1 => p1
+                .Keyword(f2 => f2.Name(p2 => p2.ReviewerEmployeeId))
+                .Scalar(p3 => p3.Rating, f2 => f2.Name(p3 => p3.Rating))))
+        );
+}
+```
+
+### Basic Nested Queries
+
+Query nested fields with standard filter expressions using `parentObject.childField` syntax:
+
+```csharp
+// Exact match on a nested field
+var results = await repository.FindAsync(q => q
+    .FilterExpression("peerReviews.rating:5"));
+
+// Range query on a nested field
+var results = await repository.FindAsync(q => q
+    .FilterExpression("peerReviews.rating:[4 TO 5]"));
+
+// Match on a nested keyword field
+var results = await repository.FindAsync(q => q
+    .FilterExpression("peerReviews.reviewerEmployeeId:bob_456"));
+```
+
+### Combining Nested Conditions
+
+Multiple conditions on the same nested path are combined into a single `nested` query with a `bool` clause:
+
+```csharp
+// AND: both conditions must match the SAME nested document
+var results = await repository.FindAsync(q => q
+    .FilterExpression("peerReviews.rating:5 AND peerReviews.reviewerEmployeeId:bob_456"));
+
+// OR: either condition can match across different nested documents
+var results = await repository.FindAsync(q => q
+    .FilterExpression("peerReviews.rating:>=4 OR peerReviews.reviewerEmployeeId:bob_456"));
+```
+
+### Mixing Nested and Non-Nested Fields
+
+Nested fields and regular fields can be used together. The framework only wraps the nested portions in a `nested` query:
+
+```csharp
+// "name" is a root-level field, "peerReviews.rating" is nested
+var results = await repository.FindAsync(q => q
+    .FilterExpression("name:Alice peerReviews.rating:5"));
+```
+
+### Negating Nested Conditions
+
+```csharp
+// Exclude employees who have any peer review with rating 5
+var results = await repository.FindAsync(q => q
+    .FilterExpression("NOT peerReviews.rating:5"));
+```
+
+### Default Fields with Nested Paths
+
+Nested fields can be included in default search fields via `SetDefaultFields` in your query parser configuration. This allows unqualified search terms to match against nested fields:
+
+```csharp
+protected override void ConfigureQueryParser(ElasticQueryParserConfiguration config)
+{
+    base.ConfigureQueryParser(config);
+    config.SetDefaultFields([
+        nameof(Employee.Id).ToLowerInvariant(),
+        nameof(Employee.Name).ToLowerInvariant(),
+        "peerReviews.reviewerEmployeeId"
+    ]);
+}
+```
+
+With this configuration, a bare search term like `bob_456` will match against `id`, `name`, and `peerReviews.reviewerEmployeeId`:
+
+```csharp
+// Searches id, name, AND the nested peerReviews.reviewerEmployeeId field
+var results = await repository.FindAsync(q => q.SearchExpression("bob_456"));
+```
+
+### Sorting on Nested Fields
+
+Sort expressions on nested fields automatically include the required `nested` context:
+
+```csharp
+// Sort descending by a nested numeric field
+var results = await repository.FindAsync(q => q
+    .SortExpression("-peerReviews.rating"));
+```
+
+### Exists / Missing on Nested Fields
+
+`_exists_` and `_missing_` queries on nested fields are automatically wrapped in a `nested` query:
+
+```csharp
+// Find employees that have at least one peer review with a reviewerEmployeeId
+var results = await repository.FindAsync(q => q
+    .FilterExpression("_exists_:peerReviews.reviewerEmployeeId"));
+```
+
+### Deeply Nested Types
+
+Multi-level nesting (nested objects inside other nested objects) is supported. The framework resolves the correct nested path at each level:
+
+```csharp
+// Given a mapping: parent (nested) -> child (nested inside parent)
+// Query a deeply nested field
+var results = await repository.FindAsync(q => q
+    .FilterExpression("parent.child.field1:value"));
+```
+
+### Known Limitations
+
+| Limitation | Details |
+|---|---|
+| **TopHits round-tripping** | `TopHitsAggregate` cannot survive JSON serialization. See the [Top Hits Aggregation](#top-hits-aggregation) warning above. |
+
 ## Field Selection
 
 Field selection controls which fields are returned from Elasticsearch via `_source` filtering. This reduces network payload and deserialization cost when you only need a subset of fields from a document.

@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Collections.Generic;
 using System.Text.Json;
 using Foundatio.Repositories.Models;
 
@@ -13,49 +14,24 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
 
     public override IAggregate Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        IAggregate value = null;
-
         var element = JsonElement.ParseValue(ref reader);
         string typeToken = GetTokenType(element);
-        if (typeToken != null)
+
+        IAggregate value = typeToken switch
         {
-            switch (typeToken)
-            {
-                case "bucket":
-                    value = element.Deserialize<BucketAggregate>(options);
-                    break;
-                case "exstats":
-                    value = element.Deserialize<ExtendedStatsAggregate>(options);
-                    break;
-                case "ovalue":
-                    value = element.Deserialize<ObjectValueAggregate>(options);
-                    break;
-                case "percentiles":
-                    value = element.Deserialize<PercentilesAggregate>(options);
-                    break;
-                case "sbucket":
-                    value = element.Deserialize<SingleBucketAggregate>(options);
-                    break;
-                case "stats":
-                    value = element.Deserialize<StatsAggregate>(options);
-                    break;
-                case "tophits":
-                    // TODO: Have to get all the docs as JToken and
-                    //value = new TopHitsAggregate();
-                    break;
-                case "value":
-                    value = element.Deserialize<ValueAggregate>(options);
-                    break;
-                case "dvalue":
-                    value = element.Deserialize<ValueAggregate<DateTime>>(options);
-                    break;
-            }
-        }
+            "bucket" => element.Deserialize<BucketAggregate>(options),
+            "exstats" => element.Deserialize<ExtendedStatsAggregate>(options),
+            "ovalue" => element.Deserialize<ObjectValueAggregate>(options),
+            "percentiles" => DeserializePercentiles(element, options),
+            "sbucket" => DeserializeSingleBucket(element, options),
+            "stats" => element.Deserialize<StatsAggregate>(options),
+            // TopHitsAggregate cannot be round-tripped: it holds ILazyDocument references (raw ES doc bytes) that require a serializer instance to materialize.
+            "value" => element.Deserialize<ValueAggregate>(options),
+            "dvalue" => element.Deserialize<ValueAggregate<DateTime>>(options),
+            _ => null
+        };
 
-        if (value is null)
-            value = element.Deserialize<ValueAggregate>(options);
-
-        return value;
+        return value ?? element.Deserialize<ValueAggregate>(options);
     }
 
     public override void Write(Utf8JsonWriter writer, IAggregate value, JsonSerializerOptions options)
@@ -68,18 +44,43 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
         JsonSerializer.Serialize(writer, value, value.GetType(), serializerOptions);
     }
 
-    private JsonElement? GetProperty(JsonElement element, string propertyName)
+    private static PercentilesAggregate DeserializePercentiles(JsonElement element, JsonSerializerOptions options)
+    {
+        if (element.Deserialize<PercentilesAggregate>(options) is not { } agg)
+            return new PercentilesAggregate();
+
+        if (agg.Items is null && GetProperty(element, "Items") is { } itemsElement)
+            agg.Items = itemsElement.Deserialize<IReadOnlyList<PercentileItem>>(options);
+
+        return agg;
+    }
+
+    private static SingleBucketAggregate DeserializeSingleBucket(JsonElement element, JsonSerializerOptions options)
+    {
+        var aggregations = GetProperty(element, "Aggregations")?.Deserialize<IReadOnlyDictionary<string, IAggregate>>(options);
+        var agg = new SingleBucketAggregate(aggregations);
+
+        if (element.TryGetProperty("Total", out var totalElement) || element.TryGetProperty("total", out totalElement))
+            agg.Total = totalElement.GetInt64();
+
+        if (GetProperty(element, "Data") is { } dataElement)
+            agg.Data = dataElement.Deserialize<IReadOnlyDictionary<string, object>>(options);
+
+        return agg;
+    }
+
+    private static JsonElement? GetProperty(JsonElement element, string propertyName)
     {
         if (element.TryGetProperty(propertyName, out var dataElement))
             return dataElement;
 
-        if (element.TryGetProperty(propertyName.ToLower(), out dataElement))
+        if (element.TryGetProperty(propertyName.ToLowerInvariant(), out dataElement))
             return dataElement;
 
         return null;
     }
 
-    private string GetTokenType(JsonElement element)
+    private static string GetTokenType(JsonElement element)
     {
         var dataPropertyElement = GetProperty(element, "Data");
 

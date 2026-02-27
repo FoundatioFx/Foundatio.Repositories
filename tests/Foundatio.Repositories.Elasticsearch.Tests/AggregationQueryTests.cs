@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
-using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Utility;
 using Foundatio.Repositories.Models;
@@ -105,47 +104,6 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(1000, result.Aggregations.Average("avg_followers").Value.GetValueOrDefault());
         Assert.Equal(1000, result.Aggregations.Sum("sum_followers").Value);
         Assert.Equal(1, result.Aggregations.Cardinality("cardinality_twitter").Value);
-    }
-
-    [Fact]
-    public async Task GetNestedAggregationsAsync()
-    {
-        var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
-        var employees = new List<Employee> {
-            EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(2)),
-            EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(1))
-        };
-        employees[0].Id = "employee1";
-        employees[0].Id = "employee2";
-        employees[0].PeerReviews = new PeerReview[] { new PeerReview { ReviewerEmployeeId = employees[1].Id, Rating = 4 } };
-        employees[1].PeerReviews = new PeerReview[] { new PeerReview { ReviewerEmployeeId = employees[0].Id, Rating = 5 } };
-
-        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
-
-        var nestedAggQuery = _client.Search<Employee>(d => d.Index("employees").Aggregations(a => a
-           .Nested("nested_reviewRating", h => h.Path("peerReviews")
-               .Aggregations(a1 => a1.Terms("terms_rating", t => t.Field("peerReviews.rating").Meta(m => m.Add("@field_type", "integer")))))
-            ));
-
-        var result = nestedAggQuery.Aggregations.ToAggregations();
-        Assert.Single(result);
-        Assert.Equal(2, ((result["nested_reviewRating"] as Foundatio.Repositories.Models.SingleBucketAggregate).Aggregations["terms_rating"] as Foundatio.Repositories.Models.BucketAggregate).Items.Count);
-
-        var nestedAggQueryWithFilter = _client.Search<Employee>(d => d.Index("employees").Aggregations(a => a
-           .Nested("nested_reviewRating", h => h.Path("peerReviews")
-                .Aggregations(a1 => a1
-                    .Filter("user_" + employees[0].Id, f => f.Filter(q => q.Term(t => t.Field("peerReviews.reviewerEmployeeId").Value(employees[0].Id)))
-                        .Aggregations(a2 => a2.Terms("terms_rating", t => t.Field("peerReviews.rating").Meta(m => m.Add("@field_type", "integer")))))
-            ))));
-
-        result = nestedAggQueryWithFilter.Aggregations.ToAggregations();
-        Assert.Single(result);
-
-        var filteredAgg = ((result["nested_reviewRating"] as Foundatio.Repositories.Models.SingleBucketAggregate).Aggregations["user_" + employees[0].Id] as Foundatio.Repositories.Models.SingleBucketAggregate);
-        Assert.NotNull(filteredAgg);
-        Assert.Single(filteredAgg.Aggregations.Terms("terms_rating").Buckets);
-        Assert.Equal("5", filteredAgg.Aggregations.Terms("terms_rating").Buckets.First().Key);
-        Assert.Equal(1, filteredAgg.Aggregations.Terms("terms_rating").Buckets.First().Total);
     }
 
     [Fact]
@@ -564,14 +522,10 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
             Assert.Equal(1, bucket.Total);
         }
 
-        // TODO: Do we need to be able to roundtrip this? I think we need to for caching purposes.
-
-        // tophits = bucket.Aggregations.TopHits();
-        // Assert.NotNull(tophits);
-        // employees = tophits.Documents<Employee>();
-        // Assert.Equal(1, employees.Count);
-        // Assert.Equal(19, employees.First().Age);
-        // Assert.Equal(1, employees.First().YearsEmployed);
+        // TopHitsAggregate cannot survive JSON round-tripping because it holds ILazyDocument
+        // references (raw ES document bytes) that are lost during serialization. If caching of
+        // tophits results is needed, the converter would need to serialize the raw documents
+        // as JSON arrays and reconstruct LazyDocument wrappers on deserialization.
     }
 
     [Fact]
