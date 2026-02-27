@@ -83,8 +83,8 @@ public sealed class EmployeeIndex : Index<Employee>
         base.ConfigureQueryParser(config);
         config.UseIncludes(ResolveIncludeAsync).UseOptInRuntimeFieldResolver(ResolveRuntimeFieldAsync);
         config.SetDefaultFields([
-            nameof(Employee.Id).ToLower(),
-            nameof(Employee.Name).ToLower(),
+            nameof(Employee.Id).ToLowerInvariant(),
+            nameof(Employee.Name).ToLowerInvariant(),
             "peerReviews.reviewerEmployeeId"
         ]);
     }

@@ -129,14 +129,14 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
     public async Task SearchAsync_WithNestedAggregations_ReturnsCorrectBuckets()
     {
         // Arrange
-        var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
+        var baseDate = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
         List<Employee> employees =
         [
-            EmployeeGenerator.Generate("employee1", nextReview: utcToday.SubtractDays(2), peerReviews:
+            EmployeeGenerator.Generate("employee1", nextReview: baseDate.SubtractDays(2), peerReviews:
             [
                 new PeerReview { ReviewerEmployeeId = "employee2", Rating = 4 }
             ]),
-            EmployeeGenerator.Generate("employee2", nextReview: utcToday.SubtractDays(1), peerReviews:
+            EmployeeGenerator.Generate("employee2", nextReview: baseDate.SubtractDays(1), peerReviews:
             [
                 new PeerReview { ReviewerEmployeeId = "employee1", Rating = 5 }
             ])
@@ -187,20 +187,20 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
     public async Task CountAsync_WithNestedLuceneBasedAggregations_ReturnsCorrectMetrics()
     {
         // Arrange
-        var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
+        var baseDate = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
         List<Employee> employees =
         [
-            EmployeeGenerator.Generate("employee1", nextReview: utcToday.SubtractDays(2), peerReviews:
+            EmployeeGenerator.Generate("employee1", nextReview: baseDate.SubtractDays(2), peerReviews:
             [
                 new PeerReview { ReviewerEmployeeId = "employee2", Rating = 4 },
                 new PeerReview { ReviewerEmployeeId = "employee3", Rating = 5 }
             ]),
-            EmployeeGenerator.Generate("employee2", nextReview: utcToday.SubtractDays(1), peerReviews:
+            EmployeeGenerator.Generate("employee2", nextReview: baseDate.SubtractDays(1), peerReviews:
             [
                 new PeerReview { ReviewerEmployeeId = "employee1", Rating = 5 },
                 new PeerReview { ReviewerEmployeeId = "employee3", Rating = 3 }
             ]),
-            EmployeeGenerator.Generate("employee3", nextReview: utcToday.SubtractDays(3), peerReviews:
+            EmployeeGenerator.Generate("employee3", nextReview: baseDate.SubtractDays(3), peerReviews:
             [
                 new PeerReview { ReviewerEmployeeId = "employee1", Rating = 4 },
                 new PeerReview { ReviewerEmployeeId = "employee2", Rating = 5 }
@@ -235,20 +235,20 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
     public async Task CountAsync_WithNestedAggregationsIncludeFiltering_ReturnsFilteredResults()
     {
         // Arrange
-        var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
+        var baseDate = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
         List<Employee> employees =
         [
-            EmployeeGenerator.Generate("employee1", nextReview: utcToday.SubtractDays(2), peerReviews:
+            EmployeeGenerator.Generate("employee1", nextReview: baseDate.SubtractDays(2), peerReviews:
             [
                 new PeerReview { ReviewerEmployeeId = "employee2", Rating = 4 },
                 new PeerReview { ReviewerEmployeeId = "employee3", Rating = 5 }
             ]),
-            EmployeeGenerator.Generate("employee2", nextReview: utcToday.SubtractDays(1), peerReviews:
+            EmployeeGenerator.Generate("employee2", nextReview: baseDate.SubtractDays(1), peerReviews:
             [
                 new PeerReview { ReviewerEmployeeId = "employee1", Rating = 5 },
                 new PeerReview { ReviewerEmployeeId = "employee3", Rating = 3 }
             ]),
-            EmployeeGenerator.Generate("employee3", nextReview: utcToday.SubtractDays(3), peerReviews:
+            EmployeeGenerator.Generate("employee3", nextReview: baseDate.SubtractDays(3), peerReviews:
             [
                 new PeerReview { ReviewerEmployeeId = "employee1", Rating = 4 },
                 new PeerReview { ReviewerEmployeeId = "employee2", Rating = 5 }
@@ -285,20 +285,20 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
     public async Task CountAsync_WithNestedAggregationsExcludeFiltering_ReturnsFilteredResults()
     {
         // Arrange
-        var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
+        var baseDate = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
         List<Employee> employees =
         [
-            EmployeeGenerator.Generate("employee1", nextReview: utcToday.SubtractDays(2), peerReviews:
+            EmployeeGenerator.Generate("employee1", nextReview: baseDate.SubtractDays(2), peerReviews:
             [
                 new PeerReview { ReviewerEmployeeId = "employee2", Rating = 4 },
                 new PeerReview { ReviewerEmployeeId = "employee3", Rating = 5 }
             ]),
-            EmployeeGenerator.Generate("employee2", nextReview: utcToday.SubtractDays(1), peerReviews:
+            EmployeeGenerator.Generate("employee2", nextReview: baseDate.SubtractDays(1), peerReviews:
             [
                 new PeerReview { ReviewerEmployeeId = "employee1", Rating = 5 },
                 new PeerReview { ReviewerEmployeeId = "employee3", Rating = 3 }
             ]),
-            EmployeeGenerator.Generate("employee3", nextReview: utcToday.SubtractDays(3), peerReviews:
+            EmployeeGenerator.Generate("employee3", nextReview: baseDate.SubtractDays(3), peerReviews:
             [
                 new PeerReview { ReviewerEmployeeId = "employee1", Rating = 4 },
                 new PeerReview { ReviewerEmployeeId = "employee2", Rating = 5 }

@@ -522,14 +522,10 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
             Assert.Equal(1, bucket.Total);
         }
 
-        // TODO: Do we need to be able to roundtrip this? I think we need to for caching purposes.
-
-        // tophits = bucket.Aggregations.TopHits();
-        // Assert.NotNull(tophits);
-        // employees = tophits.Documents<Employee>();
-        // Assert.Equal(1, employees.Count);
-        // Assert.Equal(19, employees.First().Age);
-        // Assert.Equal(1, employees.First().YearsEmployed);
+        // TopHitsAggregate cannot survive JSON round-tripping because it holds ILazyDocument
+        // references (raw ES document bytes) that are lost during serialization. If caching of
+        // tophits results is needed, the converter would need to serialize the raw documents
+        // as JSON arrays and reconstruct LazyDocument wrappers on deserialization.
     }
 
     [Fact]
