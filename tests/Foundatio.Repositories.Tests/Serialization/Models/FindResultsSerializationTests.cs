@@ -109,6 +109,180 @@ public class FindResultsSerializationTests
     }
 
     [Fact]
+    public void CountResult_WithSingleBucketAggregate_NewtonsoftPreservesInnerAggregations()
+    {
+        // Arrange
+        var innerAggs = new Dictionary<string, IAggregate>
+        {
+            ["terms_rating"] = new BucketAggregate
+            {
+                Items = [new KeyedBucket<string> { Key = "5", Total = 2, Data = new Dictionary<string, object> { ["@type"] = "string" } }],
+                Data = new Dictionary<string, object> { ["@type"] = "bucket" }
+            }
+        };
+        var original = new CountResult(3, new Dictionary<string, IAggregate>
+        {
+            ["nested_test"] = new SingleBucketAggregate(innerAggs) { Total = 6, Data = new Dictionary<string, object> { ["@type"] = "sbucket" } }
+        });
+
+        // Act
+        var serializer = new JsonNetSerializer();
+        string json = serializer.SerializeToString(original);
+        var roundTripped = serializer.Deserialize<CountResult>(json);
+
+        // Assert
+        var nested = roundTripped.Aggregations["nested_test"] as SingleBucketAggregate;
+        Assert.NotNull(nested);
+        Assert.Equal(6, nested.Total);
+        Assert.Single(nested.Aggregations);
+        Assert.True(nested.Aggregations.ContainsKey("terms_rating"), "Newtonsoft: inner aggregations lost");
+    }
+
+    [Fact]
+    public void CountResult_WithSingleBucketAggregate_SystemTextJsonPreservesInnerAggregations()
+    {
+        // Arrange
+        var innerAggs = new Dictionary<string, IAggregate>
+        {
+            ["terms_rating"] = new BucketAggregate
+            {
+                Items = [new KeyedBucket<string> { Key = "5", Total = 2, Data = new Dictionary<string, object> { ["@type"] = "string" } }],
+                Data = new Dictionary<string, object> { ["@type"] = "bucket" }
+            }
+        };
+        var original = new CountResult(3, new Dictionary<string, IAggregate>
+        {
+            ["nested_test"] = new SingleBucketAggregate(innerAggs) { Total = 6, Data = new Dictionary<string, object> { ["@type"] = "sbucket" } }
+        });
+
+        // Act
+        var serializer = new SystemTextJsonSerializer();
+        string json = serializer.SerializeToString(original);
+        var roundTripped = serializer.Deserialize<CountResult>(json);
+
+        // Assert
+        var nested = roundTripped.Aggregations["nested_test"] as SingleBucketAggregate;
+        Assert.NotNull(nested);
+        Assert.Equal(6, nested.Total);
+        Assert.Single(nested.Aggregations);
+        Assert.True(nested.Aggregations.ContainsKey("terms_rating"), "System.Text.Json: inner aggregations lost");
+    }
+
+    [Fact]
+    public void CountResult_WithThreeLevelNesting_PreservesAllLevels()
+    {
+        // Arrange: sbucket -> sbucket -> terms bucket -> value agg (3 levels deep)
+        var level3Aggs = new Dictionary<string, IAggregate>
+        {
+            ["avg_score"] = new ValueAggregate { Value = 4.5, Data = new Dictionary<string, object> { ["@type"] = "value" } }
+        };
+        var level2Aggs = new Dictionary<string, IAggregate>
+        {
+            ["terms_status"] = new BucketAggregate
+            {
+                Items = [new KeyedBucket<string>(level3Aggs) { Key = "active", Total = 7, Data = new Dictionary<string, object> { ["@type"] = "string" } }],
+                Data = new Dictionary<string, object> { ["@type"] = "bucket" }
+            }
+        };
+        var level1Aggs = new Dictionary<string, IAggregate>
+        {
+            ["nested_inner"] = new SingleBucketAggregate(level2Aggs) { Total = 10, Data = new Dictionary<string, object> { ["@type"] = "sbucket" } }
+        };
+        var original = new CountResult(100, new Dictionary<string, IAggregate>
+        {
+            ["nested_outer"] = new SingleBucketAggregate(level1Aggs) { Total = 50, Data = new Dictionary<string, object> { ["@type"] = "sbucket" } }
+        });
+
+        foreach (var serializer in SerializerTestHelper.GetTextSerializers())
+        {
+            // Act
+            string json = serializer.SerializeToString(original);
+            var roundTripped = serializer.Deserialize<CountResult>(json);
+
+            // Assert - Level 1: outer sbucket
+            var outer = roundTripped.Aggregations["nested_outer"] as SingleBucketAggregate;
+            Assert.NotNull(outer);
+            Assert.Equal(50, outer.Total);
+
+            // Assert - Level 2: inner sbucket
+            var inner = outer.Aggregations["nested_inner"] as SingleBucketAggregate;
+            Assert.True(inner != null, $"{serializer.GetType().Name}: Level 2 SingleBucketAggregate lost");
+            Assert.Equal(10, inner.Total);
+
+            // Assert - Level 3: terms bucket with sub-agg
+            var terms = inner.Aggregations["terms_status"] as BucketAggregate;
+            Assert.True(terms != null, $"{serializer.GetType().Name}: Level 3 BucketAggregate lost");
+            var bucket = Assert.IsType<KeyedBucket<string>>(terms.Items.First());
+            Assert.Equal("active", bucket.Key);
+
+            // Assert - Level 4: leaf value inside bucket
+            var avgScore = bucket.Aggregations["avg_score"] as ValueAggregate;
+            Assert.True(avgScore != null, $"{serializer.GetType().Name}: Level 4 ValueAggregate lost");
+            Assert.Equal(4.5, avgScore.Value);
+        }
+    }
+
+    [Fact]
+    public void CountResult_WithMixedSubAggregations_PreservesAllTypes()
+    {
+        // Arrange: sbucket containing stats, percentiles, and a sub-bucket with value
+        var bucketInnerAggs = new Dictionary<string, IAggregate>
+        {
+            ["min_age"] = new ValueAggregate { Value = 22.0, Data = new Dictionary<string, object> { ["@type"] = "value" } }
+        };
+        var nestedAggs = new Dictionary<string, IAggregate>
+        {
+            ["stats_rating"] = new StatsAggregate { Count = 10, Min = 1, Max = 5, Average = 3.5, Sum = 35, Data = new Dictionary<string, object> { ["@type"] = "stats" } },
+            ["pct_score"] = new PercentilesAggregate([new PercentileItem { Percentile = 50, Value = 3.0 }, new PercentileItem { Percentile = 99, Value = 5.0 }])
+            {
+                Data = new Dictionary<string, object> { ["@type"] = "percentiles" }
+            },
+            ["terms_department"] = new BucketAggregate
+            {
+                Items = [new KeyedBucket<string>(bucketInnerAggs) { Key = "engineering", Total = 5, Data = new Dictionary<string, object> { ["@type"] = "string" } }],
+                Data = new Dictionary<string, object> { ["@type"] = "bucket" }
+            }
+        };
+        var original = new CountResult(100, new Dictionary<string, IAggregate>
+        {
+            ["nested_reviews"] = new SingleBucketAggregate(nestedAggs) { Total = 20, Data = new Dictionary<string, object> { ["@type"] = "sbucket" } }
+        });
+
+        foreach (var serializer in SerializerTestHelper.GetTextSerializers())
+        {
+            // Act
+            string json = serializer.SerializeToString(original);
+            var roundTripped = serializer.Deserialize<CountResult>(json);
+
+            // Assert - sbucket preserved
+            var nested = roundTripped.Aggregations["nested_reviews"] as SingleBucketAggregate;
+            Assert.True(nested != null, $"{serializer.GetType().Name}: SingleBucketAggregate lost");
+            Assert.Equal(3, nested.Aggregations.Count);
+
+            // Assert - stats sub-agg
+            var stats = nested.Aggregations["stats_rating"] as StatsAggregate;
+            Assert.True(stats != null, $"{serializer.GetType().Name}: StatsAggregate sub-agg lost");
+            Assert.Equal(3.5, stats.Average);
+
+            // Assert - percentiles sub-agg
+            var pct = nested.Aggregations["pct_score"] as PercentilesAggregate;
+            Assert.True(pct != null, $"{serializer.GetType().Name}: PercentilesAggregate sub-agg lost");
+            Assert.NotNull(pct.Items);
+            Assert.Equal(2, pct.Items.Count);
+            Assert.Equal(50, pct.Items.First().Percentile);
+
+            // Assert - bucket sub-agg with its own sub-agg
+            var terms = nested.Aggregations["terms_department"] as BucketAggregate;
+            Assert.True(terms != null, $"{serializer.GetType().Name}: BucketAggregate sub-agg lost");
+            var dept = Assert.IsType<KeyedBucket<string>>(terms.Items.First());
+            Assert.Equal("engineering", dept.Key);
+            var minAge = dept.Aggregations["min_age"] as ValueAggregate;
+            Assert.True(minAge != null, $"{serializer.GetType().Name}: nested bucket ValueAggregate lost");
+            Assert.Equal(22.0, minAge.Value);
+        }
+    }
+
+    [Fact]
     public void CountResult_WithBucketAggregate_PreservesAllBuckets()
     {
         // Arrange
