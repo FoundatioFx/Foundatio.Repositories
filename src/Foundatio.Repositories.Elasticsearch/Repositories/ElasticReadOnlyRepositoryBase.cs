@@ -292,7 +292,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     public AsyncEvent<BeforeGetEventArgs<T>> BeforeGet { get; } = new AsyncEvent<BeforeGetEventArgs<T>>();
 
-    private async Task OnBeforeGetAsync(Ids ids, ICommandOptions options, Type resultType)
+    protected async Task OnBeforeGetAsync(Ids ids, ICommandOptions options, Type resultType)
     {
         if (BeforeGet is not { HasHandlers: true })
             return;
@@ -302,7 +302,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     public AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; } = new AsyncEvent<BeforeQueryEventArgs<T>>();
 
-    private async Task OnBeforeQueryAsync(IRepositoryQuery query, ICommandOptions options, Type resultType)
+    protected async Task OnBeforeQueryAsync(IRepositoryQuery query, ICommandOptions options, Type resultType)
     {
         if (SupportsSoftDeletes && IsCacheEnabled && options.GetSoftDeleteMode() == SoftDeleteQueryMode.ActiveOnly)
         {
@@ -652,21 +652,29 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return InvalidateCacheAsync(query.GetIds());
     }
 
+    /// <summary>
+    /// Registers a field to be excluded by default from Elasticsearch <c>_source</c> filtering.
+    /// Default excludes are applied only when no explicit excludes are set on the query;
+    /// setting any explicit exclude on a query will cause all default excludes to be skipped.
+    /// </summary>
     protected void AddDefaultExclude(string field)
     {
         _defaultExcludes.Add(new Lazy<Field>(() => field));
     }
 
+    /// <inheritdoc cref="AddDefaultExclude(string)"/>
     protected void AddDefaultExclude(Lazy<string> field)
     {
         _defaultExcludes.Add(new Lazy<Field>(() => field.Value));
     }
 
+    /// <inheritdoc cref="AddDefaultExclude(string)"/>
     protected void AddDefaultExclude(Expression<Func<T, object>> objectPath)
     {
         _defaultExcludes.Add(new Lazy<Field>(() => InferPropertyName(objectPath)));
     }
 
+    /// <inheritdoc cref="AddDefaultExclude(string)"/>
     protected void AddDefaultExclude(params Expression<Func<T, object>>[] objectPaths)
     {
         _defaultExcludes.AddRange(objectPaths.Select(o => new Lazy<Field>(() => InferPropertyName(o))));
@@ -787,12 +795,12 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
     }
 
-    private (Field[] Includes, Field[] Excludes) GetResolvedIncludesAndExcludes(ICommandOptions options)
+    protected (Field[] Includes, Field[] Excludes) GetResolvedIncludesAndExcludes(ICommandOptions options)
     {
         return GetResolvedIncludesAndExcludes(null, options);
     }
 
-    private (Field[] Includes, Field[] Excludes) GetResolvedIncludesAndExcludes(IRepositoryQuery query, ICommandOptions options)
+    protected (Field[] Includes, Field[] Excludes) GetResolvedIncludesAndExcludes(IRepositoryQuery query, ICommandOptions options)
     {
         var includes = new HashSet<Field>();
         includes.AddRange(query.GetIncludes());
@@ -825,7 +833,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return (resolvedIncludes, resolvedExcludes);
     }
 
-    private bool ShouldReturnDocument(T document, ICommandOptions options)
+    protected bool ShouldReturnDocument(T document, ICommandOptions options)
     {
         if (document == null)
             return true;

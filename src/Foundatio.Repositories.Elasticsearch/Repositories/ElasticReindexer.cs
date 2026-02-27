@@ -267,7 +267,7 @@ public class ElasticReindexer
             if ((taskStatus?.Total ?? 0) < 100)
                 timeToWait = TimeSpan.FromMilliseconds(100);
 
-            await Task.Delay(timeToWait, cancellationToken).AnyContext();
+            await _timeProvider.Delay(timeToWait, cancellationToken).AnyContext();
         } while (!cancellationToken.IsCancellationRequested);
         sw.Stop();
 

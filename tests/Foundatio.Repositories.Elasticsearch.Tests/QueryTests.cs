@@ -5,7 +5,6 @@ using Exceptionless.DateTimeExtensions;
 using Foundatio.Parsers.LuceneQueries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Xunit;
-using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -23,7 +22,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         _employeeRepository = new EmployeeRepository(_configuration);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         await RemoveDataAsync();

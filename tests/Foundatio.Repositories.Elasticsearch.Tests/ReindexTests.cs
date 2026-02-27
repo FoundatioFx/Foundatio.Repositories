@@ -16,7 +16,7 @@ using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Xunit;
-using Xunit.Abstractions;
+using Xunit;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -28,7 +28,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Log.SetLogLevel<EmployeeRepository>(LogLevel.Warning);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         await RemoveDataAsync(false);

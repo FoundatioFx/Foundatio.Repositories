@@ -15,7 +15,7 @@ using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
-using Xunit.Abstractions;
+using Xunit;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -27,7 +27,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         Log.SetLogLevel<EmployeeRepository>(LogLevel.Trace);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         await RemoveDataAsync(false);

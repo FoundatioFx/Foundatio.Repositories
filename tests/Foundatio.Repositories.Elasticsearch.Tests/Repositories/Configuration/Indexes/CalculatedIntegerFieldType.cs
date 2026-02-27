@@ -1,8 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
+using Foundatio.AsyncEx;
 using Foundatio.Serializer;
 using Jint;
 using Jint.Native;
@@ -20,33 +22,31 @@ public class CalculatedIntegerFieldType : IntegerFieldType
         _scriptService = scriptService;
     }
 
-    public override Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class
+    public override async Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class
     {
         if (!fieldDefinition.Data.TryGetValue("Expression", out object expression))
-            return base.ProcessValueAsync(document, value, fieldDefinition);
+            return await base.ProcessValueAsync(document, value, fieldDefinition);
 
-        string functionName = _scriptService.EnsureExpressionFunction(expression.ToString());
-        _scriptService.SetSource(document);
-
-        var calculatedValue = _scriptService.GetValue(functionName);
+        var calculatedValue = await _scriptService.EvaluateForSourceAsync(document, expression.ToString());
 
         // TODO: Implement a consecutive errors counter that disables badly behaving expressions
-
         if (calculatedValue.IsCancelled)
-            return Task.FromResult(new ProcessFieldValueResult { Value = null });
+            return new ProcessFieldValueResult { Value = null };
 
-        if (calculatedValue.Value is double doubleValue && Double.IsNaN(doubleValue))
-            return Task.FromResult(new ProcessFieldValueResult { Value = null });
+        if (calculatedValue.Value is Double.NaN)
+            return new ProcessFieldValueResult { Value = null };
 
-        return Task.FromResult(new ProcessFieldValueResult { Value = calculatedValue.Value });
+        return new ProcessFieldValueResult { Value = calculatedValue.Value };
     }
 }
 
-public class ScriptService
+public class ScriptService : IDisposable
 {
     private readonly ITextSerializer _serializer;
     private readonly ILogger<ScriptService> _logger;
     private readonly ConcurrentDictionary<string, string> _registeredExpressions = new();
+    private readonly AsyncLock _lock = new();
+    private readonly CancellationTokenSource _disposedCancellationTokenSource = new();
 
     public ScriptService(ITextSerializer jsonSerializer, ILogger<ScriptService> logger)
     {
@@ -57,13 +57,35 @@ public class ScriptService
 
     public Engine Engine { get; }
 
+    /// <summary>
+    /// Thread-safe method that atomically evaluates an expression for a given source document.
+    /// The Jint Engine is not thread-safe, so this method uses a lock to ensure only one evaluation occurs at a time.
+    /// </summary>
+    public async Task<ScriptValueResult> EvaluateForSourceAsync<T>(T source, string expression) where T : class
+    {
+        using (await _lock.LockAsync(_disposedCancellationTokenSource.Token).ConfigureAwait(false))
+        {
+            string functionName = EnsureExpressionFunctionInternal(expression);
+            SetSourceInternal(source);
+            return GetValueInternal(functionName);
+        }
+    }
+
     public string EnsureExpressionFunction(string expression)
     {
-        if (_registeredExpressions.TryGetValue(expression, out var functionName))
+        using (_lock.Lock(_disposedCancellationTokenSource.Token))
+        {
+            return EnsureExpressionFunctionInternal(expression);
+        }
+    }
+
+    private string EnsureExpressionFunctionInternal(string expression)
+    {
+        if (_registeredExpressions.TryGetValue(expression, out string functionName))
             return functionName;
 
         functionName = "_" + ComputeSha256Hash(expression);
-        RegisterFunction(functionName, expression);
+        RegisterFunctionInternal(functionName, expression);
 
         _registeredExpressions.TryAdd(expression, functionName);
 
@@ -71,6 +93,14 @@ public class ScriptService
     }
 
     public void RegisterFunction(string name, string body)
+    {
+        using (_lock.Lock(_disposedCancellationTokenSource.Token))
+        {
+            RegisterFunctionInternal(name, body);
+        }
+    }
+
+    private void RegisterFunctionInternal(string name, string body)
     {
         if (String.IsNullOrEmpty(name))
             throw new ArgumentNullException(nameof(name));
@@ -83,7 +113,7 @@ public class ScriptService
 
         body = body.Trim();
         string script;
-        if (body.StartsWith("{"))
+        if (body.StartsWith('{'))
         {
             script = $"function {name}() {body}";
         }
@@ -101,14 +131,31 @@ public class ScriptService
 
     public void SetSource(object source)
     {
+        using (_lock.Lock(_disposedCancellationTokenSource.Token))
+        {
+            SetSourceInternal(source);
+        }
+    }
+
+    private void SetSourceInternal(object source)
+    {
         string json = _serializer.SerializeToString(source);
-        if (json == null)
+        if (json is null)
             json = "null";
+
         string script = $"var source = {json};";
         Engine.Execute(script);
     }
 
     public ScriptValueResult GetValue(string functionName)
+    {
+        using (_lock.Lock(_disposedCancellationTokenSource.Token))
+        {
+            return GetValueInternal(functionName);
+        }
+    }
+
+    private ScriptValueResult GetValueInternal(string functionName)
     {
         string script = $"{functionName}()";
         try
@@ -127,6 +174,14 @@ public class ScriptService
 
     public object ExecuteExpression(string expression)
     {
+        using (_lock.Lock(_disposedCancellationTokenSource.Token))
+        {
+            return ExecuteExpressionInternal(expression);
+        }
+    }
+
+    private object ExecuteExpressionInternal(string expression)
+    {
         if (String.IsNullOrEmpty(expression))
             throw new ArgumentNullException(nameof(expression));
 
@@ -140,7 +195,13 @@ public class ScriptService
         }
     }
 
-    private bool IsValidJavaScriptIdentifier(string identifier)
+    public void Dispose()
+    {
+        _disposedCancellationTokenSource.Cancel();
+        _disposedCancellationTokenSource.Dispose();
+    }
+
+    private static bool IsValidJavaScriptIdentifier(string identifier)
     {
         if (String.IsNullOrEmpty(identifier))
             return false;
@@ -152,15 +213,14 @@ public class ScriptService
         return Array.TrueForAll(identifier.ToCharArray(), c => Char.IsLetterOrDigit(c) || c == '_');
     }
 
-    private string ComputeSha256Hash(string value)
+    private static string ComputeSha256Hash(string value)
     {
         using var sha256Hash = SHA256.Create();
-
         byte[] bytes = sha256Hash.ComputeHash(Encoding.UTF8.GetBytes(value));
 
         var builder = new StringBuilder();
-        for (int i = 0; i < bytes.Length; i++)
-            builder.Append(bytes[i].ToString("x2"));
+        foreach (byte b in bytes)
+            builder.Append(b.ToString("x2"));
 
         return builder.ToString();
     }
@@ -196,7 +256,7 @@ public class ScriptValueResult
     public object Value { get; }
     public bool IsCancelled { get; }
 
-    public static ScriptValueResult Cancelled = new ScriptValueResult(null, true);
+    public static readonly ScriptValueResult Cancelled = new(null, true);
 }
 
 public class JintEnumConverter : IObjectConverter

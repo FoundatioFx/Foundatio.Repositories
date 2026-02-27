@@ -4,6 +4,7 @@ using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
+
 public sealed class ParentChildIndex : VersionedIndex
 {
     public ParentChildIndex(IElasticConfiguration configuration) : base(configuration, "parentchild", 1) { }

@@ -7,6 +7,7 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories;
+
 public interface IChildRepository : ISearchableRepository<Child> { }
 
 public class ChildRepository : ElasticRepositoryBase<Child>, IChildRepository

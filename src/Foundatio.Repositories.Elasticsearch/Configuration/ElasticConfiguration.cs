@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -32,6 +32,7 @@ public class ElasticConfiguration : IElasticConfiguration
     private readonly Lazy<ElasticsearchClient> _client;
     private readonly Lazy<ICustomFieldDefinitionRepository> _customFieldDefinitionRepository;
     protected readonly bool _shouldDisposeCache;
+    private bool _disposed;
 
     public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, TimeProvider timeProvider = null, IResiliencePolicyProvider resiliencePolicyProvider = null, ILoggerFactory loggerFactory = null)
     {
@@ -156,7 +157,7 @@ public class ElasticConfiguration : IElasticConfiguration
 
         // enqueue reindex to new version, only allowed every 15 minutes
         string enqueueReindexLockName = String.Join(":", "enqueue-reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex);
-        await _beginReindexLockProvider.TryUsingAsync(enqueueReindexLockName, () => _workItemQueue.EnqueueAsync(reindexWorkItem), TimeSpan.Zero, new CancellationToken(true)).AnyContext();
+        await _beginReindexLockProvider.TryUsingAsync(enqueueReindexLockName, async () => { await _workItemQueue.EnqueueAsync(reindexWorkItem).AnyContext(); }, TimeSpan.Zero, new CancellationToken(true)).AnyContext();
     }
 
     public Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null)
@@ -205,7 +206,7 @@ public class ElasticConfiguration : IElasticConfiguration
         {
             try
             {
-                await ResiliencePolicy.ExecuteAsync(async () =>
+                await ResiliencePolicy.ExecuteAsync(async _ =>
                 {
                     await outdatedIndex.ReindexAsync((progress, message) =>
                             progressCallbackAsync?.Invoke(progress / outdatedIndexes.Count, message) ?? Task.CompletedTask)
@@ -221,6 +222,11 @@ public class ElasticConfiguration : IElasticConfiguration
 
     public virtual void Dispose()
     {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+
         if (_shouldDisposeCache)
             Cache.Dispose();
 

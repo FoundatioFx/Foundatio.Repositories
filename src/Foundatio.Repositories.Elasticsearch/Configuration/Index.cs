@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.AsyncEx;
 using Elastic.Clients.Elasticsearch;
@@ -34,6 +35,8 @@ public class Index : IIndex
     private readonly Lazy<QueryFieldResolver> _fieldResolver;
     private readonly ConcurrentDictionary<string, ICustomFieldType> _customFieldTypes = new();
     private readonly AsyncLock _lock = new();
+    private readonly CancellationTokenSource _disposedCancellationTokenSource = new();
+    private bool _disposed;
     protected readonly ILogger _logger;
 
     public Index(IElasticConfiguration configuration, string name = null)
@@ -108,8 +111,8 @@ public class Index : IIndex
 
     protected virtual void ConfigureQueryParser(ElasticQueryParserConfiguration config) { }
 
-    public string Name { get; protected set; }
-    public bool HasMultipleIndexes { get; protected set; } = false;
+    public string Name { get; init; }
+    public bool HasMultipleIndexes { get; init; } = false;
     public ISet<string> AllowedQueryFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     public ISet<string> AllowedAggregationFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     public ISet<string> AllowedSortFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -156,7 +159,7 @@ public class Index : IIndex
         if (_isEnsured)
             return;
 
-        using (await _lock.LockAsync().AnyContext())
+        using (await _lock.LockAsync(_disposedCancellationTokenSource.Token).AnyContext())
         {
             if (_isEnsured)
                 return;
@@ -184,7 +187,7 @@ public class Index : IIndex
 
     public virtual async Task DeleteAsync()
     {
-        using (await _lock.LockAsync().AnyContext())
+        using (await _lock.LockAsync(_disposedCancellationTokenSource.Token).AnyContext())
         {
             await DeleteIndexAsync(Name).AnyContext();
             _isEnsured = false;
@@ -402,7 +405,15 @@ public class Index : IIndex
 
     public virtual void ConfigureSettings(ElasticsearchClientSettings settings) { }
 
-    public virtual void Dispose() { }
+    public virtual void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        _disposedCancellationTokenSource.Cancel();
+        _disposedCancellationTokenSource.Dispose();
+    }
 }
 
 public class Index<T> : Index, IIndex<T> where T : class

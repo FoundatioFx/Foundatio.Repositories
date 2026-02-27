@@ -784,7 +784,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     _logger.LogDebug("Checking script operation task ({TaskId}) status: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, created, updated, deleted, versionConflicts, total);
                     var delay = TimeSpan.FromSeconds(attempts <= 5 ? 1 : 5);
-                    await Task.Delay(delay).AnyContext();
+                    await ElasticIndex.Configuration.TimeProvider.Delay(delay).AnyContext();
                 } while (true);
             }
             else
@@ -970,21 +970,30 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     #endregion
 
+    /// <summary>
+    /// Registers a field that must always be included when <see cref="RemoveAllAsync(IRepositoryQuery, ICommandOptions)"/>
+    /// fetches documents for deletion. This ensures critical fields (needed for cache invalidation,
+    /// notifications, or event handlers) are returned even when the caller has specified a restricted
+    /// include set. <c>Id</c> and <c>CreatedUtc</c> (when applicable) are registered automatically.
+    /// </summary>
     protected void AddPropertyRequiredForRemove(string field)
     {
         _propertiesRequiredForRemove.Add(new Lazy<Field>(() => field));
     }
 
+    /// <inheritdoc cref="AddPropertyRequiredForRemove(string)"/>
     protected void AddPropertyRequiredForRemove(Lazy<string> field)
     {
         _propertiesRequiredForRemove.Add(new Lazy<Field>(() => field.Value));
     }
 
+    /// <inheritdoc cref="AddPropertyRequiredForRemove(string)"/>
     protected void AddPropertyRequiredForRemove(Expression<Func<T, object>> objectPath)
     {
         _propertiesRequiredForRemove.Add(new Lazy<Field>(() => Infer.PropertyName(objectPath)));
     }
 
+    /// <inheritdoc cref="AddPropertyRequiredForRemove(string)"/>
     protected void AddPropertyRequiredForRemove(params Expression<Func<T, object>>[] objectPaths)
     {
         _propertiesRequiredForRemove.AddRange(objectPaths.Select(o => new Lazy<Field>(() => Infer.PropertyName(o))));
@@ -1144,11 +1153,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     private async Task OnDocumentsAddingAsync(IReadOnlyCollection<T> documents, ICommandOptions options)
     {
         if (HasDates)
-            documents.OfType<IHaveDates>().SetDates();
+            documents.OfType<IHaveDates>().SetDates(ElasticIndex.Configuration.TimeProvider);
         else if (HasCreatedDate)
-            documents.OfType<IHaveCreatedDate>().SetCreatedDates();
+            documents.OfType<IHaveCreatedDate>().SetCreatedDates(ElasticIndex.Configuration.TimeProvider);
 
-        if (DocumentsAdding != null && DocumentsAdding.HasHandlers)
+        if (DocumentsAdding is { HasHandlers: true })
             await DocumentsAdding.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
         documents.EnsureIds(ElasticIndex.CreateDocumentId, ElasticIndex.Configuration.TimeProvider);
@@ -1160,7 +1169,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     private async Task OnDocumentsAddedAsync(IReadOnlyCollection<T> documents, ICommandOptions options)
     {
-        if (DocumentsAdded != null && DocumentsAdded.HasHandlers)
+        if (DocumentsAdded is { HasHandlers: true })
             await DocumentsAdded.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
         var modifiedDocs = documents.Select(d => new ModifiedDocument<T>(d, null)).ToList();
@@ -1176,7 +1185,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return;
 
         if (HasDates)
-            documents.Cast<IHaveDates>().SetDates();
+            documents.Cast<IHaveDates>().SetDates(ElasticIndex.Configuration.TimeProvider);
 
         documents.EnsureIds(ElasticIndex.CreateDocumentId, ElasticIndex.Configuration.TimeProvider);
 
@@ -1184,7 +1193,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             documents, cf => cf.Id, cf => cf.Id,
             (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m => new ModifiedDocument<T>(m.Modified, m.Original)).ToList();
 
-        if (DocumentsSaving != null && DocumentsSaving.HasHandlers)
+        if (DocumentsSaving is { HasHandlers: true })
             await DocumentsSaving.InvokeAsync(this, new ModifiedDocumentsEventArgs<T>(modifiedDocs, this, options)).AnyContext();
 
         await OnDocumentsChangingAsync(ChangeType.Saved, modifiedDocs, options).AnyContext();
@@ -1206,10 +1215,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             string[] undeletedIds = modifiedDocs.Where(d => ((ISupportSoftDeletes)d.Value).IsDeleted == false).Select(m => m.Value.Id).ToArray();
             if (undeletedIds.Length > 0)
-                await Cache.ListRemoveAsync("deleted", undeletedIds, TimeSpan.FromSeconds(30)).AnyContext();
+                await Cache.ListRemoveAsync("deleted", undeletedIds).AnyContext();
         }
 
-        if (DocumentsSaved != null && DocumentsSaved.HasHandlers)
+        if (DocumentsSaved is { HasHandlers: true })
             await DocumentsSaved.InvokeAsync(this, new ModifiedDocumentsEventArgs<T>(modifiedDocs, this, options)).AnyContext();
 
         await OnDocumentsChangedAsync(ChangeType.Saved, modifiedDocs, options).AnyContext();
@@ -1220,7 +1229,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     private async Task OnDocumentsRemovingAsync(IReadOnlyCollection<T> documents, ICommandOptions options)
     {
-        if (DocumentsRemoving != null && DocumentsRemoving.HasHandlers)
+        if (DocumentsRemoving is { HasHandlers: true })
             await DocumentsRemoving.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
         await OnDocumentsChangingAsync(ChangeType.Removed, documents, options).AnyContext();
@@ -1230,7 +1239,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     private async Task OnDocumentsRemovedAsync(IReadOnlyCollection<T> documents, ICommandOptions options)
     {
-        if (DocumentsRemoved != null && DocumentsRemoved.HasHandlers)
+        if (DocumentsRemoved is { HasHandlers: true })
             await DocumentsRemoved.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
 
         await OnDocumentsChangedAsync(ChangeType.Removed, documents, options).AnyContext();
@@ -1418,9 +1427,53 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         // 429 // 503
     }
 
+    /// <summary>
+    /// Gets or sets whether entity change notifications are published to the message bus.
+    /// When enabled, <see cref="Foundatio.Repositories.Models.EntityChanged"/> messages are published
+    /// after add, save, and remove operations. Defaults to <c>true</c> if a message bus is configured.
+    /// </summary>
     protected bool NotificationsEnabled { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether original document state is tracked during save operations.
+    /// When enabled, the original document is preserved before modifications, allowing
+    /// change detection (e.g., for soft delete transitions). Defaults to <c>false</c>.
+    /// </summary>
     protected bool OriginalsEnabled { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether notifications for multiple documents are batched together.
+    /// When enabled, bulk operations may consolidate notifications. Defaults to <c>false</c>.
+    /// </summary>
     public bool BatchNotifications { get; set; }
+
+    private TimeSpan? _notificationDeliveryDelay;
+
+    /// <summary>
+    /// Gets or sets the delivery delay for entity change notifications.
+    /// When set, notifications are delayed by the specified duration before being delivered
+    /// to subscribers. This can be useful to allow Elasticsearch indexing to complete before
+    /// consumers read the updated documents. Defaults to <c>null</c> (immediate delivery).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Warning:</b> Only set a delay if your message bus implementation supports delayed delivery.
+    /// Message buses that do not support delayed delivery may silently drop messages, resulting in
+    /// message loss. The in-memory message bus supports delayed delivery, but other implementations
+    /// may not.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
+    protected TimeSpan? NotificationDeliveryDelay
+    {
+        get => _notificationDeliveryDelay;
+        set
+        {
+            if (value.HasValue && value.Value < TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(nameof(value), "Delivery delay cannot be negative.");
+            _notificationDeliveryDelay = value;
+        }
+    }
 
     private Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<T> documents, ICommandOptions options)
     {
@@ -1432,7 +1485,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (!NotificationsEnabled || !options.ShouldNotify())
             return Task.CompletedTask;
 
-        var delay = TimeSpan.FromSeconds(1.5);
+        var delay = NotificationDeliveryDelay;
         var ids = query.GetIds();
         if (ids.Count > 0)
         {
@@ -1462,7 +1515,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (!NotificationsEnabled || !options.ShouldNotify())
             return Task.CompletedTask;
 
-        var delay = TimeSpan.FromSeconds(1.5);
+        var delay = NotificationDeliveryDelay;
         if (documents.Count == 0)
             return PublishChangeTypeMessageAsync(changeType, null, delay);
 
@@ -1510,7 +1563,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return Task.WhenAll(tasks);
     }
 
-    protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, T document, TimeSpan delay)
+    protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, T document, TimeSpan? delay)
     {
         return PublishChangeTypeMessageAsync(changeType, document, null, delay);
     }
@@ -1539,7 +1592,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (!NotificationsEnabled || _messagePublisher == null)
             return;
 
-        if (BeforePublishEntityChanged != null && BeforePublishEntityChanged.HasHandlers)
+        if (BeforePublishEntityChanged is { HasHandlers: true })
         {
             var eventArgs = new BeforePublishEntityChangedEventArgs<T>(this, message);
             await BeforePublishEntityChanged.InvokeAsync(this, eventArgs).AnyContext();

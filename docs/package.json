@@ -1,0 +1,22 @@
+{
+  "name": "foundatio-repositories-docs",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "mermaid": "^11.4.0",
+    "vitepress": "^2.0.0-alpha.15",
+    "vitepress-plugin-llms": "^1.0.0",
+    "vitepress-plugin-mermaid": "^2.0.17"
+  },
+  "overrides": {
+    "vitepress-plugin-mermaid": {
+      "vitepress": "$vitepress"
+    }
+  }
+}

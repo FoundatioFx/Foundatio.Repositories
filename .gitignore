@@ -8,6 +8,13 @@
 artifacts
 .vs/
 
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+
 # MSTest test Results
 [Tt]est[Rr]esult*/
 
@@ -52,3 +59,4 @@ _NCrunch_*
 **/.idea/**/*.iml
 **/.idea/**/contentModel.xml
 **/.idea/**/modules.xml
+**/.idea/copilot/chatSessions/

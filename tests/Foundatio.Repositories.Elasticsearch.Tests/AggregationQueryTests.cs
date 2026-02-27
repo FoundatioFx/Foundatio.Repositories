@@ -11,7 +11,7 @@ using Foundatio.Repositories.Models;
 using Microsoft.Extensions.Time.Testing;
 using Newtonsoft.Json;
 using Xunit;
-using Xunit.Abstractions;
+using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -24,7 +24,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         _employeeRepository = new EmployeeRepository(_configuration);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         await RemoveDataAsync();

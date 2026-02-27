@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -108,6 +108,17 @@ public static class EnumerableExtensions
                    select projection(xa, xb, key);
 
         return join.ToList();
+    }
+
+    /// <summary>
+    /// Combines both the modified (current) and original (previous) values from a collection of modified documents.
+    /// Useful for cache invalidation when you need keys from both the old and new state of changed documents.
+    /// </summary>
+    public static IReadOnlyCollection<T> UnionOriginalAndModified<T>(this IReadOnlyCollection<ModifiedDocument<T>> documents) where T : class, new()
+    {
+        return documents.Select(d => d.Value)
+            .Union(documents.Select(d => d.Original).Where(d => d is not null))
+            .ToList();
     }
 
     /// <summary>

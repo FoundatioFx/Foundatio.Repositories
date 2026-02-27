@@ -9,7 +9,6 @@ using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -22,7 +21,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         _employeeRepository = new EmployeeRepository(_configuration);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         await RemoveDataAsync();
@@ -120,7 +119,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
             Refresh = Refresh.True
         };
 
-        var response = await _client.UpdateAsync(request);
+        var response = await _client.UpdateAsync(request, TestCancellationToken);
         _logger.LogRequest(response);
         Assert.True(response.IsValidResponse);
 

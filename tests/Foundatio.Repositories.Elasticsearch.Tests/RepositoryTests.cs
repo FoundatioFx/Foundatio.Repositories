@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -15,7 +15,6 @@ using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
-using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -37,7 +36,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _identityRepositoryWithNoCaching = new IdentityWithNoCachingRepository(_configuration);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         _logger.LogInformation("Starting init");
         await base.InitializeAsync();
@@ -325,7 +324,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
                 Assert.Equal(ChangeType.Saved, msg.ChangeType);
                 countdownEvent.Signal();
                 return Task.CompletedTask;
-            });
+            }, TestCancellationToken);
 
             log.CompanyId = ObjectId.GenerateNewId().ToString();
             var result = await _dailyRepository.SaveAsync(log);
@@ -373,7 +372,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
                 Assert.Equal(ChangeType.Saved, msg.ChangeType);
                 notificationCountdownEvent.Signal();
                 return Task.CompletedTask;
-            });
+            }, TestCancellationToken);
 
             logEntry.CompanyId = ObjectId.GenerateNewId().ToString();
             await _dailyRepository.SaveAsync(new List<LogEvent> { logEntry, addedLog });
@@ -642,24 +641,96 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task SetCreatedAndModifiedTimesAsync()
+    public async Task AddAsync_WithMockedTimeProvider_ShouldSetExactTimes()
     {
         var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
         _configuration.TimeProvider = timeProvider;
 
-        var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
+        var expectedTime = timeProvider.GetUtcNow().UtcDateTime;
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
-        Assert.True(employee.CreatedUtc >= nowUtc);
-        Assert.True(employee.UpdatedUtc >= nowUtc);
+
+        Assert.Equal(expectedTime, employee.CreatedUtc);
+        Assert.Equal(expectedTime, employee.UpdatedUtc);
 
         var createdUtc = employee.CreatedUtc;
         var updatedUtc = employee.UpdatedUtc;
-
         employee.Name = Guid.NewGuid().ToString();
         timeProvider.Advance(TimeSpan.FromMilliseconds(100));
+        var updatedExpectedTime = timeProvider.GetUtcNow().UtcDateTime;
+
         employee = await _employeeRepository.SaveAsync(employee);
+
         Assert.Equal(createdUtc, employee.CreatedUtc);
+        Assert.Equal(updatedExpectedTime, employee.UpdatedUtc);
         Assert.True(updatedUtc < employee.UpdatedUtc, $"Previous UpdatedUtc: {updatedUtc} Current UpdatedUtc: {employee.UpdatedUtc}");
+    }
+
+    [Fact]
+    public async Task AddAsync_WithFutureMockedTimeProvider_ShouldRespectMockedTime()
+    {
+        // Arrange
+        var futureTime = new DateTimeOffset(2030, 1, 15, 12, 0, 0, TimeSpan.Zero);
+        var timeProvider = new FakeTimeProvider(futureTime);
+        _configuration.TimeProvider = timeProvider;
+
+        // Act
+        var expectedTime = timeProvider.GetUtcNow().UtcDateTime;
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+
+        // Assert
+        // These assertions will fail if SetDates/SetCreatedDates doesn't receive the TimeProvider
+        // because the extension methods default to TimeProvider.System and will see the future
+        // date as "in the future" and overwrite it with the real system time
+        Assert.Equal(expectedTime, employee.CreatedUtc);
+        Assert.Equal(expectedTime, employee.UpdatedUtc);
+    }
+
+    [Fact]
+    public async Task SaveAsync_WithFutureMockedTimeProvider_ShouldRespectMockedTime()
+    {
+        // Arrange
+        var futureTime = new DateTimeOffset(2030, 1, 15, 12, 0, 0, TimeSpan.Zero);
+        var timeProvider = new FakeTimeProvider(futureTime);
+        _configuration.TimeProvider = timeProvider;
+
+        var expectedTime = timeProvider.GetUtcNow().UtcDateTime;
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+
+        Assert.Equal(expectedTime, employee.CreatedUtc);
+        Assert.Equal(expectedTime, employee.UpdatedUtc);
+
+        var createdUtc = employee.CreatedUtc;
+        employee.Name = Guid.NewGuid().ToString();
+        timeProvider.Advance(TimeSpan.FromHours(1));
+        var updatedExpectedTime = timeProvider.GetUtcNow().UtcDateTime;
+
+        // Act
+        employee = await _employeeRepository.SaveAsync(employee);
+
+        // Assert
+        // CreatedUtc should remain unchanged, UpdatedUtc should reflect the advanced time
+        Assert.Equal(createdUtc, employee.CreatedUtc);
+        Assert.Equal(updatedExpectedTime, employee.UpdatedUtc);
+    }
+
+    [Fact]
+    public async Task AddAsync_IHaveCreatedDateWithFutureMockedTimeProvider_ShouldRespectMockedTime()
+    {
+        // Arrange
+        var futureTime = new DateTimeOffset(2030, 1, 15, 12, 0, 0, TimeSpan.Zero);
+        var timeProvider = new FakeTimeProvider(futureTime);
+        _configuration.TimeProvider = timeProvider;
+
+        var expectedTime = timeProvider.GetUtcNow().UtcDateTime;
+        var logEvent = new LogEvent { Message = "test", CompanyId = LogEventGenerator.DefaultCompanyId, Date = futureTime };
+
+        // Act
+        logEvent = await _dailyRepository.AddAsync(logEvent);
+
+        // Assert
+        // This will fail if SetCreatedDates doesn't receive the TimeProvider, because it defaults
+        // to TimeProvider.System which sees the future date as "in the future" and overwrites it
+        Assert.Equal(expectedTime, logEvent.CreatedUtc);
     }
 
     [Fact]
@@ -749,7 +820,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _logger.LogInformation("Done patching name");
 
         await cts.CancelAsync();
-        await Task.Delay(100);
+        await Task.Delay(100, TestCancellationToken);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
@@ -804,7 +875,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _logger.LogInformation("Done patching name");
 
         await cts.CancelAsync();
-        await Task.Delay(100);
+        await Task.Delay(100, TestCancellationToken);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
@@ -882,7 +953,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _logger.LogInformation("Done patching name");
 
         await cts.CancelAsync();
-        await Task.Delay(100);
+        await Task.Delay(100, TestCancellationToken);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
@@ -959,7 +1030,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _logger.LogInformation("Done patching name");
 
         await cts.CancelAsync();
-        await Task.Delay(100);
+        await Task.Delay(100, TestCancellationToken);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);

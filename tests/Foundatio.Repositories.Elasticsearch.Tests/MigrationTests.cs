@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Caching;
@@ -7,7 +7,6 @@ using Foundatio.Messaging;
 using Foundatio.Repositories.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
-using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -25,7 +24,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Log.SetLogLevel<MigrationStateRepository>(LogLevel.Trace);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         _migrationIndex = new MigrationIndex(_configuration);
@@ -101,7 +100,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Assert.True(migrationStatus.NeedsMigration);
         Assert.Equal(1, migrationStatus.CurrentVersion);
 
-        var result = await _migrationManager.RunMigrationsAsync();
+        var result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
         Assert.Equal(MigrationResult.Success, result);
 
         await _client.Indices.RefreshAsync();
@@ -135,7 +134,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Assert.True(migrationStatus.NeedsMigration);
         Assert.Equal(1, migrationStatus.CurrentVersion);
 
-        var result = await _migrationManager.RunMigrationsAsync();
+        var result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
         Assert.Equal(MigrationResult.Success, result);
 
         await _client.Indices.RefreshAsync();
@@ -155,7 +154,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Assert.False(migrationStatus.NeedsMigration);
         Assert.Equal(1, migrationStatus.CurrentVersion);
 
-        result = await _migrationManager.RunMigrationsAsync();
+        result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
         Assert.Equal(MigrationResult.Success, result);
 
         var repeatableMigration = _serviceProvider.GetRequiredService<RepeatableMigration>();
@@ -166,7 +165,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Assert.True(migrationStatus.NeedsMigration);
         Assert.Equal(1, migrationStatus.CurrentVersion);
 
-        result = await _migrationManager.RunMigrationsAsync();
+        result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
         Assert.Equal(MigrationResult.Success, result);
 
         migrations = await _migrationStateRepository.GetAllAsync();
@@ -199,7 +198,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Assert.True(migrationStatus.NeedsMigration);
         Assert.Equal(1, migrationStatus.CurrentVersion);
 
-        var result = await _migrationManager.RunMigrationsAsync();
+        var result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
         Assert.Equal(MigrationResult.Failed, result);
 
         var failingMigration = _serviceProvider.GetRequiredService<FailingMigration>();
@@ -236,7 +235,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Assert.True(migrationStatus.NeedsMigration);
         Assert.Equal(1, migrationStatus.CurrentVersion);
 
-        var result = await _migrationManager.RunMigrationsAsync();
+        var result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
         Assert.Equal(MigrationResult.Failed, result);
 
         var failingMigration = _serviceProvider.GetRequiredService<FailingResumableMigration>();
@@ -254,7 +253,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Assert.Equal("Boom", migrationState.ErrorMessage);
 
         // try again, should pass this time
-        result = await _migrationManager.RunMigrationsAsync();
+        result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
         Assert.Equal(MigrationResult.Success, result);
 
         migrations = await _migrationStateRepository.GetAllAsync();

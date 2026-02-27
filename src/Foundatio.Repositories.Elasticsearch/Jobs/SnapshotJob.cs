@@ -61,7 +61,6 @@ public class SnapshotJob : IJob
         {
             var sw = Stopwatch.StartNew();
             using var linkedCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lockCancellationToken);
-
             var result = await _resiliencePolicy.ExecuteAsync(async ct =>
             {
                 var response = await _client.Snapshot.CreateAsync(
