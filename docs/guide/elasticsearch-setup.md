@@ -380,6 +380,8 @@ This creates:
     ))
 ```
 
+Fields mapped as `nested` are automatically wrapped in Elasticsearch `nested` queries and `nested` aggregations when queried through filter or aggregation expressions. See [Nested Queries](/guide/querying#nested-queries) and [Nested Field Aggregations](/guide/querying#nested-field-aggregations) for details and examples.
+
 ### Index Settings
 
 ```csharp
