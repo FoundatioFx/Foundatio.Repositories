@@ -27,6 +27,7 @@ public class AggregationsNewtonsoftJsonConverter : JsonConverter
             "percentiles" => DeserializePercentiles(item, serializer),
             "sbucket" => DeserializeSingleBucket(item, serializer),
             "stats" => new StatsAggregate(),
+            // TopHitsAggregate cannot be round-tripped: it holds ILazyDocument references (raw ES doc bytes) that require a serializer instance to materialize.
             "value" => new ValueAggregate(),
             "dvalue" => new ValueAggregate<DateTime>(),
             _ => null
