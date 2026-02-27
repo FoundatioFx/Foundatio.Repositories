@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -82,11 +82,7 @@ public sealed class EmployeeIndex : Index<Employee>
     {
         base.ConfigureQueryParser(config);
         config.UseIncludes(ResolveIncludeAsync).UseOptInRuntimeFieldResolver(ResolveRuntimeFieldAsync);
-        config.SetDefaultFields([
-            nameof(Employee.Id).ToLower(),
-            nameof(Employee.Name).ToLower(),
-            "peerReviews.reviewerEmployeeId"
-        ]);
+        config.SetDefaultFields(["id", "name", "peerReviews.reviewerEmployeeId"]);
     }
 
     private async Task<string> ResolveIncludeAsync(string name)
