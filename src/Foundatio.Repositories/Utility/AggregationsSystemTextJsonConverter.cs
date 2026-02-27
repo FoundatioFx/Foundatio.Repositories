@@ -14,56 +14,23 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
 
     public override IAggregate Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        IAggregate value = null;
-
         var element = JsonElement.ParseValue(ref reader);
         string typeToken = GetTokenType(element);
-        if (typeToken != null)
+
+        IAggregate value = typeToken switch
         {
-            switch (typeToken)
-            {
-                case "bucket":
-                    value = element.Deserialize<BucketAggregate>(options);
-                    break;
-                case "exstats":
-                    value = element.Deserialize<ExtendedStatsAggregate>(options);
-                    break;
-                case "ovalue":
-                    value = element.Deserialize<ObjectValueAggregate>(options);
-                    break;
-                case "percentiles":
-                    var percentilesAgg = element.Deserialize<PercentilesAggregate>(options);
-                    if (percentilesAgg != null)
-                    {
-                        var itemsElement = GetProperty(element, "Items");
-                        if (itemsElement != null && percentilesAgg.Items == null)
-                            percentilesAgg.Items = itemsElement.Value.Deserialize<List<PercentileItem>>(options);
-                    }
-                    value = percentilesAgg;
-                    break;
-                case "sbucket":
-                    value = element.Deserialize<SingleBucketAggregate>(options);
-                    break;
-                case "stats":
-                    value = element.Deserialize<StatsAggregate>(options);
-                    break;
-                case "tophits":
-                    // TODO: Have to get all the docs as JToken and
-                    //value = new TopHitsAggregate();
-                    break;
-                case "value":
-                    value = element.Deserialize<ValueAggregate>(options);
-                    break;
-                case "dvalue":
-                    value = element.Deserialize<ValueAggregate<DateTime>>(options);
-                    break;
-            }
-        }
+            "bucket" => element.Deserialize<BucketAggregate>(options),
+            "exstats" => element.Deserialize<ExtendedStatsAggregate>(options),
+            "ovalue" => element.Deserialize<ObjectValueAggregate>(options),
+            "percentiles" => DeserializePercentiles(element, options),
+            "sbucket" => element.Deserialize<SingleBucketAggregate>(options),
+            "stats" => element.Deserialize<StatsAggregate>(options),
+            "value" => element.Deserialize<ValueAggregate>(options),
+            "dvalue" => element.Deserialize<ValueAggregate<DateTime>>(options),
+            _ => null
+        };
 
-        if (value is null)
-            value = element.Deserialize<ValueAggregate>(options);
-
-        return value;
+        return value ?? element.Deserialize<ValueAggregate>(options);
     }
 
     public override void Write(Utf8JsonWriter writer, IAggregate value, JsonSerializerOptions options)
@@ -76,7 +43,18 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
         JsonSerializer.Serialize(writer, value, value.GetType(), serializerOptions);
     }
 
-    private JsonElement? GetProperty(JsonElement element, string propertyName)
+    private static PercentilesAggregate DeserializePercentiles(JsonElement element, JsonSerializerOptions options)
+    {
+        if (element.Deserialize<PercentilesAggregate>(options) is not { } agg)
+            return new PercentilesAggregate();
+
+        if (agg.Items is null && GetPropertyStatic(element, "Items") is { } itemsElement)
+            agg.Items = itemsElement.Deserialize<IReadOnlyList<PercentileItem>>(options);
+
+        return agg;
+    }
+
+    private static JsonElement? GetPropertyStatic(JsonElement element, string propertyName)
     {
         if (element.TryGetProperty(propertyName, out var dataElement))
             return dataElement;
@@ -86,6 +64,9 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
 
         return null;
     }
+
+    private JsonElement? GetProperty(JsonElement element, string propertyName)
+        => GetPropertyStatic(element, propertyName);
 
     private string GetTokenType(JsonElement element)
     {

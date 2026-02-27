@@ -109,66 +109,6 @@ public class FindResultsSerializationTests
     }
 
     [Fact]
-    public void CountResult_WithSingleBucketAggregate_NewtonsoftPreservesInnerAggregations()
-    {
-        // Arrange
-        var innerAggs = new Dictionary<string, IAggregate>
-        {
-            ["terms_rating"] = new BucketAggregate
-            {
-                Items = [new KeyedBucket<string> { Key = "5", Total = 2, Data = new Dictionary<string, object> { ["@type"] = "string" } }],
-                Data = new Dictionary<string, object> { ["@type"] = "bucket" }
-            }
-        };
-        var original = new CountResult(3, new Dictionary<string, IAggregate>
-        {
-            ["nested_test"] = new SingleBucketAggregate(innerAggs) { Total = 6, Data = new Dictionary<string, object> { ["@type"] = "sbucket" } }
-        });
-
-        // Act
-        var serializer = new JsonNetSerializer();
-        string json = serializer.SerializeToString(original);
-        var roundTripped = serializer.Deserialize<CountResult>(json);
-
-        // Assert
-        var nested = roundTripped.Aggregations["nested_test"] as SingleBucketAggregate;
-        Assert.NotNull(nested);
-        Assert.Equal(6, nested.Total);
-        Assert.Single(nested.Aggregations);
-        Assert.True(nested.Aggregations.ContainsKey("terms_rating"), "Newtonsoft: inner aggregations lost");
-    }
-
-    [Fact]
-    public void CountResult_WithSingleBucketAggregate_SystemTextJsonPreservesInnerAggregations()
-    {
-        // Arrange
-        var innerAggs = new Dictionary<string, IAggregate>
-        {
-            ["terms_rating"] = new BucketAggregate
-            {
-                Items = [new KeyedBucket<string> { Key = "5", Total = 2, Data = new Dictionary<string, object> { ["@type"] = "string" } }],
-                Data = new Dictionary<string, object> { ["@type"] = "bucket" }
-            }
-        };
-        var original = new CountResult(3, new Dictionary<string, IAggregate>
-        {
-            ["nested_test"] = new SingleBucketAggregate(innerAggs) { Total = 6, Data = new Dictionary<string, object> { ["@type"] = "sbucket" } }
-        });
-
-        // Act
-        var serializer = new SystemTextJsonSerializer();
-        string json = serializer.SerializeToString(original);
-        var roundTripped = serializer.Deserialize<CountResult>(json);
-
-        // Assert
-        var nested = roundTripped.Aggregations["nested_test"] as SingleBucketAggregate;
-        Assert.NotNull(nested);
-        Assert.Equal(6, nested.Total);
-        Assert.Single(nested.Aggregations);
-        Assert.True(nested.Aggregations.ContainsKey("terms_rating"), "System.Text.Json: inner aggregations lost");
-    }
-
-    [Fact]
     public void CountResult_WithThreeLevelNesting_PreservesAllLevels()
     {
         // Arrange: sbucket -> sbucket -> terms bucket -> value agg (3 levels deep)
