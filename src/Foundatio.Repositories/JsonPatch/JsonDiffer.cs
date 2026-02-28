@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace Foundatio.Repositories.Utility;
@@ -16,17 +15,16 @@ public class JsonDiffer
     internal static string Extend(string path, string extension)
     {
         // TODO: JSON property name needs escaping for path ??
-        return path + "/" + extension;
+        return $"{path}/{extension}";
     }
 
     private static Operation Build(string op, string path, string key, JsonNode value)
     {
+        string valueStr = value == null ? "null" : value.ToJsonString();
         if (String.IsNullOrEmpty(key))
-            return Operation.Parse("{ \"op\" : \"" + op + "\" , \"path\": \"" + path + "\", \"value\": " +
-                                (value == null ? "null" : value.ToJsonString()) + "}");
+            return Operation.Parse($"{{ \"op\" : \"{op}\" , \"path\": \"{path}\", \"value\": {valueStr}}}");
 
-        return Operation.Parse("{ \"op\" : \"" + op + "\" , \"path\" : \"" + Extend(path, key) + "\" , \"value\" : " +
-                            (value == null ? "null" : value.ToJsonString()) + "}");
+        return Operation.Parse($"{{ \"op\" : \"{op}\" , \"path\" : \"{Extend(path, key)}\" , \"value\" : {valueStr}}}");
     }
 
     internal static Operation Add(string path, string key, JsonNode value)
@@ -94,7 +92,7 @@ public class JsonDiffer
 
             foreach (var match in zipped)
             {
-                string newPath = path + "/" + match.key;
+                string newPath = $"{path}/{match.key}";
                 foreach (var patch in CalculatePatch(match.left, match.right, useIdToDetermineEquality, newPath))
                     yield return patch;
             }
@@ -139,14 +137,12 @@ public class JsonDiffer
         int len1 = array1.Length;
         var array2 = (right as JsonArray)?.ToArray() ?? Array.Empty<JsonNode>();
         int len2 = array2.Length;
-        //    if (len1 == 0 && len2 ==0 ) yield break;
         while (commonHead < len1 && commonHead < len2)
         {
             if (comparer.Equals(array1[commonHead], array2[commonHead]) == false)
                 break;
 
-            //diff and yield objects here
-            foreach (var operation in CalculatePatch(array1[commonHead], array2[commonHead], useIdPropertyToDetermineEquality, path + "/" + commonHead))
+            foreach (var operation in CalculatePatch(array1[commonHead], array2[commonHead], useIdPropertyToDetermineEquality, $"{path}/{commonHead}"))
             {
                 yield return operation;
             }
@@ -161,7 +157,7 @@ public class JsonDiffer
 
             int index1 = len1 - 1 - commonTail;
             int index2 = len2 - 1 - commonTail;
-            foreach (var operation in CalculatePatch(array1[index1], array2[index2], useIdPropertyToDetermineEquality, path + "/" + index1))
+            foreach (var operation in CalculatePatch(array1[index1], array2[index2], useIdPropertyToDetermineEquality, $"{path}/{index1}"))
             {
                 yield return operation;
             }
@@ -184,7 +180,7 @@ public class JsonDiffer
         {
             yield return new RemoveOperation
             {
-                Path = path + "/" + commonHead
+                Path = $"{path}/{commonHead}"
             };
         }
         for (int i = 0; i < rightMiddle.Length; i++)
@@ -192,7 +188,7 @@ public class JsonDiffer
             yield return new AddOperation
             {
                 Value = rightMiddle[i]?.DeepClone(),
-                Path = path + "/" + (i + commonHead)
+                Path = $"{path}/{i + commonHead}"
             };
         }
     }
@@ -229,14 +225,17 @@ internal class CustomCheckEqualityComparer : IEqualityComparer<JsonNode>
 
     public int GetHashCode(JsonNode obj)
     {
+        if (obj is null)
+            return 0;
+
         if (!_enableIdCheck || obj is not JsonObject xObj)
-            return obj?.ToJsonString()?.GetHashCode() ?? 0;
+            return obj.ToJsonString().GetHashCode();
 
         string xId = xObj["id"]?.GetValue<string>();
         if (xId != null)
-            return xId.GetHashCode() + (obj.ToJsonString()?.GetHashCode() ?? 0);
+            return xId.GetHashCode() + obj.ToJsonString().GetHashCode();
 
-        return obj.ToJsonString()?.GetHashCode() ?? 0;
+        return obj.ToJsonString().GetHashCode();
     }
 
     public static bool HaveEqualIds(JsonNode x, JsonNode y)

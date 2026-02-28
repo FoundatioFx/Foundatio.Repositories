@@ -10,7 +10,6 @@ using Elastic.Clients.Elasticsearch.Core.Search;
 using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Elastic.Clients.Elasticsearch.QueryDsl;
-using Elastic.Transport;
 using Elastic.Transport.Products.Elasticsearch;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
@@ -297,7 +296,7 @@ public class ElasticReindexer
 
     private async Task<bool> CreateFailureIndexAsync(ReindexWorkItem workItem)
     {
-        string errorIndex = workItem.NewIndex + "-error";
+        string errorIndex = $"{workItem.NewIndex}-error";
         var existsResponse = await _client.Indices.ExistsAsync(errorIndex).AnyContext();
         _logger.LogRequest(existsResponse);
         if (existsResponse.ApiCallDetails.HasSuccessfulStatusCode && existsResponse.Exists)
@@ -333,7 +332,8 @@ public class ElasticReindexer
             gr.Version,
             gr.Routing,
             gr.Source,
-            Cause = new {
+            Cause = new
+            {
                 Type = failure.Cause?.Type,
                 Reason = failure.Cause?.Reason,
                 StackTrace = failure.Cause?.StackTrace
@@ -341,11 +341,11 @@ public class ElasticReindexer
             failure.Status,
             gr.Found,
         };
-        var indexResponse = await _client.IndexAsync(errorDocument, i => i.Index(workItem.NewIndex + "-error"));
+        var indexResponse = await _client.IndexAsync(errorDocument, i => i.Index($"{workItem.NewIndex}-error"));
         if (indexResponse.IsValidResponse)
             _logger.LogRequest(indexResponse);
         else
-            _logger.LogErrorRequest(indexResponse, "Error indexing document {Index}/{Id}", workItem.NewIndex + "-error", gr.Id);
+            _logger.LogErrorRequest(indexResponse, "Error indexing document {Index}/{Id}", $"{workItem.NewIndex}-error", gr.Id);
     }
 
     private async Task<List<string>> GetIndexAliasesAsync(string index)
@@ -385,7 +385,7 @@ public class ElasticReindexer
         if (!String.IsNullOrEmpty(timestampField))
             return descriptor.Range(dr => dr.Date(drr => drr.Field(timestampField).Gte(startTime)));
 
-        return descriptor.Range(dr => dr.Term(tr => tr.Field(ID_FIELD).Gte(ObjectId.GenerateNewId(startTime.Value).ToString())));
+        return descriptor.Range(dr => dr.Term(tr => tr.Field(ID_FIELD).Gte(ObjectId.GenerateNewId(startTime.GetValueOrDefault()).ToString())));
     }
 
     private async Task<DateTime?> GetResumeStartingPointAsync(string newIndex, string timestampField)

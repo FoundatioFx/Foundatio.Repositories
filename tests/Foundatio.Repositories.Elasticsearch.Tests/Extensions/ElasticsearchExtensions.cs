@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -24,9 +25,13 @@ public static class ElasticsearchExtensions
     {
         var response = await client.Indices.GetAliasAsync((Indices)aliasName, a => a.IgnoreUnavailable());
 
-        // A 404 response or invalid response indicates no aliases found
         if (!response.IsValidResponse)
-            return 0;
+        {
+            if (response.ApiCallDetails is { HttpStatusCode: 404 })
+                return 0;
+
+            throw new InvalidOperationException($"Failed to get alias '{aliasName}': {response.ElasticsearchServerError?.Error?.Reason ?? "Unknown error"}");
+        }
 
         return response.Aliases.Count;
     }

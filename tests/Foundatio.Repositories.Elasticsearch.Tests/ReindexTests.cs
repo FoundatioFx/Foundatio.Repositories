@@ -41,18 +41,18 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
         await index.ConfigureAsync();
-        Assert.True((await _client.Indices.ExistsAsync(index.Name)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(index.Name, cancellationToken: TestCancellationToken)).Exists);
 
         IEmployeeRepository repository = new EmployeeRepository(_configuration);
         var employee = await repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(employee?.Id);
 
-        var countResponse = await _client.CountAsync<Employee>();
+        var countResponse = await _client.CountAsync<Employee>(cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(1, countResponse.Count);
 
-        var mappingResponse = await _client.Indices.GetMappingAsync<Employee>();
+        var mappingResponse = await _client.Indices.GetMappingAsync<Employee>(cancellationToken: TestCancellationToken);
         _logger.LogRequest(mappingResponse);
         Assert.True(mappingResponse.IsValidResponse);
         Assert.NotNull(mappingResponse.Mappings.Values.FirstOrDefault()?.Mappings);
@@ -60,13 +60,13 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var newIndex = new EmployeeIndexWithYearsEmployed(_configuration);
         await newIndex.ReindexAsync();
 
-        countResponse = await _client.CountAsync<Employee>();
+        countResponse = await _client.CountAsync<Employee>(cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(1, countResponse.Count);
 
         string version1Mappings = ToJson(mappingResponse.Mappings.Values.FirstOrDefault()?.Mappings);
-        mappingResponse = await _client.Indices.GetMappingAsync<Employee>();
+        mappingResponse = await _client.Indices.GetMappingAsync<Employee>(cancellationToken: TestCancellationToken);
         _logger.LogRequest(mappingResponse);
         Assert.True(mappingResponse.IsValidResponse);
         Assert.NotNull(mappingResponse.Mappings.Values.FirstOrDefault()?.Mappings);
@@ -86,12 +86,12 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
         await version1Index.ConfigureAsync();
-        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
 
         IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
         await version1Repository.AddAsync(EmployeeGenerator.GenerateEmployees(numberOfEmployeesToCreate), o => o.ImmediateConsistency());
 
-        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.Name));
+        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.Name), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(numberOfEmployeesToCreate, countResponse.Count);
@@ -99,7 +99,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
-        Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
 
         // Throw error before second repass.
         await Assert.ThrowsAsync<ApplicationException>(async () => await version2Index.ReindexAsync((progress, message) =>
@@ -117,7 +117,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await version1Repository.AddAsync(EmployeeGenerator.Generate(ObjectId.GenerateNewId(DateTime.UtcNow.AddMinutes(1)).ToString()), o => o.ImmediateConsistency());
         await version2Index.ReindexAsync();
 
-        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name);
+        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
         Assert.Single(aliasResponse.Aliases);
         Assert.Equal(version2Index.VersionedName, aliasResponse.Aliases.First().Key);
@@ -125,12 +125,12 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
         Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
 
-        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName));
+        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(numberOfEmployeesToCreate + 1, countResponse.Count);
 
-        Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
+        Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
     }
 
     [Fact]
@@ -144,12 +144,12 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
         await version1Index.ConfigureAsync();
-        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
 
         IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
         await version1Repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
 
-        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.Name));
+        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.Name), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(1, countResponse.Count);
@@ -161,42 +161,42 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             .Dynamic(DynamicMapping.False)
             .Properties(p => p
                 .IntegerNumber(e => e.Id)
-            )));
+            )), cancellationToken: TestCancellationToken);
         _logger.LogRequest(response);
 
-        Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
 
         await version2Index.ReindexAsync();
-        await version2Index.Configuration.Client.Indices.RefreshAsync(Indices.All);
+        await version2Index.Configuration.Client.Indices.RefreshAsync(Indices.All, cancellationToken: TestCancellationToken);
 
-        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name);
+        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
         Assert.Single(aliasResponse.Aliases);
         Assert.True(aliasResponse.Aliases.ContainsKey(version1Index.VersionedName));
 
         // Verify indices exist
-        var index1Exists = await _client.Indices.ExistsAsync(version1Index.VersionedName);
+        var index1Exists = await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken);
         Assert.True(index1Exists.Exists);
-        var index2Exists = await _client.Indices.ExistsAsync(version2Index.VersionedName);
+        var index2Exists = await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken);
         Assert.True(index2Exists.Exists);
-        var errorIndexExists = await _client.Indices.ExistsAsync($"{version2Index.VersionedName}-error");
+        var errorIndexExists = await _client.Indices.ExistsAsync($"{version2Index.VersionedName}-error", cancellationToken: TestCancellationToken);
         Assert.True(errorIndexExists.Exists);
 
         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
         Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
 
-        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.VersionedName));
+        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.VersionedName), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(1, countResponse.Count);
 
-        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName));
+        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(0, countResponse.Count);
 
-        countResponse = await _client.CountAsync<object>(d => d.Indices($"{version2Index.VersionedName}-error"));
+        countResponse = await _client.CountAsync<object>(d => d.Indices($"{version2Index.VersionedName}-error"), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(1, countResponse.Count);
@@ -213,12 +213,12 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
         await version1Index.ConfigureAsync();
-        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
 
         var indexes = _client.GetIndicesPointingToAlias(version1Index.Name);
         Assert.Single(indexes);
 
-        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version1Index.Name);
+        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version1Index.Name, cancellationToken: TestCancellationToken);
         _logger.LogRequest(aliasResponse);
         Assert.True(aliasResponse.IsValidResponse);
         Assert.Single(aliasResponse.Aliases);
@@ -228,7 +228,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var employee = await version1Repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(employee?.Id);
 
-        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.Name));
+        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.Name), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(1, countResponse.Count);
@@ -237,18 +237,18 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
-        Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
 
         // Make sure we can write to the index still. Should go to the old index until after the reindex is complete.
         IEmployeeRepository version2Repository = new EmployeeRepository(_configuration);
         await version2Repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
 
-        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.VersionedName));
+        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.VersionedName), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(2, countResponse.Count);
 
-        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName));
+        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(0, countResponse.Count);
@@ -256,14 +256,14 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
 
         // alias should still point to the old version until reindex
-        aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name);
+        aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
         Assert.Single(aliasResponse.Aliases);
         Assert.Equal(version1Index.VersionedName, aliasResponse.Aliases.First().Key);
 
         await version2Index.ReindexAsync();
 
-        aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name);
+        aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
         Assert.Single(aliasResponse.Aliases);
         Assert.Equal(version2Index.VersionedName, aliasResponse.Aliases.First().Key);
@@ -271,17 +271,17 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
         Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
 
-        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName));
+        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(2, countResponse.Count);
 
-        Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
+        Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
 
         employee = await version2Repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(employee?.Id);
 
-        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.Name));
+        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.Name), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(3, countResponse.Count);
@@ -309,24 +309,24 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await version2Index.ReindexAsync();
 
-        var existsResponse = await _client.Indices.ExistsAsync(version1Index.VersionedName);
+        var existsResponse = await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
         Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode);
         Assert.True(existsResponse.Exists);
 
-        var mappingResponse = await _client.Indices.GetMappingAsync<Employee>(m => m.Indices(version1Index.VersionedName));
+        var mappingResponse = await _client.Indices.GetMappingAsync<Employee>(m => m.Indices(version1Index.VersionedName), cancellationToken: TestCancellationToken);
         _logger.LogRequest(mappingResponse);
         Assert.True(mappingResponse.IsValidResponse);
         var mappingsV1 = mappingResponse.Mappings[version1Index.VersionedName];
         Assert.NotNull(mappingsV1);
 
-        existsResponse = await _client.Indices.ExistsAsync(version2Index.VersionedName);
+        existsResponse = await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
         Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode);
         Assert.True(existsResponse.Exists);
         string version1Mappings = ToJson(mappingsV1);
 
-        mappingResponse = await _client.Indices.GetMappingAsync<Employee>(m => m.Indices(version2Index.VersionedName));
+        mappingResponse = await _client.Indices.GetMappingAsync<Employee>(m => m.Indices(version2Index.VersionedName), cancellationToken: TestCancellationToken);
         _logger.LogRequest(mappingResponse);
         Assert.True(mappingResponse.IsValidResponse);
         var mappingsV2 = mappingResponse.Mappings[version2Index.VersionedName];
@@ -413,7 +413,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await version22Index.ConfigureAsync();
         await version22Index.ReindexAsync();
 
-        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version1Index.Name);
+        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version1Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
         Assert.Single(aliasResponse.Aliases);
         Assert.Equal(version1Index.VersionedName, aliasResponse.Aliases.First().Key);
@@ -430,7 +430,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
         await version1Index.ConfigureAsync();
-        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
 
         IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
         var employee = await version1Repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
@@ -438,22 +438,22 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
-        Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
 
         // swap the alias so we write to v1 and v2 and try to reindex.
         await _client.Indices.UpdateAliasesAsync(x => x.Actions(
             a => a.Remove(r => r.Alias(version1Index.Name).Index(version1Index.VersionedName)),
-            a => a.Add(ad => ad.Alias(version2Index.Name).Index(version2Index.VersionedName))));
+            a => a.Add(ad => ad.Alias(version2Index.Name).Index(version2Index.VersionedName))), cancellationToken: TestCancellationToken);
 
         IEmployeeRepository version2Repository = new EmployeeRepository(_configuration);
         await version2Repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
 
-        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.VersionedName));
+        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.VersionedName), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(1, countResponse.Count);
 
-        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName));
+        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(1, countResponse.Count);
@@ -461,19 +461,19 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // swap back the alias
         await _client.Indices.UpdateAliasesAsync(x => x.Actions(
             a => a.Remove(r => r.Alias(version2Index.Name).Index(version2Index.VersionedName)),
-            a => a.Add(ad => ad.Alias(version1Index.Name).Index(version1Index.VersionedName))));
+            a => a.Add(ad => ad.Alias(version1Index.Name).Index(version1Index.VersionedName))), cancellationToken: TestCancellationToken);
 
         Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
 
         // alias should still point to the old version until reindex
-        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name);
+        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
         Assert.Single(aliasResponse.Aliases);
         Assert.Equal(version1Index.VersionedName, aliasResponse.Aliases.First().Key);
 
         await version2Index.ReindexAsync();
 
-        aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name);
+        aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
         Assert.Single(aliasResponse.Aliases);
         Assert.Equal(version2Index.VersionedName, aliasResponse.Aliases.First().Key);
@@ -481,13 +481,13 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
         Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
 
-        await _client.Indices.RefreshAsync(Indices.All);
-        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName));
+        await _client.Indices.RefreshAsync(Indices.All, cancellationToken: TestCancellationToken);
+        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(2, countResponse.Count);
 
-        Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
+        Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
     }
 
     [Fact]
@@ -501,7 +501,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
         await version1Index.ConfigureAsync();
-        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
 
         IEmployeeRepository repository = new EmployeeRepository(_configuration);
         var employee = await repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
@@ -509,11 +509,11 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
-        Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
         Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
 
         // alias should still point to the old version until reindex
-        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name);
+        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         _logger.LogRequest(aliasResponse);
         Assert.True(aliasResponse.IsValidResponse);
         Assert.Single(aliasResponse.Aliases);
@@ -527,7 +527,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             if (progress > 0 && countdown.CurrentCount > 0)
             {
                 countdown.Signal();
-                await Task.Delay(1000);
+                await Task.Delay(1000, TestCancellationToken);
             }
         });
 
@@ -541,7 +541,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         // Resume after everythings been indexed.
         await reindexTask;
-        aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name);
+        aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
         Assert.Single(aliasResponse.Aliases);
         Assert.Equal(version2Index.VersionedName, aliasResponse.Aliases.First().Key);
@@ -549,8 +549,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
         Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
 
-        await _client.Indices.RefreshAsync(Indices.All);
-        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName));
+        await _client.Indices.RefreshAsync(Indices.All, cancellationToken: TestCancellationToken);
+        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse);
         Assert.Equal(2, countResponse.Count);
@@ -558,7 +558,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var result = await repository.GetByIdAsync(employee.Id);
         employee.Version = result.Version; // SeqNo/PrimaryTerm is not preserved across reindex
         Assert.Equal(ToJson(employee), ToJson(result));
-        Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
+        Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
     }
 
     [Fact]
@@ -572,7 +572,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
         await version1Index.ConfigureAsync();
-        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
 
         IEmployeeRepository repository = new EmployeeRepository(_configuration);
         var employee = await repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
@@ -580,11 +580,11 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
-        Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName)).Exists);
+        Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
         Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
 
         // alias should still point to the old version until reindex
-        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name);
+        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         _logger.LogRequest(aliasResponse);
         Assert.True(aliasResponse.IsValidResponse);
         Assert.Single(aliasResponse.Aliases);
@@ -598,7 +598,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             if (progress > 0 && countdown.CurrentCount > 0)
             {
                 countdown.Signal();
-                await Task.Delay(1000);
+                await Task.Delay(1000, TestCancellationToken);
             }
         });
 
@@ -610,7 +610,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         // Resume after everythings been indexed.
         await reindexTask;
-        aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name);
+        aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         _logger.LogRequest(aliasResponse);
         Assert.True(aliasResponse.IsValidResponse, aliasResponse.GetErrorMessage());
         Assert.Single(aliasResponse.Aliases);
@@ -619,12 +619,12 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
         Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
 
-        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.VersionedName));
+        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.VersionedName), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.ApiCallDetails.HttpStatusCode == 404, countResponse.GetErrorMessage());
         Assert.Equal(0, countResponse.Count);
 
-        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName));
+        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
         Assert.True(countResponse.IsValidResponse, countResponse.GetErrorMessage());
         Assert.Equal(1, countResponse.Count);
@@ -632,7 +632,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var reindexedEmployee = await repository.GetByIdAsync(employee.Id);
         employee.Version = reindexedEmployee.Version; // SeqNo/PrimaryTerm is not preserved across reindex
         Assert.Equal(employee, reindexedEmployee);
-        Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
+        Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
     }
 
     [Fact]
@@ -654,17 +654,17 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
 
-        var aliasCountResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.Name));
+        var aliasCountResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.Name), cancellationToken: TestCancellationToken);
         _logger.LogRequest(aliasCountResponse);
         Assert.True(aliasCountResponse.IsValidResponse);
         Assert.Equal(1, aliasCountResponse.Count);
 
-        var indexCountResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.GetIndex(utcNow)));
+        var indexCountResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.GetIndex(utcNow)), cancellationToken: TestCancellationToken);
         _logger.LogRequest(indexCountResponse);
         Assert.True(indexCountResponse.IsValidResponse);
         Assert.Equal(1, indexCountResponse.Count);
 
-        indexCountResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.GetVersionedIndex(utcNow, 1)));
+        indexCountResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.GetVersionedIndex(utcNow, 1)), cancellationToken: TestCancellationToken);
         _logger.LogRequest(indexCountResponse);
         Assert.True(indexCountResponse.IsValidResponse);
         Assert.Equal(1, indexCountResponse.Count);
@@ -677,23 +677,23 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Make sure we write to the old index.
         await version2Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
 
-        aliasCountResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.Name));
+        aliasCountResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.Name), cancellationToken: TestCancellationToken);
         _logger.LogRequest(aliasCountResponse);
         Assert.True(aliasCountResponse.IsValidResponse);
         Assert.Equal(2, aliasCountResponse.Count);
 
-        indexCountResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.GetVersionedIndex(utcNow, 1)));
+        indexCountResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.GetVersionedIndex(utcNow, 1)), cancellationToken: TestCancellationToken);
         _logger.LogRequest(indexCountResponse);
         Assert.True(indexCountResponse.IsValidResponse);
         Assert.Equal(2, indexCountResponse.Count);
 
-        var existsResponse = await _client.Indices.ExistsAsync(version2Index.GetVersionedIndex(utcNow, 2));
+        var existsResponse = await _client.Indices.ExistsAsync(version2Index.GetVersionedIndex(utcNow, 2), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
         Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode);
         Assert.False(existsResponse.Exists);
 
         // alias should still point to the old version until reindex
-        var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)version1Index.GetIndex(employee.CreatedUtc));
+        var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)version1Index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
         Assert.Equal(version1Index.GetVersionedIndex(employee.CreatedUtc, 1), aliasesResponse.Aliases.Single().Key);
@@ -707,7 +707,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
         Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
 
-        aliasesResponse = await _client.Indices.GetAliasAsync((Indices)version1Index.GetIndex(employee.CreatedUtc));
+        aliasesResponse = await _client.Indices.GetAliasAsync((Indices)version1Index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse, aliasesResponse.GetErrorMessage());
         Assert.Equal(version1Index.GetVersionedIndex(employee.CreatedUtc, 2), aliasesResponse.Aliases.Single().Key);
@@ -716,12 +716,12 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         aliases.Sort();
         Assert.Equal(GetExpectedEmployeeDailyAliases(version1Index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
-        existsResponse = await _client.Indices.ExistsAsync(version1Index.GetVersionedIndex(utcNow, 1));
+        existsResponse = await _client.Indices.ExistsAsync(version1Index.GetVersionedIndex(utcNow, 1), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
         Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode);
         Assert.False(existsResponse.Exists);
 
-        existsResponse = await _client.Indices.ExistsAsync(version2Index.GetVersionedIndex(utcNow, 2));
+        existsResponse = await _client.Indices.ExistsAsync(version2Index.GetVersionedIndex(utcNow, 2), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
         Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode);
         Assert.True(existsResponse.Exists);
@@ -749,13 +749,13 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         await version2Index.ReindexAsync();
 
-        var existsResponse = await _client.Indices.ExistsAsync(version1Index.GetVersionedIndex(utcNow, 1));
+        var existsResponse = await _client.Indices.ExistsAsync(version1Index.GetVersionedIndex(utcNow, 1), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
         Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode);
         Assert.True(existsResponse.Exists);
 
         string indexV1 = version1Index.GetVersionedIndex(utcNow, 1);
-        var mappingResponse = await _client.Indices.GetMappingAsync<Employee>(m => m.Indices(indexV1));
+        var mappingResponse = await _client.Indices.GetMappingAsync<Employee>(m => m.Indices(indexV1), cancellationToken: TestCancellationToken);
         _logger.LogRequest(mappingResponse);
         Assert.True(mappingResponse.IsValidResponse);
         var mappingsV1 = mappingResponse.Mappings[indexV1];
@@ -763,12 +763,12 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         string version1Mappings = ToJson(mappingsV1);
 
         string indexV2 = version2Index.GetVersionedIndex(utcNow, 2);
-        existsResponse = await _client.Indices.ExistsAsync(indexV2);
+        existsResponse = await _client.Indices.ExistsAsync(indexV2, cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
         Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode);
         Assert.True(existsResponse.Exists);
 
-        mappingResponse = await _client.Indices.GetMappingAsync<Employee>(m => m.Indices(indexV2));
+        mappingResponse = await _client.Indices.GetMappingAsync<Employee>(m => m.Indices(indexV2), cancellationToken: TestCancellationToken);
         _logger.LogRequest(mappingResponse);
         Assert.True(mappingResponse.IsValidResponse);
         var mappingsV2 = mappingResponse.Mappings[indexV2];

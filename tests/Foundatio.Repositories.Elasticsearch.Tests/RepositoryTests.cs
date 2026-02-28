@@ -786,7 +786,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
             resetEvent.Set();
-            e.CompanyName = "Company " + i;
+            e.CompanyName = $"Company {i}";
             try
             {
                 await _employeeRepository.SaveAsync(e, o => o.Cache(false));
@@ -841,7 +841,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
             resetEvent.Set();
-            e.CompanyName = "Company " + i;
+            e.CompanyName = $"Company {i}";
             try
             {
                 await _employeeRepository.SaveAsync(e, o => o.Cache(false));
@@ -920,7 +920,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
             resetEvent.Set();
-            e.CompanyName = "Company " + i;
+            e.CompanyName = $"Company {i}";
             try
             {
                 await _employeeRepository.SaveAsync(e, o => o.Cache(false));
@@ -997,7 +997,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
             resetEvent.Set();
-            e.CompanyName = "Company " + i;
+            e.CompanyName = $"Company {i}";
             try
             {
                 await _employeeRepository.SaveAsync(e, o => o.Cache(false));
@@ -1122,7 +1122,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(BATCH_SIZE));
             added += BATCH_SIZE;
         } while (added < COUNT);
-        await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name);
+        await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name, cancellationToken: TestCancellationToken);
         Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Trace);
 
         Assert.Equal(COUNT, await _dailyRepository.IncrementValueAsync(Array.Empty<string>()));
@@ -1140,7 +1140,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(BATCH_SIZE));
             added += BATCH_SIZE;
         } while (added < COUNT);
-        await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name);
+        await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name, cancellationToken: TestCancellationToken);
         Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Trace);
 
         var tasks = Enumerable.Range(1, 6).Select(async i =>

@@ -128,13 +128,13 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
 
         var result = nestedAggQuery.Aggregations.ToAggregations();
         Assert.Single(result);
-        Assert.Equal(2, ((result["nested_reviewRating"] as Foundatio.Repositories.Models.SingleBucketAggregate).Aggregations["terms_rating"] as Foundatio.Repositories.Models.BucketAggregate).Items.Count);
+        Assert.Equal(2, ((Foundatio.Repositories.Models.BucketAggregate)((Foundatio.Repositories.Models.SingleBucketAggregate)result["nested_reviewRating"]).Aggregations["terms_rating"]).Items.Count);
 
         var nestedAggQueryWithFilter = _client.Search<Employee>(d => d.Indices("employees").Aggregations(a => a
            .Add("nested_reviewRating", agg => agg
                .Nested(h => h.Path("peerReviews"))
                .Aggregations(a1 => a1
-                    .Add("user_" + employees[0].Id, f => f
+                    .Add($"user_{employees[0].Id}", f => f
                         .Filter(q => q.Term(t => t.Field("peerReviews.reviewerEmployeeId").Value(employees[0].Id)))
                         .Aggregations(a2 => a2.Add("terms_rating", t => t.Terms(t1 => t1.Field("peerReviews.rating")).Meta(m => m.Add("@field_type", "integer")))))
             ))));
@@ -142,7 +142,8 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         result = nestedAggQueryWithFilter.Aggregations.ToAggregations();
         Assert.Single(result);
 
-        var filteredAgg = ((result["nested_reviewRating"] as Foundatio.Repositories.Models.SingleBucketAggregate).Aggregations["user_" + employees[0].Id] as Foundatio.Repositories.Models.SingleBucketAggregate);
+        var nestedAgg = (Foundatio.Repositories.Models.SingleBucketAggregate)result["nested_reviewRating"];
+        var filteredAgg = (Foundatio.Repositories.Models.SingleBucketAggregate)nestedAgg.Aggregations[$"user_{employees[0].Id}"];
         Assert.NotNull(filteredAgg);
         Assert.Single(filteredAgg.Aggregations.Terms("terms_rating").Buckets);
         Assert.Equal("5", filteredAgg.Aggregations.Terms("terms_rating").Buckets.First().Key);
@@ -514,7 +515,10 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(1, bucket.Total);
 
         string systemTextJson = System.Text.Json.JsonSerializer.Serialize(result);
-        Assert.Equal(json, systemTextJson);
+        Assert.True(System.Text.Json.Nodes.JsonNode.DeepEquals(
+            System.Text.Json.Nodes.JsonNode.Parse(json),
+            System.Text.Json.Nodes.JsonNode.Parse(systemTextJson)),
+            "Newtonsoft and System.Text.Json serialization should produce semantically equivalent JSON");
         roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(systemTextJson);
         Assert.Equal(10, roundTripped.Total);
         Assert.Single(roundTripped.Aggregations);

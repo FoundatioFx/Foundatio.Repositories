@@ -1,6 +1,6 @@
-﻿using Foundatio.Parsers.ElasticQueries;
+﻿using Elastic.Clients.Elasticsearch.Mapping;
+using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.Extensions;
-using Elastic.Clients.Elasticsearch.Mapping;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 

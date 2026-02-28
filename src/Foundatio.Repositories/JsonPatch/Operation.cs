@@ -48,6 +48,8 @@ public abstract class Operation
 
     public static Operation Build(JsonObject jOperation)
     {
+        ArgumentNullException.ThrowIfNull(jOperation);
+
         var opName = jOperation["op"]?.GetValue<string>();
         var op = PatchDocument.CreateOperation(opName) ?? throw new ArgumentException($"Unknown JSON Patch operation: '{opName}'", nameof(jOperation));
         op.Read(jOperation);

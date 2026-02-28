@@ -300,7 +300,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees);
-        await _client.Indices.RefreshAsync(Indices.All);
+        await _client.Indices.RefreshAsync(Indices.All, cancellationToken: TestCancellationToken);
 
         Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
@@ -336,7 +336,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees);
-        await _client.Indices.RefreshAsync(Indices.All);
+        await _client.Indices.RefreshAsync(Indices.All, cancellationToken: TestCancellationToken);
 
         Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 

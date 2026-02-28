@@ -1,6 +1,5 @@
 using System.Linq;
 using System.Threading.Tasks;
-using Elastic.Clients.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
@@ -28,8 +27,6 @@ public sealed class RuntimeFieldsQueryBuilderTests : TestWithLoggingBase
 
         await queryBuilder.BuildAsync(ctx);
 
-        // Verify the runtime fields are still present after BuildAsync
-        // (BuildAsync reads them to configure ctx.Search.RuntimeMappings)
         Assert.Equal(2, ctxElastic.RuntimeFields.Count);
         Assert.Equal(runtimeField1, ctxElastic.RuntimeFields.ElementAt(0).Name);
         Assert.Equal(runtimeField2, ctxElastic.RuntimeFields.ElementAt(1).Name);

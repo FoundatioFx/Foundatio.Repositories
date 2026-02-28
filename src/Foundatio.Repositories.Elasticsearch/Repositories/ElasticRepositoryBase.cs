@@ -9,7 +9,6 @@ using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Core.Bulk;
-using Elastic.Transport;
 using Elastic.Transport.Extensions;
 using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
@@ -170,7 +169,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         if (operation is ScriptPatch scriptOperation)
         {
-            // TODO: Figure out how to specify a pipeline here.
+            // ES Update API does not support pipelines (elastic/elasticsearch#17895, closed as won't-fix).
             var request = new UpdateRequest<T, T>(ElasticIndex.GetIndex(id), id.Value)
             {
                 Script = new Script { Source = scriptOperation.Script, Params = scriptOperation.Params },
@@ -193,7 +192,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
         else if (operation is PartialPatch partialOperation)
         {
-            // TODO: Figure out how to specify a pipeline here.
+            // ES Update API does not support pipelines (elastic/elasticsearch#17895, closed as won't-fix).
             var request = new UpdateRequest<T, object>(ElasticIndex.GetIndex(id), id.Value)
             {
                 Doc = partialOperation.Document,
@@ -1320,7 +1319,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 if (GetParentIdFunc != null)
                     i.Routing(GetParentIdFunc(document));
-                //i.Routing(GetParentIdFunc != null ? GetParentIdFunc(document) : document.Id);
 
                 i.Index(ElasticIndex.GetIndex(document));
 

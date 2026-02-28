@@ -1,6 +1,5 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -33,10 +32,22 @@ public class PatchDocument
         Operations.Add(new AddOperation { Path = path, Value = value });
     }
 
+    public void Add(string path, string value) => Add(path, JsonValue.Create(value));
+    public void Add(string path, int value) => Add(path, JsonValue.Create(value));
+    public void Add(string path, long value) => Add(path, JsonValue.Create(value));
+    public void Add(string path, double value) => Add(path, JsonValue.Create(value));
+    public void Add(string path, bool value) => Add(path, JsonValue.Create(value));
+
     public void Replace(string path, JsonNode value)
     {
         Operations.Add(new ReplaceOperation { Path = path, Value = value });
     }
+
+    public void Replace(string path, string value) => Replace(path, JsonValue.Create(value));
+    public void Replace(string path, int value) => Replace(path, JsonValue.Create(value));
+    public void Replace(string path, long value) => Replace(path, JsonValue.Create(value));
+    public void Replace(string path, double value) => Replace(path, JsonValue.Create(value));
+    public void Replace(string path, bool value) => Replace(path, JsonValue.Create(value));
 
     public void Remove(string path)
     {
@@ -64,11 +75,11 @@ public class PatchDocument
 
         foreach (var item in document)
         {
-            if (item is JsonObject jOperation)
-            {
-                var op = Operation.Build(jOperation);
-                root.AddOperation(op);
-            }
+            if (item is not JsonObject jOperation)
+                throw new JsonException($"Invalid patch operation: expected a JSON object but found {item?.GetValueKind().ToString() ?? "null"}");
+
+            var op = Operation.Build(jOperation);
+            root.AddOperation(op);
         }
 
         return root;

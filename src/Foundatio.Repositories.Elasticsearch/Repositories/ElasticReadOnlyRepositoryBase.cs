@@ -4,13 +4,10 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
-using Elastic.Clients.Elasticsearch.Aggregations;
-using Elastic.Clients.Elasticsearch.AsyncSearch;
 using Elastic.Clients.Elasticsearch.Core.MGet;
 using Elastic.Clients.Elasticsearch.Core.Search;
 using Elastic.Clients.Elasticsearch.QueryDsl;
 using Elastic.Transport;
-using Elastic.Transport.Products.Elasticsearch;
 using Foundatio.Caching;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
@@ -732,7 +729,12 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             search.SeqNoPrimaryTerm(HasVersion);
 
         if (options.HasQueryTimeout())
-            search.Timeout(options.GetQueryTimeout().ToString());
+        {
+            var timeout = options.GetQueryTimeout();
+            search.Timeout(timeout.TotalMilliseconds < 1000
+                ? $"{(int)timeout.TotalMilliseconds}ms"
+                : $"{(int)timeout.TotalSeconds}s");
+        }
 
         search.IgnoreUnavailable();
         search.TrackTotalHits(new TrackHits(true));
@@ -866,9 +868,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (!IsCacheEnabled || !options.ShouldReadCache() || !options.HasCacheKey())
             return default;
 
-        string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey();
+        string cacheKey = cachePrefix != null ? $"{cachePrefix}:{options.GetCacheKey()}" : options.GetCacheKey();
         if (!String.IsNullOrEmpty(cacheSuffix))
-            cacheKey += ":" + cacheSuffix;
+            cacheKey = $"{cacheKey}:{cacheSuffix}";
 
         var result = await Cache.GetAsync<TResult>(cacheKey, default).AnyContext();
         _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey);
@@ -884,9 +886,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (!options.HasCacheKey())
             throw new ArgumentException("Cache key is required when enabling cache.", nameof(options));
 
-        string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey();
+        string cacheKey = cachePrefix != null ? $"{cachePrefix}:{options.GetCacheKey()}" : options.GetCacheKey();
         if (!String.IsNullOrEmpty(cacheSuffix))
-            cacheKey += ":" + cacheSuffix;
+            cacheKey = $"{cacheKey}:{cacheSuffix}";
 
         await Cache.SetAsync(cacheKey, result, options.GetExpiresIn()).AnyContext();
         _logger.LogTrace("Set cache: type={EntityType} key={CacheKey}", EntityTypeName, cacheKey);

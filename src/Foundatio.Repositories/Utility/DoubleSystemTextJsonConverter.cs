@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Text.Json;
 
 namespace Foundatio.Repositories.Utility;
@@ -8,7 +8,7 @@ public class DoubleSystemTextJsonConverter : System.Text.Json.Serialization.Json
 {
     public override double Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        throw new NotImplementedException();
+        return reader.GetDouble();
     }
 
     public override bool CanConvert(Type type)

@@ -153,7 +153,7 @@ public class JsonPatcher : AbstractPatcher<JsonNode>
         var existingValue = target.SelectPatchToken(operation.Path);
         if (!JsonNode.DeepEquals(existingValue, operation.Value))
         {
-            throw new InvalidOperationException("Value at " + operation.Path + " does not match.");
+            throw new InvalidOperationException($"Value at {operation.Path} does not match.");
         }
     }
 
@@ -523,7 +523,9 @@ public static class JsonNodeExtensions
         if (String.IsNullOrEmpty(path))
             return Array.Empty<string>();
 
-        // JSON Pointer format: /foo/bar/0
+        if (path.StartsWith('$'))
+            throw new NotSupportedException($"JSONPath expressions are not supported in patch operations. Use JSON Pointer format (e.g., '/foo/bar') instead of JSONPath (e.g., '$.foo.bar'). Path: {path}");
+
         return path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
     }
 }
