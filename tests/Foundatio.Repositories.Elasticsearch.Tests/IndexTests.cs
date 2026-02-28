@@ -984,29 +984,28 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         // A proper fix would implement a cleanup mechanism.
     }
 
-    [Fact(Skip = "Shows an issue where we cannot recover if an index exists with an alias name")]
-    public async Task UpdateAliasesAsync_CreateAliasFailure_ShouldHandleGracefully()
+    [Fact]
+    public async Task UpdateAliasesAsync_CreateAliasFailure_ShouldThrow()
     {
-        // Arrange
         var index = new DailyEmployeeIndex(_configuration, 2);
         await index.DeleteAsync();
 
-        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
-
-        // Create a scenario that causes alias creation to fail
         string indexName = index.GetIndex(DateTime.UtcNow);
 
-        // First create a conflicting index without the alias
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await _client.Indices.DeleteAsync(indexName);
+            await index.DeleteAsync();
+        });
+
         await _client.Indices.CreateAsync(indexName, d => d
             .Mappings(m => m.Properties(p => p.Keyword("id")))
             .Settings(s => s.NumberOfReplicas(0)), cancellationToken: TestCancellationToken);
 
-        // Act
         var repository = new EmployeeRepository(index);
         var employee = EmployeeGenerator.Generate(createdUtc: DateTime.UtcNow);
 
-        // This should handle the conflict gracefully in the future
-        await repository.AddAsync(employee);
+        await Assert.ThrowsAnyAsync<Exception>(() => repository.AddAsync(employee));
     }
 
     [Fact]

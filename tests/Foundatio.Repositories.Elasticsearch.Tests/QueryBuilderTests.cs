@@ -21,7 +21,7 @@ public sealed class RuntimeFieldsQueryBuilderTests : TestWithLoggingBase
         var query = new RepositoryQuery<Employee>();
         string runtimeField1 = "One", runtimeField2 = "Two";
         var ctx = new QueryBuilderContext<Employee>(query, new CommandOptions<Employee>());
-        var ctxElastic = ctx as IElasticQueryVisitorContext;
+        var ctxElastic = (IElasticQueryVisitorContext)ctx;
         ctxElastic.RuntimeFields.Add(new Parsers.ElasticRuntimeField() { Name = runtimeField1 });
         ctxElastic.RuntimeFields.Add(new Parsers.ElasticRuntimeField() { Name = runtimeField2 });
 
@@ -38,7 +38,7 @@ public sealed class RuntimeFieldsQueryBuilderTests : TestWithLoggingBase
         var queryBuilder = new RuntimeFieldsQueryBuilder();
         var query = new RepositoryQuery<Employee>();
         var ctx = new QueryBuilderContext<Employee>(query, new CommandOptions<Employee>());
-        var ctxElastic = ctx as IElasticQueryVisitorContext;
+        var ctxElastic = (IElasticQueryVisitorContext)ctx;
 
         await queryBuilder.BuildAsync(ctx);
 

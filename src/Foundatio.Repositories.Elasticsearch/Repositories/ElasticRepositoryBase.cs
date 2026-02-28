@@ -567,7 +567,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     /// <summary>
     /// Script patches will not invalidate the cache or send notifications.
-    /// Partial patches will not
+    /// Partial patches will not run ingest pipelines (ES limitation, see elastic/elasticsearch#17895).
     /// </summary>
     public virtual async Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null)
     {
@@ -1422,7 +1422,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 throw new DocumentException(response.GetErrorMessage($"Error {(isCreateOperation ? "adding" : "saving")} documents"), response.OriginalException());
             }
         }
-        // 429 // 503
     }
 
     /// <summary>

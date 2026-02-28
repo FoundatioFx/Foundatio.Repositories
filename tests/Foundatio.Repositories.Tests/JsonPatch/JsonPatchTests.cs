@@ -7,7 +7,6 @@ using Xunit;
 
 namespace Foundatio.Repositories.Tests.JsonPatch;
 
-// TODO: is there a public nuget package we can use for this?
 /// <summary>
 /// Tests for JSON Patch (RFC 6902) operations.
 /// Converted from Newtonsoft.Json (JToken) to System.Text.Json (JsonNode) to align with

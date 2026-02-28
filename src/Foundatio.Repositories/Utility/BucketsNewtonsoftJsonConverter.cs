@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Foundatio.Repositories.Models;
 using Newtonsoft.Json;
@@ -47,6 +47,9 @@ public class BucketsNewtonsoftJsonConverter : JsonConverter
                 case "double":
                     value = new KeyedBucket<double>(aggregations);
                     break;
+                case "geohash":
+                    value = new KeyedBucket<string>(aggregations);
+                    break;
                 case "object":
                     value = new KeyedBucket<object>(aggregations);
                     break;
@@ -65,6 +68,6 @@ public class BucketsNewtonsoftJsonConverter : JsonConverter
 
     public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
     {
-        throw new NotImplementedException();
+        throw new NotSupportedException();
     }
 }

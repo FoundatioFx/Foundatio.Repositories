@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -216,6 +216,32 @@ public class ObjectConverter : JsonConverter<object>
 
     public override void Write(Utf8JsonWriter writer, object value, JsonSerializerOptions options)
     {
-        throw new NotImplementedException();
+        switch (value)
+        {
+            case null:
+                writer.WriteNullValue();
+                break;
+            case long l:
+                writer.WriteNumberValue(l);
+                break;
+            case int i:
+                writer.WriteNumberValue(i);
+                break;
+            case double d:
+                writer.WriteNumberValue(d);
+                break;
+            case decimal dec:
+                writer.WriteNumberValue(dec);
+                break;
+            case string s:
+                writer.WriteStringValue(s);
+                break;
+            case bool b:
+                writer.WriteBooleanValue(b);
+                break;
+            default:
+                JsonSerializer.Serialize(writer, value, value.GetType(), options);
+                break;
+        }
     }
 }

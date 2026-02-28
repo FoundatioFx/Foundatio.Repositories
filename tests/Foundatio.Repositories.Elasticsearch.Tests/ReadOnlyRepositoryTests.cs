@@ -362,11 +362,12 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(nowLog, await _dailyRepository.GetByIdAsync(nowLog.Id));
     }
 
-    [Fact(Skip = "We need to look into how we want to handle this.")]
+    [Fact]
     public async Task GetByIdWithOutOfSyncIndexAsync()
     {
         var utcNow = DateTime.UtcNow;
-        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
+        var yesterday = utcNow.AddDays(-1);
+        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(yesterday).ToString(), createdUtc: yesterday));
         Assert.NotNull(yesterdayLog?.Id);
 
         Assert.Equal(yesterdayLog, await _dailyRepository.GetByIdAsync(yesterdayLog.Id));
@@ -498,11 +499,12 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(2, results.Count);
     }
 
-    [Fact(Skip = "We need to look into how we want to handle this.")]
+    [Fact]
     public async Task GetByIdsWithOutOfSyncIndexAsync()
     {
         var utcNow = DateTime.UtcNow;
-        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
+        var yesterday = utcNow.AddDays(-1);
+        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(yesterday).ToString(), createdUtc: yesterday));
         Assert.NotNull(yesterdayLog?.Id);
 
         var results = await _dailyRepository.GetByIdsAsync(new[] { yesterdayLog.Id });
@@ -577,10 +579,10 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     public async Task GetAllWithSnapshotPagingAsync()
     {
         var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
-        Assert.NotNull(identity1?.Id);
+        Assert.NotNull(identity1);
 
         var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
-        Assert.NotNull(identity2?.Id);
+        Assert.NotNull(identity2);
 
         var allIds = new HashSet<string> { identity1.Id, identity2.Id };
 

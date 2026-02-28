@@ -1202,18 +1202,19 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(0, await _dailyRepository.CountAsync());
     }
 
-    [Fact(Skip = "We need to look into how we want to handle this.")]
+    [Fact]
     public async Task RemoveWithOutOfSyncIndexAsync()
     {
         var utcNow = DateTime.UtcNow;
-        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
+        var yesterday = utcNow.AddDays(-1);
+        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(yesterday).ToString(), createdUtc: yesterday), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog?.Id);
 
         Assert.Equal(1, await _dailyRepository.CountAsync());
 
         await _dailyRepository.RemoveAsync(yesterdayLog, o => o.ImmediateConsistency());
 
-        Assert.Equal(1, await _dailyRepository.CountAsync());
+        Assert.Equal(0, await _dailyRepository.CountAsync());
     }
 
     [Fact]
@@ -1321,18 +1322,19 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(0, await _identityRepository.CountAsync());
     }
 
-    [Fact(Skip = "We need to look into how we want to handle this.")]
+    [Fact]
     public async Task RemoveCollectionWithOutOfSyncIndexAsync()
     {
         var utcNow = DateTime.UtcNow;
-        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
+        var yesterday = utcNow.AddDays(-1);
+        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(yesterday).ToString(), createdUtc: yesterday), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog?.Id);
 
         Assert.Equal(1, await _dailyRepository.CountAsync());
 
         await _dailyRepository.RemoveAsync(new List<LogEvent> { yesterdayLog }, o => o.ImmediateConsistency());
 
-        Assert.Equal(1, await _dailyRepository.CountAsync());
+        Assert.Equal(0, await _dailyRepository.CountAsync());
     }
 
     [Fact]

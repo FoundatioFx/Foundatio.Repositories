@@ -13,12 +13,6 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 public static class LoggerExtensions
 {
-    [Obsolete("Use LogRequest instead")]
-    public static void LogTraceRequest(this ILogger logger, ElasticsearchResponse elasticResponse, LogLevel logLevel = LogLevel.Trace)
-    {
-        LogRequest(logger, elasticResponse, logLevel);
-    }
-
     public static void LogRequest(this ILogger logger, ElasticsearchResponse elasticResponse, LogLevel logLevel = LogLevel.Trace)
     {
         if (elasticResponse == null || !logger.IsEnabled(logLevel))
@@ -133,7 +127,7 @@ internal class JsonUtility
                 break;
 
             default:
-                throw new NotImplementedException($"Kind: {element.ValueKind}");
+                throw new NotSupportedException($"Unsupported JsonValueKind: {element.ValueKind}");
         }
     }
 }

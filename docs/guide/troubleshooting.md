@@ -59,7 +59,7 @@ protected override void ConfigureSettings(ElasticsearchClientSettings settings)
 protected override void ConfigureSettings(ElasticsearchClientSettings settings)
 {
     // Basic authentication
-    settings.BasicAuthentication("username", "password");
+    settings.Authentication(new BasicAuthentication("username", "password"));
     
     // Or API key
     settings.ApiKeyAuthentication("api-key-id", "api-key");

@@ -176,11 +176,9 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         result = nestedAggQueryWithFilter.Aggregations.ToAggregations();
         Assert.Single(result);
 
-        var nestedReviewRatingFilteredAgg = result["nested_reviewRating"] as SingleBucketAggregate;
-        Assert.NotNull(nestedReviewRatingFilteredAgg);
+        var nestedReviewRatingFilteredAgg = Assert.IsType<SingleBucketAggregate>(result["nested_reviewRating"]);
 
-        var userFilteredAgg = nestedReviewRatingFilteredAgg.Aggregations[$"user_{employees[0].Id}"] as SingleBucketAggregate;
-        Assert.NotNull(userFilteredAgg);
+        var userFilteredAgg = Assert.IsType<SingleBucketAggregate>(nestedReviewRatingFilteredAgg.Aggregations[$"user_{employees[0].Id}"]);
         Assert.Single(userFilteredAgg.Aggregations.Terms("terms_rating").Buckets);
         Assert.Equal("5", userFilteredAgg.Aggregations.Terms("terms_rating").Buckets.First().Key);
         Assert.Equal(1, userFilteredAgg.Aggregations.Terms("terms_rating").Buckets.First().Total);

@@ -35,16 +35,11 @@ public class ElasticUtility
         return repositoriesResponse.IsValidResponse && repositoriesResponse.Repositories.Count() > 0;
     }
 
-    public async Task<bool> SnapshotInProgressAsync()
+    public async Task<bool> SnapshotInProgressAsync(string repository = null)
     {
-        var repositoriesResponse = await _client.Snapshot.GetRepositoryAsync().AnyContext();
-        _logger.LogRequest(repositoriesResponse);
-        if (!repositoriesResponse.IsValidResponse || repositoriesResponse.Repositories.Count() == 0)
-            return false;
-
-        foreach (var repo in repositoriesResponse.Repositories)
+        if (!String.IsNullOrEmpty(repository))
         {
-            var snapshotsResponse = await _client.Snapshot.GetAsync(new Elastic.Clients.Elasticsearch.Snapshot.GetSnapshotRequest(repo.Key, "*")).AnyContext();
+            var snapshotsResponse = await _client.Snapshot.GetAsync(new Elastic.Clients.Elasticsearch.Snapshot.GetSnapshotRequest(repository, "*")).AnyContext();
             _logger.LogRequest(snapshotsResponse);
             if (snapshotsResponse.IsValidResponse)
             {
@@ -52,6 +47,27 @@ public class ElasticUtility
                 {
                     if (snapshot.State == "IN_PROGRESS")
                         return true;
+                }
+            }
+        }
+        else
+        {
+            var repositoriesResponse = await _client.Snapshot.GetRepositoryAsync().AnyContext();
+            _logger.LogRequest(repositoriesResponse);
+            if (!repositoriesResponse.IsValidResponse || repositoriesResponse.Repositories.Count() == 0)
+                return false;
+
+            foreach (var repo in repositoriesResponse.Repositories)
+            {
+                var snapshotsResponse = await _client.Snapshot.GetAsync(new Elastic.Clients.Elasticsearch.Snapshot.GetSnapshotRequest(repo.Key, "*")).AnyContext();
+                _logger.LogRequest(snapshotsResponse);
+                if (snapshotsResponse.IsValidResponse)
+                {
+                    foreach (var snapshot in snapshotsResponse.Snapshots)
+                    {
+                        if (snapshot.State == "IN_PROGRESS")
+                            return true;
+                    }
                 }
             }
         }
@@ -79,9 +95,9 @@ public class ElasticUtility
 
     public async Task<ICollection<string>> GetIndexListAsync()
     {
-        var indicesResponse = await _client.Indices.GetAsync(Indices.All).AnyContext();
-        _logger.LogRequest(indicesResponse);
-        return indicesResponse.Indices.Keys.Select(k => k.ToString()).ToList();
+        var resolveResponse = await _client.Indices.ResolveIndexAsync("*").AnyContext();
+        _logger.LogRequest(resolveResponse);
+        return resolveResponse.Indices.Select(i => i.Name).ToList();
     }
 
     /// <summary>
@@ -133,7 +149,7 @@ public class ElasticUtility
 
         while (_timeProvider.GetUtcNow() - started < maxWait)
         {
-            bool inProgress = await SnapshotInProgressAsync().AnyContext();
+            bool inProgress = await SnapshotInProgressAsync(repository).AnyContext();
             if (!inProgress)
                 return true;
 

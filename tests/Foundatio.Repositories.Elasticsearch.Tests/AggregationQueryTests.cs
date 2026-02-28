@@ -327,11 +327,10 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         }
     }
 
-    [Fact(Skip = "Need to fix it, its flakey")]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "xUnit1004:Test methods should not be skipped", Justification = "<Pending>")]
+    [Fact]
     public async Task GetDateOffsetAggregationsWithOffsetsAsync()
     {
-        var today = DateTimeOffset.Now.Floor(TimeSpan.FromMilliseconds(1));
+        var today = DateTimeOffset.UtcNow.Floor(TimeSpan.FromMilliseconds(1));
         await _employeeRepository.AddAsync(new List<Employee> {
             EmployeeGenerator.Generate(nextReview: today.SubtractDays(2)),
             EmployeeGenerator.Generate(nextReview: today.SubtractDays(1)),
@@ -525,8 +524,6 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(10, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
         bucket = roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
         Assert.Equal(1, bucket.Total);
-
-        // TODO: Do we need to be able to roundtrip this? I think we need to for caching purposes.
 
         tophits = bucket.Aggregations.TopHits();
         Assert.NotNull(tophits);

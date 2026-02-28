@@ -14,8 +14,12 @@ public class JsonDiffer
 {
     internal static string Extend(string path, string extension)
     {
-        // TODO: JSON property name needs escaping for path ??
-        return $"{path}/{extension}";
+        return $"{path}/{EscapeJsonPointer(extension)}";
+    }
+
+    private static string EscapeJsonPointer(string value)
+    {
+        return value.Replace("~", "~0").Replace("/", "~1");
     }
 
     private static Operation Build(string op, string path, string key, JsonNode value)

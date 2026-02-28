@@ -66,10 +66,11 @@ public class Employee : IIdentity, IHaveDates
 Define how your entity is indexed in Elasticsearch:
 
 ```csharp
+using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
-using Elastic.Clients.Elasticsearch.Mapping;
 
 public sealed class EmployeeIndex : VersionedIndex<Employee>
 {
