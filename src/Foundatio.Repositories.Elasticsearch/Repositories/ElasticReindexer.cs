@@ -2,9 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Core.Search;
+using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Elastic.Clients.Elasticsearch.QueryDsl;
 using Elastic.Transport;
@@ -16,7 +19,6 @@ using Foundatio.Repositories.Utility;
 using Foundatio.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Newtonsoft.Json;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
@@ -83,13 +85,25 @@ public class ElasticReindexer
 
             if (aliases.Count > 0)
             {
-                var bulkResponse = await _client.Indices.UpdateAliasesAsync(x =>
-                    x.Actions(a =>
-                    {
-                        foreach (string alias in aliases)
-                            a.Remove(r => r.Alias(alias).Index(workItem.OldIndex)).Add(a => a.Alias(alias).Index(workItem.NewIndex));
-                    })
-                ).AnyContext();
+                // Build list of actions - each action is either an Add or Remove
+                var aliasActions = new List<IndexUpdateAliasesAction>();
+
+                foreach (string alias in aliases)
+                {
+                    // Remove from old index
+                    aliasActions.Add(new IndexUpdateAliasesAction { Remove = new RemoveAction { Alias = alias, Index = workItem.OldIndex } });
+                    // Add to new index
+                    aliasActions.Add(new IndexUpdateAliasesAction { Add = new AddAction { Alias = alias, Index = workItem.NewIndex } });
+                }
+
+                var bulkResponse = await _client.Indices.UpdateAliasesAsync(x => x.Actions(aliasActions)).AnyContext();
+
+                if (!bulkResponse.IsValidResponse)
+                {
+                    _logger.LogErrorRequest(bulkResponse, "Error updating aliases during reindex");
+                    return;
+                }
+
                 _logger.LogRequest(bulkResponse);
 
                 await progressCallbackAsync(92, $"Updated aliases: {String.Join(", ", aliases)} Remove: {workItem.OldIndex} Add: {workItem.NewIndex}").AnyContext();
@@ -118,10 +132,10 @@ public class ElasticReindexer
             refreshResponse = await _client.Indices.RefreshAsync(Indices.All).AnyContext();
             _logger.LogRequest(refreshResponse);
 
-            var newDocCountResponse = await _client.CountAsync<object>(d => d.Index(workItem.NewIndex)).AnyContext();
+            var newDocCountResponse = await _client.CountAsync<object>(d => d.Indices(workItem.NewIndex)).AnyContext();
             _logger.LogRequest(newDocCountResponse);
 
-            var oldDocCountResponse = await _client.CountAsync<object>(d => d.Index(workItem.OldIndex)).AnyContext();
+            var oldDocCountResponse = await _client.CountAsync<object>(d => d.Indices(workItem.OldIndex)).AnyContext();
             _logger.LogRequest(oldDocCountResponse);
 
             await progressCallbackAsync(98, $"Old Docs: {oldDocCountResponse.Count} New Docs: {newDocCountResponse.Count}").AnyContext();
@@ -145,27 +159,35 @@ public class ElasticReindexer
         {
             var response = await _client.ReindexAsync(d =>
             {
-                d.Source(src => src
-                    .Indices(workItem.OldIndex)
-                    .Query<object>(q => query))
-                .Dest(dest => dest.Index(workItem.NewIndex))
-                .Conflicts(Conflicts.Proceed)
-                .WaitForCompletion(false);
+                d.Source(src =>
+                {
+                    src.Indices(workItem.OldIndex);
+                    if (query != null)
+                        src.Query(query);
+                });
+                d.Dest(dest => dest.Index(workItem.NewIndex));
+                d.Conflicts(Conflicts.Proceed);
+                d.WaitForCompletion(false);
 
-                // NEST client emitting a script if null, inline this when that's fixed
                 if (!String.IsNullOrWhiteSpace(workItem.Script))
-                    d.Script(workItem.Script);
-
-                return d;
+                    d.Script(new Script { Source = workItem.Script });
             }, ct).AnyContext();
             _logger.LogRequest(response);
 
             return response;
         }, cancellationToken).AnyContext();
 
-        _logger.LogInformation("Reindex Task Id: {TaskId}", result.Task.FullyQualifiedId);
+        if (result.Task == null)
+        {
+            _logger.LogError("Reindex failed to start - no task returned. Response valid: {IsValid}, Error: {Error}",
+                result.IsValidResponse, result.ElasticsearchServerError?.Error?.Reason ?? "Unknown");
+            _logger.LogErrorRequest(result, "Reindex failed");
+            return new ReindexResult { Total = 0, Completed = 0 };
+        }
+
+        _logger.LogInformation("Reindex Task Id: {TaskId}", result.Task.ToString());
         _logger.LogRequest(result);
-        long totalDocs = result.Total;
+        long totalDocs = result.Total ?? 0;
 
         bool taskSuccess = false;
         TaskReindexResult lastReindexResponse = null;
@@ -174,7 +196,7 @@ public class ElasticReindexer
         var sw = Stopwatch.StartNew();
         do
         {
-            var status = await _client.Tasks.GetAsync(result.Task, null, cancellationToken).AnyContext();
+            var status = await _client.Tasks.GetAsync(result.Task.FullyQualifiedId, cancellationToken).AnyContext();
             if (status.IsValidResponse)
             {
                 _logger.LogRequest(status);
@@ -204,15 +226,29 @@ public class ElasticReindexer
 
             lastReindexResponse = response?.Response;
 
-            long lastCompleted = status.Task.Status.Created + status.Task.Status.Updated + status.Task.Status.Noops;
+            // Extract status values from the raw JSON. The Status property is object? and gets deserialized as JsonElement
+            TaskStatusValues taskStatus = null;
+            if (status.Task.Status is JsonElement jsonElement)
+            {
+                taskStatus = new TaskStatusValues
+                {
+                    Total = jsonElement.TryGetProperty("total", out var totalProp) ? totalProp.GetInt64() : 0,
+                    Created = jsonElement.TryGetProperty("created", out var createdProp) ? createdProp.GetInt64() : 0,
+                    Updated = jsonElement.TryGetProperty("updated", out var updatedProp) ? updatedProp.GetInt64() : 0,
+                    Noops = jsonElement.TryGetProperty("noops", out var noopsProp) ? noopsProp.GetInt64() : 0,
+                    VersionConflicts = jsonElement.TryGetProperty("version_conflicts", out var conflictsProp) ? conflictsProp.GetInt64() : 0
+                };
+            }
+
+            long lastCompleted = (taskStatus?.Created ?? 0) + (taskStatus?.Updated ?? 0) + (taskStatus?.Noops ?? 0);
 
             // restart the stop watch if there was progress made
             if (lastCompleted > lastProgress)
                 sw.Restart();
             lastProgress = lastCompleted;
 
-            string lastMessage = $"Total: {status.Task.Status.Total:N0} Completed: {lastCompleted:N0} VersionConflicts: {status.Task.Status.VersionConflicts:N0}";
-            await progressCallbackAsync(CalculateProgress(status.Task.Status.Total, lastCompleted, startProgress, endProgress), lastMessage).AnyContext();
+            string lastMessage = $"Total: {taskStatus?.Total:N0} Completed: {lastCompleted:N0} VersionConflicts: {taskStatus?.VersionConflicts:N0}";
+            await progressCallbackAsync(CalculateProgress(taskStatus?.Total ?? 0, lastCompleted, startProgress, endProgress), lastMessage).AnyContext();
 
             if (status.Completed && response?.Error == null)
             {
@@ -228,10 +264,10 @@ public class ElasticReindexer
             }
 
             var timeToWait = TimeSpan.FromSeconds(totalDocs < 100000 ? 1 : 10);
-            if (status.Task.Status.Total < 100)
+            if ((taskStatus?.Total ?? 0) < 100)
                 timeToWait = TimeSpan.FromMilliseconds(100);
 
-            await Task.Delay(timeToWait, cancellationToken).AnyContext();
+            await _timeProvider.Delay(timeToWait, cancellationToken).AnyContext();
         } while (!cancellationToken.IsCancellationRequested);
         sw.Stop();
 
@@ -290,19 +326,23 @@ public class ElasticReindexer
         }
 
         _logger.LogRequest(gr);
-        string document = JsonConvert.SerializeObject(new
+        var errorDocument = new
         {
             failure.Index,
             failure.Id,
             gr.Version,
             gr.Routing,
             gr.Source,
-            failure.Cause,
+            Cause = new {
+                Type = failure.Cause?.Type,
+                Reason = failure.Cause?.Reason,
+                StackTrace = failure.Cause?.StackTrace
+            },
             failure.Status,
             gr.Found,
-        });
-        var indexResponse = await _client.LowLevel.IndexAsync<VoidResponse>(workItem.NewIndex + "-error", PostData.String(document));
-        if (indexResponse.Success)
+        };
+        var indexResponse = await _client.IndexAsync(errorDocument, i => i.Index(workItem.NewIndex + "-error"));
+        if (indexResponse.IsValidResponse)
             _logger.LogRequest(indexResponse);
         else
             _logger.LogErrorRequest(indexResponse, "Error indexing document {Index}/{Id}", workItem.NewIndex + "-error", gr.Id);
@@ -310,12 +350,13 @@ public class ElasticReindexer
 
     private async Task<List<string>> GetIndexAliasesAsync(string index)
     {
-        var aliasesResponse = await _client.Indices.GetAliasAsync(index).AnyContext();
+        var aliasesResponse = await _client.Indices.GetAliasAsync(Indices.Index(index)).AnyContext();
         _logger.LogRequest(aliasesResponse);
 
-        if (aliasesResponse.IsValidResponse && aliasesResponse.Indices.Count > 0)
+        var indices = aliasesResponse.Aliases;
+        if (aliasesResponse.IsValidResponse && indices != null && indices.Count > 0)
         {
-            var aliases = aliasesResponse.Indices.Single(a => a.Key == index);
+            var aliases = indices.Single(a => a.Key == index);
             return aliases.Value.Aliases.Select(a => a.Key).ToList();
         }
 
@@ -332,7 +373,8 @@ public class ElasticReindexer
         if (startingPoint.HasValue)
             return CreateRangeQuery(descriptor, timestampField, startingPoint);
 
-        return descriptor;
+        // Return null when no query is needed - reindexing all documents
+        return null;
     }
 
     private Query CreateRangeQuery(QueryDescriptor<object> descriptor, string timestampField, DateTime? startTime)
@@ -341,18 +383,18 @@ public class ElasticReindexer
             return descriptor;
 
         if (!String.IsNullOrEmpty(timestampField))
-            return descriptor.DateRange(dr => dr.Field(timestampField).GreaterThanOrEquals(startTime));
+            return descriptor.Range(dr => dr.Date(drr => drr.Field(timestampField).Gte(startTime)));
 
-        return descriptor.TermRange(dr => dr.Field(ID_FIELD).GreaterThanOrEquals(ObjectId.GenerateNewId(startTime.Value).ToString()));
+        return descriptor.Range(dr => dr.Term(tr => tr.Field(ID_FIELD).Gte(ObjectId.GenerateNewId(startTime.Value).ToString())));
     }
 
     private async Task<DateTime?> GetResumeStartingPointAsync(string newIndex, string timestampField)
     {
         var newestDocumentResponse = await _client.SearchAsync<IDictionary<string, object>>(d => d
             .Indices(newIndex)
-            .Sort(s => s.Descending(timestampField))
-            .DocvalueFields(timestampField)
-            .Source(s => s.ExcludeAll())
+            .Sort(s => s.Field(timestampField, fs => fs.Order(SortOrder.Desc)))
+            .DocvalueFields(new FieldAndFormat[] { new() { Field = timestampField } })
+            .Source(new SourceConfig(false))
             .Size(1)
         ).AnyContext();
 
@@ -376,8 +418,21 @@ public class ElasticReindexer
         if (value == null)
             return null;
 
-        var datesArray = await value.AsAsync<DateTime[]>();
-        return datesArray?.FirstOrDefault();
+        // In the new Elastic client, field values are typically JsonElement objects
+        if (value is JsonElement jsonElement)
+        {
+            if (jsonElement.ValueKind == JsonValueKind.Array && jsonElement.GetArrayLength() > 0)
+            {
+                var firstElement = jsonElement[0];
+                if (firstElement.TryGetDateTime(out var dateTime))
+                    return dateTime;
+                // Try parsing as string if direct DateTime conversion fails
+                if (firstElement.ValueKind == JsonValueKind.String && DateTime.TryParse(firstElement.GetString(), out dateTime))
+                    return dateTime;
+            }
+        }
+
+        return null;
     }
 
     private int CalculateProgress(long total, long completed, int startProgress = 0, int endProgress = 100)
@@ -424,6 +479,15 @@ public class ElasticReindexer
         public long VersionConflicts { get; set; }
 
         public IReadOnlyCollection<BulkIndexByScrollFailure> Failures { get; set; }
+    }
+
+    private class TaskStatusValues
+    {
+        public long Total { get; set; }
+        public long Created { get; set; }
+        public long Updated { get; set; }
+        public long Noops { get; set; }
+        public long VersionConflicts { get; set; }
     }
 
     private class BulkIndexByScrollFailure

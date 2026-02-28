@@ -65,20 +65,20 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
                 await index.QueryBuilder.BuildAsync(childContext);
 
-                if (childContext.Filter != null && ((Query)childContext.Filter).IsConditionless == false)
+                if (childContext.Filter != null)
                     ctx.Filter &= new HasChildQuery
                     {
-                        Type = childQuery.GetDocumentType(),
+                        Type = childQuery.GetDocumentType().Name.ToLowerInvariant(),
                         Query = new BoolQuery
                         {
                             Filter = new[] { childContext.Filter }
                         }
                     };
 
-                if (childContext.Query != null && ((Query)childContext.Query).IsConditionless == false)
+                if (childContext.Query != null)
                     ctx.Query &= new HasChildQuery
                     {
-                        Type = childQuery.GetDocumentType(),
+                        Type = childQuery.GetDocumentType().Name.ToLowerInvariant(),
                         Query = new BoolQuery
                         {
                             Must = new[] { childContext.Query }

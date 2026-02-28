@@ -1,65 +1,52 @@
 using System;
-using System.IO;
-using System.Reflection;
-using Elasticsearch.Net;
-using Nest;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Elastic.Clients.Elasticsearch.Core.Search;
 using ILazyDocument = Foundatio.Repositories.Models.ILazyDocument;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 public class ElasticLazyDocument : ILazyDocument
 {
-    private readonly Nest.ILazyDocument _inner;
-    private IElasticsearchSerializer _requestResponseSerializer;
-
-    public ElasticLazyDocument(Nest.ILazyDocument inner)
+    private readonly Hit<object> _hit;
+    private static readonly JsonSerializerOptions _jsonSerializerOptions = new()
     {
-        _inner = inner;
+        PropertyNameCaseInsensitive = true,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: true) }
+    };
+
+    public ElasticLazyDocument(Hit<object> hit)
+    {
+        _hit = hit;
     }
-
-    private static readonly Lazy<Func<Nest.ILazyDocument, IElasticsearchSerializer>> _getSerializer =
-        new(() =>
-        {
-            var serializerField = typeof(Nest.LazyDocument).GetField("_requestResponseSerializer", BindingFlags.GetField | BindingFlags.NonPublic | BindingFlags.Instance);
-            return lazyDocument =>
-            {
-                var d = lazyDocument as Nest.LazyDocument;
-                if (d == null)
-                    return null;
-
-                var serializer = serializerField?.GetValue(d) as IElasticsearchSerializer;
-                return serializer;
-            };
-        });
-
-    private static readonly Lazy<Func<Nest.ILazyDocument, byte[]>> _getBytes =
-        new(() =>
-        {
-            var bytesProperty = typeof(Nest.LazyDocument).GetProperty("Bytes", BindingFlags.GetProperty | BindingFlags.NonPublic | BindingFlags.Instance);
-            return lazyDocument =>
-            {
-                var d = lazyDocument as Nest.LazyDocument;
-                if (d == null)
-                    return null;
-
-                var bytes = bytesProperty?.GetValue(d) as byte[];
-                return bytes;
-            };
-        });
 
     public T As<T>() where T : class
     {
-        if (_requestResponseSerializer == null)
-            _requestResponseSerializer = _getSerializer.Value(_inner);
+        if (_hit?.Source == null)
+            return null;
 
-        var bytes = _getBytes.Value(_inner);
-        var hit = _requestResponseSerializer.Deserialize<IHit<T>>(new MemoryStream(bytes));
-        return hit?.Source;
+        if (_hit.Source is T typed)
+            return typed;
+
+        if (_hit.Source is JsonElement jsonElement)
+            return JsonSerializer.Deserialize<T>(jsonElement.GetRawText(), _jsonSerializerOptions);
+
+        var json = JsonSerializer.Serialize(_hit.Source);
+        return JsonSerializer.Deserialize<T>(json, _jsonSerializerOptions);
     }
 
     public object As(Type objectType)
     {
-        var hitType = typeof(IHit<>).MakeGenericType(objectType);
-        return _inner.As(hitType);
+        if (_hit?.Source == null)
+            return null;
+
+        if (objectType.IsInstanceOfType(_hit.Source))
+            return _hit.Source;
+
+        if (_hit.Source is JsonElement jsonElement)
+            return JsonSerializer.Deserialize(jsonElement.GetRawText(), objectType, _jsonSerializerOptions);
+
+        var json = JsonSerializer.Serialize(_hit.Source);
+        return JsonSerializer.Deserialize(json, objectType, _jsonSerializerOptions);
     }
 }

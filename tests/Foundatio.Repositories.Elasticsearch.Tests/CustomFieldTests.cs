@@ -8,7 +8,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
 using Microsoft.Extensions.Logging;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -25,7 +24,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
         _repocache = _configuration.Cache as InMemoryCacheClient;
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         await RemoveDataAsync();
@@ -312,7 +311,8 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
         Assert.Single(employees);
         Assert.Equal(19, employees[0].Age);
         Assert.Single(employees[0].Data);
-        Assert.Equal("hey", employees[0].Data["MyField1"]);
+        // Data values may be JsonElement when deserialized, use ToString() for comparison
+        Assert.Equal("hey", employees[0].Data["MyField1"]?.ToString());
     }
 
     [Fact]
@@ -380,14 +380,15 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
         Assert.Single(employees);
         Assert.Equal(19, employees[0].Age);
         Assert.Equal(2, employees[0].Data.Count);
-        Assert.Equal("hey1", employees[0].Data["MyField1"]);
+        // Data values may be JsonElement when deserialized, use ToString() for comparison
+        Assert.Equal("hey1", employees[0].Data["MyField1"]?.ToString());
 
         results = await _employeeRepository.FindAsync(q => q.Company("1").FilterExpression("myfield1:hey2"), o => o.QueryLogLevel(LogLevel.Information));
         employees = results.Documents.ToArray();
         Assert.Single(employees);
         Assert.Equal(21, employees[0].Age);
         Assert.Equal(2, employees[0].Data.Count);
-        Assert.Equal("hey2", employees[0].Data["myfield1"]);
+        Assert.Equal("hey2", employees[0].Data["myfield1"]?.ToString());
     }
 
     [Fact]

@@ -1,5 +1,7 @@
-﻿using System.Threading.Tasks;
+﻿using System;
+using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch.Mapping;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 
 namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
@@ -13,8 +15,8 @@ public class StringFieldType : ICustomFieldType
         return Task.FromResult(new ProcessFieldValueResult { Value = value });
     }
 
-    public virtual IProperty ConfigureMapping<T>(SingleMappingSelector<T> map) where T : class
+    public virtual Func<PropertyFactory<T>, IProperty> ConfigureMapping<T>() where T : class
     {
-        return map.Text(mp => mp.AddKeywordField());
+        return factory => factory.Text(p => p.AddKeywordField());
     }
 }

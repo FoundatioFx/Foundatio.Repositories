@@ -68,28 +68,26 @@ public class MonthlyIndex<T> : MonthlyIndex where T : class
         return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMapping, _logger);
     }
 
-    public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map)
+    public virtual void ConfigureIndexMapping(TypeMappingDescriptor<T> map)
     {
-        return map.Properties(p => p.SetupDefaults());
+        map.Properties(p => p.SetupDefaults());
     }
 
-    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        idx = base.ConfigureIndex(idx);
-        return idx.Mappings<T>(f =>
+        base.ConfigureIndex(idx);
+        idx.Mappings<T>(f =>
         {
             if (CustomFieldTypes.Count > 0)
             {
                 f.DynamicTemplates(d =>
                 {
                     foreach (var customFieldType in CustomFieldTypes.Values)
-                        d.Add($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
-
-                    return d;
+                        d.Add($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping<T>()));
                 });
             }
 
-            return ConfigureIndexMapping(f);
+            ConfigureIndexMapping(f);
         });
     }
 

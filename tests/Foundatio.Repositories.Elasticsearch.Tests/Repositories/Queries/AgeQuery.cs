@@ -1,6 +1,8 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Options;
@@ -48,9 +50,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries
                 return Task.CompletedTask;
 
             if (ages.Count == 1)
-                ctx.Filter &= Query<Employee>.Term(f => f.Age, ages.First());
+                ctx.Filter &= new TermQuery { Field = Infer.Field<Employee>(f => f.Age), Value = ages.First() };
             else
-                ctx.Filter &= Query<Employee>.Terms(d => d.Field(f => f.Age).Terms(ages));
+                ctx.Filter &= new TermsQuery { Field = Infer.Field<Employee>(f => f.Age), Terms = new TermsQueryField(ages.Select(a => FieldValue.Long(a)).ToArray()) };
 
             return Task.CompletedTask;
         }

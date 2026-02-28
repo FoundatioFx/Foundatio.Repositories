@@ -9,7 +9,6 @@ using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -22,7 +21,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         _employeeRepository = new EmployeeRepository(_configuration);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         await RemoveDataAsync();
@@ -116,13 +115,13 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         var request = new UpdateRequest<Employee, Employee>(_configuration.Employees.Name, employee.Id)
         {
-            Script = new InlineScript("ctx._source.version = '112:2'"),
+            Script = new Script { Source = "ctx._source.version = '112:2'" },
             Refresh = Refresh.True
         };
 
-        var response = await _client.UpdateAsync(request);
+        var response = await _client.UpdateAsync(request, TestCancellationToken);
         _logger.LogRequest(response);
-        Assert.True(response.IsValid);
+        Assert.True(response.IsValidResponse);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
         Assert.Equal("1:2", employee.Version);

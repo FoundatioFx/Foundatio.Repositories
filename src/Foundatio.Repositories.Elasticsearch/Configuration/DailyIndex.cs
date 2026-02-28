@@ -164,11 +164,12 @@ public class DailyIndex : VersionedIndex
         string index = GetVersionedIndex(utcDate);
         await CreateIndexAsync(index, descriptor =>
         {
-            var aliasesDescriptor = new AliasesDescriptor().Alias(unversionedIndexAlias);
-            foreach (var a in Aliases.Where(a => ShouldCreateAlias(utcDate, a)))
-                aliasesDescriptor.Alias(a.Name);
-
-            return ConfigureIndex(descriptor).Aliases(a => aliasesDescriptor);
+            ConfigureIndex(descriptor);
+            // Add dated alias (e.g., daily-logevents-2025.12.01)
+            descriptor.AddAlias(unversionedIndexAlias, a => { });
+            // Add configured time-based aliases (includes base Name alias and any configured aliases like daily-logevents-today)
+            foreach (var alias in Aliases.Where(a => ShouldCreateAlias(utcDate, a)))
+                descriptor.AddAlias(alias.Name, a => { });
         }).AnyContext();
 
         _ensuredDates[utcDate] = null;
@@ -189,13 +190,27 @@ public class DailyIndex : VersionedIndex
         if (indexes.Count == 0)
             return Version;
 
-        var currentIndexes = indexes
+        var nonExpiredIndexes = indexes
             .Where(i => Configuration.TimeProvider.GetUtcNow().UtcDateTime <= GetIndexExpirationDate(i.DateUtc))
-            .Select(i => i.CurrentVersion >= 0 ? i.CurrentVersion : i.Version)
+            .ToList();
+
+        // First try to find indexes that have a valid dated alias (CurrentVersion >= 0)
+        var indexesWithAlias = nonExpiredIndexes
+            .Where(i => i.CurrentVersion >= 0)
+            .Select(i => i.CurrentVersion)
             .OrderBy(v => v)
             .ToList();
 
-        return currentIndexes.Count > 0 ? currentIndexes.First() : Version;
+        if (indexesWithAlias.Count > 0)
+            return indexesWithAlias.First();
+
+        // Fall back to oldest index version if no aliases exist
+        var allVersions = nonExpiredIndexes
+            .Select(i => i.Version)
+            .OrderBy(v => v)
+            .ToList();
+
+        return allVersions.Count > 0 ? allVersions.First() : Version;
     }
 
     public virtual string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd)
@@ -279,7 +294,8 @@ public class DailyIndex : VersionedIndex
         if (indexes.Count == 0)
             return;
 
-        var aliasDescriptor = new BulkAliasDescriptor();
+        var aliasActions = new List<IndexUpdateAliasesAction>();
+
         foreach (var indexGroup in indexes.OrderBy(i => i.Version).GroupBy(i => i.DateUtc))
         {
             var indexExpirationDate = GetIndexExpirationDate(indexGroup.Key);
@@ -309,7 +325,9 @@ public class DailyIndex : VersionedIndex
                 if (Configuration.TimeProvider.GetUtcNow().UtcDateTime >= indexExpirationDate || index.Version != index.CurrentVersion)
                 {
                     foreach (var alias in Aliases)
-                        aliasDescriptor = aliasDescriptor.Remove(r => r.Index(index.Index).Alias(alias.Name));
+                    {
+                        aliasActions.Add(new IndexUpdateAliasesAction { Remove = new RemoveAction { Index = index.Index, Alias = alias.Name } });
+                    }
 
                     continue;
                 }
@@ -317,14 +335,18 @@ public class DailyIndex : VersionedIndex
                 foreach (var alias in Aliases)
                 {
                     if (ShouldCreateAlias(indexGroup.Key, alias))
-                        aliasDescriptor = aliasDescriptor.Add(r => r.Index(index.Index).Alias(alias.Name));
+                        aliasActions.Add(new IndexUpdateAliasesAction { Add = new AddAction { Index = index.Index, Alias = alias.Name } });
                     else
-                        aliasDescriptor = aliasDescriptor.Remove(r => r.Index(index.Index).Alias(alias.Name));
+                        aliasActions.Add(new IndexUpdateAliasesAction { Remove = new RemoveAction { Index = index.Index, Alias = alias.Name } });
                 }
             }
         }
 
-        var response = await Configuration.Client.Indices.BulkAliasAsync(aliasDescriptor).AnyContext();
+        if (aliasActions.Count == 0)
+            return;
+
+        var response = await Configuration.Client.Indices.UpdateAliasesAsync(u => u.Actions(aliasActions)).AnyContext();
+
         if (response.IsValidResponse)
         {
             _logger.LogRequest(response);
@@ -334,7 +356,7 @@ public class DailyIndex : VersionedIndex
             if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 return;
 
-            throw new DocumentException(response.GetErrorMessage("Error updating aliases"), response.OriginalException);
+            throw new DocumentException(response.GetErrorMessage("Error updating aliases"), response.OriginalException());
         }
     }
 
@@ -368,9 +390,14 @@ public class DailyIndex : VersionedIndex
         await base.DeleteIndexAsync(name).AnyContext();
 
         if (name.EndsWith("*"))
+        {
             await _aliasCache.RemoveAllAsync().AnyContext();
+            _ensuredDates.Clear();
+        }
         else
+        {
             await _aliasCache.RemoveAsync(GetIndexByDate(GetIndexDate(name))).AnyContext();
+        }
     }
 
     public override string[] GetIndexesByQuery(IRepositoryQuery query)
@@ -408,15 +435,22 @@ public class DailyIndex : VersionedIndex
     protected TypeMapping GetLatestIndexMapping()
     {
         string filter = $"{Name}-v{Version}-*";
-        var catResponse = Configuration.Client.Cat.Indices(i => i.Pri().Index(Indices.Index((IndexName)filter)));
-        if (!catResponse.IsValidResponse)
+        var indicesResponse = Configuration.Client.Indices.Get((Indices)(IndexName)filter);
+        if (!indicesResponse.IsValidResponse)
         {
-            throw new RepositoryException(catResponse.GetErrorMessage($"Error getting latest index mapping {filter}"), catResponse.OriginalException);
+            if (indicesResponse.ElasticsearchServerError?.Status == 404)
+                return null;
+
+            throw new RepositoryException(indicesResponse.GetErrorMessage($"Error getting latest index mapping {filter}"), indicesResponse.OriginalException());
         }
 
-        var latestIndex = catResponse.Records
-            .Where(i => GetIndexVersion(i.Index) == Version)
-            .Select(i => new IndexInfo { DateUtc = GetIndexDate(i.Index), Index = i.Index, Version = GetIndexVersion(i.Index) })
+        var latestIndex = indicesResponse.Indices.Keys
+            .Where(i => GetIndexVersion(i.ToString()) == Version)
+            .Select(i =>
+            {
+                string indexName = i.ToString();
+                return new IndexInfo { DateUtc = GetIndexDate(indexName), Index = indexName, Version = GetIndexVersion(indexName) };
+            })
             .OrderByDescending(i => i.DateUtc)
             .FirstOrDefault();
 
@@ -531,28 +565,26 @@ public class DailyIndex<T> : DailyIndex, IIndex<T> where T : class
         return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMapping, _logger);
     }
 
-    public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map)
+    public virtual void ConfigureIndexMapping(TypeMappingDescriptor<T> map)
     {
-        return map.Properties(p => p.SetupDefaults());
+        map.Properties(p => p.SetupDefaults());
     }
 
-    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        idx = base.ConfigureIndex(idx);
-        return idx.Mappings<T>(f =>
+        base.ConfigureIndex(idx);
+        idx.Mappings<T>(f =>
         {
             if (CustomFieldTypes.Count > 0)
             {
                 f.DynamicTemplates(d =>
                 {
                     foreach (var customFieldType in CustomFieldTypes.Values)
-                        d.Add($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
-
-                    return d;
+                        d.Add($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping<T>()));
                 });
             }
 
-            return ConfigureIndexMapping(f);
+            ConfigureIndexMapping(f);
         });
     }
 

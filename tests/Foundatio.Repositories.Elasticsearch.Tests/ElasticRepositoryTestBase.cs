@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
@@ -12,7 +13,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Utility;
 using Foundatio.Xunit;
 using Microsoft.Extensions.Logging;
-using Xunit.Abstractions;
+using Xunit;
 using IAsyncLifetime = Xunit.IAsyncLifetime;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
@@ -38,7 +39,7 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
     }
 
     private static bool _elasticsearchReady;
-    public virtual async Task InitializeAsync()
+    public virtual async ValueTask InitializeAsync()
     {
         if (!_elasticsearchReady)
             await _client.WaitForReadyAsync(new CancellationTokenSource(TimeSpan.FromMinutes(1)).Token);
@@ -56,7 +57,7 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
 
         await _workItemQueue.DeleteQueueAsync();
         await _configuration.DeleteIndexesAsync();
-        await _client.Indices.DeleteAsync(Indices.Parse("employee*"));
+        await DeleteWildcardIndicesAsync("employee*");
         if (configureIndexes)
             await _configuration.ConfigureIndexesAsync(null, false);
 
@@ -70,5 +71,17 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
         Log.DefaultLogLevel = minimumLevel;
     }
 
-    public virtual Task DisposeAsync() => Task.CompletedTask;
+    protected async Task DeleteWildcardIndicesAsync(string pattern)
+    {
+        // Use GetAsync to resolve wildcards to actual index names to avoid issues with action.destructive_requires_name=true.
+        // Note: ResolveIndexAsync sends a body in ES 9.x client which ES rejects; use GetAsync instead.
+        var getResponse = await _client.Indices.GetAsync(Indices.Parse(pattern), d => d.IgnoreUnavailable());
+        if (getResponse.IsValidResponse && getResponse.Indices != null && getResponse.Indices.Count > 0)
+        {
+            var indexNames = string.Join(",", getResponse.Indices.Keys);
+            await _client.Indices.DeleteAsync(Indices.Parse(indexNames), i => i.IgnoreUnavailable());
+        }
+    }
+
+    public virtual ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

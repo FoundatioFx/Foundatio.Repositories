@@ -1,4 +1,4 @@
-﻿// using System;
+// using System;
 // using System.Collections.Generic;
 // using System.Linq;
 // using System.Threading.Tasks;
@@ -10,7 +10,7 @@
 // using Foundatio.Repositories.Utility;
 // using Foundatio.Utility;
 // using Xunit;
-// using Xunit.Abstractions;
+// using Xunit;
 
 // namespace Foundatio.Repositories.Elasticsearch.Tests {
 //     public sealed class PipelineTests : ElasticRepositoryTestBase {

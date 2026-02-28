@@ -1,10 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories
@@ -60,16 +62,22 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 {
     public class SortQueryBuilder : IElasticQueryBuilder
     {
+        internal const string SortFieldsKey = "__SortFields";
+
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
-            var sortFields = ctx.Source.GetSorts();
+            var sortFields = ctx.Source.GetSorts().ToList();
+
             if (sortFields.Count <= 0)
                 return Task.CompletedTask;
 
             var resolver = ctx.GetMappingResolver();
-            sortFields = resolver.GetResolvedFields(sortFields);
+            sortFields = resolver.GetResolvedFields(sortFields).ToList();
 
-            ctx.Search.Sort(sortFields);
+            // Store sorts in context data - SearchAfterQueryBuilder will apply them
+            // along with any sorts from ExpressionQueryBuilder
+            ctx.Data[SortFieldsKey] = sortFields;
+
             return Task.CompletedTask;
         }
     }

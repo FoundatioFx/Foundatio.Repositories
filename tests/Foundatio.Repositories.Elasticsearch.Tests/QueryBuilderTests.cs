@@ -1,11 +1,11 @@
-﻿using System.Linq;
+using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Xunit;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -28,9 +28,9 @@ public sealed class RuntimeFieldsQueryBuilderTests : TestWithLoggingBase
 
         await queryBuilder.BuildAsync(ctx);
 
-        ISearchRequest request = ctx.Search;
-        Assert.Equal(2, request.RuntimeFields.Count);
-        Assert.Equal(runtimeField1, request.RuntimeFields.First().Key);
-        Assert.Equal(runtimeField2, request.RuntimeFields.Last().Key);
+        // Verify runtime fields were added to the context
+        Assert.Equal(2, ctxElastic.RuntimeFields.Count);
+        Assert.Equal(runtimeField1, ctxElastic.RuntimeFields.First().Name);
+        Assert.Equal(runtimeField2, ctxElastic.RuntimeFields.Last().Name);
     }
 }

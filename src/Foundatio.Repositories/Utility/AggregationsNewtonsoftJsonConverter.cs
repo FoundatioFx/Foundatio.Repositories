@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Collections.Generic;
 using Foundatio.Repositories.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -16,50 +17,42 @@ public class AggregationsNewtonsoftJsonConverter : JsonConverter
     {
         var item = JObject.Load(reader);
         var typeToken = item.SelectToken("Data.@type") ?? item.SelectToken("data.@type");
+        string type = typeToken?.Value<string>();
 
-        IAggregate value = null;
-        if (typeToken != null)
+        IAggregate value = type switch
         {
-            string type = typeToken.Value<string>();
-            switch (type)
-            {
-                case "bucket":
-                    value = new BucketAggregate();
-                    break;
-                case "exstats":
-                    value = new ExtendedStatsAggregate();
-                    break;
-                case "ovalue":
-                    value = new ObjectValueAggregate();
-                    break;
-                case "percentiles":
-                    value = new PercentilesAggregate();
-                    break;
-                case "sbucket":
-                    value = new SingleBucketAggregate();
-                    break;
-                case "stats":
-                    value = new StatsAggregate();
-                    break;
-                case "tophits":
-                    // TODO: Have to get all the docs as JToken and 
-                    //value = new TopHitsAggregate();
-                    break;
-                case "value":
-                    value = new ValueAggregate();
-                    break;
-                case "dvalue":
-                    value = new ValueAggregate<DateTime>();
-                    break;
-            }
-        }
+            "bucket" => new BucketAggregate(),
+            "exstats" => new ExtendedStatsAggregate(),
+            "ovalue" => new ObjectValueAggregate(),
+            "percentiles" => DeserializePercentiles(item, serializer),
+            "sbucket" => DeserializeSingleBucket(item, serializer),
+            "stats" => new StatsAggregate(),
+            // TopHitsAggregate cannot be round-tripped: it holds ILazyDocument references (raw ES doc bytes) that require a serializer instance to materialize.
+            "value" => new ValueAggregate(),
+            "dvalue" => new ValueAggregate<DateTime>(),
+            _ => null
+        };
 
-        if (value == null)
-            value = new ValueAggregate();
+        value ??= new ValueAggregate();
 
         serializer.Populate(item.CreateReader(), value);
 
         return value;
+    }
+
+    private static PercentilesAggregate DeserializePercentiles(JObject item, JsonSerializer serializer)
+    {
+        if ((item.SelectToken("Items") ?? item.SelectToken("items")) is { } itemsToken)
+            return new PercentilesAggregate(itemsToken.ToObject<IReadOnlyList<PercentileItem>>(serializer));
+
+        return new PercentilesAggregate();
+    }
+
+    private static SingleBucketAggregate DeserializeSingleBucket(JObject item, JsonSerializer serializer)
+    {
+        var aggregationsToken = item.SelectToken("Aggregations") ?? item.SelectToken("aggregations");
+        var aggregations = aggregationsToken?.ToObject<IReadOnlyDictionary<string, IAggregate>>(serializer);
+        return new SingleBucketAggregate(aggregations);
     }
 
     public override bool CanWrite => false;

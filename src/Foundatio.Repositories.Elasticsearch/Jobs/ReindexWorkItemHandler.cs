@@ -14,6 +14,7 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
     private readonly ILockProvider _lockProvider;
 
     public ReindexWorkItemHandler(ElasticsearchClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory = null)
+        : base(loggerFactory)
     {
         _reindexer = new ElasticReindexer(client, loggerFactory?.CreateLogger<ReindexWorkItemHandler>());
         _lockProvider = lockProvider;

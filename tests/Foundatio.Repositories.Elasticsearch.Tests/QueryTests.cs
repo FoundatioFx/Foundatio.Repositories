@@ -5,7 +5,6 @@ using Exceptionless.DateTimeExtensions;
 using Foundatio.Parsers.LuceneQueries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Xunit;
-using Xunit.Abstractions;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -23,7 +22,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         _employeeRepository = new EmployeeRepository(_configuration);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         await RemoveDataAsync();
@@ -141,10 +140,11 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetByCompanyWithIncludedFields()
     {
-        var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+        Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Warning);
+        var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency().QueryLogLevel(LogLevel.Warning));
         Assert.NotNull(log?.Id);
 
-        var results = await _dailyRepository.FindAsync(q => q.Company(log.CompanyId));
+        var results = await _dailyRepository.FindAsync(q => q.Company(log.CompanyId), o => o.QueryLogLevel(LogLevel.Warning));
         Assert.Single(results.Documents);
         Assert.Equal(log, results.Documents.First());
 

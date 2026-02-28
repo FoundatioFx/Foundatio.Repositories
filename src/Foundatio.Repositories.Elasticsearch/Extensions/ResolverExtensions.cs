@@ -29,21 +29,30 @@ public static class ResolverExtensions
         if (field is null)
             throw new ArgumentNullException(nameof(field));
 
-        return new Field(resolver.GetResolvedField(field), field.Boost, field.Format);
+        return new Field(resolver.GetResolvedField(field), field.Boost);
     }
 
     public static SortOptions ResolveFieldSort(this ElasticMappingResolver resolver, SortOptions sort)
     {
-        return new FieldSort
+        // SortOptions is a discriminated union - check if it's a field sort
+        if (sort?.Field != null)
         {
-            Field = resolver.GetSortFieldName(sort.SortKey),
-            IgnoreUnmappedFields = sort.IgnoreUnmappedFields,
-            Missing = sort.Missing,
-            Mode = sort.Mode,
-            Nested = sort.Nested,
-            NumericType = sort.NumericType,
-            Order = sort.Order,
-            UnmappedType = sort.UnmappedType
-        };
+            var fieldSort = sort.Field;
+            var resolvedField = resolver.GetSortFieldName(fieldSort.Field);
+            // Create a new FieldSort with the resolved field name
+            var newFieldSort = new FieldSort
+            {
+                Field = resolvedField,
+                Missing = fieldSort.Missing,
+                Mode = fieldSort.Mode,
+                Nested = fieldSort.Nested,
+                NumericType = fieldSort.NumericType,
+                Order = fieldSort.Order,
+                UnmappedType = fieldSort.UnmappedType
+            };
+            return newFieldSort;
+        }
+
+        return sort;
     }
 }

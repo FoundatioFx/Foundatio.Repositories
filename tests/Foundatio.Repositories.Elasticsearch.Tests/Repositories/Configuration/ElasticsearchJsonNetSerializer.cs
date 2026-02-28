@@ -1,21 +1,21 @@
-﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
+﻿// Note: The NEST-style custom serializer (ConnectionSettingsAwareSerializerBase) is no longer available
+// in the new Elastic.Clients.Elasticsearch client. Custom serialization should be handled differently.
+// This file is kept for reference but the class is disabled.
+
+// using Newtonsoft.Json;
+// using Newtonsoft.Json.Serialization;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 
-public class ElasticsearchJsonNetSerializer : ConnectionSettingsAwareSerializerBase
+// The new Elastic client uses System.Text.Json by default and has different extension points for serialization.
+// If custom serialization is needed, see: https://www.elastic.co/guide/en/elasticsearch/client/net-api/current/serialization.html
+
+/*
+public class ElasticsearchJsonNetSerializer
 {
-    public ElasticsearchJsonNetSerializer(IElasticsearchSerializer builtinSerializer, IConnectionSettingsValues connectionSettings)
-        : base(builtinSerializer, connectionSettings) { }
-
-    protected override JsonSerializerSettings CreateJsonSerializerSettings() =>
-        new JsonSerializerSettings
-        {
-            NullValueHandling = NullValueHandling.Include
-        };
-
-    protected override void ModifyContractResolver(ConnectionSettingsAwareContractResolver resolver)
-    {
-        resolver.NamingStrategy = new CamelCaseNamingStrategy();
-    }
+    // Custom serialization in the new client is handled via SourceSerializerFactory
+    // Example:
+    // var settings = new ElasticsearchClientSettings(pool,
+    //     sourceSerializer: (defaultSerializer, settings) => new CustomSerializer());
 }
+*/

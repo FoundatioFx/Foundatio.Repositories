@@ -24,7 +24,7 @@ public static class LoggerExtensions
         if (elasticResponse == null || !logger.IsEnabled(logLevel))
             return;
 
-        var apiCall = elasticResponse?.ApiCall;
+        var apiCall = elasticResponse?.ApiCallDetails;
         if (apiCall?.RequestBodyInBytes != null)
         {
             string body = Encoding.UTF8.GetString(apiCall?.RequestBodyInBytes);
@@ -48,13 +48,13 @@ public static class LoggerExtensions
         if (elasticResponse == null || !logger.IsEnabled(LogLevel.Error))
             return;
 
-        var response = elasticResponse as IResponse;
+        var originalException = elasticResponse?.ApiCallDetails?.OriginalException;
 
         AggregateException aggEx = null;
-        if (ex != null && response?.OriginalException != null)
-            aggEx = new AggregateException(ex, response.OriginalException);
+        if (ex != null && originalException != null)
+            aggEx = new AggregateException(ex, originalException);
 
-        logger.LogError(aggEx ?? response?.OriginalException, elasticResponse.GetErrorMessage(message), args);
+        logger.LogError(aggEx ?? originalException, elasticResponse.GetErrorMessage(message), args);
     }
 }
 

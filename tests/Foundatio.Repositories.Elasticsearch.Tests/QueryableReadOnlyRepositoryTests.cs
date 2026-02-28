@@ -1,9 +1,8 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -16,7 +15,7 @@ public sealed class QueryableReadOnlyRepositoryTests : ElasticRepositoryTestBase
         _employeeRepository = new EmployeeRepository(_configuration);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         await RemoveDataAsync();

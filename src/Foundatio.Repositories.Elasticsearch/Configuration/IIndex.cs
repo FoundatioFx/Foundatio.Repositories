@@ -33,7 +33,7 @@ public interface IIndex : IDisposable
 
 public interface IIndex<T> : IIndex where T : class
 {
-    TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map);
+    void ConfigureIndexMapping(TypeMappingDescriptor<T> map);
     Inferrer Infer { get; }
     string InferField(Expression<Func<T, object>> objectPath);
     string InferPropertyName(Expression<Func<T, object>> objectPath);

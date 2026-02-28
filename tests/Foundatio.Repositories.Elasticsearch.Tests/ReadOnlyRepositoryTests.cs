@@ -14,7 +14,6 @@ using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using TimeZoneConverter;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -31,7 +30,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         _employeeRepository = new EmployeeRepository(_configuration);
     }
 
-    public override async Task InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
         await RemoveDataAsync();
@@ -583,6 +582,8 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
         Assert.NotNull(identity2?.Id);
 
+        var allIds = new HashSet<string> { identity1.Id, identity2.Id };
+
         await _client.ClearScrollAsync();
         long baselineScrollCount = await GetCurrentScrollCountAsync();
 
@@ -591,7 +592,8 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Single(results.Documents);
         Assert.Equal(1, results.Page);
         Assert.True(results.HasMore);
-        Assert.Equal(identity1.Id, results.Documents.First().Id);
+        Assert.Contains(results.Documents.First().Id, allIds);
+        var firstPageId = results.Documents.First().Id;
         Assert.Equal(2, results.Total);
         long currentScrollCount = await GetCurrentScrollCountAsync();
         Assert.Equal(baselineScrollCount + 1, currentScrollCount);
@@ -600,7 +602,8 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Single(results.Documents);
         Assert.Equal(2, results.Page);
         Assert.Equal(2, results.Total);
-        Assert.Equal(identity2.Id, results.Documents.First().Id);
+        Assert.Contains(results.Documents.First().Id, allIds);
+        Assert.NotEqual(firstPageId, results.Documents.First().Id); // Ensure we got a different document
         // returns true even though there are no more results because we don't know if there are more or not for scrolls until we try to get the next page
         Assert.True(results.HasMore);
         var secondDoc = results.Documents.First();

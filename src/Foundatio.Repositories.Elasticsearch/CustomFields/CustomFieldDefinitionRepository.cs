@@ -13,13 +13,43 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Microsoft.Extensions.Logging;
+using ChangeType = Foundatio.Repositories.Models.ChangeType;
 
 namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
 public interface ICustomFieldDefinitionRepository : ISearchableRepository<CustomFieldDefinition>
 {
+    /// <summary>
+    /// Returns a cached name-keyed dictionary of all active (non-deleted) custom field definitions
+    /// for the specified entity type and tenant. Results are cached for 15 minutes.
+    /// </summary>
+    /// <param name="entityType">The entity type name (e.g., <c>nameof(Employee)</c>).</param>
+    /// <param name="tenantKey">The tenant key returned by <see cref="IHaveCustomFields.GetTenantKey"/>.</param>
     Task<IDictionary<string, CustomFieldDefinition>> GetFieldMappingAsync(string entityType, string tenantKey);
+
+    /// <summary>
+    /// Returns all custom field definitions for the specified entity type and tenant, including
+    /// active definitions only (soft-deleted are excluded unless <c>IncludeSoftDeletes</c> is used on a separate query).
+    /// Results are paginated with up to 1000 documents per page; use <see cref="FindResults{T}.NextPageAsync"/> to iterate.
+    /// </summary>
+    /// <param name="entityType">The entity type name (e.g., <c>nameof(Employee)</c>).</param>
+    /// <param name="tenantKey">The tenant key returned by <see cref="IHaveCustomFields.GetTenantKey"/>.</param>
     Task<FindResults<CustomFieldDefinition>> FindByTenantAsync(string entityType, string tenantKey);
+
+    /// <summary>
+    /// Creates a new <see cref="CustomFieldDefinition"/> with an automatically assigned slot and adds it to the repository.
+    /// If a definition with the same name and type already exists for this tenant, the existing definition is returned.
+    /// </summary>
+    /// <param name="entityType">The entity type name (e.g., <c>nameof(Employee)</c>).</param>
+    /// <param name="tenantKey">The tenant key returned by <see cref="IHaveCustomFields.GetTenantKey"/>.</param>
+    /// <param name="name">The friendly field name.</param>
+    /// <param name="indexType">The index type (e.g., <c>"string"</c>, <c>"int"</c>, <c>"bool"</c>, <c>"date"</c>). See built-in field type classes for valid values.</param>
+    /// <param name="description">An optional description of the field.</param>
+    /// <param name="displayOrder">An optional display order hint for UI rendering.</param>
+    /// <param name="data">Optional additional metadata to associate with the definition.</param>
+    /// <exception cref="Foundatio.Repositories.Exceptions.DocumentValidationException">
+    /// Thrown when a definition with the same name but a different type already exists for this tenant.
+    /// </exception>
     Task<CustomFieldDefinition> AddFieldAsync(string entityType, string tenantKey, string name, string indexType, string description = null, int displayOrder = 0, IDictionary<string, object> data = null);
 }
 
@@ -77,6 +107,13 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         return FindAsync(q => q.FieldEquals(cf => cf.EntityType, entityType).FieldEquals(cf => cf.TenantKey, tenantKey), o => o.PageLimit(1000));
     }
 
+    /// <summary>
+    /// Hard-deletes all custom field definitions for the specified entity type and tenant,
+    /// freeing both names and slots for reuse. This is not on the <see cref="ICustomFieldDefinitionRepository"/> interface.
+    /// </summary>
+    /// <param name="entityType">The entity type name (e.g., <c>nameof(Employee)</c>).</param>
+    /// <param name="tenantKey">The tenant key returned by <see cref="IHaveCustomFields.GetTenantKey"/>.</param>
+    /// <returns>The number of definitions removed.</returns>
     public Task<long> RemoveByTenantAsync(string entityType, string tenantKey)
     {
         return RemoveAllAsync(q => q.FieldEquals(cf => cf.EntityType, entityType).FieldEquals(cf => cf.TenantKey, tenantKey));
@@ -299,25 +336,23 @@ public class CustomFieldDefinitionIndex : VersionedIndex<CustomFieldDefinition>
         _replicas = replicas;
     }
 
-    public override TypeMappingDescriptor<CustomFieldDefinition> ConfigureIndexMapping(TypeMappingDescriptor<CustomFieldDefinition> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<CustomFieldDefinition> map)
     {
-        return map
-            .Dynamic(false)
+        map
+            .Dynamic(DynamicMapping.False)
             .Properties(p => p
                 .SetupDefaults()
-                .Keyword(f => f.Name(e => e.Id))
-                .Keyword(f => f.Name(e => e.EntityType))
-                .Keyword(f => f.Name(e => e.TenantKey))
-                .Keyword(f => f.Name(e => e.IndexType))
-                .Number(f => f.Name(e => e.IndexSlot))
-                .Date(f => f.Name(e => e.CreatedUtc))
-                .Date(f => f.Name(e => e.UpdatedUtc))
+                .Keyword(e => e.EntityType)
+                .Keyword(e => e.TenantKey)
+                .Keyword(e => e.IndexType)
+                .IntegerNumber(e => e.IndexSlot)
             );
     }
 
-    public override CreateIndexRequestDescriptor ConfigureIndex(CreateIndexRequestDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        return base.ConfigureIndex(idx).Settings(s => s
+        base.ConfigureIndex(idx);
+        idx.Settings(s => s
             .NumberOfShards(1)
             .NumberOfReplicas(_replicas));
     }

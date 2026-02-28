@@ -205,7 +205,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
             foreach (var fieldValue in fieldConditions)
             {
-                QueryBase query;
+                Query query;
                 if (fieldValue.Value == null && fieldValue.Operator == ComparisonOperator.Equals)
                     fieldValue.Operator = ComparisonOperator.IsEmpty;
                 else if (fieldValue.Value == null && fieldValue.Operator == ComparisonOperator.NotEquals)
@@ -216,26 +216,26 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                     case ComparisonOperator.Equals:
                         if (fieldValue.Value is IEnumerable && fieldValue.Value is not string)
                         {
-                            var values = new List<object>();
+                            var values = new List<FieldValue>();
                             foreach (var value in (IEnumerable)fieldValue.Value)
-                                values.Add(value);
-                            query = new TermsQuery { Field = resolver.GetNonAnalyzedFieldName(fieldValue.Field), Terms = values };
+                                values.Add(ToFieldValue(value));
+                            query = new TermsQuery { Field = resolver.GetNonAnalyzedFieldName(fieldValue.Field), Terms = new TermsQueryField(values) };
                         }
                         else
-                            query = new TermQuery { Field = resolver.GetNonAnalyzedFieldName(fieldValue.Field), Value = fieldValue.Value };
+                            query = new TermQuery { Field = resolver.GetNonAnalyzedFieldName(fieldValue.Field), Value = ToFieldValue(fieldValue.Value) };
                         ctx.Filter &= query;
 
                         break;
                     case ComparisonOperator.NotEquals:
                         if (fieldValue.Value is IEnumerable && fieldValue.Value is not string)
                         {
-                            var values = new List<object>();
+                            var values = new List<FieldValue>();
                             foreach (var value in (IEnumerable)fieldValue.Value)
-                                values.Add(value);
-                            query = new TermsQuery { Field = resolver.GetNonAnalyzedFieldName(fieldValue.Field), Terms = values };
+                                values.Add(ToFieldValue(value));
+                            query = new TermsQuery { Field = resolver.GetNonAnalyzedFieldName(fieldValue.Field), Terms = new TermsQueryField(values) };
                         }
                         else
-                            query = new TermQuery { Field = resolver.GetNonAnalyzedFieldName(fieldValue.Field), Value = fieldValue.Value };
+                            query = new TermQuery { Field = resolver.GetNonAnalyzedFieldName(fieldValue.Field), Value = ToFieldValue(fieldValue.Value) };
 
                         ctx.Filter &= new BoolQuery { MustNot = new Query[] { query } };
                         break;
@@ -283,6 +283,20 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             }
 
             return Task.CompletedTask;
+        }
+
+        private static FieldValue ToFieldValue(object value)
+        {
+            return value switch
+            {
+                string s => s,
+                long l => l,
+                int i => i,
+                double d => d,
+                float f => f,
+                bool b => b,
+                _ => value?.ToString()
+            };
         }
     }
 }

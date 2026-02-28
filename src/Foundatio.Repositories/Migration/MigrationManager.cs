@@ -122,10 +122,10 @@ public class MigrationManager
                 {
                     var context = new MigrationContext(migrationsLock, _loggerFactory.CreateLogger(migrationInfo.Migration.GetType()), cancellationToken);
                     if (migrationInfo.Migration.MigrationType != MigrationType.Versioned)
-                        await _resiliencePolicy.ExecuteAsync(async () =>
+                        await _resiliencePolicy.ExecuteAsync(async ct =>
                         {
                             await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30));
-                            if (cancellationToken.IsCancellationRequested)
+                            if (ct.IsCancellationRequested)
                                 return MigrationResult.Cancelled;
 
                             await migrationInfo.Migration.RunAsync(context).AnyContext();
@@ -158,7 +158,7 @@ public class MigrationManager
         return MigrationResult.Success;
     }
 
-    private async Task MarkMigrationStartedAsync(MigrationInfo info)
+    private Task MarkMigrationStartedAsync(MigrationInfo info)
     {
         _logger.LogInformation("Starting migration {Id}...", info.Migration.GetId());
         if (info.State == null)
@@ -171,13 +171,13 @@ public class MigrationManager
                 StartedUtc = _timeProvider.GetUtcNow().UtcDateTime
             };
 
-            await _migrationStatusRepository.AddAsync(info.State);
+            return _migrationStatusRepository.AddAsync(info.State);
         }
         else
         {
             info.State.StartedUtc = _timeProvider.GetUtcNow().UtcDateTime;
             info.State.Version = info.Migration.Version ?? 0;
-            await _migrationStatusRepository.SaveAsync(info.State);
+            return _migrationStatusRepository.SaveAsync(info.State);
         }
     }
 

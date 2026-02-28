@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Xunit;
@@ -8,27 +10,44 @@ public static class ElasticsearchExtensions
 {
     public static async Task AssertSingleIndexAlias(this ElasticsearchClient client, string indexName, string aliasName)
     {
-        var aliasResponse = await client.Indices.GetAliasAsync(aliasName, a => a.IgnoreUnavailable());
+        var aliasResponse = await client.Indices.GetAliasAsync((Indices)aliasName, a => a.IgnoreUnavailable());
         Assert.True(aliasResponse.IsValidResponse);
-        Assert.Contains(indexName, aliasResponse.Indices);
-        Assert.Single(aliasResponse.Indices);
-        var aliasedIndex = aliasResponse.Indices[indexName];
+        Assert.Contains(indexName, aliasResponse.Aliases.Keys);
+        Assert.Single(aliasResponse.Aliases);
+        var aliasedIndex = aliasResponse.Aliases[indexName];
         Assert.NotNull(aliasedIndex);
-        Assert.Contains(aliasName, aliasedIndex.Aliases);
+        Assert.Contains(aliasName, aliasedIndex.Aliases.Keys);
         Assert.Single(aliasedIndex.Aliases);
     }
 
     public static async Task<int> GetAliasIndexCount(this ElasticsearchClient client, string aliasName)
     {
-        var response = await client.Indices.GetAliasAsync(aliasName, a => a.IgnoreUnavailable());
-        // TODO: Fix this properly once https://github.com/elastic/elasticsearch-net/issues/3828 is fixed in beta2
+        var response = await client.Indices.GetAliasAsync((Indices)aliasName, a => a.IgnoreUnavailable());
+
+        // A 404 response or invalid response indicates no aliases found
         if (!response.IsValidResponse)
             return 0;
 
-        if (!response.IsValidResponse && response.ElasticsearchServerError?.Status == 404)
-            return 0;
+        return response.Aliases.Count;
+    }
 
-        Assert.True(response.IsValidResponse);
-        return response.Indices.Count;
+    public static async Task<IReadOnlyCollection<string>> GetIndicesPointingToAliasAsync(this ElasticsearchClient client, string aliasName)
+    {
+        var response = await client.Indices.GetAliasAsync((Indices)aliasName, a => a.IgnoreUnavailable());
+
+        if (!response.IsValidResponse)
+            return [];
+
+        return response.Aliases.Keys.ToList();
+    }
+
+    public static IReadOnlyCollection<string> GetIndicesPointingToAlias(this ElasticsearchClient client, string aliasName)
+    {
+        var response = client.Indices.GetAlias((Indices)aliasName, a => a.IgnoreUnavailable());
+
+        if (!response.IsValidResponse)
+            return [];
+
+        return response.Aliases.Keys.ToList();
     }
 }

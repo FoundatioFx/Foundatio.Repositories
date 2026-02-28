@@ -41,10 +41,10 @@ public class SoftDeletesQueryBuilder : IElasticQueryBuilder
         if (parentType != null && parentType != typeof(object))
             ctx.Filter &= new HasParentQuery
             {
-                ParentType = parentType,
+                ParentType = parentType.Name.ToLowerInvariant(),
                 Query = new BoolQuery
                 {
-                    Filter = new[] { new Query(new TermQuery { Field = fieldName, Value = false }) }
+                    Filter = [new TermQuery { Field = fieldName, Value = false }]
                 }
             };
 

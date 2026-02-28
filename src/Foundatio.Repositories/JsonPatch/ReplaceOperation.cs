@@ -1,13 +1,13 @@
-﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+﻿using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Foundatio.Repositories.Utility;
 
 public class ReplaceOperation : Operation
 {
-    public JToken Value { get; set; }
+    public JsonNode Value { get; set; }
 
-    public override void Write(JsonWriter writer)
+    public override void Write(Utf8JsonWriter writer)
     {
         writer.WriteStartObject();
 
@@ -18,9 +18,9 @@ public class ReplaceOperation : Operation
         writer.WriteEndObject();
     }
 
-    public override void Read(JObject jOperation)
+    public override void Read(JsonObject jOperation)
     {
-        Path = jOperation.Value<string>("path");
-        Value = jOperation.GetValue("value");
+        Path = jOperation["path"]?.GetValue<string>();
+        Value = jOperation["value"]?.DeepClone();
     }
 }
