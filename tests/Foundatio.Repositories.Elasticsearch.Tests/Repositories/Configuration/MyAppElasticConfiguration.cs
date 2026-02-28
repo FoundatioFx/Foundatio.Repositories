@@ -1,8 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Net.NetworkInformation;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Transport;
 using Foundatio.Caching;
@@ -35,40 +33,19 @@ public class MyAppElasticConfiguration : ElasticConfiguration
 
     protected override NodePool CreateConnectionPool()
     {
-        string connectionString = null;
+        string connectionString = Environment.GetEnvironmentVariable("ELASTICSEARCH_URL");
         bool fiddlerIsRunning = Process.GetProcessesByName("fiddler").Length > 0;
 
-        var servers = new List<Uri>();
         if (!String.IsNullOrEmpty(connectionString))
         {
-            servers.AddRange(
-                connectionString.Split(',')
-                    .Select(url => new Uri(fiddlerIsRunning ? url.Replace("localhost", "ipv4.fiddler") : url)));
-        }
-        else
-        {
-            servers.Add(new Uri($"http://{(fiddlerIsRunning ? "ipv4.fiddler" : "elastic.localtest.me")}:9200"));
-            if (IsPortOpen(9201))
-                servers.Add(new Uri($"http://{(fiddlerIsRunning ? "ipv4.fiddler" : "localhost")}:9201"));
-            if (IsPortOpen(9202))
-                servers.Add(new Uri($"http://{(fiddlerIsRunning ? "ipv4.fiddler" : "localhost")}:9202"));
+            var servers = connectionString.Split(',')
+                .Select(url => new Uri(fiddlerIsRunning ? url.Replace("localhost", "ipv4.fiddler") : url))
+                .ToList();
+            return new StaticNodePool(servers);
         }
 
-        return new StaticNodePool(servers);
-    }
-
-    private static bool IsPortOpen(int port)
-    {
-        var ipGlobalProperties = IPGlobalProperties.GetIPGlobalProperties();
-        var tcpConnInfoArray = ipGlobalProperties.GetActiveTcpListeners();
-
-        foreach (var endpoint in tcpConnInfoArray)
-        {
-            if (endpoint.Port == port)
-                return true;
-        }
-
-        return false;
+        var host = fiddlerIsRunning ? "ipv4.fiddler" : "elastic.localtest.me";
+        return new SingleNodePool(new Uri($"http://{host}:9200"));
     }
 
     protected override ElasticsearchClient CreateElasticClient()

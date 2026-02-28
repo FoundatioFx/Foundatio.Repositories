@@ -775,7 +775,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     if (taskStatus.Completed)
                     {
-                        // TODO: need to check to see if the task failed or completed successfully. Throw if it failed.
+                        var rawResponse = taskStatus.DeserializeRaw<TaskWithErrorResponse>();
+                        if (rawResponse?.Error != null)
+                        {
+                            var error = rawResponse.Error;
+                            throw new DocumentException($"Script operation task ({taskId}) failed: {error.Type} - {error.Reason}", taskStatus.OriginalException());
+                        }
+
                         _logger.LogInformation("Script operation task ({TaskId}) completed: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, created, updated, deleted, versionConflicts, total);
                         affectedRecords += (created ?? 0) + (updated ?? 0) + (deleted ?? 0);
                         break;
@@ -828,7 +834,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     var updatedIds = results.Hits.Select(h => h.Id).ToList();
                     if (IsCacheEnabled)
                     {
-                        // TODO: Add cache invalidation for documents.
                         await InvalidateCacheAsync(updatedIds).AnyContext();
                     }
 
@@ -1601,4 +1606,15 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     }
 
     public AsyncEvent<BeforePublishEntityChangedEventArgs<T>> BeforePublishEntityChanged { get; } = new AsyncEvent<BeforePublishEntityChangedEventArgs<T>>();
+
+    private class TaskWithErrorResponse
+    {
+        public TaskErrorInfo Error { get; set; }
+    }
+
+    private class TaskErrorInfo
+    {
+        public string Type { get; set; }
+        public string Reason { get; set; }
+    }
 }
