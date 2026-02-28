@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
@@ -13,101 +14,178 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 public sealed class PipelineTests : ElasticRepositoryTestBase
 {
     private const string PipelineId = "employee-lowercase-name";
-    private readonly EmployeeWithPipelineRepository _repository;
+    private readonly EmployeeWithPipelineRepository _employeeRepository;
 
     public PipelineTests(ITestOutputHelper output) : base(output)
     {
-        _repository = new EmployeeWithPipelineRepository(_configuration.Employees, PipelineId);
+        _employeeRepository = new EmployeeWithPipelineRepository(_configuration.Employees, PipelineId);
     }
 
     public override async ValueTask InitializeAsync()
     {
         await base.InitializeAsync();
-        await EnsurePipelineExistsAsync();
-        await RemoveDataAsync();
-    }
 
-    private async Task EnsurePipelineExistsAsync()
-    {
         var response = await _client.Ingest.PutPipelineAsync(PipelineId, p => p
             .Description("Lowercases the name field for pipeline tests")
             .Processors(pr => pr.Lowercase(l => l.Field("name"))));
-
         Assert.True(response.IsValidResponse, $"Failed to create pipeline: {response.ElasticsearchServerError?.Error?.Reason}");
+
+        await RemoveDataAsync();
     }
 
     [Fact]
-    public async Task AddAsync_WithPipeline_TransformsDocument()
+    public async Task AddAsync()
     {
-        var employee = await _repository.AddAsync(EmployeeGenerator.Generate(name: "  BLAKE NIEMYJSKI  "), o => o.ImmediateConsistency());
-        Assert.NotNull(employee);
-        Assert.NotNull(employee.Id);
+        // Arrange & Act
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "  BLAKE  "), o => o.ImmediateConsistency());
 
-        var result = await _repository.GetByIdAsync(employee.Id);
-        Assert.NotNull(result);
-        Assert.Equal("  blake niemyjski  ", result.Name);
+        // Assert
+        Assert.NotNull(employee?.Id);
+        var result = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.Equal("  blake  ", result.Name);
     }
 
     [Fact]
-    public async Task AddCollectionAsync_WithPipeline_TransformsAllDocuments()
+    public async Task AddCollectionAsync()
     {
+        // Arrange
         var employees = new List<Employee>
         {
-            EmployeeGenerator.Generate(name: "BLAKE"),
-            EmployeeGenerator.Generate(name: "JOHN DOE")
+            EmployeeGenerator.Generate(name: "  BLAKE  "),
+            EmployeeGenerator.Generate(name: "\tBLAKE  ")
         };
-        await _repository.AddAsync(employees, o => o.ImmediateConsistency());
 
-        var results = await _repository.GetByIdsAsync(employees.Select(e => e.Id).ToList());
-        Assert.Equal(2, results.Count);
-        Assert.All(results, e => Assert.Equal(e.Name.ToLowerInvariant(), e.Name));
+        // Act
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        // Assert
+        var result = await _employeeRepository.GetByIdsAsync(new Ids(employees.Select(e => e.Id)));
+        Assert.Equal(2, result.Count);
+        Assert.True(result.All(e => String.Equals(e.Name, e.Name.ToLowerInvariant())));
     }
 
     [Fact]
-    public async Task SaveAsync_WithPipeline_TransformsDocument()
+    public async Task SaveCollectionAsync()
     {
-        var employee = await _repository.AddAsync(EmployeeGenerator.Generate(name: "original"), o => o.ImmediateConsistency());
-        Assert.NotNull(employee);
-        Assert.NotNull(employee.Id);
+        // Arrange
+        var employee1 = EmployeeGenerator.Generate(id: ObjectId.GenerateNewId().ToString(), name: "Original1");
+        var employee2 = EmployeeGenerator.Generate(id: ObjectId.GenerateNewId().ToString(), name: "Original2");
+        await _employeeRepository.AddAsync(new List<Employee> { employee1, employee2 }, o => o.ImmediateConsistency());
 
-        employee.Name = "UPDATED NAME";
-        await _repository.SaveAsync(employee, o => o.ImmediateConsistency());
+        // Act
+        employee1.Name = "  BLAKE  ";
+        employee2.Name = "\tBLAKE  ";
+        await _employeeRepository.SaveAsync(new List<Employee> { employee1, employee2 }, o => o.ImmediateConsistency());
 
-        var result = await _repository.GetByIdAsync(employee.Id);
-        Assert.NotNull(result);
-        Assert.Equal("updated name", result.Name);
+        // Assert
+        var result = await _employeeRepository.GetByIdsAsync(new List<string> { employee1.Id, employee2.Id });
+        Assert.Equal(2, result.Count);
+        Assert.True(result.All(e => String.Equals(e.Name, e.Name.ToLowerInvariant())));
     }
 
     [Fact]
-    public async Task JsonPatchAsync_WithPipeline_TransformsDocument()
+    public async Task JsonPatchAsync()
     {
-        var employee = await _repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
-        Assert.NotNull(employee);
-        Assert.NotNull(employee.Id);
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
 
-        var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = JsonValue.Create("PATCHED") });
-        await _repository.PatchAsync(employee.Id, new JsonPatch(patch), o => o.ImmediateConsistency());
+        // Act
+        var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = JsonValue.Create("Patched") });
+        await _employeeRepository.PatchAsync(employee.Id, new JsonPatch(patch), o => o.ImmediateConsistency());
 
-        var result = await _repository.GetByIdAsync(employee.Id);
-        Assert.NotNull(result);
-        Assert.Equal("patched", result.Name);
-        Assert.Equal(EmployeeGenerator.Default.Age, result.Age);
+        // Assert
+        employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
+        Assert.Equal("patched", employee.Name);
     }
 
     [Fact]
-    public async Task JsonPatchAllAsync_WithPipeline_TransformsAllDocuments()
+    public async Task JsonPatchAllAsync()
     {
+        // Arrange
         var employees = new List<Employee>
         {
             EmployeeGenerator.Generate(companyId: "1", name: "employee1"),
             EmployeeGenerator.Generate(companyId: "1", name: "employee2"),
         };
-        await _repository.AddAsync(employees, o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
-        var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = JsonValue.Create("PATCHED") });
-        await _repository.PatchAsync(employees.Select(e => e.Id).ToArray(), new JsonPatch(patch), o => o.ImmediateConsistency());
+        // Act
+        var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = JsonValue.Create("Patched") });
+        await _employeeRepository.PatchAsync(employees.Select(e => e.Id).ToArray(), new JsonPatch(patch), o => o.ImmediateConsistency());
 
-        var results = await _repository.GetByIdsAsync(employees.Select(e => e.Id).ToList());
+        // Assert
+        var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToList());
+        Assert.Equal(2, results.Count);
+        Assert.All(results, e => Assert.Equal("patched", e.Name));
+    }
+
+    [Fact(Skip = "Not yet supported: https://github.com/elastic/elasticsearch/issues/17895")]
+    public async Task PartialPatchAsync()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+
+        // Act
+        await _employeeRepository.PatchAsync(employee.Id, new PartialPatch(new { name = "Patched" }), o => o.ImmediateConsistency());
+
+        // Assert
+        employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
+        Assert.Equal("patched", employee.Name);
+    }
+
+    [Fact(Skip = "Not yet supported: https://github.com/elastic/elasticsearch/issues/17895")]
+    public async Task PartialPatchAllAsync()
+    {
+        // Arrange
+        var employees = new List<Employee>
+        {
+            EmployeeGenerator.Generate(companyId: "1", name: "employee1"),
+            EmployeeGenerator.Generate(companyId: "1", name: "employee2"),
+        };
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        // Act
+        await _employeeRepository.PatchAsync(employees.Select(e => e.Id).ToArray(), new PartialPatch(new { name = "Patched" }), o => o.ImmediateConsistency());
+
+        // Assert
+        var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToList());
+        Assert.Equal(2, results.Count);
+        Assert.All(results, e => Assert.Equal("patched", e.Name));
+    }
+
+    [Fact(Skip = "Not yet supported: https://github.com/elastic/elasticsearch/issues/17895")]
+    public async Task ScriptPatchAsync()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+
+        // Act
+        await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'Patched';"), o => o.ImmediateConsistency());
+
+        // Assert
+        employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
+        Assert.Equal("patched", employee.Name);
+    }
+
+    [Fact(Skip = "Not yet supported: https://github.com/elastic/elasticsearch/issues/17895")]
+    public async Task ScriptPatchAllAsync()
+    {
+        // Arrange
+        var employees = new List<Employee>
+        {
+            EmployeeGenerator.Generate(companyId: "1", name: "employee1"),
+            EmployeeGenerator.Generate(companyId: "1", name: "employee2"),
+        };
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        // Act
+        await _employeeRepository.PatchAsync(employees.Select(e => e.Id).ToArray(), new ScriptPatch("ctx._source.name = 'Patched';"), o => o.ImmediateConsistency());
+
+        // Assert
+        var results = await _employeeRepository.GetByIdsAsync(employees.Select(e => e.Id).ToList());
         Assert.Equal(2, results.Count);
         Assert.All(results, e => Assert.Equal("patched", e.Name));
     }
