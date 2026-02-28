@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq.Expressions;
@@ -289,13 +289,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
         {
             return value switch
             {
+                null => null,
                 string s => s,
                 long l => l,
                 int i => i,
                 double d => d,
                 float f => f,
                 bool b => b,
-                _ => value?.ToString()
+                _ => value.ToString()
             };
         }
     }
