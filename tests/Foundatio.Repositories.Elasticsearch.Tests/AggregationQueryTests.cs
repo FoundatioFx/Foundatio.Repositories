@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -10,7 +10,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
 using Microsoft.Extensions.Time.Testing;
 using Newtonsoft.Json;
-using Xunit;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;

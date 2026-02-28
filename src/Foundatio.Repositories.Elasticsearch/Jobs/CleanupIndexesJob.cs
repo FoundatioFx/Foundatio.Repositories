@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -108,7 +108,7 @@ public class CleanupIndexesJob : IJob
                 {
                     _logger.LogInformation("Got lock to delete index {OldIndex}", oldIndex.Index);
                     sw.Restart();
-                    var response = await _client.Indices.DeleteAsync((Indices)oldIndex.Index, t).AnyContext();
+                    var response = await _client.Indices.DeleteAsync(Indices.Index(oldIndex.Index), t).AnyContext();
                     sw.Stop();
                     _logger.LogRequest(response);
 

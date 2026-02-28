@@ -14,7 +14,6 @@ using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using TimeZoneConverter;
 using Xunit;
-using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 

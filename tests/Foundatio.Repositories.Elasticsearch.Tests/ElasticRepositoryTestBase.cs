@@ -73,12 +73,13 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
 
     protected async Task DeleteWildcardIndicesAsync(string pattern)
     {
-        // Resolve wildcards to actual index names to avoid issues with action.destructive_requires_name=true
-        var resolveResponse = await _client.Indices.ResolveIndexAsync(pattern);
-        if (resolveResponse.IsValidResponse && resolveResponse.Indices != null && resolveResponse.Indices.Count > 0)
+        // Use GetAsync to resolve wildcards to actual index names to avoid issues with action.destructive_requires_name=true.
+        // Note: ResolveIndexAsync sends a body in ES 9.x client which ES rejects; use GetAsync instead.
+        var getResponse = await _client.Indices.GetAsync(Indices.Parse(pattern), d => d.IgnoreUnavailable());
+        if (getResponse.IsValidResponse && getResponse.Indices != null && getResponse.Indices.Count > 0)
         {
-            var indexNames = resolveResponse.Indices.Select(i => i.Name).ToArray();
-            await _client.Indices.DeleteAsync((Indices)indexNames, i => i.IgnoreUnavailable());
+            var indexNames = string.Join(",", getResponse.Indices.Keys);
+            await _client.Indices.DeleteAsync(Indices.Parse(indexNames), i => i.IgnoreUnavailable());
         }
     }
 

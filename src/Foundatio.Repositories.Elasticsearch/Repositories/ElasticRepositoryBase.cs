@@ -1386,7 +1386,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             {
                 foreach (var hit in response.Items)
                 {
-                    if (hit.Status != 200 && hit.Status != 201)
+                    if (!hit.IsValid)
                         continue;
 
                     var document = documents.FirstOrDefault(d => d.Id == hit.Id);

@@ -13,6 +13,7 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Microsoft.Extensions.Logging;
+using ChangeType = Foundatio.Repositories.Models.ChangeType;
 
 namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
@@ -311,7 +312,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         await _cache.RemoveAsync(GetMappingCacheKey(entityTypeCondition.Value.ToString(), GetTenantKey(query))).AnyContext();
     }
 
-    protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<CustomFieldDefinition>> documents, Foundatio.Repositories.Models.ChangeType? changeType = null)
+    protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<CustomFieldDefinition>> documents, ChangeType? changeType = null)
     {
         await base.InvalidateCacheAsync(documents, changeType).AnyContext();
 

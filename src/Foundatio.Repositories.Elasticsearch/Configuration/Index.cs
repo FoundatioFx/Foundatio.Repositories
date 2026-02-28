@@ -304,7 +304,7 @@ public class Index : IIndex
 
         settings.Analysis = null;
 
-        var updateResponse = await Configuration.Client.Indices.PutSettingsAsync(name, d => d.Settings(settings)).AnyContext();
+        var updateResponse = await Configuration.Client.Indices.PutSettingsAsync(name, d => d.Reopen().Settings(settings)).AnyContext();
 
         if (updateResponse.IsValidResponse)
             _logger.LogRequest(updateResponse);
@@ -325,17 +325,18 @@ public class Index : IIndex
         if (names == null || names.Length == 0)
             throw new ArgumentNullException(nameof(names));
 
-        // Resolve wildcards to actual index names to avoid issues with action.destructive_requires_name=true
+        // Resolve wildcards to actual index names to avoid issues with action.destructive_requires_name=true.
+        // Note: ResolveIndexAsync sends a body in ES 9.x client which ES rejects; use GetAsync instead.
         var indexNames = new List<string>();
         foreach (var name in names)
         {
             if (name.Contains("*") || name.Contains("?"))
             {
-                var resolveResponse = await Configuration.Client.Indices.ResolveIndexAsync(name).AnyContext();
-                if (resolveResponse.IsValidResponse && resolveResponse.Indices != null)
+                var getResponse = await Configuration.Client.Indices.GetAsync(Indices.Parse(name), d => d.IgnoreUnavailable()).AnyContext();
+                if (getResponse.IsValidResponse && getResponse.Indices != null)
                 {
-                    foreach (var index in resolveResponse.Indices)
-                        indexNames.Add(index.Name);
+                    foreach (var kvp in getResponse.Indices)
+                        indexNames.Add(kvp.Key);
                 }
             }
             else
@@ -352,7 +353,7 @@ public class Index : IIndex
         const int batchSize = 50;
         foreach (var batch in indexNames.Chunk(batchSize))
         {
-            var response = await Configuration.Client.Indices.DeleteAsync((Indices)batch.ToArray(), i => i.IgnoreUnavailable()).AnyContext();
+            var response = await Configuration.Client.Indices.DeleteAsync(Indices.Parse(string.Join(",", batch)), i => i.IgnoreUnavailable()).AnyContext();
 
             if (response.IsValidResponse)
             {

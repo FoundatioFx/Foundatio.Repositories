@@ -16,7 +16,6 @@ using Foundatio.Repositories.Utility;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Xunit;
-using Xunit;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -557,6 +556,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Equal(2, countResponse.Count);
 
         var result = await repository.GetByIdAsync(employee.Id);
+        employee.Version = result.Version; // SeqNo/PrimaryTerm is not preserved across reindex
         Assert.Equal(ToJson(employee), ToJson(result));
         Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
     }
@@ -629,7 +629,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.True(countResponse.IsValidResponse, countResponse.GetErrorMessage());
         Assert.Equal(1, countResponse.Count);
 
-        Assert.Equal(employee, await repository.GetByIdAsync(employee.Id));
+        var reindexedEmployee = await repository.GetByIdAsync(employee.Id);
+        employee.Version = reindexedEmployee.Version; // SeqNo/PrimaryTerm is not preserved across reindex
+        Assert.Equal(employee, reindexedEmployee);
         Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName)).Exists);
     }
 

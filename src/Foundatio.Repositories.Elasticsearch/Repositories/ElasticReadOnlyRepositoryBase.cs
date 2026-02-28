@@ -26,6 +26,7 @@ using Foundatio.Repositories.Queries;
 using Foundatio.Resilience;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
+using ChangeType = Foundatio.Repositories.Models.ChangeType;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
@@ -695,11 +696,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         _scopedCacheClient = new ScopedCacheClient(new NullCacheClient(), EntityTypeName);
     }
 
-    protected virtual Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>> documents, Foundatio.Repositories.Models.ChangeType? changeType = null)
+    protected virtual Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>> documents, ChangeType? changeType = null)
     {
         var keysToRemove = new HashSet<string>();
 
-        if (IsCacheEnabled && HasIdentity && changeType != Foundatio.Repositories.Models.ChangeType.Added)
+        if (IsCacheEnabled && HasIdentity && changeType != ChangeType.Added)
         {
             foreach (var document in documents)
             {
