@@ -45,7 +45,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         IEmployeeRepository repository = new EmployeeRepository(_configuration);
         var employee = await repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         var countResponse = await _client.CountAsync<Employee>(d => d.Indices(index.Name), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
@@ -219,7 +220,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
         var employee = await version1Repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.Name), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
@@ -272,7 +274,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
 
         employee = await version2Repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.Name), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
@@ -295,7 +298,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         var utcNow = DateTime.UtcNow;
         var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
@@ -347,7 +351,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
             var utcNow = DateTime.UtcNow;
             var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
-            Assert.NotNull(employee?.Id);
+            Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
             await using AsyncDisposableAction version20Scope = new(() => version20Index.DeleteAsync());
             await version20Index.ConfigureAsync();
@@ -373,7 +378,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
             var utcNow = DateTime.UtcNow;
             var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
-            Assert.NotNull(employee?.Id);
+            Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
             await using AsyncDisposableAction version21Scope = new(() => version21Index.DeleteAsync());
             await version21Index.ConfigureAsync();
@@ -400,7 +406,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         var utcNow = DateTime.UtcNow;
         var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         await using AsyncDisposableAction version22Scope = new(() => version22Index.DeleteAsync());
         await version22Index.ConfigureAsync();
@@ -427,7 +434,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
         var employee = await version1Repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
@@ -498,7 +506,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         IEmployeeRepository repository = new EmployeeRepository(_configuration);
         var employee = await repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
@@ -570,7 +579,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         IEmployeeRepository repository = new EmployeeRepository(_configuration);
         var employee = await repository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
@@ -737,7 +747,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         var utcNow = DateTime.UtcNow;
         var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();

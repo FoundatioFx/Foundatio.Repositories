@@ -96,7 +96,7 @@ public class JsonDiffer
 
             foreach (var match in zipped)
             {
-                string newPath = $"{path}/{match.key}";
+                string newPath = Extend(path, match.key);
                 foreach (var patch in CalculatePatch(match.left, match.right, useIdToDetermineEquality, newPath))
                     yield return patch;
             }

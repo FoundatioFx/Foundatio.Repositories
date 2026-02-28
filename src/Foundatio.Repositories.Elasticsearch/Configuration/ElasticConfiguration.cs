@@ -227,6 +227,9 @@ public class ElasticConfiguration : IElasticConfiguration
 
         _disposed = true;
 
+        if (_client.IsValueCreated)
+            (_client.Value.ElasticsearchClientSettings as IDisposable)?.Dispose();
+
         if (_shouldDisposeCache)
             Cache.Dispose();
 
