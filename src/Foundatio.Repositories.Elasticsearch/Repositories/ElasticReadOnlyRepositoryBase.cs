@@ -457,7 +457,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             _logger.LogRequest(scrollResponse, options.GetQueryLogLevel());
 
             var results = scrollResponse.ToFindResults(options);
-            ((IFindResults<T>)results).Page = previousResults.Page + 1;
+            ((IFindResults<TResult>)results).Page = previousResults.Page + 1;
 
             // clear the scroll
             if (!results.HasMore)
@@ -472,10 +472,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (options.ShouldUseSearchAfterPaging())
             options.SearchAfterToken(previousResults.GetSearchAfterToken());
 
-        if (options == null)
-            return new FindResults<TResult>();
-
-        options?.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
+        options.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
         return await FindAsAsync<TResult>(query, options).AnyContext();
     }
 

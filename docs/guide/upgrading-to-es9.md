@@ -277,7 +277,7 @@ The `TopHitsAggregate` now serializes the raw document JSON in its `Hits` proper
 - [ ] Change `ConfigureIndex` return type from `CreateIndexDescriptor` to `void` (remove `return`)
 - [ ] Change `ConfigureIndexMapping` return type to `void` (remove `return`)
 - [ ] Update property mapping syntax (remove `.Name(e => e.Prop)` wrapper)
-- [ ] Replace `TypeNumber.Integer` with `.IntegerNumber()` extension
+- [ ] Replace `NumberType.Integer` with `.IntegerNumber()` extension
 - [ ] Replace `.Dynamic(false)` with `.Dynamic(DynamicMapping.False)`
 - [ ] Replace `response.IsValid` with `response.IsValidResponse`
 - [ ] Remove `NEST.JsonNetSerializer` dependency

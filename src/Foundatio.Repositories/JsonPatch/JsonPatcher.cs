@@ -169,6 +169,9 @@ public class JsonPatcher : AbstractPatcher<JsonNode>
 /// </summary>
 public static class JsonNodeExtensions
 {
+    private static readonly Regex _dotPropFilterRegex = new(@"^@\.(\w+)\s*==\s*'(.+)'$", RegexOptions.Compiled);
+    private static readonly Regex _directValueFilterRegex = new(@"^@\s*==\s*'(.+)'$", RegexOptions.Compiled);
+
     public static JsonNode SelectPatchToken(this JsonNode token, string path)
     {
         return SelectToken(token, path.ToJsonPointerPath());
@@ -248,9 +251,7 @@ public static class JsonNodeExtensions
 
     private static bool EvaluateJsonPathFilter(JsonNode node, string filter)
     {
-        // Pattern: @.property == 'value' or @.property == value
-        var dotPropMatch = Regex.Match(filter,
-            @"^@\.(\w+)\s*==\s*'(.+)'$");
+        var dotPropMatch = _dotPropFilterRegex.Match(filter);
         if (dotPropMatch.Success)
         {
             string prop = dotPropMatch.Groups[1].Value;
@@ -260,9 +261,7 @@ public static class JsonNodeExtensions
             return false;
         }
 
-        // Pattern: @ == 'value' (match array element value directly)
-        var directMatch = Regex.Match(filter,
-            @"^@\s*==\s*'(.+)'$");
+        var directMatch = _directValueFilterRegex.Match(filter);
         if (directMatch.Success)
         {
             string expected = directMatch.Groups[1].Value;
@@ -337,46 +336,32 @@ public static class JsonNodeExtensions
         if (pathParts.Length == 0)
             return token;
 
-        // First pass: validate that the path can be created
-        // Check that we won't encounter a numeric part where no array/object exists
-        JsonNode current = token;
+        // Validate that the path can be created: numeric parts must resolve to existing array indices
+        JsonNode validationNode = token;
         for (int i = 0; i < pathParts.Length; i++)
         {
             string part = pathParts[i];
 
-            if (current is JsonObject currentObj)
+            if (validationNode is JsonObject validationObj)
             {
-                if (currentObj.TryGetPropertyValue(part, out var partToken))
-                {
-                    current = partToken;
-                }
-                else
-                {
-                    // Can't create numeric paths as objects - that would need to be an array
-                    if (part.IsNumeric())
-                        return null;
-                    // Simulate continuing with the path (current becomes a placeholder for new object)
-                    current = null;
-                }
-            }
-            else if (current is JsonArray currentArr)
-            {
-                // Navigate through existing array elements
-                if (int.TryParse(part, out int index) && index >= 0 && index < currentArr.Count)
-                {
-                    current = currentArr[index];
-                }
-                else
-                {
+                if (validationObj.TryGetPropertyValue(part, out var partToken))
+                    validationNode = partToken;
+                else if (part.IsNumeric())
                     return null;
-                }
+                else
+                    validationNode = null;
             }
-            else if (current == null)
+            else if (validationNode is JsonArray validationArr)
             {
-                // We're past a part that needs to be created
+                if (int.TryParse(part, out int index) && index >= 0 && index < validationArr.Count)
+                    validationNode = validationArr[index];
+                else
+                    return null;
+            }
+            else if (validationNode == null)
+            {
                 if (part.IsNumeric())
                     return null;
-                // Continue validation
             }
             else
             {
@@ -384,8 +369,8 @@ public static class JsonNodeExtensions
             }
         }
 
-        // Second pass: actually create the missing parts
-        current = token;
+        // Create missing intermediate objects
+        JsonNode current = token;
         for (int i = 0; i < pathParts.Length; i++)
         {
             string part = pathParts[i];
@@ -429,43 +414,30 @@ public static class JsonNodeExtensions
         if (pathParts.Length == 0)
             return token;
 
-        // First pass: validate that the path can be created
-        // Check that we won't encounter a numeric part where no array exists
-        JsonNode current = token;
-
+        // Validate that the path can be created: numeric parts must resolve to existing array indices
+        JsonNode validationNode = token;
         for (int i = 0; i < pathParts.Length; i++)
         {
             string part = pathParts[i];
 
-            if (current is JsonObject currentObj)
+            if (validationNode is JsonObject validationObj)
             {
-                if (currentObj.TryGetPropertyValue(part, out var partToken))
-                {
-                    current = partToken;
-                }
-                else
-                {
-                    // Can't create numeric paths as objects - that would need to be an array
-                    if (part.IsNumeric())
-                        return null;
-                    current = null; // Will be created in the second pass
-                }
-            }
-            else if (current is JsonArray currentArr)
-            {
-                // Navigate through existing array elements
-                if (int.TryParse(part, out int index) && index >= 0 && index < currentArr.Count)
-                {
-                    current = currentArr[index];
-                }
-                else
-                {
+                if (validationObj.TryGetPropertyValue(part, out var partToken))
+                    validationNode = partToken;
+                else if (part.IsNumeric())
                     return null;
-                }
+                else
+                    validationNode = null;
             }
-            else if (current == null)
+            else if (validationNode is JsonArray validationArr)
             {
-                // We're past a part that needs to be created
+                if (int.TryParse(part, out int index) && index >= 0 && index < validationArr.Count)
+                    validationNode = validationArr[index];
+                else
+                    return null;
+            }
+            else if (validationNode == null)
+            {
                 if (part.IsNumeric())
                     return null;
             }
@@ -475,8 +447,8 @@ public static class JsonNodeExtensions
             }
         }
 
-        // Second pass: actually create the missing parts
-        current = token;
+        // Create missing intermediate objects (arrays for last segment)
+        JsonNode current = token;
         for (int i = 0; i < pathParts.Length; i++)
         {
             string part = pathParts[i];

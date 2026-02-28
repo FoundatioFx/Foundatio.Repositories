@@ -1296,7 +1296,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return originals.AsReadOnly();
     }
 
-    private async Task IndexDocumentsAsync(IReadOnlyCollection<T> documents, bool isCreateOperation, ICommandOptions options)
+    private async Task IndexDocumentsAsync(IReadOnlyCollection<T> documents, bool isCreateOperation, ICommandOptions options, int retryAttempt = 0)
     {
         if (ElasticIndex.HasMultipleIndexes)
         {
@@ -1401,10 +1401,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             if (allErrors.Count > 0)
             {
                 var retryableIds = allErrors.Where(e => e.Status == 429 || e.Status == 503).Select(e => e.Id).ToList();
-                if (retryableIds.Count > 0)
+                if (retryableIds.Count > 0 && retryAttempt < 3)
                 {
                     var docs = documents.Where(d => retryableIds.Contains(d.Id)).ToList();
-                    await IndexDocumentsAsync(docs, isCreateOperation, options).AnyContext();
+                    await IndexDocumentsAsync(docs, isCreateOperation, options, retryAttempt + 1).AnyContext();
 
                     // return as all recoverable items were retried.
                     if (allErrors.Count == retryableIds.Count)

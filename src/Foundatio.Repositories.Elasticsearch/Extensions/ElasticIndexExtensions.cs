@@ -559,7 +559,7 @@ public static class ElasticIndexExtensions
 
     private static BucketAggregate ToDateHistogramBucketAggregate(ElasticAggregations.DateHistogramAggregate aggregate)
     {
-        var data = new Dictionary<string, object>((IDictionary<string, object>)aggregate.Meta ?? new Dictionary<string, object>());
+        var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
 
         // Check if there's a timezone offset in the metadata
         bool hasTimezone = data.TryGetValue("@timezone", out object timezoneValue) && timezoneValue != null;
@@ -594,7 +594,7 @@ public static class ElasticIndexExtensions
 
     private static BucketAggregate ToTermsBucketAggregate(ElasticAggregations.StringTermsAggregate aggregate)
     {
-        var data = new Dictionary<string, object>((IDictionary<string, object>)aggregate.Meta ?? new Dictionary<string, object>());
+        var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
         if (aggregate.DocCountErrorUpperBound.GetValueOrDefault() > 0)
             data.Add(nameof(aggregate.DocCountErrorUpperBound), aggregate.DocCountErrorUpperBound);
         if (aggregate.SumOtherDocCount.GetValueOrDefault() > 0)
@@ -617,7 +617,7 @@ public static class ElasticIndexExtensions
 
     private static BucketAggregate ToTermsBucketAggregate(ElasticAggregations.LongTermsAggregate aggregate)
     {
-        var data = new Dictionary<string, object>((IDictionary<string, object>)aggregate.Meta ?? new Dictionary<string, object>());
+        var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
         if (aggregate.DocCountErrorUpperBound.GetValueOrDefault() > 0)
             data.Add(nameof(aggregate.DocCountErrorUpperBound), aggregate.DocCountErrorUpperBound);
         if (aggregate.SumOtherDocCount.GetValueOrDefault() > 0)
@@ -640,7 +640,7 @@ public static class ElasticIndexExtensions
 
     private static BucketAggregate ToTermsBucketAggregate(ElasticAggregations.DoubleTermsAggregate aggregate)
     {
-        var data = new Dictionary<string, object>((IDictionary<string, object>)aggregate.Meta ?? new Dictionary<string, object>());
+        var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
         if (aggregate.DocCountErrorUpperBound.GetValueOrDefault() > 0)
             data.Add(nameof(aggregate.DocCountErrorUpperBound), aggregate.DocCountErrorUpperBound);
         if (aggregate.SumOtherDocCount.GetValueOrDefault() > 0)
@@ -663,7 +663,7 @@ public static class ElasticIndexExtensions
 
     private static BucketAggregate ToRangeBucketAggregate(ElasticAggregations.DateRangeAggregate aggregate)
     {
-        var data = new Dictionary<string, object>((IDictionary<string, object>)aggregate.Meta ?? new Dictionary<string, object>());
+        var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
 
         var buckets = aggregate.Buckets.Select(b => (IBucket)new RangeBucket(b.ToAggregations())
         {
@@ -685,7 +685,7 @@ public static class ElasticIndexExtensions
 
     private static BucketAggregate ToRangeBucketAggregate(ElasticAggregations.RangeAggregate aggregate)
     {
-        var data = new Dictionary<string, object>((IDictionary<string, object>)aggregate.Meta ?? new Dictionary<string, object>());
+        var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
 
         var buckets = aggregate.Buckets.Select(b => (IBucket)new RangeBucket(b.ToAggregations())
         {
@@ -707,7 +707,7 @@ public static class ElasticIndexExtensions
 
     private static BucketAggregate ToGeohashGridBucketAggregate(ElasticAggregations.GeohashGridAggregate aggregate)
     {
-        var data = new Dictionary<string, object>((IDictionary<string, object>)aggregate.Meta ?? new Dictionary<string, object>());
+        var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
 
         var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<string>(b.ToAggregations())
         {
