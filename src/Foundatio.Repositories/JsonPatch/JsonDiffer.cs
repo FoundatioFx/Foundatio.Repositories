@@ -214,14 +214,11 @@ internal class CustomCheckEqualityComparer : IEqualityComparer<JsonNode>
 
     public bool Equals(JsonNode x, JsonNode y)
     {
-        if (!_enableIdCheck || x is not JsonObject || y is not JsonObject)
+        if (!_enableIdCheck || x is not JsonObject xObj || y is not JsonObject yObj)
             return JsonNode.DeepEquals(x, y);
 
-        var xObj = x as JsonObject;
-        var yObj = y as JsonObject;
-
-        string xId = xObj?["id"]?.GetValue<string>();
-        string yId = yObj?["id"]?.GetValue<string>();
+        string xId = xObj["id"]?.GetValue<string>();
+        string yId = yObj["id"]?.GetValue<string>();
         if (xId != null && xId == yId)
         {
             return true;
@@ -232,27 +229,23 @@ internal class CustomCheckEqualityComparer : IEqualityComparer<JsonNode>
 
     public int GetHashCode(JsonNode obj)
     {
-        if (!_enableIdCheck || obj is not JsonObject)
+        if (!_enableIdCheck || obj is not JsonObject xObj)
             return obj?.ToJsonString()?.GetHashCode() ?? 0;
 
-        var xObj = obj as JsonObject;
-        string xId = xObj?["id"]?.GetValue<string>();
+        string xId = xObj["id"]?.GetValue<string>();
         if (xId != null)
-            return xId.GetHashCode() + (obj?.ToJsonString()?.GetHashCode() ?? 0);
+            return xId.GetHashCode() + (obj.ToJsonString()?.GetHashCode() ?? 0);
 
-        return obj?.ToJsonString()?.GetHashCode() ?? 0;
+        return obj.ToJsonString()?.GetHashCode() ?? 0;
     }
 
     public static bool HaveEqualIds(JsonNode x, JsonNode y)
     {
-        if (x is not JsonObject || y is not JsonObject)
+        if (x is not JsonObject xObj || y is not JsonObject yObj)
             return false;
 
-        var xObj = x as JsonObject;
-        var yObj = y as JsonObject;
-
-        string xId = xObj?["id"]?.GetValue<string>();
-        string yId = yObj?["id"]?.GetValue<string>();
+        string xId = xObj["id"]?.GetValue<string>();
+        string yId = yObj["id"]?.GetValue<string>();
 
         return xId != null && xId == yId;
     }

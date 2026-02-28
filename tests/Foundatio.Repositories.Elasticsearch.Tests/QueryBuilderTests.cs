@@ -28,9 +28,23 @@ public sealed class RuntimeFieldsQueryBuilderTests : TestWithLoggingBase
 
         await queryBuilder.BuildAsync(ctx);
 
-        // Verify runtime fields were added to the context
+        // Verify the runtime fields are still present after BuildAsync
+        // (BuildAsync reads them to configure ctx.Search.RuntimeMappings)
         Assert.Equal(2, ctxElastic.RuntimeFields.Count);
-        Assert.Equal(runtimeField1, ctxElastic.RuntimeFields.First().Name);
-        Assert.Equal(runtimeField2, ctxElastic.RuntimeFields.Last().Name);
+        Assert.Equal(runtimeField1, ctxElastic.RuntimeFields.ElementAt(0).Name);
+        Assert.Equal(runtimeField2, ctxElastic.RuntimeFields.ElementAt(1).Name);
+    }
+
+    [Fact]
+    public async Task BuildAsync_EmptyFields_DoesNotMutateSearch()
+    {
+        var queryBuilder = new RuntimeFieldsQueryBuilder();
+        var query = new RepositoryQuery<Employee>();
+        var ctx = new QueryBuilderContext<Employee>(query, new CommandOptions<Employee>());
+        var ctxElastic = ctx as IElasticQueryVisitorContext;
+
+        await queryBuilder.BuildAsync(ctx);
+
+        Assert.Empty(ctxElastic.RuntimeFields);
     }
 }

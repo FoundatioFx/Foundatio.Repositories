@@ -432,12 +432,10 @@ public static class JsonNodeExtensions
         // First pass: validate that the path can be created
         // Check that we won't encounter a numeric part where no array exists
         JsonNode current = token;
-        var partsToCreate = new List<(JsonObject parent, string name, bool isLast)>();
 
         for (int i = 0; i < pathParts.Length; i++)
         {
             string part = pathParts[i];
-            bool isLastPart = i == pathParts.Length - 1;
 
             if (current is JsonObject currentObj)
             {
@@ -450,10 +448,7 @@ public static class JsonNodeExtensions
                     // Can't create numeric paths as objects - that would need to be an array
                     if (part.IsNumeric())
                         return null;
-                    // Mark for creation, but don't create yet
-                    partsToCreate.Add((currentObj, part, isLastPart));
-                    // For validation, pretend we have a JsonObject here
-                    current = null; // Will be created later
+                    current = null; // Will be created in the second pass
                 }
             }
             else if (current is JsonArray currentArr)
@@ -473,7 +468,6 @@ public static class JsonNodeExtensions
                 // We're past a part that needs to be created
                 if (part.IsNumeric())
                     return null;
-                // Continue validation without tracking (we'll create the chain later)
             }
             else
             {

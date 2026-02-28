@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -24,10 +24,10 @@ public static class LoggerExtensions
         if (elasticResponse == null || !logger.IsEnabled(logLevel))
             return;
 
-        var apiCall = elasticResponse?.ApiCallDetails;
+        var apiCall = elasticResponse.ApiCallDetails;
         if (apiCall?.RequestBodyInBytes != null)
         {
-            string body = Encoding.UTF8.GetString(apiCall?.RequestBodyInBytes);
+            string body = Encoding.UTF8.GetString(apiCall.RequestBodyInBytes);
             body = JsonUtility.Normalize(body);
 
             logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}\r\n{HttpBody}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri.PathAndQuery, body);
@@ -48,7 +48,7 @@ public static class LoggerExtensions
         if (elasticResponse == null || !logger.IsEnabled(LogLevel.Error))
             return;
 
-        var originalException = elasticResponse?.ApiCallDetails?.OriginalException;
+        var originalException = elasticResponse.ApiCallDetails?.OriginalException;
 
         AggregateException aggEx = null;
         if (ex != null && originalException != null)

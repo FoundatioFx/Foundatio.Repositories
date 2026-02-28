@@ -114,7 +114,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
             EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(1))
         };
         employees[0].Id = "employee1";
-        employees[0].Id = "employee2";
+        employees[1].Id = "employee2";
         employees[0].PeerReviews = new PeerReview[] { new PeerReview { ReviewerEmployeeId = employees[1].Id, Rating = 4 } };
         employees[1].PeerReviews = new PeerReview[] { new PeerReview { ReviewerEmployeeId = employees[0].Id, Rating = 5 } };
 

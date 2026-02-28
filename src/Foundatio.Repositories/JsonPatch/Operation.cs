@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+using System;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace Foundatio.Repositories.Utility;
@@ -47,7 +48,8 @@ public abstract class Operation
 
     public static Operation Build(JsonObject jOperation)
     {
-        var op = PatchDocument.CreateOperation(jOperation["op"]?.GetValue<string>());
+        var opName = jOperation["op"]?.GetValue<string>();
+        var op = PatchDocument.CreateOperation(opName) ?? throw new ArgumentException($"Unknown JSON Patch operation: '{opName}'", nameof(jOperation));
         op.Read(jOperation);
         return op;
     }

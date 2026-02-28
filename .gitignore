@@ -60,3 +60,5 @@ _NCrunch_*
 **/.idea/**/contentModel.xml
 **/.idea/**/modules.xml
 **/.idea/copilot/chatSessions/
+
+.idea/.idea.Foundatio.Repositories/.idea/
