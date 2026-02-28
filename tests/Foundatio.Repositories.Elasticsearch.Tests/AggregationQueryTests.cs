@@ -524,12 +524,12 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
 
         // TODO: Do we need to be able to roundtrip this? I think we need to for caching purposes.
 
-        // tophits = bucket.Aggregations.TopHits();
-        // Assert.NotNull(tophits);
-        // employees = tophits.Documents<Employee>();
-        // Assert.Equal(1, employees.Count);
-        // Assert.Equal(19, employees.First().Age);
-        // Assert.Equal(1, employees.First().YearsEmployed);
+        tophits = bucket.Aggregations.TopHits();
+        Assert.NotNull(tophits);
+        employees = tophits.Documents<Employee>();
+        Assert.Single(employees);
+        Assert.Equal(19, employees.First().Age);
+        Assert.Equal(1, employees.First().YearsEmployed);
     }
 
     [Fact]

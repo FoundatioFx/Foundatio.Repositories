@@ -73,7 +73,6 @@ public class MyAppElasticConfiguration : ElasticConfiguration
 
     protected override ElasticsearchClient CreateElasticClient()
     {
-        //var settings = new ElasticsearchClientSettings(CreateConnectionPool() ?? new SingleNodePool(new Uri("http://localhost:9200")), sourceSerializer: (serializer, values) => new ElasticsearchJsonNetSerializer(serializer, values));
         var settings = new ElasticsearchClientSettings(CreateConnectionPool() ?? new SingleNodePool(new Uri("http://localhost:9200")));
         ConfigureSettings(settings);
         foreach (var index in Indexes)

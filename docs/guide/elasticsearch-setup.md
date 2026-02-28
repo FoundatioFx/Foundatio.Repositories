@@ -9,10 +9,9 @@ The `ElasticConfiguration` class manages your Elasticsearch connection and index
 ### Basic Configuration
 
 ```csharp
-using Elasticsearch.Net;
+using Elastic.Transport;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Microsoft.Extensions.Logging;
-using Nest;
 
 public class MyElasticConfiguration : ElasticConfiguration
 {
@@ -24,9 +23,9 @@ public class MyElasticConfiguration : ElasticConfiguration
         AddIndex(Projects = new ProjectIndex(this));
     }
 
-    protected override IConnectionPool CreateConnectionPool()
+    protected override NodePool CreateConnectionPool()
     {
-        return new SingleNodeConnectionPool(new Uri("http://localhost:9200"));
+        return new SingleNodePool(new Uri("http://localhost:9200"));
     }
 
     public EmployeeIndex Employees { get; }
@@ -41,9 +40,9 @@ public class MyElasticConfiguration : ElasticConfiguration
 For development or single-node clusters:
 
 ```csharp
-protected override IConnectionPool CreateConnectionPool()
+protected override NodePool CreateConnectionPool()
 {
-    return new SingleNodeConnectionPool(new Uri("http://localhost:9200"));
+    return new SingleNodePool(new Uri("http://localhost:9200"));
 }
 ```
 
@@ -52,7 +51,7 @@ protected override IConnectionPool CreateConnectionPool()
 For production clusters with multiple nodes:
 
 ```csharp
-protected override IConnectionPool CreateConnectionPool()
+protected override NodePool CreateConnectionPool()
 {
     var nodes = new[]
     {
@@ -60,7 +59,7 @@ protected override IConnectionPool CreateConnectionPool()
         new Uri("http://es-node2:9200"),
         new Uri("http://es-node3:9200")
     };
-    return new StaticConnectionPool(nodes);
+    return new StaticNodePool(nodes);
 }
 ```
 
@@ -69,152 +68,43 @@ protected override IConnectionPool CreateConnectionPool()
 Automatically discovers cluster nodes:
 
 ```csharp
-protected override IConnectionPool CreateConnectionPool()
+protected override NodePool CreateConnectionPool()
 {
     var nodes = new[] { new Uri("http://es-node1:9200") };
-    return new SniffingConnectionPool(nodes);
+    return new SniffingNodePool(nodes);
 }
 ```
 
 ### Connection Settings
 
-Override `ConfigureSettings` to customize the NEST client:
+Override `ConfigureSettings` to customize the client:
 
 ```csharp
-protected override void ConfigureSettings(ConnectionSettings settings)
+protected override void ConfigureSettings(ElasticsearchClientSettings settings)
 {
     base.ConfigureSettings(settings);
-    
+
     // Enable detailed logging in development
     if (_environment.IsDevelopment())
     {
         settings.DisableDirectStreaming();
         settings.PrettyJson();
-        settings.EnableDebugMode();
     }
-    
+
     // Set default timeout
     settings.RequestTimeout(TimeSpan.FromSeconds(30));
-    
-    // Configure authentication
-    settings.BasicAuthentication("username", "password");
-    
+
+    // Configure basic authentication
+    settings.Authentication(new BasicAuthentication("username", "password"));
+
     // Or use API key
-    settings.ApiKeyAuthentication("api-key-id", "api-key");
+    settings.Authentication(new ApiKey("encoded-api-key"));
 }
 ```
 
-### Serializer Configuration
+### Serialization
 
-NEST 7.x uses its own internal serializer by default. For custom JSON serialization, you have several options:
-
-#### Option 1: Configure Field Name Inference
-
-```csharp
-protected override void ConfigureSettings(ConnectionSettings settings)
-{
-    base.ConfigureSettings(settings);
-    
-    // Use property names as-is (no camelCase conversion)
-    settings.DefaultFieldNameInferrer(p => p);
-}
-```
-
-#### Option 2: Use JSON.NET Serializer (Separate Package)
-
-If you need full control over JSON serialization, install the `NEST.JsonNetSerializer` NuGet package:
-
-```bash
-dotnet add package NEST.JsonNetSerializer
-```
-
-Then configure it in `CreateElasticClient`:
-
-```csharp
-using Nest.JsonNetSerializer;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
-
-protected override IElasticClient CreateElasticClient()
-{
-    var pool = CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200"));
-    
-    // Use JSON.NET serializer with custom settings
-    var settings = new ConnectionSettings(pool, sourceSerializer: (builtin, connectionSettings) =>
-        new JsonNetSerializer(builtin, connectionSettings, () => new JsonSerializerSettings
-        {
-            NullValueHandling = NullValueHandling.Ignore,
-            DateTimeZoneHandling = DateTimeZoneHandling.Utc
-        },
-        resolver => resolver.NamingStrategy = new CamelCaseNamingStrategy()));
-    
-    settings.EnableApiVersioningHeader();
-    ConfigureSettings(settings);
-    
-    foreach (var index in Indexes)
-        index.ConfigureSettings(settings);
-    
-    return new ElasticClient(settings);
-}
-```
-
-#### Option 3: Custom Serializer Class
-
-For more complex scenarios, create a custom serializer class:
-
-```csharp
-using Elasticsearch.Net;
-using Nest;
-using Nest.JsonNetSerializer;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
-
-public class CustomJsonNetSerializer : ConnectionSettingsAwareSerializerBase
-{
-    public CustomJsonNetSerializer(
-        IElasticsearchSerializer builtinSerializer, 
-        IConnectionSettingsValues connectionSettings)
-        : base(builtinSerializer, connectionSettings) { }
-
-    protected override JsonSerializerSettings CreateJsonSerializerSettings() =>
-        new JsonSerializerSettings
-        {
-            NullValueHandling = NullValueHandling.Include,
-            DateTimeZoneHandling = DateTimeZoneHandling.Utc
-        };
-
-    protected override void ModifyContractResolver(ConnectionSettingsAwareContractResolver resolver)
-    {
-        resolver.NamingStrategy = new CamelCaseNamingStrategy();
-    }
-}
-```
-
-Then use it:
-
-```csharp
-protected override IElasticClient CreateElasticClient()
-{
-    var pool = CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200"));
-    var settings = new ConnectionSettings(pool, 
-        sourceSerializer: (builtin, connSettings) => new CustomJsonNetSerializer(builtin, connSettings));
-    
-    settings.EnableApiVersioningHeader();
-    ConfigureSettings(settings);
-    
-    foreach (var index in Indexes)
-        index.ConfigureSettings(settings);
-    
-    return new ElasticClient(settings);
-}
-```
-
-::: tip When to Use JSON.NET Serializer
-- You need specific `JsonSerializerSettings` (null handling, date formatting, etc.)
-- You have custom `JsonConverter` implementations
-- You need to match serialization behavior with other parts of your application
-- You're migrating from an older codebase that relies on Newtonsoft.Json behavior
-:::
+The new `Elastic.Clients.Elasticsearch` client uses **System.Text.Json** by default. Custom serialization is configured via `SourceSerializerFactory` if needed.
 
 ### Configuration with Dependency Injection
 
@@ -232,21 +122,21 @@ public class MyElasticConfiguration : ElasticConfiguration
     {
         _config = config;
         _env = env;
-        
+
         AddIndex(Employees = new EmployeeIndex(this));
     }
 
-    protected override IConnectionPool CreateConnectionPool()
+    protected override NodePool CreateConnectionPool()
     {
         var connectionString = _config.GetConnectionString("Elasticsearch") 
             ?? "http://localhost:9200";
-        return new SingleNodeConnectionPool(new Uri(connectionString));
+        return new SingleNodePool(new Uri(connectionString));
     }
 
-    protected override void ConfigureSettings(ConnectionSettings settings)
+    protected override void ConfigureSettings(ElasticsearchClientSettings settings)
     {
         base.ConfigureSettings(settings);
-        
+
         if (_env.IsDevelopment())
         {
             settings.DisableDirectStreaming();
@@ -265,7 +155,7 @@ public class MyElasticConfiguration : ElasticConfiguration
 ```csharp
 public interface IElasticConfiguration : IDisposable
 {
-    IElasticClient Client { get; }
+    ElasticsearchClient Client { get; }
     ICacheClient Cache { get; }
     IMessageBus MessageBus { get; }
     ILoggerFactory LoggerFactory { get; }
@@ -316,16 +206,15 @@ public sealed class EmployeeIndex : VersionedIndex<Employee>
     public EmployeeIndex(IElasticConfiguration configuration) 
         : base(configuration, "employees", version: 1) { }
 
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(
-        TypeMappingDescriptor<Employee> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
     {
-        return map
-            .Dynamic(false)  // Disable dynamic mapping
+        map
+            .Dynamic(DynamicMapping.False)  // Disable dynamic mapping
             .Properties(p => p
                 .SetupDefaults()  // Configure Id, CreatedUtc, UpdatedUtc, IsDeleted
-                .Keyword(f => f.Name(e => e.CompanyId))
-                .Text(f => f.Name(e => e.Name).AddKeywordAndSortFields())
-                .Number(f => f.Name(e => e.Age).Type(NumberType.Integer))
+                .Keyword(e => e.CompanyId)
+                .Text(e => e.Name, t => t.AddKeywordAndSortFields())
+                .IntegerNumber(e => e.Age)
             );
     }
 }
@@ -353,7 +242,7 @@ This configures:
 For exact matching and aggregations:
 
 ```csharp
-.Keyword(f => f.Name(e => e.Status))
+.Keyword(e => e.Status)
 ```
 
 #### Text Fields with Keywords
@@ -361,7 +250,7 @@ For exact matching and aggregations:
 For full-text search with exact matching:
 
 ```csharp
-.Text(f => f.Name(e => e.Name).AddKeywordAndSortFields())
+.Text(e => e.Name, t => t.AddKeywordAndSortFields())
 ```
 
 This creates:
@@ -372,11 +261,10 @@ This creates:
 #### Nested Objects
 
 ```csharp
-.Nested<Address>(n => n
-    .Name(e => e.Addresses)
+.Nested(e => e.Addresses, n => n
     .Properties(ap => ap
-        .Keyword(f => f.Name(a => a.City))
-        .Keyword(f => f.Name(a => a.Country))
+        .Keyword(a => a.City)
+        .Keyword(a => a.Country)
     ))
 ```
 
@@ -385,19 +273,13 @@ Fields mapped as `nested` are automatically wrapped in Elasticsearch `nested` qu
 ### Index Settings
 
 ```csharp
-public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
 {
-    return base.ConfigureIndex(idx.Settings(s => s
+    base.ConfigureIndex(idx.Settings(s => s
         .NumberOfShards(3)
         .NumberOfReplicas(1)
-        .RefreshInterval(TimeSpan.FromSeconds(5))
         .Analysis(a => a
             .AddSortNormalizer()
-            .Analyzers(an => an
-                .Custom("my_analyzer", ca => ca
-                    .Tokenizer("standard")
-                    .Filters("lowercase", "asciifolding")
-                ))
         )));
 }
 ```
@@ -467,34 +349,34 @@ public class MyElasticConfiguration : ElasticConfiguration
         AddIndex(AuditLogs = new AuditLogIndex(this));
     }
 
-    protected override IConnectionPool CreateConnectionPool()
+    protected override NodePool CreateConnectionPool()
     {
         var connectionString = _config.GetConnectionString("Elasticsearch");
         if (string.IsNullOrEmpty(connectionString))
             connectionString = "http://localhost:9200";
-            
+
         var uris = connectionString.Split(',').Select(s => new Uri(s.Trim()));
-        
+
         if (uris.Count() == 1)
-            return new SingleNodeConnectionPool(uris.First());
-            
-        return new StaticConnectionPool(uris);
+            return new SingleNodePool(uris.First());
+
+        return new StaticNodePool(uris);
     }
 
-    protected override void ConfigureSettings(ConnectionSettings settings)
+    protected override void ConfigureSettings(ElasticsearchClientSettings settings)
     {
         base.ConfigureSettings(settings);
-        
+
         if (_env.IsDevelopment())
         {
             settings.DisableDirectStreaming();
             settings.PrettyJson();
         }
-        
+
         var username = _config["Elasticsearch:Username"];
         var password = _config["Elasticsearch:Password"];
         if (!string.IsNullOrEmpty(username))
-            settings.BasicAuthentication(username, password);
+            settings.Authentication(new BasicAuthentication(username, password));
     }
 
     public EmployeeIndex Employees { get; }
@@ -555,8 +437,9 @@ Implement `IParentChildDocument` for both parent and child entities:
 
 ```csharp
 using Foundatio.Repositories.Elasticsearch;
+using Elastic.Clients.Elasticsearch;
+using Foundatio.Repositories.Elasticsearch.Repositories;
 using Foundatio.Repositories.Models;
-using Nest;
 
 // Parent document
 public class Organization : IParentChildDocument, IHaveDates, ISupportSoftDeletes
@@ -600,21 +483,17 @@ public sealed class OrganizationIndex : VersionedIndex
     public OrganizationIndex(IElasticConfiguration configuration) 
         : base(configuration, "organizations", version: 1) { }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        return base.ConfigureIndex(idx
+        base.ConfigureIndex(idx
             .Settings(s => s.NumberOfReplicas(0).NumberOfShards(1))
-            .Map<IParentChildDocument>(m => m
-                .AutoMap<Organization>()
-                .AutoMap<Employee>()
+            .Mappings<IParentChildDocument>(m => m
                 .Properties(p => p
                     .SetupDefaults()
-                    .Keyword(k => k.Name(o => ((Organization)o).Name))
-                    .Keyword(k => k.Name(e => ((Employee)e).Email))
-                    // Configure the join field
-                    .Join(j => j
-                        .Name(n => n.Discriminator)
-                        .Relations(r => r.Join<Organization, Employee>())
+                    .Keyword(o => ((Organization)o).Name)
+                    .Keyword(e => ((Employee)e).Email)
+                    .Join(d => d.Discriminator, j => j
+                        .Relations(r => r.Add("organization", new[] { "employee" }))
                     )
                 )));
     }
@@ -718,7 +597,7 @@ services.AddHealthChecks()
         var config = services.BuildServiceProvider()
             .GetRequiredService<MyElasticConfiguration>();
         var response = config.Client.Ping();
-        return response.IsValid 
+        return response.IsValidResponse 
             ? HealthCheckResult.Healthy() 
             : HealthCheckResult.Unhealthy("Elasticsearch is not responding");
     });

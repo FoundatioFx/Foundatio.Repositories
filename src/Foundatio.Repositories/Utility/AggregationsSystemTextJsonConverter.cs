@@ -25,7 +25,7 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
             "percentiles" => DeserializePercentiles(element, options),
             "sbucket" => DeserializeSingleBucket(element, options),
             "stats" => element.Deserialize<StatsAggregate>(options),
-            // TopHitsAggregate cannot be round-tripped: it holds ILazyDocument references (raw ES doc bytes) that require a serializer instance to materialize.
+            "tophits" => element.Deserialize<TopHitsAggregate>(options),
             "value" => element.Deserialize<ValueAggregate>(options),
             "dvalue" => element.Deserialize<ValueAggregate<DateTime>>(options),
             _ => null

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -405,6 +405,89 @@ public class JsonPatchTests
         }
     ]
 }");
+    }
+
+    [Fact]
+    public void Remove_array_item_by_matching()
+    {
+        var sample = JsonNode.Parse(@"{
+    ""books"": [
+        {
+          ""title"" : ""The Great Gatsby"",
+          ""author"" : ""F. Scott Fitzgerald""
+        },
+        {
+          ""title"" : ""The Grapes of Wrath"",
+          ""author"" : ""John Steinbeck""
+        },
+        {
+          ""title"" : ""Some Other Title"",
+          ""author"" : ""John Steinbeck""
+        }
+    ]
+}");
+
+        var patchDocument = new PatchDocument();
+        string pointer = "$.books[?(@.author == 'John Steinbeck')]";
+
+        patchDocument.AddOperation(new RemoveOperation { Path = pointer });
+
+        new JsonPatcher().Patch(ref sample, patchDocument);
+
+        var list = sample["books"] as System.Text.Json.Nodes.JsonArray;
+
+        Assert.Single(list);
+    }
+
+    [Fact]
+    public void Remove_array_item_by_value()
+    {
+        var sample = JsonNode.Parse(@"{ ""tags"": [ ""tag1"", ""tag2"", ""tag3"" ] }");
+
+        var patchDocument = new PatchDocument();
+        string pointer = "$.tags[?(@ == 'tag2')]";
+
+        patchDocument.AddOperation(new RemoveOperation { Path = pointer });
+
+        new JsonPatcher().Patch(ref sample, patchDocument);
+
+        var list = sample["tags"] as System.Text.Json.Nodes.JsonArray;
+
+        Assert.Equal(2, list.Count);
+    }
+
+    [Fact]
+    public void Replace_multiple_property_values_with_jsonpath()
+    {
+        var sample = JsonNode.Parse(@"{
+    ""books"": [
+        {
+          ""title"" : ""The Great Gatsby"",
+          ""author"" : ""F. Scott Fitzgerald""
+        },
+        {
+          ""title"" : ""The Grapes of Wrath"",
+          ""author"" : ""John Steinbeck""
+        },
+        {
+          ""title"" : ""Some Other Title"",
+          ""author"" : ""John Steinbeck""
+        }
+    ]
+}");
+
+        var patchDocument = new PatchDocument();
+        string pointer = "$.books[?(@.author == 'John Steinbeck')].author";
+
+        patchDocument.AddOperation(new ReplaceOperation { Path = pointer, Value = JsonValue.Create("Eric") });
+
+        new JsonPatcher().Patch(ref sample, patchDocument);
+
+        string newPointer = "/books/1/author";
+        Assert.Equal("Eric", sample.SelectPatchToken(newPointer)?.GetValue<string>());
+
+        newPointer = "/books/2/author";
+        Assert.Equal("Eric", sample.SelectPatchToken(newPointer)?.GetValue<string>());
     }
 }
 

@@ -1,4 +1,4 @@
-﻿using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Clients.Elasticsearch.IndexManagement;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
@@ -14,7 +14,6 @@ public sealed class ParentChildIndex : VersionedIndex
         base.ConfigureIndex(idx
             .Settings(s => s.NumberOfReplicas(0).NumberOfShards(1))
             .Mappings<IParentChildDocument>(m => m
-                //.RoutingField(r => r.Required())
                 .Properties(p => p
                     .SetupDefaults()
                     .Join(d => d.Discriminator, j => j

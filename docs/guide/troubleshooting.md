@@ -22,10 +22,10 @@ curl http://localhost:9200
 2. **Check connection string:**
 
 ```csharp
-protected override IConnectionPool CreateConnectionPool()
+protected override NodePool CreateConnectionPool()
 {
     // Ensure URL is correct
-    return new SingleNodeConnectionPool(new Uri("http://localhost:9200"));
+    return new SingleNodePool(new Uri("http://localhost:9200"));
 }
 ```
 
@@ -39,7 +39,7 @@ telnet localhost 9200
 4. **Enable debug logging:**
 
 ```csharp
-protected override void ConfigureSettings(ConnectionSettings settings)
+protected override void ConfigureSettings(ElasticsearchClientSettings settings)
 {
     settings.DisableDirectStreaming();
     settings.PrettyJson();
@@ -56,7 +56,7 @@ protected override void ConfigureSettings(ConnectionSettings settings)
 **Solutions:**
 
 ```csharp
-protected override void ConfigureSettings(ConnectionSettings settings)
+protected override void ConfigureSettings(ElasticsearchClientSettings settings)
 {
     // Basic authentication
     settings.BasicAuthentication("username", "password");
@@ -122,7 +122,7 @@ await configuration.ConfigureIndexesAsync();
 
 ```csharp
 // Ensure mapping matches data types
-.Number(f => f.Name(e => e.Age).Type(NumberType.Integer))
+.IntegerNumber(e => e.Age)
 ```
 
 ## Query Issues
@@ -410,7 +410,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>
 
 ```csharp
 // In configuration
-protected override void ConfigureSettings(ConnectionSettings settings)
+protected override void ConfigureSettings(ElasticsearchClientSettings settings)
 {
     settings.DisableDirectStreaming();
     settings.PrettyJson();

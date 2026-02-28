@@ -84,16 +84,65 @@ public class ElasticUtility
         return indicesResponse.Indices.Keys.Select(k => k.ToString()).ToList();
     }
 
-    public Task<bool> WaitForTaskAsync(string taskId, TimeSpan? maxWaitTime = null, TimeSpan? waitInterval = null)
+    /// <summary>
+    /// Waits for an Elasticsearch task to complete, polling at intervals until completion or timeout.
+    /// </summary>
+    /// <param name="taskId">The task ID to wait for (format: "nodeId:taskId").</param>
+    /// <param name="maxWaitTime">Maximum time to wait before returning false. Defaults to 5 minutes.</param>
+    /// <param name="waitInterval">Interval between polls. Defaults to 2 seconds.</param>
+    /// <returns>True if the task completed successfully; false if it timed out or failed.</returns>
+    public async Task<bool> WaitForTaskAsync(string taskId, TimeSpan? maxWaitTime = null, TimeSpan? waitInterval = null)
     {
-        // check task is completed in loop
-        return Task.FromResult(false);
+        if (String.IsNullOrEmpty(taskId))
+            return false;
+
+        var maxWait = maxWaitTime ?? TimeSpan.FromMinutes(5);
+        var interval = waitInterval ?? TimeSpan.FromSeconds(2);
+        var started = _timeProvider.GetUtcNow();
+
+        while (_timeProvider.GetUtcNow() - started < maxWait)
+        {
+            var getTaskResponse = await _client.Tasks.GetAsync(taskId).AnyContext();
+            _logger.LogRequest(getTaskResponse);
+
+            if (!getTaskResponse.IsValidResponse)
+                return false;
+
+            if (getTaskResponse.Completed)
+                return true;
+
+            await Task.Delay(interval).AnyContext();
+        }
+
+        _logger.LogWarning("Timed out waiting for task {TaskId} after {MaxWaitTime}", taskId, maxWait);
+        return false;
     }
 
-    public Task<bool> WaitForSafeToSnapshotAsync(string repository, TimeSpan? maxWaitTime = null, TimeSpan? waitInterval = null)
+    /// <summary>
+    /// Waits until no snapshots are in progress, polling at intervals.
+    /// </summary>
+    /// <param name="repository">The snapshot repository to check.</param>
+    /// <param name="maxWaitTime">Maximum time to wait. Defaults to 30 minutes.</param>
+    /// <param name="waitInterval">Interval between polls. Defaults to 5 seconds.</param>
+    /// <returns>True if safe to snapshot; false if timed out.</returns>
+    public async Task<bool> WaitForSafeToSnapshotAsync(string repository, TimeSpan? maxWaitTime = null, TimeSpan? waitInterval = null)
     {
-        // check SnapshotInProgressAsync in loop
-        return Task.FromResult(false);
+        var maxWait = maxWaitTime ?? TimeSpan.FromMinutes(30);
+        var interval = waitInterval ?? TimeSpan.FromSeconds(5);
+        var started = _timeProvider.GetUtcNow();
+
+        while (_timeProvider.GetUtcNow() - started < maxWait)
+        {
+            bool inProgress = await SnapshotInProgressAsync().AnyContext();
+            if (!inProgress)
+                return true;
+
+            _logger.LogDebug("Snapshot in progress for repository {Repository}; waiting {Interval}...", repository, interval);
+            await Task.Delay(interval).AnyContext();
+        }
+
+        _logger.LogWarning("Timed out waiting for safe snapshot window after {MaxWaitTime}", maxWait);
+        return false;
     }
 
     public async Task<bool> CreateSnapshotAsync(CreateSnapshotOptions options)
@@ -103,11 +152,11 @@ public class ElasticUtility
 
         bool repoExists = await SnapshotRepositoryExistsAsync(options.Repository).AnyContext();
         if (!repoExists)
-            throw new RepositoryException();
+            throw new RepositoryException($"Snapshot repository '{options.Repository}' does not exist.");
 
-        bool success = await WaitForSafeToSnapshotAsync(options.Repository).AnyContext();
-        if (!success)
-            throw new RepositoryException();
+        bool safe = await WaitForSafeToSnapshotAsync(options.Repository).AnyContext();
+        if (!safe)
+            throw new RepositoryException($"Timed out waiting for a safe window to create snapshot in repository '{options.Repository}'.");
 
         var snapshotResponse = await _client.Snapshot.CreateAsync(options.Repository, options.Name, s => s
             .Indices(options.Indices != null ? Indices.Parse(String.Join(",", options.Indices)) : Indices.All)
@@ -117,23 +166,97 @@ public class ElasticUtility
         ).AnyContext();
         _logger.LogRequest(snapshotResponse);
 
-        // TODO: wait for snapshot to be success in loop
+        if (!snapshotResponse.IsValidResponse)
+        {
+            _logger.LogError("Failed to create snapshot '{SnapshotName}' in repository '{Repository}'", options.Name, options.Repository);
+            return false;
+        }
 
+        // Wait for the snapshot to complete by polling until it's no longer IN_PROGRESS
+        bool completed = await WaitForSafeToSnapshotAsync(options.Repository, maxWaitTime: TimeSpan.FromHours(2)).AnyContext();
+        return completed;
+    }
+
+    /// <summary>
+    /// Deletes the specified snapshots with configurable retries.
+    /// </summary>
+    /// <param name="repository">The snapshot repository.</param>
+    /// <param name="snapshots">The snapshot names to delete.</param>
+    /// <param name="maxRetries">Number of retry attempts per snapshot. Defaults to 3.</param>
+    /// <param name="retryInterval">Interval between retries. Defaults to 2 seconds.</param>
+    /// <returns>True if all snapshots were deleted; false if any deletion failed after retries.</returns>
+    public async Task<bool> DeleteSnapshotsAsync(string repository, ICollection<string> snapshots, int? maxRetries = null, TimeSpan? retryInterval = null)
+    {
+        if (snapshots == null || snapshots.Count == 0)
+            return true;
+
+        int retries = maxRetries ?? 3;
+        var interval = retryInterval ?? TimeSpan.FromSeconds(2);
+        bool allSucceeded = true;
+
+        foreach (var snapshot in snapshots)
+        {
+            bool deleted = false;
+            for (int attempt = 0; attempt <= retries; attempt++)
+            {
+                var response = await _client.Snapshot.DeleteAsync(repository, snapshot).AnyContext();
+                _logger.LogRequest(response);
+
+                if (response.IsValidResponse)
+                {
+                    deleted = true;
+                    break;
+                }
+
+                if (attempt < retries)
+                {
+                    _logger.LogWarning("Failed to delete snapshot '{Snapshot}' (attempt {Attempt}/{Retries}); retrying...", snapshot, attempt + 1, retries);
+                    await Task.Delay(interval).AnyContext();
+                }
+            }
+
+            if (!deleted)
+            {
+                _logger.LogError("Failed to delete snapshot '{Snapshot}' after {Retries} attempt(s)", snapshot, retries);
+                allSucceeded = false;
+            }
+        }
+
+        return allSucceeded;
+    }
+
+    /// <summary>
+    /// Deletes the specified indices with configurable retries.
+    /// </summary>
+    /// <param name="indices">The index names to delete.</param>
+    /// <param name="maxRetries">Number of retry attempts. Defaults to 3.</param>
+    /// <param name="retryInterval">Interval between retries. Defaults to 2 seconds.</param>
+    /// <returns>True if all indices were deleted; false if any deletion failed after retries.</returns>
+    public async Task<bool> DeleteIndicesAsync(ICollection<string> indices, int? maxRetries = null, TimeSpan? retryInterval = null)
+    {
+        if (indices == null || indices.Count == 0)
+            return true;
+
+        int retries = maxRetries ?? 3;
+        var interval = retryInterval ?? TimeSpan.FromSeconds(2);
+
+        for (int attempt = 0; attempt <= retries; attempt++)
+        {
+            var response = await _client.Indices.DeleteAsync(Indices.Parse(String.Join(",", indices))).AnyContext();
+            _logger.LogRequest(response);
+
+            if (response.IsValidResponse)
+                return true;
+
+            if (attempt < retries)
+            {
+                _logger.LogWarning("Failed to delete indices (attempt {Attempt}/{Retries}); retrying...", attempt + 1, retries);
+                await Task.Delay(interval).AnyContext();
+            }
+        }
+
+        _logger.LogError("Failed to delete indices [{Indices}] after {Retries} attempt(s)", String.Join(", ", indices), retries);
         return false;
-        // TODO: should we use lock provider as well as checking for WaitForSafeToSnapshotAsync?
-        // TODO: create a new snapshot in the repository with retries
-    }
-
-    public Task<bool> DeleteSnapshotsAsync(string repository, ICollection<string> snapshots, int? maxRetries = null, TimeSpan? retryInterval = null)
-    {
-        // TODO: attempt to delete all indices with retries and wait interval
-        return Task.FromResult(true);
-    }
-
-    public Task<bool> DeleteIndicesAsync(ICollection<string> indices, int? maxRetries = null, TimeSpan? retryInterval = null)
-    {
-        // TODO: attempt to delete all indices with retries
-        return Task.FromResult(true);
     }
 }
 

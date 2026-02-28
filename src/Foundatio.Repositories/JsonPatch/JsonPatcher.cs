@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Foundatio.Repositories.Extensions;
 
 namespace Foundatio.Repositories.Utility;
@@ -86,6 +87,34 @@ public class JsonPatcher : AbstractPatcher<JsonNode>
 
     protected override void Remove(RemoveOperation operation, JsonNode target)
     {
+        // Handle JSONPath expressions (e.g., $.books[?(@.author == 'X')])
+        if (operation.Path.StartsWith("$.", StringComparison.Ordinal) || operation.Path.StartsWith("$[", StringComparison.Ordinal))
+        {
+            var tokens = target.SelectPatchTokens(operation.Path).ToList();
+            foreach (var token in tokens)
+            {
+                var tokenParent = token.Parent;
+                if (tokenParent is JsonArray arr)
+                {
+                    for (int i = 0; i < arr.Count; i++)
+                    {
+                        if (ReferenceEquals(arr[i], token))
+                        {
+                            arr.RemoveAt(i);
+                            break;
+                        }
+                    }
+                }
+                else if (tokenParent is JsonObject tokenParentObj)
+                {
+                    var key = tokenParentObj.FirstOrDefault(p => ReferenceEquals(p.Value, token)).Key;
+                    if (key != null)
+                        tokenParentObj.Remove(key);
+                }
+            }
+            return;
+        }
+
         string[] parts = operation.Path.Split('/');
         if (parts.Length == 0)
             return;
@@ -97,11 +126,10 @@ public class JsonPatcher : AbstractPatcher<JsonNode>
             return;
 
         var parent = target.SelectPatchToken(parentPath);
-        if (parent is JsonObject parentObj)
+        if (parent is JsonObject parentObjPointer)
         {
-            // Remove by property name (works even if value is null)
-            if (parentObj.ContainsKey(propertyName))
-                parentObj.Remove(propertyName);
+            if (parentObjPointer.ContainsKey(propertyName))
+                parentObjPointer.Remove(propertyName);
         }
         else if (parent is JsonArray parentArr)
         {
@@ -148,9 +176,130 @@ public static class JsonNodeExtensions
 
     public static IEnumerable<JsonNode> SelectPatchTokens(this JsonNode token, string path)
     {
+        if (path.StartsWith("$.", StringComparison.Ordinal) || path.StartsWith("$[", StringComparison.Ordinal))
+            return SelectJsonPathTokens(token, path);
+
         var result = SelectToken(token, path.ToJsonPointerPath());
         if (result != null)
-            yield return result;
+            return new[] { result };
+        return Enumerable.Empty<JsonNode>();
+    }
+
+    /// <summary>
+    /// Evaluates a subset of JSONPath expressions against a JSON node.
+    /// Supports filter expressions like <c>$.array[?(@.prop == 'value')]</c> and <c>$.array[?(@ == 'value')]</c>.
+    /// </summary>
+    private static IEnumerable<JsonNode> SelectJsonPathTokens(JsonNode root, string path)
+    {
+        // Strip leading $
+        string remaining = path.StartsWith("$.", StringComparison.Ordinal) ? path[2..] : path[1..];
+
+        // Split on dots, but respect brackets
+        var segments = SplitJsonPathSegments(remaining);
+        IEnumerable<JsonNode> current = new[] { root };
+
+        foreach (var segment in segments)
+        {
+            var next = new List<JsonNode>();
+            foreach (var node in current)
+            {
+                if (node is null) continue;
+
+                // Segment like "books[?(@.author == 'X')]" or "books[?(@.author == 'X')].prop"
+                // or pure filter "[?(@.author == 'X')]"
+                int bracketStart = segment.IndexOf('[');
+                if (bracketStart >= 0)
+                {
+                    // Navigate to named property first (if any)
+                    JsonNode target2 = node;
+                    if (bracketStart > 0)
+                    {
+                        string propName = segment[..bracketStart];
+                        if (node is JsonObject propObj && propObj.TryGetPropertyValue(propName, out var propVal) && propVal is not null)
+                            target2 = propVal;
+                        else
+                            continue;
+                    }
+
+                    // Extract the bracket expression
+                    int bracketEnd = segment.LastIndexOf(']');
+                    if (bracketEnd < 0) continue;
+                    string expr = segment[(bracketStart + 1)..bracketEnd];
+
+                    // Filter expression: [?(...)]
+                    if (expr.StartsWith("?(", StringComparison.Ordinal) && expr.EndsWith(')'))
+                    {
+                        string filter = expr[2..^1];
+                        if (target2 is JsonArray arr)
+                            next.AddRange(arr.Where(item => item is not null && EvaluateJsonPathFilter(item, filter)).Select(item => item!));
+                    }
+                }
+                else
+                {
+                    if (node is JsonObject obj && obj.TryGetPropertyValue(segment, out var value) && value is not null)
+                        next.Add(value);
+                }
+            }
+            current = next;
+        }
+
+        return current;
+    }
+
+    private static bool EvaluateJsonPathFilter(JsonNode node, string filter)
+    {
+        // Pattern: @.property == 'value' or @.property == value
+        var dotPropMatch = Regex.Match(filter,
+            @"^@\.(\w+)\s*==\s*'(.+)'$");
+        if (dotPropMatch.Success)
+        {
+            string prop = dotPropMatch.Groups[1].Value;
+            string expected = dotPropMatch.Groups[2].Value;
+            if (node is JsonObject obj && obj.TryGetPropertyValue(prop, out var val))
+                return val?.GetValue<string>() == expected;
+            return false;
+        }
+
+        // Pattern: @ == 'value' (match array element value directly)
+        var directMatch = Regex.Match(filter,
+            @"^@\s*==\s*'(.+)'$");
+        if (directMatch.Success)
+        {
+            string expected = directMatch.Groups[1].Value;
+            if (node is JsonValue jsonVal)
+            {
+                try { return jsonVal.GetValue<string>() == expected; }
+                catch { return false; }
+            }
+            return false;
+        }
+
+        return false;
+    }
+
+    private static List<string> SplitJsonPathSegments(string path)
+    {
+        var segments = new List<string>();
+        int start = 0;
+        int depth = 0;
+
+        for (int i = 0; i < path.Length; i++)
+        {
+            char c = path[i];
+            if (c == '[') depth++;
+            else if (c == ']') depth--;
+            else if (c == '.' && depth == 0)
+            {
+                if (i > start)
+                    segments.Add(path[start..i]);
+                start = i + 1;
+            }
+        }
+
+        if (start < path.Length)
+            segments.Add(path[start..]);
+
+        return segments;
     }
 
     private static JsonNode SelectToken(JsonNode node, string[] pathParts)

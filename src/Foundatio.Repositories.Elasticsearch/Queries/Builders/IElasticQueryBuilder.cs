@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
@@ -128,8 +128,6 @@ public static class ElasticQueryBuilderExtensions
 
     public static async Task ConfigureSearchAsync<T>(this IElasticQueryBuilder builder, IRepositoryQuery query, ICommandOptions options, SearchRequestDescriptor<T> search) where T : class, new()
     {
-        ArgumentNullException.ThrowIfNull(search);
-
         var q = await builder.BuildQueryAsync(query, options, search).AnyContext();
         search.Query(q);
     }

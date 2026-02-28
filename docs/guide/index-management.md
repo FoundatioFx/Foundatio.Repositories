@@ -14,15 +14,14 @@ public sealed class EmployeeIndex : Index<Employee>
     public EmployeeIndex(IElasticConfiguration configuration) 
         : base(configuration, "employees") { }
 
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(
-        TypeMappingDescriptor<Employee> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
     {
-        return map
-            .Dynamic(false)
+        map
+            .Dynamic(DynamicMapping.False)
             .Properties(p => p
                 .SetupDefaults()
-                .Keyword(f => f.Name(e => e.CompanyId))
-                .Text(f => f.Name(e => e.Name).AddKeywordAndSortFields())
+                .Keyword(e => e.CompanyId)
+                .Text(e => e.Name, t => t.AddKeywordAndSortFields())
             );
     }
 }
@@ -38,16 +37,15 @@ public sealed class EmployeeIndex : VersionedIndex<Employee>
     public EmployeeIndex(IElasticConfiguration configuration) 
         : base(configuration, "employees", version: 2) { }
 
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(
-        TypeMappingDescriptor<Employee> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
     {
-        return map
-            .Dynamic(false)
+        map
+            .Dynamic(DynamicMapping.False)
             .Properties(p => p
                 .SetupDefaults()
-                .Keyword(f => f.Name(e => e.CompanyId))
-                .Text(f => f.Name(e => e.Name).AddKeywordAndSortFields())
-                .Keyword(f => f.Name(e => e.Department))  // Added in v2
+                .Keyword(e => e.CompanyId)
+                .Text(e => e.Name, t => t.AddKeywordAndSortFields())
+                .Keyword(e => e.Department)  // Added in v2
             );
     }
 }
@@ -72,15 +70,14 @@ public sealed class LogEventIndex : DailyIndex<LogEvent>
         DiscardExpiredIndexes = true;
     }
 
-    public override TypeMappingDescriptor<LogEvent> ConfigureIndexMapping(
-        TypeMappingDescriptor<LogEvent> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<LogEvent> map)
     {
-        return map
-            .Dynamic(false)
+        map
+            .Dynamic(DynamicMapping.False)
             .Properties(p => p
                 .SetupDefaults()
-                .Keyword(f => f.Name(e => e.Level))
-                .Text(f => f.Name(e => e.Message))
+                .Keyword(e => e.Level)
+                .Text(e => e.Message)
             );
     }
 }
@@ -179,19 +176,14 @@ var results = await repository.FindAsync(q => q.Index("logs-last-7-days"));
 ### Index Settings
 
 ```csharp
-public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
 {
-    return base.ConfigureIndex(idx.Settings(s => s
+    base.ConfigureIndex(idx.Settings(s => s
         .NumberOfShards(3)
         .NumberOfReplicas(1)
-        .RefreshInterval(TimeSpan.FromSeconds(5))
+        .RefreshInterval(new Duration(TimeSpan.FromSeconds(5)))
         .Analysis(a => a
             .AddSortNormalizer()
-            .Analyzers(an => an
-                .Custom("my_analyzer", ca => ca
-                    .Tokenizer("standard")
-                    .Filters("lowercase", "asciifolding")
-                ))
         )));
 }
 ```
@@ -199,25 +191,24 @@ public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
 ### Index Mapping
 
 ```csharp
-public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(
-    TypeMappingDescriptor<Employee> map)
+public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
 {
-    return map
-        .Dynamic(false)  // Disable dynamic mapping
+    map
+        .Dynamic(DynamicMapping.False)  // Disable dynamic mapping
         .Properties(p => p
             .SetupDefaults()  // Configure Id, CreatedUtc, UpdatedUtc, IsDeleted
-            
+
             // Keyword fields (exact match, aggregations)
-            .Keyword(f => f.Name(e => e.CompanyId))
-            .Keyword(f => f.Name(e => e.Status))
-            
+            .Keyword(e => e.CompanyId)
+            .Keyword(e => e.Status)
+
             // Text fields with keywords (full-text + exact match)
-            .Text(f => f.Name(e => e.Name).AddKeywordAndSortFields())
-            .Text(f => f.Name(e => e.Email).AddKeywordAndSortFields())
-            
+            .Text(e => e.Name, t => t.AddKeywordAndSortFields())
+            .Text(e => e.Email, t => t.AddKeywordAndSortFields())
+
             // Numeric fields
-            .Number(f => f.Name(e => e.Age).Type(NumberType.Integer))
-            .Number(f => f.Name(e => e.Salary).Type(NumberType.Double))
+            .IntegerNumber(e => e.Age)
+            .DoubleNumber(e => e.Salary)
             
             // Date fields
             .Date(f => f.Name(e => e.HireDate))

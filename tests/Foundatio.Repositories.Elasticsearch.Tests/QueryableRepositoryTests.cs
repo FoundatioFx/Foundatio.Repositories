@@ -144,9 +144,4 @@ public sealed class QueryableRepositoryTests : ElasticRepositoryTestBase
         searchResults = await _dailyRepository.FindAsync(q => q.Id(yesterdayLog.Id));
         Assert.Equal(1, searchResults.Total);
     }
-
-    //[Fact]
-    //public async Task GetAggregations() {
-    //    throw new NotImplementedException();
-    //}
 }
