@@ -221,7 +221,10 @@ public class Index : IIndex
         }
         else
         {
-            var currentSettings = await Configuration.Client.Indices.GetSettingsAsync(name);
+            var currentSettings = await Configuration.Client.Indices.GetSettingsAsync(name).AnyContext();
+            if (!currentSettings.IsValid)
+                throw new RepositoryException(currentSettings.GetErrorMessage($"Error getting index settings for {name}"), currentSettings.OriginalException);
+
             var currentAnalyzers = currentSettings.Indices[name]?.Settings?.Analysis?.Analyzers ?? new Analyzers();
             var currentTokenizers = currentSettings.Indices[name]?.Settings?.Analysis?.Tokenizers ?? new Tokenizers();
             var currentTokenFilters = currentSettings.Indices[name]?.Settings?.Analysis?.TokenFilters ?? new TokenFilters();

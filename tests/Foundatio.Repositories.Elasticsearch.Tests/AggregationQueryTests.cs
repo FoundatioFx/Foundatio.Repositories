@@ -283,11 +283,10 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         }
     }
 
-    [Fact(Skip = "Need to fix it, its flakey")]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "xUnit1004:Test methods should not be skipped", Justification = "<Pending>")]
+    [Fact]
     public async Task GetDateOffsetAggregationsWithOffsetsAsync()
     {
-        var today = DateTimeOffset.Now.Floor(TimeSpan.FromMilliseconds(1));
+        var today = DateTimeOffset.UtcNow.Floor(TimeSpan.FromMilliseconds(1));
         await _employeeRepository.AddAsync(new List<Employee> {
             EmployeeGenerator.Generate(nextReview: today.SubtractDays(2)),
             EmployeeGenerator.Generate(nextReview: today.SubtractDays(1)),

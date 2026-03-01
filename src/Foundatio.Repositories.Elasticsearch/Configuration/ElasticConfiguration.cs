@@ -32,6 +32,7 @@ public class ElasticConfiguration : IElasticConfiguration
     private readonly Lazy<IElasticClient> _client;
     private readonly Lazy<ICustomFieldDefinitionRepository> _customFieldDefinitionRepository;
     protected readonly bool _shouldDisposeCache;
+    private readonly bool _shouldDisposeMessageBus;
     private bool _disposed;
 
     public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, TimeProvider timeProvider = null, IResiliencePolicyProvider resiliencePolicyProvider = null, ILoggerFactory loggerFactory = null)
@@ -45,7 +46,8 @@ public class ElasticConfiguration : IElasticConfiguration
         Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { CloneValues = true, ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
         _lockProvider = new CacheLockProvider(Cache, messageBus, TimeProvider, ResiliencePolicyProvider, LoggerFactory);
         _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15), TimeProvider, ResiliencePolicyProvider, LoggerFactory);
-        _shouldDisposeCache = cacheClient == null;
+        _shouldDisposeCache = cacheClient is null;
+        _shouldDisposeMessageBus = messageBus is null;
         MessageBus = messageBus ?? new InMemoryMessageBus(new InMemoryMessageBusOptions { ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
         _frozenIndexes = new Lazy<IReadOnlyCollection<IIndex>>(() => _indexes.AsReadOnly());
         _customFieldDefinitionRepository = new Lazy<ICustomFieldDefinitionRepository>(CreateCustomFieldDefinitionRepository);
@@ -214,9 +216,9 @@ public class ElasticConfiguration : IElasticConfiguration
                         .AnyContext();
                 }).AnyContext();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // unable to reindex after 5 retries, move to next index.
+                _logger.LogError(ex, "Failed to begin reindex for {IndexName} after retries", outdatedIndex.Name);
             }
         }
     }
@@ -230,6 +232,9 @@ public class ElasticConfiguration : IElasticConfiguration
 
         if (_shouldDisposeCache)
             Cache.Dispose();
+
+        if (_shouldDisposeMessageBus && MessageBus is IDisposable disposableMessageBus)
+            disposableMessageBus.Dispose();
 
         foreach (var index in Indexes)
             index.Dispose();
