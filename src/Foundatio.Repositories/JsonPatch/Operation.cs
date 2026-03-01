@@ -44,7 +44,14 @@ public abstract class Operation
     public static Operation Build(JObject jOperation)
     {
         ArgumentNullException.ThrowIfNull(jOperation);
-        var op = PatchDocument.CreateOperation((string)jOperation["op"]);
+
+        var opName = (string)jOperation["op"];
+        if (String.IsNullOrWhiteSpace(opName))
+            throw new ArgumentException("The JSON patch operation must contain a non-empty 'op' property.", nameof(jOperation));
+
+        var op = PatchDocument.CreateOperation(opName)
+            ?? throw new ArgumentException($"Unsupported JSON patch operation type '{opName}'.", nameof(jOperation));
+
         op.Read(jOperation);
         return op;
     }
