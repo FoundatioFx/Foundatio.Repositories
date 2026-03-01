@@ -1045,7 +1045,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
     {
         // Arrange
         var index = new DailyEmployeeIndex(_configuration, 2);
-        var startDate = DateTime.UtcNow.AddMonths(-3);
+        // Use AddDays(-93) instead of AddMonths(-3) because GetTotalMonths() uses
+        // an average-days-per-month constant (30.436875), so 3 calendar months may
+        // compute to < 3.0 average months depending on the specific months involved.
+        var startDate = DateTime.UtcNow.AddDays(-93);
         var endDate = DateTime.UtcNow;
 
         // Act
