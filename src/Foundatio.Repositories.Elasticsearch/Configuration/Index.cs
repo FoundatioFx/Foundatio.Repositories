@@ -229,6 +229,9 @@ public class Index : IIndex
         }
 
         var currentSettings = await Configuration.Client.Indices.GetSettingsAsync((Indices)name);
+        if (!currentSettings.IsValidResponse)
+            throw new RepositoryException(currentSettings.GetErrorMessage($"Error getting index settings for {name}"), currentSettings.OriginalException());
+
         var indexState = currentSettings.Settings.TryGetValue(name, out var indexSettings) ? indexSettings : null;
         var currentAnalyzers = indexState?.Settings?.Analysis?.Analyzers ?? new Analyzers();
         var currentTokenizers = indexState?.Settings?.Analysis?.Tokenizers ?? new Tokenizers();

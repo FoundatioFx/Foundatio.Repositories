@@ -495,7 +495,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         u.Id(id.Value)
                             .Index(ElasticIndex.GetIndex(id))
                             .Doc(partialOperation.Document)
-                            .RetriesOnConflict(10);
+                            .RetriesOnConflict(options.GetRetryCount());
 
                         if (id.Routing != null)
                             u.Routing(id.Routing);
@@ -869,6 +869,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     var taskStatus = await _client.Tasks.GetAsync(taskRequest).AnyContext();
                     _logger.LogRequest(taskStatus, options.GetQueryLogLevel());
 
+                    if (!taskStatus.IsValidResponse)
+                    {
+                        _logger.LogError("Error getting task status for {TaskId}: {Error}", taskId, taskStatus.ElasticsearchServerError);
+                        var retryDelay = TimeSpan.FromSeconds(attempts <= 5 ? 1 : 5);
+                        await ElasticIndex.Configuration.TimeProvider.Delay(retryDelay).AnyContext();
+                        continue;
+                    }
+
                     // Extract status values from the raw JSON. The Status property is object? and gets deserialized as JsonElement
                     long? created = null, updated = null, deleted = null, versionConflicts = null, total = null;
                     if (taskStatus.Task.Status is JsonElement jsonElement)
@@ -946,7 +954,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                                     .Routing(h.Routing)
                                     .Index(h.GetIndex())
                                     .Script(s => s.Source(scriptOperation.Script).Params(scriptOperation.Params))
-                                    .RetriesOnConflict(10));
+                                    .RetriesOnConflict(options.GetRetryCount()));
                             else if (partialOperation != null)
                                 b.Update<T, object>(u => u.Id(h.Id)
                                     .Routing(h.Routing)
@@ -1493,25 +1501,31 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             var bulkRequest = new BulkRequest();
             var list = documents.Select(d =>
             {
-                var createOperation = new BulkCreateOperation<T>(d) { Pipeline = DefaultPipeline };
-                var indexOperation = new BulkIndexOperation<T>(d) { Pipeline = DefaultPipeline };
+                var routing = GetParentIdFunc?.Invoke(d);
+                var index = ElasticIndex.GetIndex(d);
 
-                if (GetParentIdFunc != null)
+                if (isCreateOperation)
                 {
-                    createOperation.Routing = GetParentIdFunc(d);
-                    indexOperation.Routing = GetParentIdFunc(d);
+                    var createOperation = new BulkCreateOperation<T>(d) { Pipeline = DefaultPipeline };
+                    if (routing != null)
+                        createOperation.Routing = routing;
+                    createOperation.Index = index;
+                    return (IBulkOperation)createOperation;
                 }
-                createOperation.Index = ElasticIndex.GetIndex(d);
-                indexOperation.Index = ElasticIndex.GetIndex(d);
-
-                if (HasVersion && !isCreateOperation && !options.ShouldSkipVersionCheck())
+                else
                 {
-                    var elasticVersion = ((IVersioned)d).GetElasticVersion();
-                    indexOperation.IfSequenceNumber = elasticVersion.SequenceNumber;
-                    indexOperation.IfPrimaryTerm = elasticVersion.PrimaryTerm;
+                    var indexOperation = new BulkIndexOperation<T>(d) { Pipeline = DefaultPipeline };
+                    if (routing != null)
+                        indexOperation.Routing = routing;
+                    indexOperation.Index = index;
+                    if (HasVersion && !options.ShouldSkipVersionCheck())
+                    {
+                        var elasticVersion = ((IVersioned)d).GetElasticVersion();
+                        indexOperation.IfSequenceNumber = elasticVersion.SequenceNumber;
+                        indexOperation.IfPrimaryTerm = elasticVersion.PrimaryTerm;
+                    }
+                    return (IBulkOperation)indexOperation;
                 }
-
-                return isCreateOperation ? (IBulkOperation)createOperation : indexOperation;
             }).ToList();
             bulkRequest.Operations = list;
             bulkRequest.Refresh = options.GetRefreshMode(DefaultConsistency);
@@ -1521,13 +1535,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             if (HasVersion)
             {
+                var documentsById = documents.ToDictionary(d => d.Id);
                 foreach (var hit in response.Items)
                 {
                     if (!hit.IsValid)
                         continue;
 
-                    var document = documents.FirstOrDefault(d => d.Id == hit.Id);
-                    if (document == null)
+                    if (!documentsById.TryGetValue(hit.Id, out var document))
                         continue;
 
                     var versionDoc = (IVersioned)document;

@@ -74,6 +74,11 @@ public class ElasticUtility
 
         var tasksResponse = await _client.Tasks.ListAsync().AnyContext();
         _logger.LogRequest(tasksResponse);
+        if (!tasksResponse.IsValidResponse)
+        {
+            _logger.LogWarning("Failed to list tasks: {Error}", tasksResponse.ElasticsearchServerError);
+            return false;
+        }
         foreach (var node in tasksResponse.Nodes.Values)
         {
             foreach (var task in node.Tasks.Values)
@@ -90,6 +95,11 @@ public class ElasticUtility
     {
         var snapshotsResponse = await _client.Snapshot.GetAsync(new Elastic.Clients.Elasticsearch.Snapshot.GetSnapshotRequest(repository, "*")).AnyContext();
         _logger.LogRequest(snapshotsResponse);
+        if (!snapshotsResponse.IsValidResponse)
+        {
+            _logger.LogWarning("Failed to get snapshot list for {Repository}: {Error}", repository, snapshotsResponse.ElasticsearchServerError);
+            return Array.Empty<string>();
+        }
         return snapshotsResponse.Snapshots.Select(s => s.Snapshot).ToList();
     }
 
@@ -97,6 +107,11 @@ public class ElasticUtility
     {
         var resolveResponse = await _client.Indices.ResolveIndexAsync("*").AnyContext();
         _logger.LogRequest(resolveResponse);
+        if (!resolveResponse.IsValidResponse)
+        {
+            _logger.LogWarning("Failed to get index list: {Error}", resolveResponse.ElasticsearchServerError);
+            return Array.Empty<string>();
+        }
         return resolveResponse.Indices.Select(i => i.Name).ToList();
     }
 
