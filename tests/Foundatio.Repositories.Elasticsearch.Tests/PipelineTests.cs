@@ -120,7 +120,7 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
         Assert.All(results, e => Assert.Equal("patched", e.Name));
     }
 
-    [Fact(Skip = "ES Update API does not support ingest pipelines (elastic/elasticsearch#17895, closed won't-fix)")]
+    [Fact]
     public async Task PartialPatchAsync()
     {
         // Arrange
@@ -135,7 +135,7 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
         Assert.Equal("patched", employee.Name);
     }
 
-    [Fact(Skip = "ES Update API does not support ingest pipelines (elastic/elasticsearch#17895, closed won't-fix)")]
+    [Fact]
     public async Task PartialPatchAllAsync()
     {
         // Arrange
@@ -155,7 +155,7 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
         Assert.All(results, e => Assert.Equal("patched", e.Name));
     }
 
-    [Fact(Skip = "ES Update API does not support ingest pipelines (elastic/elasticsearch#17895, closed won't-fix)")]
+    [Fact]
     public async Task ScriptPatchAsync()
     {
         // Arrange
@@ -170,7 +170,7 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
         Assert.Equal("patched", employee.Name);
     }
 
-    [Fact(Skip = "ES Update API does not support ingest pipelines (elastic/elasticsearch#17895, closed won't-fix)")]
+    [Fact]
     public async Task ScriptPatchAllAsync()
     {
         // Arrange

@@ -169,48 +169,147 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         if (operation is ScriptPatch scriptOperation)
         {
-            // ES Update API does not support pipelines (elastic/elasticsearch#17895, closed as won't-fix).
-            var request = new UpdateRequest<T, T>(ElasticIndex.GetIndex(id), id.Value)
+            if (!String.IsNullOrEmpty(DefaultPipeline))
             {
-                Script = new Script { Source = scriptOperation.Script, Params = scriptOperation.Params },
-                RetryOnConflict = options.GetRetryCount(),
-                Refresh = options.GetRefreshMode(DefaultConsistency)
-            };
-            if (id.Routing != null)
-                request.Routing = id.Routing;
+                var request = new UpdateByQueryRequest(ElasticIndex.GetIndex(id))
+                {
+                    Query = new Elastic.Clients.Elasticsearch.QueryDsl.IdsQuery
+                    {
+                        Values = new Elastic.Clients.Elasticsearch.Ids(new[] { new Elastic.Clients.Elasticsearch.Id(id.Value) })
+                    },
+                    Conflicts = Conflicts.Proceed,
+                    Script = new Script { Source = scriptOperation.Script, Params = scriptOperation.Params },
+                    Pipeline = DefaultPipeline,
+                    Refresh = options.GetRefreshMode(DefaultConsistency) != Refresh.False,
+                    WaitForCompletion = true
+                };
+                if (id.Routing != null)
+                    request.Routing = new Elastic.Clients.Elasticsearch.Routing(id.Routing);
 
-            var response = await _client.UpdateAsync(request).AnyContext();
-            _logger.LogRequest(response, options.GetQueryLogLevel());
+                var response = await _client.UpdateByQueryAsync(request).AnyContext();
+                _logger.LogRequest(response, options.GetQueryLogLevel());
 
-            if (!response.IsValidResponse)
+                if (!response.IsValidResponse)
+                {
+                    if (response.ApiCallDetails is { HttpStatusCode: 404 })
+                        throw new DocumentNotFoundException(id);
+
+                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
+                }
+            }
+            else
             {
-                if (response.ApiCallDetails is { HttpStatusCode: 404 })
-                    throw new DocumentNotFoundException(id);
+                var request = new UpdateRequest<T, T>(ElasticIndex.GetIndex(id), id.Value)
+                {
+                    Script = new Script { Source = scriptOperation.Script, Params = scriptOperation.Params },
+                    RetryOnConflict = options.GetRetryCount(),
+                    Refresh = options.GetRefreshMode(DefaultConsistency)
+                };
+                if (id.Routing != null)
+                    request.Routing = id.Routing;
 
-                throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
+                var response = await _client.UpdateAsync(request).AnyContext();
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+
+                if (!response.IsValidResponse)
+                {
+                    if (response.ApiCallDetails is { HttpStatusCode: 404 })
+                        throw new DocumentNotFoundException(id);
+
+                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
+                }
             }
         }
         else if (operation is PartialPatch partialOperation)
         {
-            // ES Update API does not support pipelines (elastic/elasticsearch#17895, closed as won't-fix).
-            var request = new UpdateRequest<T, object>(ElasticIndex.GetIndex(id), id.Value)
+            if (!String.IsNullOrEmpty(DefaultPipeline))
             {
-                Doc = partialOperation.Document,
-                RetryOnConflict = options.GetRetryCount()
-            };
-            if (id.Routing != null)
-                request.Routing = id.Routing;
-            request.Refresh = options.GetRefreshMode(DefaultConsistency);
+                var policy = _resiliencePolicy;
+                if (options.HasRetryCount())
+                {
+                    if (policy is ResiliencePolicy resiliencePolicy)
+                        policy = resiliencePolicy.Clone(options.GetRetryCount());
+                    else
+                        _logger.LogWarning("Unable to override resilience policy max attempts");
+                }
 
-            var response = await _client.UpdateAsync(request).AnyContext();
-            _logger.LogRequest(response, options.GetQueryLogLevel());
+                await policy.ExecuteAsync(async ct =>
+                {
+                    var getRequest = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
+                    if (id.Routing != null)
+                        getRequest.Routing = id.Routing;
 
-            if (!response.IsValidResponse)
+                    var response = await _client.GetAsync<T>(getRequest, ct).AnyContext();
+                    _logger.LogRequest(response, options.GetQueryLogLevel());
+                    if (!response.IsValidResponse)
+                    {
+                        if (!response.Found)
+                            throw new DocumentNotFoundException(id);
+
+                        throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
+                    }
+
+                    var sourceJson = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(response.Source);
+                    var sourceNode = JsonNode.Parse(sourceJson);
+                    var partialJson = JsonSerializer.Serialize(partialOperation.Document);
+                    var partialNode = JsonNode.Parse(partialJson);
+
+                    if (sourceNode is JsonObject sourceObj && partialNode is JsonObject partialObj)
+                    {
+                        foreach (var prop in partialObj)
+                            sourceObj[prop.Key] = prop.Value?.DeepClone();
+                    }
+
+                    using var mergedStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(sourceNode.ToJsonString()));
+                    var mergedDocument = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(mergedStream);
+
+                    var indexRequest = new IndexRequest<T>(mergedDocument, ElasticIndex.GetIndex(id), id.Value)
+                    {
+                        Pipeline = DefaultPipeline,
+                        Refresh = options.GetRefreshMode(DefaultConsistency)
+                    };
+                    if (id.Routing != null)
+                        indexRequest.Routing = id.Routing;
+
+                    if (HasVersion && !options.ShouldSkipVersionCheck())
+                    {
+                        indexRequest.IfSeqNo = response.SeqNo;
+                        indexRequest.IfPrimaryTerm = response.PrimaryTerm;
+                    }
+
+                    var indexResponse = await _client.IndexAsync(indexRequest, ct).AnyContext();
+                    _logger.LogRequest(indexResponse, options.GetQueryLogLevel());
+
+                    if (!indexResponse.IsValidResponse)
+                    {
+                        if (indexResponse.ElasticsearchServerError?.Status == 409)
+                            throw new VersionConflictDocumentException(indexResponse.GetErrorMessage("Error saving document"), indexResponse.OriginalException());
+
+                        throw new DocumentException(indexResponse.GetErrorMessage("Error saving document"), indexResponse.OriginalException());
+                    }
+                });
+            }
+            else
             {
-                if (response.ApiCallDetails is { HttpStatusCode: 404 })
-                    throw new DocumentNotFoundException(id);
+                var request = new UpdateRequest<T, object>(ElasticIndex.GetIndex(id), id.Value)
+                {
+                    Doc = partialOperation.Document,
+                    RetryOnConflict = options.GetRetryCount()
+                };
+                if (id.Routing != null)
+                    request.Routing = id.Routing;
+                request.Refresh = options.GetRefreshMode(DefaultConsistency);
 
-                throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
+                var response = await _client.UpdateAsync(request).AnyContext();
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+
+                if (!response.IsValidResponse)
+                {
+                    if (response.ApiCallDetails is { HttpStatusCode: 404 })
+                        throw new DocumentNotFoundException(id);
+
+                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
+                }
             }
         }
         else if (operation is JsonPatch jsonOperation)
@@ -364,6 +463,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         var partialOperation = operation as PartialPatch;
         if (scriptOperation == null && partialOperation == null)
             throw new ArgumentException("Unknown operation type", nameof(operation));
+
+        if (!String.IsNullOrEmpty(DefaultPipeline))
+        {
+            foreach (var id in ids)
+                await PatchAsync(id, operation, options).AnyContext();
+            return;
+        }
 
         var bulkResponse = await _client.BulkAsync(b =>
         {
@@ -568,7 +674,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     /// <summary>
     /// Script patches will not invalidate the cache or send notifications.
-    /// Partial patches will not run ingest pipelines (ES limitation, see elastic/elasticsearch#17895).
     /// </summary>
     public virtual async Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null)
     {
@@ -804,7 +909,38 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                         foreach (var h in results.Hits)
                         {
-                            if (scriptOperation != null)
+                            if (partialOperation != null && !String.IsNullOrEmpty(DefaultPipeline))
+                            {
+                                var sourceJson = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(h.Document);
+                                var sourceNode = JsonNode.Parse(sourceJson);
+                                var partialJson = JsonSerializer.Serialize(partialOperation.Document);
+                                var partialNode = JsonNode.Parse(partialJson);
+
+                                if (sourceNode is JsonObject sourceObj && partialNode is JsonObject partialObj)
+                                {
+                                    foreach (var prop in partialObj)
+                                        sourceObj[prop.Key] = prop.Value?.DeepClone();
+                                }
+
+                                using var mergedStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(sourceNode.ToJsonString()));
+                                var mergedDoc = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(mergedStream);
+                                var elasticVersion = h.GetElasticVersion();
+
+                                b.Index(mergedDoc, i =>
+                                {
+                                    i.Id(h.Id)
+                                        .Routing(h.Routing)
+                                        .Index(h.GetIndex())
+                                        .Pipeline(DefaultPipeline);
+
+                                    if (HasVersion)
+                                    {
+                                        i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
+                                        i.IfSequenceNumber(elasticVersion.SequenceNumber);
+                                    }
+                                });
+                            }
+                            else if (scriptOperation != null)
                                 b.Update<T>(u => u
                                     .Id(h.Id)
                                     .Routing(h.Routing)
