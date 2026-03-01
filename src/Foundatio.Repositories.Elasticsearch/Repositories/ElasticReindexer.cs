@@ -370,7 +370,7 @@ public class ElasticReindexer
         var indices = aliasesResponse.Aliases;
         if (aliasesResponse.IsValidResponse && indices != null && indices.Count > 0)
         {
-            var aliases = indices.FirstOrDefault(a => a.Key == index);
+            var aliases = indices.SingleOrDefault(a => String.Equals(a.Key, index));
             if (aliases.Value?.Aliases != null)
                 return aliases.Value.Aliases.Select(a => a.Key).ToList();
         }

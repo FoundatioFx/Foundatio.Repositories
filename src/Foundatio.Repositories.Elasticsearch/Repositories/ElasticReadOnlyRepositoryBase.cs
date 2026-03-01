@@ -246,7 +246,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             var response = await _client.ExistsAsync(request).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
-            if (!response.IsValidResponse)
+            if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() != 404)
                 throw new DocumentException(response.GetErrorMessage($"Error checking if document {id.Value} exists"), response.OriginalException());
 
             return response.Exists;

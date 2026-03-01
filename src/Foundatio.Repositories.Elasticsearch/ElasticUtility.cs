@@ -79,6 +79,7 @@ public class ElasticUtility
             _logger.LogWarning("Failed to list tasks: {Error}", tasksResponse.ElasticsearchServerError);
             return false;
         }
+
         foreach (var node in tasksResponse.Nodes.Values)
         {
             foreach (var task in node.Tasks.Values)
@@ -100,6 +101,7 @@ public class ElasticUtility
             _logger.LogWarning("Failed to get snapshot list for {Repository}: {Error}", repository, snapshotsResponse.ElasticsearchServerError);
             return Array.Empty<string>();
         }
+
         return snapshotsResponse.Snapshots.Select(s => s.Snapshot).ToList();
     }
 
@@ -112,6 +114,7 @@ public class ElasticUtility
             _logger.LogWarning("Failed to get index list: {Error}", resolveResponse.ElasticsearchServerError);
             return Array.Empty<string>();
         }
+
         return resolveResponse.Indices.Select(i => i.Name).ToList();
     }
 
