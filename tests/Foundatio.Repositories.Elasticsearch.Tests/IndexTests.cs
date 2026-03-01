@@ -46,7 +46,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         for (int i = 0; i < 35; i += 5)
         {
             var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(i)));
-            Assert.NotNull(employee?.Id);
+            Assert.NotNull(employee);
+            Assert.NotNull(employee.Id);
 
             Assert.Equal(1, await index.GetCurrentVersionAsync());
             var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), ct: TestCancellationToken);
@@ -81,7 +82,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         for (int i = 0; i < 4; i++)
         {
             var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractMonths(i)));
-            Assert.NotNull(employee?.Id);
+            Assert.NotNull(employee);
+            Assert.NotNull(employee.Id);
 
             Assert.Equal(1, await index.GetCurrentVersionAsync());
             var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), ct: TestCancellationToken);
@@ -126,10 +128,12 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var utcNow = DateTime.UtcNow;
         ILogEventRepository repository = new DailyLogEventRepository(_configuration);
         var logEvent = await repository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow));
-        Assert.NotNull(logEvent?.Id);
+        Assert.NotNull(logEvent);
+        Assert.NotNull(logEvent.Id);
 
         logEvent = await repository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow.SubtractDays(1)), o => o.ImmediateConsistency());
-        Assert.NotNull(logEvent?.Id);
+        Assert.NotNull(logEvent);
+        Assert.NotNull(logEvent.Id);
 
         alias = await _client.Indices.GetAliasAsync(_configuration.DailyLogEvents.Name, ct: TestCancellationToken);
         _logger.LogRequest(alias);
@@ -266,7 +270,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         IEmployeeRepository repository = new EmployeeRepository(index);
 
         var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: timeProvider.GetUtcNow().UtcDateTime), o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         await index.MaintainAsync();
         Assert.Equal(1, await index.GetCurrentVersionAsync());
@@ -331,7 +336,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         {
             var created = utcNow.SubtractMonths(i);
             var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: created.UtcDateTime));
-            Assert.NotNull(employee?.Id);
+            Assert.NotNull(employee);
+            Assert.NotNull(employee.Id);
 
             Assert.Equal(1, await index.GetCurrentVersionAsync());
             var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), ct: TestCancellationToken);
@@ -356,7 +362,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         {
             var created = utcNow.SubtractMonths(i);
             var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: created.UtcDateTime));
-            Assert.NotNull(employee?.Id);
+            Assert.NotNull(employee);
+            Assert.NotNull(employee.Id);
 
             Assert.Equal(1, await index.GetCurrentVersionAsync());
             var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), ct: TestCancellationToken);
@@ -614,7 +621,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         IEmployeeRepository version1Repository = new EmployeeRepository(index);
 
         var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), ct: TestCancellationToken);
         _logger.LogRequest(existsResponse);
@@ -630,7 +638,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         Assert.Equal(GetExpectedEmployeeDailyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
         employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(2)), o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), ct: TestCancellationToken);
         _logger.LogRequest(existsResponse);
@@ -646,7 +655,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         Assert.Equal(GetExpectedEmployeeDailyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
         employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(35)), o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), ct: TestCancellationToken);
         _logger.LogRequest(existsResponse);
@@ -679,7 +689,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         IEmployeeRepository repository = new EmployeeRepository(index);
 
         var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), ct: TestCancellationToken);
         _logger.LogRequest(existsResponse);
@@ -695,7 +706,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
         employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(2)), o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), ct: TestCancellationToken);
         _logger.LogRequest(existsResponse);
@@ -711,7 +723,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
         employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(35)), o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), ct: TestCancellationToken);
         _logger.LogRequest(existsResponse);
@@ -854,7 +867,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var employee = await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.UtcDateTime));
 
         // Assert
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         // Verify the correct versioned index was created
         string expectedVersionedIndex = index.GetVersionedIndex(utcNow.UtcDateTime);
@@ -894,7 +908,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var employee = await task2;
 
         // Assert
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         // Verify the index was created correctly despite the race condition
         string expectedVersionedIndex = "monthly-employees-v2-2025.06";
