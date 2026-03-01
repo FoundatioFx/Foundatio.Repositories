@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -17,22 +17,24 @@ public class PatchDocumentConverter : JsonConverter<PatchDocument>
         if (typeToConvert != typeof(PatchDocument))
             throw new ArgumentException("Object must be of type PatchDocument", nameof(typeToConvert));
 
+        if (reader.TokenType == JsonTokenType.Null)
+            return null;
+
         try
         {
-            if (reader.TokenType == JsonTokenType.Null)
-                return null;
-
             var node = JsonNode.Parse(ref reader);
-            if (node is JsonArray array)
-            {
-                return PatchDocument.Load(array);
-            }
+            if (node is not JsonArray array)
+                throw new JsonException("Invalid patch document: expected JSON array");
 
-            throw new ArgumentException("Invalid patch document: expected array");
+            return PatchDocument.Load(array);
+        }
+        catch (JsonException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            throw new ArgumentException("Invalid patch document: " + ex.Message);
+            throw new JsonException("Invalid patch document: " + ex.Message, ex);
         }
     }
 

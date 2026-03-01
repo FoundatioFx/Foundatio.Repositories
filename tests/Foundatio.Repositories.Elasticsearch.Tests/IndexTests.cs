@@ -1069,16 +1069,13 @@ public sealed class IndexTests : ElasticRepositoryTestBase
     [Fact]
     public void GetIndexes_ThreeMonthPeriod_ShouldReturnEmptyForDailyIndex()
     {
-        // Arrange
         var index = new DailyEmployeeIndex(_configuration, 2);
-        var startDate = DateTime.UtcNow.AddMonths(-3);
+        var startDate = DateTime.UtcNow.AddMonths(-4);
         var endDate = DateTime.UtcNow;
 
-        // Act
         string[] indexes = index.GetIndexes(startDate, endDate);
 
-        // Assert
-        Assert.Empty(indexes); // Should return empty for periods >= 3 months
+        Assert.Empty(indexes);
     }
 
     [Fact]

@@ -72,7 +72,7 @@ public class SnapshotJob : IJob
             s => s.WaitForCompletion(false));
         
         if (!response.IsValidResponse)
-            return JobResult.FromException(response.OriginalException);
+            return JobResult.FromException(response.OriginalException(), response.GetErrorMessage());
         
         return JobResult.Success;
     }

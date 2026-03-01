@@ -249,7 +249,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 var target = JsonNode.Parse(json);
                 new JsonPatcher().Patch(ref target, jsonOperation.Patch);
 
-                var patchedDocument = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToJsonString())));
+                using var patchStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToJsonString()));
+                var patchedDocument = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(patchStream);
 
                 var indexRequest = new IndexRequest<T>(patchedDocument, ElasticIndex.GetIndex(id), id.Value)
                 {
@@ -597,7 +598,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         var json = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(h.Document);
                         var target = JsonNode.Parse(json);
                         patcher.Patch(ref target, jsonOperation.Patch);
-                        var doc = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToJsonString())));
+                        using var docStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToJsonString()));
+                        var doc = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(docStream);
                         var elasticVersion = h.GetElasticVersion();
 
                         b.Index(doc, i =>

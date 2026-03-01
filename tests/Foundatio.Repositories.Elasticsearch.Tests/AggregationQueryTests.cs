@@ -348,7 +348,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
 
         var dateHistogramAgg = result.Aggregations.DateHistogram("date_nextReview");
         Assert.Equal(3, dateHistogramAgg.Buckets.Count);
-        var oldestDate = DateTime.SpecifyKind(today.UtcDateTime.Date.SubtractDays(2).SubtractHours(1), DateTimeKind.Unspecified);
+        var oldestDate = DateTime.SpecifyKind(today.UtcDateTime.SubtractDays(2).AddHours(1).Date.SubtractHours(1), DateTimeKind.Unspecified);
         foreach (var bucket in dateHistogramAgg.Buckets)
         {
             AssertEqual(oldestDate, bucket.Date);

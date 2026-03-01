@@ -61,7 +61,7 @@ public class PatchDocument
 
     public static PatchDocument Load(Stream document)
     {
-        var reader = new StreamReader(document);
+        using var reader = new StreamReader(document, leaveOpen: true);
 
         return Parse(reader.ReadToEnd());
     }
