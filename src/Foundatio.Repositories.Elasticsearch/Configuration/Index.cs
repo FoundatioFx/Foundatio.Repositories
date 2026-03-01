@@ -228,7 +228,7 @@ public class Index : IIndex
             return;
         }
 
-        var currentSettings = await Configuration.Client.Indices.GetSettingsAsync((Indices)name);
+        var currentSettings = await Configuration.Client.Indices.GetSettingsAsync((Indices)name).AnyContext();
         if (!currentSettings.IsValidResponse)
             throw new RepositoryException(currentSettings.GetErrorMessage($"Error getting index settings for {name}"), currentSettings.OriginalException());
 
