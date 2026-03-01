@@ -128,10 +128,12 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var utcNow = DateTime.UtcNow;
         ILogEventRepository repository = new DailyLogEventRepository(_configuration);
         var logEvent = await repository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow));
-        Assert.NotNull(logEvent?.Id);
+        Assert.NotNull(logEvent);
+        Assert.NotNull(logEvent.Id);
 
         logEvent = await repository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow.SubtractDays(1)), o => o.ImmediateConsistency());
-        Assert.NotNull(logEvent?.Id);
+        Assert.NotNull(logEvent);
+        Assert.NotNull(logEvent.Id);
 
         alias = await _client.Indices.GetAliasAsync((Indices)_configuration.DailyLogEvents.Name, cancellationToken: TestCancellationToken);
         _logger.LogRequest(alias);

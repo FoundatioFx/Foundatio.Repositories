@@ -656,6 +656,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var utcNow = DateTime.UtcNow;
         var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
         Assert.NotNull(employee);
+        Assert.NotNull(employee);
 
         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
 

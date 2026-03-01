@@ -48,7 +48,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task AddAsync()
     {
         var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Generate());
-        Assert.NotNull(identity1?.Id);
+        Assert.NotNull(identity1);
+        Assert.NotNull(identity1.Id);
 
         var disposables = new List<IDisposable>(2);
         var countdownEvent = new AsyncCountdownEvent(2);
@@ -89,7 +90,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         var employee1 = EmployeeGenerator.Default;
         employee1.IsDeleted = true;
         employee1 = await _employeeRepository.AddAsync(employee1, o => o.ImmediateConsistency());
-        Assert.NotNull(employee1?.Id);
+        Assert.NotNull(employee1);
+        Assert.NotNull(employee1.Id);
 
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
 
@@ -111,7 +113,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         var employee1 = EmployeeGenerator.Default;
         employee1.IsDeleted = true;
         employee1 = await _employeeRepository.AddAsync(employee1, o => o.ImmediateConsistency());
-        Assert.NotNull(employee1?.Id);
+        Assert.NotNull(employee1);
+        Assert.NotNull(employee1.Id);
 
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
 
@@ -133,7 +136,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         var employee1 = EmployeeGenerator.Default;
         employee1.IsDeleted = true;
         employee1 = await _employeeRepository.AddAsync(employee1, o => o.ImmediateConsistency());
-        Assert.NotNull(employee1?.Id);
+        Assert.NotNull(employee1);
+        Assert.NotNull(employee1.Id);
 
         var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
 
@@ -153,7 +157,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task AddDuplicateAsync()
     {
         var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
-        Assert.NotNull(identity1?.Id);
+        Assert.NotNull(identity1);
+        Assert.NotNull(identity1.Id);
 
         await Assert.ThrowsAsync<DuplicateDocumentException>(async () => await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency()));
         Assert.Equal(1, await _identityRepository.CountAsync());
@@ -163,7 +168,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task AddDuplicateCollectionAsync()
     {
         var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
-        Assert.NotNull(identity1?.Id);
+        Assert.NotNull(identity1);
+        Assert.NotNull(identity1.Id);
 
         var identities = new List<Identity> {
             IdentityGenerator.Default,
@@ -178,7 +184,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task AddWithCachingAsync()
     {
         var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.Cache());
-        Assert.NotNull(identity?.Id);
+        Assert.NotNull(identity);
+        Assert.NotNull(identity.Id);
         Assert.Equal(1, _cache.Count);
         Assert.Equal(0, _cache.Hits);
         Assert.Equal(0, _cache.Misses);
@@ -193,7 +200,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task AddWithTimeSeriesAsync()
     {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate());
-        Assert.NotNull(log?.Id);
+        Assert.NotNull(log);
+        Assert.NotNull(log.Id);
 
         Assert.Equal(log, await _dailyRepository.GetByIdAsync(log.Id));
     }
@@ -230,7 +238,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     {
         var identity = IdentityGenerator.Generate();
         await _identityRepository.AddAsync(new List<Identity> { identity, IdentityGenerator.Generate() }, o => o.Cache());
-        Assert.NotNull(identity?.Id);
+        Assert.NotNull(identity);
+        Assert.NotNull(identity.Id);
         Assert.Equal(2, _cache.Count);
         Assert.Equal(0, _cache.Hits);
         Assert.Equal(0, _cache.Misses);
@@ -247,7 +256,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         var identity = IdentityGenerator.Generate();
         var identity2 = IdentityGenerator.Generate();
         await _identityRepository.AddAsync(new List<Identity> { identity, identity2 }, o => o.Cache());
-        Assert.NotNull(identity?.Id);
+        Assert.NotNull(identity);
+        Assert.NotNull(identity.Id);
         Assert.Equal(2, _cache.Count);
         Assert.Equal(0, _cache.Hits);
         Assert.Equal(0, _cache.Misses);
@@ -290,7 +300,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task SaveAsync()
     {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Default, o => o.Notifications(false));
-        Assert.NotNull(log?.Id);
+        Assert.NotNull(log);
+        Assert.NotNull(log.Id);
 
         var disposables = new List<IDisposable>();
         var countdownEvent = new AsyncCountdownEvent(5);
@@ -346,7 +357,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task AddAndSaveAsync()
     {
         var logEntry = await _dailyRepository.AddAsync(LogEventGenerator.Default, o => o.Notifications(false));
-        Assert.NotNull(logEntry?.Id);
+        Assert.NotNull(logEntry);
+        Assert.NotNull(logEntry.Id);
 
         var disposables = new List<IDisposable>(4);
         var saveCountdownEvent = new AsyncCountdownEvent(2);
@@ -494,7 +506,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     {
         var utcNow = DateTime.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
-        Assert.NotNull(yesterdayLog?.Id);
+        Assert.NotNull(yesterdayLog);
+        Assert.NotNull(yesterdayLog.Id);
 
         Assert.Equal(1, await _dailyRepository.CountAsync());
 
@@ -509,7 +522,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     {
         var utcNow = DateTime.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
-        Assert.NotNull(yesterdayLog?.Id);
+        Assert.NotNull(yesterdayLog);
+        Assert.NotNull(yesterdayLog.Id);
 
         var result = await _dailyRepository.CountAsync(q => q.AggregationsExpression("cardinality:companyId max:createdUtc"));
         Assert.Equal(2, result.Aggregations.Count);
@@ -527,7 +541,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     {
         var utcNow = DateTime.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
-        Assert.NotNull(yesterdayLog?.Id);
+        Assert.NotNull(yesterdayLog);
+        Assert.NotNull(yesterdayLog.Id);
 
         var result = await _dailyRepository.CountAsync(q => q.AggregationsExpression("date:(createdUtc min:createdUtc)"));
         Assert.Single(result.Aggregations);
@@ -549,7 +564,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     {
         var utcNow = DateTime.UtcNow;
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
         await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(), o => o.ImmediateConsistency());
 
         var result = await _employeeRepository.CountAsync(q => q.AggregationsExpression("geogrid:(location~6 max:age)"));
@@ -563,7 +579,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task SaveWithCachingAsync()
     {
         var identity = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.Cache());
-        Assert.NotNull(identity?.Id);
+        Assert.NotNull(identity);
+        Assert.NotNull(identity.Id);
         Assert.Equal(1, _cache.Count);
         Assert.Equal(0, _cache.Hits);
         Assert.Equal(0, _cache.Misses);
@@ -574,7 +591,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(0, _cache.Misses);
 
         identity = await _identityRepository.SaveAsync(identity, o => o.Cache());
-        Assert.NotNull(identity?.Id);
+        Assert.NotNull(identity);
+        Assert.NotNull(identity.Id);
         Assert.Equal(1, _cache.Count);
         Assert.Equal(0, _cache.Hits);
         Assert.Equal(0, _cache.Misses);
@@ -1180,7 +1198,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task RemoveAsync()
     {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Default);
-        Assert.NotNull(log?.Id);
+        Assert.NotNull(log);
+        Assert.NotNull(log.Id);
 
         var disposables = new List<IDisposable>(2);
         var countdownEvent = new AsyncCountdownEvent(2);

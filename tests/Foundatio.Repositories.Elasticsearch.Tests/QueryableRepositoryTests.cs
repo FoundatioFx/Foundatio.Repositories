@@ -49,10 +49,12 @@ public sealed class QueryableRepositoryTests : ElasticRepositoryTestBase
 
         var utcNow = DateTime.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
-        Assert.NotNull(yesterdayLog?.Id);
+        Assert.NotNull(yesterdayLog);
+        Assert.NotNull(yesterdayLog.Id);
 
         var nowLog = await _dailyRepository.AddAsync(LogEventGenerator.Default, o => o.ImmediateConsistency());
-        Assert.NotNull(nowLog?.Id);
+        Assert.NotNull(nowLog);
+        Assert.NotNull(nowLog.Id);
 
         Assert.Equal(0, await _dailyRepository.CountAsync(q => q.FilterExpression("id:test")));
         Assert.Equal(1, await _dailyRepository.CountAsync(q => q.FilterExpression($"id:{nowLog.Id}")));
@@ -71,7 +73,8 @@ public sealed class QueryableRepositoryTests : ElasticRepositoryTestBase
 
         var utcNow = _configuration.TimeProvider.GetUtcNow();
         var logEvent = await _dailyRepository.AddAsync(LogEventGenerator.Generate(createdUtc: utcNow.UtcDateTime, date: utcNow.UtcDateTime.SubtractDays(1)), o => o.ImmediateConsistency());
-        Assert.NotNull(logEvent?.Id);
+        Assert.NotNull(logEvent);
+        Assert.NotNull(logEvent.Id);
 
         var ev = await _dailyRepository.GetByIdAsync(logEvent.Id);
         Assert.NotNull(ev);
@@ -120,10 +123,12 @@ public sealed class QueryableRepositoryTests : ElasticRepositoryTestBase
     {
         var utcNow = DateTime.UtcNow;
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(utcNow.AddDays(-1)).ToString(), createdUtc: utcNow.AddDays(-1), companyId: "1234567890"), o => o.ImmediateConsistency());
-        Assert.NotNull(yesterdayLog?.Id);
+        Assert.NotNull(yesterdayLog);
+        Assert.NotNull(yesterdayLog.Id);
 
         var nowLog = await _dailyRepository.AddAsync(LogEventGenerator.Default, o => o.ImmediateConsistency());
-        Assert.NotNull(nowLog?.Id);
+        Assert.NotNull(nowLog);
+        Assert.NotNull(nowLog.Id);
 
         var results = await _dailyRepository.GetByIdsAsync(new[] { yesterdayLog.Id, nowLog.Id });
         Assert.NotNull(results);

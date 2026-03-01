@@ -749,7 +749,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 var updatedIds = results.Hits.Select(h => h.Id).ToList();
                 if (IsCacheEnabled)
-                    await Cache.RemoveAllAsync(updatedIds).AnyContext();
+                    await InvalidateCacheAsync(updatedIds).AnyContext();
 
                 try
                 {
@@ -819,8 +819,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 var updatedIds = results.Hits.Select(h => h.Id).ToList();
                 if (IsCacheEnabled)
                 {
-                    // TODO: Should this call invalidation by cache.
-                    await Cache.RemoveAllAsync(updatedIds).AnyContext();
+                    await InvalidateCacheAsync(updatedIds).AnyContext();
                 }
 
                 try
@@ -842,8 +841,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             if (scriptOperation == null && partialOperation == null)
                 throw new ArgumentException("Unknown operation type", nameof(operation));
 
-            // TODO: Check has doc change listeners
-            if (!IsCacheEnabled && scriptOperation != null)
+            if (!IsCacheEnabled && scriptOperation != null && (DocumentsChanged == null || !DocumentsChanged.HasHandlers))
             {
                 var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", ElasticIndex.GetIndexesByQuery(query))))
                 {

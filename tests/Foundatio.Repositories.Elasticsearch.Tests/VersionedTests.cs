@@ -34,7 +34,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         Assert.Null(employee.Version);
 
         employee = await _employeeRepository.AddAsync(employee);
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
         Assert.Equal("1:0", employee.Version);
 
         var employee2 = await _employeeRepository.GetByIdAsync(employee.Id);
@@ -49,7 +50,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         employee.Id = ObjectId.GenerateNewId().ToString();
 
         employee = await _employeeRepository.SaveAsync(employee, o => o.SkipVersionCheck());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
         Assert.Equal("1:0", employee.Version);
 
         var employee2 = await _employeeRepository.GetByIdAsync(employee.Id);
@@ -63,7 +65,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         employee.Version = "1:5";
 
         employee = await _employeeRepository.AddAsync(employee);
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
         Assert.Equal("1:0", employee.Version);
 
         Assert.Equal(employee, await _employeeRepository.GetByIdAsync(employee.Id));

@@ -28,17 +28,21 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase
     {
         var parent = ParentGenerator.Default;
         parent = await _parentRepository.AddAsync(parent, o => o.ImmediateConsistency());
-        Assert.NotNull(parent?.Id);
+        Assert.NotNull(parent);
+        Assert.NotNull(parent.Id);
 
         var child = ChildGenerator.Default;
         child = await _childRepository.AddAsync(child, o => o.ImmediateConsistency());
-        Assert.NotNull(child?.Id);
+        Assert.NotNull(child);
+        Assert.NotNull(child.Id);
 
         child = await _childRepository.GetByIdAsync(new Id(child.Id, parent.Id));
-        Assert.NotNull(child?.Id);
+        Assert.NotNull(child);
+        Assert.NotNull(child.Id);
 
         child = await _childRepository.GetByIdAsync(child.Id);
-        Assert.NotNull(child?.Id);
+        Assert.NotNull(child);
+        Assert.NotNull(child.Id);
     }
 
     [Fact]
@@ -46,19 +50,23 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase
     {
         var parent1 = ParentGenerator.Generate();
         parent1 = await _parentRepository.AddAsync(parent1, o => o.ImmediateConsistency());
-        Assert.NotNull(parent1?.Id);
+        Assert.NotNull(parent1);
+        Assert.NotNull(parent1.Id);
 
         var child1 = ChildGenerator.Generate(parentId: parent1.Id);
         child1 = await _childRepository.AddAsync(child1, o => o.ImmediateConsistency());
-        Assert.NotNull(child1?.Id);
+        Assert.NotNull(child1);
+        Assert.NotNull(child1.Id);
 
         var parent2 = ParentGenerator.Generate();
         parent2 = await _parentRepository.AddAsync(parent2, o => o.ImmediateConsistency());
-        Assert.NotNull(parent2?.Id);
+        Assert.NotNull(parent2);
+        Assert.NotNull(parent2.Id);
 
         var child2 = ChildGenerator.Generate(parentId: parent2.Id);
         child2 = await _childRepository.AddAsync(child2, o => o.ImmediateConsistency());
-        Assert.NotNull(child2?.Id);
+        Assert.NotNull(child2);
+        Assert.NotNull(child2.Id);
 
         var ids = new Ids(child1.Id, child2.Id);
 
@@ -78,11 +86,13 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase
     {
         var parent = ParentGenerator.Default;
         parent = await _parentRepository.AddAsync(parent, o => o.ImmediateConsistency());
-        Assert.NotNull(parent?.Id);
+        Assert.NotNull(parent);
+        Assert.NotNull(parent.Id);
 
         var child = ChildGenerator.Default;
         child = await _childRepository.AddAsync(child, o => o.ImmediateConsistency());
-        Assert.NotNull(child?.Id);
+        Assert.NotNull(child);
+        Assert.NotNull(child.Id);
 
         parent.IsDeleted = true;
         await _parentRepository.SaveAsync(parent, o => o.ImmediateConsistency());
@@ -104,7 +114,8 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase
 
         var child = ChildGenerator.Default;
         child = await _childRepository.AddAsync(child, o => o.ImmediateConsistency());
-        Assert.NotNull(child?.Id);
+        Assert.NotNull(child);
+        Assert.NotNull(child.Id);
 
         var childResults = await _childRepository.FindAsync(q => q.ParentQuery(p => p.Id(parent.Id)), o => o.QueryLogLevel(LogLevel.Warning));
         Assert.Equal(1, childResults.Total);
@@ -115,11 +126,13 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase
     {
         var parent = ParentGenerator.Default;
         parent = await _parentRepository.AddAsync(parent, o => o.ImmediateConsistency());
-        Assert.NotNull(parent?.Id);
+        Assert.NotNull(parent);
+        Assert.NotNull(parent.Id);
 
         var child = ChildGenerator.Default;
         child = await _childRepository.AddAsync(child, o => o.ImmediateConsistency());
-        Assert.NotNull(child?.Id);
+        Assert.NotNull(child);
+        Assert.NotNull(child.Id);
 
         await _childRepository.AddAsync(ChildGenerator.Generate(parentId: parent.Id), o => o.ImmediateConsistency());
         Assert.Equal(2, await _childRepository.CountAsync());
@@ -133,11 +146,13 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase
     {
         var parent = ParentGenerator.Default;
         parent = await _parentRepository.AddAsync(parent, o => o.ImmediateConsistency());
-        Assert.NotNull(parent?.Id);
+        Assert.NotNull(parent);
+        Assert.NotNull(parent.Id);
 
         var child = ChildGenerator.Default;
         child = await _childRepository.AddAsync(child, o => o.ImmediateConsistency());
-        Assert.NotNull(child?.Id);
+        Assert.NotNull(child);
+        Assert.NotNull(child.Id);
 
         await _childRepository.RemoveAsync(child.Id, o => o.ImmediateConsistency());
         var result = await _childRepository.GetByIdAsync(child.Id);

@@ -161,7 +161,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task GetByCompanyWithIncludeMask()
     {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
-        Assert.NotNull(log?.Id);
+        Assert.NotNull(log);
+        Assert.NotNull(log.Id);
 
         var results = await _dailyRepository.FindAsync(q => q.Company(log.CompanyId));
         Assert.Single(results.Documents);
@@ -180,7 +181,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task CanHandleIncludeWithWrongCasing()
     {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", stuff: "stuff"), o => o.ImmediateConsistency());
-        Assert.NotNull(log?.Id);
+        Assert.NotNull(log);
+        Assert.NotNull(log.Id);
 
         var results = await _dailyRepository.FindAsync(q => q.IncludeMask("meTa(sTuFf)  ,  CreaTedUtc"), o => o.Include(e => e.Id).QueryLogLevel(LogLevel.Warning));
         Assert.Single(results.Documents);
@@ -203,7 +205,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task CanHandleExcludeWithWrongCasing()
     {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
-        Assert.NotNull(log?.Id);
+        Assert.NotNull(log);
+        Assert.NotNull(log.Id);
 
         var results = await _dailyRepository.FindAsync(q => q.Exclude("CreatedUtc"));
         Assert.Single(results.Documents);
@@ -222,7 +225,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task CanHandleIncludeAndExclude()
     {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", stuff: "stuff"), o => o.ImmediateConsistency());
-        Assert.NotNull(log?.Id);
+        Assert.NotNull(log);
+        Assert.NotNull(log.Id);
 
         var results = await _dailyRepository.FindAsync(q => q.Exclude(e => e.Date).Include(e => e.Id).Include("createdUtc"), o => o.QueryLogLevel(LogLevel.Warning));
         Assert.Single(results.Documents);
@@ -238,7 +242,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task CanHandleIncludeAndExcludeOnGetById()
     {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", stuff: "stuff"), o => o.ImmediateConsistency());
-        Assert.NotNull(log?.Id);
+        Assert.NotNull(log);
+        Assert.NotNull(log.Id);
 
         var companyLog = await _dailyRepository.GetByIdAsync(log!.Id, o => o.QueryLogLevel(LogLevel.Warning).Exclude(e => e.Date).Include(e => e.Id).Include("createdUtc"));
         Assert.Equal(log.Id, companyLog.Id);
@@ -252,7 +257,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task CanHandleIncludeAndExcludeOnGetByIdWithCaching()
     {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", stuff: "stuff"), o => o.ImmediateConsistency());
-        Assert.NotNull(log?.Id);
+        Assert.NotNull(log);
+        Assert.NotNull(log.Id);
 
         Assert.Equal(1, _cache.Misses);
         Assert.Equal(0, _cache.Hits);
@@ -290,7 +296,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task CanHandleIncludeAndExcludeOnGetByIds()
     {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", stuff: "stuff"), o => o.ImmediateConsistency());
-        Assert.NotNull(log?.Id);
+        Assert.NotNull(log);
+        Assert.NotNull(log.Id);
 
         var results = await _dailyRepository.GetByIdsAsync([log!.Id], o => o.QueryLogLevel(LogLevel.Warning).Exclude(e => e.Date).Include(e => e.Id).Include("createdUtc"));
         Assert.Single(results);
@@ -306,7 +313,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task CanHandleIncludeAndExcludeOnGetByIdsWithCaching()
     {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", stuff: "stuff"), o => o.ImmediateConsistency());
-        Assert.NotNull(log?.Id);
+        Assert.NotNull(log);
+        Assert.NotNull(log.Id);
 
         Assert.Equal(1, _cache.Misses);
         Assert.Equal(0, _cache.Hits);
@@ -348,7 +356,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task GetByCompanyWithIncludeWillOverrideDefaultExclude()
     {
         var log = await _dailyWithCompanyDefaultExcludeRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
-        Assert.NotNull(log?.Id);
+        Assert.NotNull(log);
+        Assert.NotNull(log.Id);
 
         var results = await _dailyWithCompanyDefaultExcludeRepository.FindAsync(q => q.Include(e => e.CompanyId), o => o.QueryLogLevel(LogLevel.Warning));
         Assert.Single(results.Documents);
@@ -373,7 +382,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task GetByCompanyWithExcludeMask()
     {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
-        Assert.NotNull(log?.Id);
+        Assert.NotNull(log);
+        Assert.NotNull(log.Id);
 
         var results = await _dailyRepository.FindAsync(q => q.ExcludeMask("CREATEDUtc"), o => o.ExcludeMask("MessAge").QueryLogLevel(LogLevel.Warning));
         Assert.Single(results.Documents);
@@ -392,7 +402,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task GetByCreatedDate()
     {
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test", createdUtc: DateTime.UtcNow), o => o.ImmediateConsistency());
-        Assert.NotNull(log?.Id);
+        Assert.NotNull(log);
+        Assert.NotNull(log.Id);
 
         var results = await _dailyRepository.GetByDateRange(DateTime.UtcNow.SubtractDays(1), DateTime.UtcNow.AddDays(1));
         Assert.Equal(log, results.Documents.Single());
@@ -532,7 +543,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(2, _cache.Misses);
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
         Assert.NotNull(employee.EmailAddress);
         Assert.Equal(3, _cache.Writes);
         Assert.Equal(2, _cache.Count);
