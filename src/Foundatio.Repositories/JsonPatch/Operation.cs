@@ -46,8 +46,7 @@ public abstract class Operation
         ArgumentNullException.ThrowIfNull(jOperation);
 
         var opName = (string)jOperation["op"];
-        if (String.IsNullOrWhiteSpace(opName))
-            throw new ArgumentException("The JSON patch operation must contain a non-empty 'op' property.", nameof(jOperation));
+        ArgumentException.ThrowIfNullOrWhiteSpace(opName, "op");
 
         var op = PatchDocument.CreateOperation(opName)
             ?? throw new ArgumentException($"Unsupported JSON patch operation type '{opName}'.", nameof(jOperation));
