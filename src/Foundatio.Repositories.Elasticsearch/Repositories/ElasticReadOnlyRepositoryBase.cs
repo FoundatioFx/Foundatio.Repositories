@@ -116,6 +116,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         var response = await _client.GetAsync<T>(request).AnyContext();
         _logger.LogRequest(response, options.GetQueryLogLevel());
 
+        if (!response.IsValid && response.ApiCall.HttpStatusCode.GetValueOrDefault() != 404)
+            throw new DocumentException(response.GetErrorMessage($"Error getting document {id.Value}"), response.OriginalException);
+
         var findHit = response.Found ? response.ToFindHit() : null;
 
         if (IsCacheEnabled && options.ShouldUseCache())
@@ -166,6 +169,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         ConfigureMultiGetRequest(multiGet, options);
         var multiGetResults = await _client.MultiGetAsync(multiGet).AnyContext();
         _logger.LogRequest(multiGetResults, options.GetQueryLogLevel());
+
+        if (!multiGetResults.IsValid)
+            throw new DocumentException(multiGetResults.GetErrorMessage("Error getting documents"), multiGetResults.OriginalException);
 
         foreach (var doc in multiGetResults.Hits)
         {
@@ -222,6 +228,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 return d;
             }).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
+
+            if (!response.IsValid)
+                throw new DocumentException(response.GetErrorMessage($"Error checking if document {id.Value} exists"), response.OriginalException);
 
             return response.Exists;
         }
@@ -422,7 +431,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     public async Task RemoveQueryAsync(string queryId)
     {
-        var response = await _client.AsyncSearch.DeleteAsync(queryId);
+        var response = await _client.AsyncSearch.DeleteAsync(queryId).AnyContext();
         _logger.LogRequest(response);
     }
 
@@ -443,7 +452,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             // clear the scroll
             if (!results.HasMore)
             {
-                var clearScrollResponse = await _client.ClearScrollAsync(s => s.ScrollId(scrollId));
+                var clearScrollResponse = await _client.ClearScrollAsync(s => s.ScrollId(scrollId)).AnyContext();
                 _logger.LogRequest(clearScrollResponse, options.GetQueryLogLevel());
             }
 
@@ -657,7 +666,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     }
 
     public bool IsCacheEnabled { get; private set; } = false;
-    protected ScopedCacheClient Cache => _scopedCacheClient ?? new ScopedCacheClient(new NullCacheClient(), null);
+    private static readonly ScopedCacheClient _nullScopedCacheClient = new(new NullCacheClient(), null);
+    protected ScopedCacheClient Cache => _scopedCacheClient ?? _nullScopedCacheClient;
 
     private void SetCacheClient(ICacheClient cache)
     {
@@ -989,7 +999,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         var findHitsById = findHits
             .Where(hit => hit?.Id != null)
-            .ToDictionary(hit => hit.Id, hit => (ICollection<FindHit<T>>)findHits.Where(h => h.Id == hit.Id).ToList());
+            .GroupBy(hit => hit.Id)
+            .ToDictionary(g => g.Key, g => (ICollection<FindHit<T>>)g.ToList());
 
         if (findHitsById.Count == 0)
             return;

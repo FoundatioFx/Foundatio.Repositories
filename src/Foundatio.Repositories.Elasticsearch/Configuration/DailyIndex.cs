@@ -425,6 +425,12 @@ public class DailyIndex : VersionedIndex
         var mappingResponse = Configuration.Client.Indices.GetMapping(new GetMappingRequest(latestIndex.Index));
         _logger.LogTrace("GetMapping: {Request}", mappingResponse.GetRequest(false, true));
 
+        if (!mappingResponse.IsValid)
+        {
+            _logger.LogError("Error getting mapping for {Index}: {Error}", latestIndex.Index, mappingResponse.ServerError);
+            return null;
+        }
+
         // use first returned mapping because index could have been an index alias
         var mapping = mappingResponse.Indices.Values.FirstOrDefault()?.Mappings;
         return mapping;

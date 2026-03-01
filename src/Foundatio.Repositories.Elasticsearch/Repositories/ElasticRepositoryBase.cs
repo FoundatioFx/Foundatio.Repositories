@@ -391,7 +391,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         u.Id(id.Value)
                             .Index(ElasticIndex.GetIndex(id))
                             .Doc(partialOperation.Document)
-                            .RetriesOnConflict(10);
+                            .RetriesOnConflict(options.GetRetryCount());
 
                         if (id.Routing != null)
                             u.Routing(id.Routing);
@@ -781,6 +781,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     var taskStatus = await _client.Tasks.GetTaskAsync(taskId, t => t.WaitForCompletion(false)).AnyContext();
                     _logger.LogRequest(taskStatus, options.GetQueryLogLevel());
 
+                    if (!taskStatus.IsValid)
+                    {
+                        _logger.LogError("Error getting task status for {TaskId}: {Error}", taskId, taskStatus.ServerError);
+                        var retryDelay = TimeSpan.FromSeconds(attempts <= 5 ? 1 : 5);
+                        await ElasticIndex.Configuration.TimeProvider.Delay(retryDelay).AnyContext();
+                        continue;
+                    }
+
                     var status = taskStatus.Task.Status;
                     if (taskStatus.Completed)
                     {
@@ -815,7 +823,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                                     .Routing(h.Routing)
                                     .Index(h.GetIndex())
                                     .Script(s => s.Source(scriptOperation.Script).Params(scriptOperation.Params))
-                                    .RetriesOnConflict(10));
+                                    .RetriesOnConflict(options.GetRetryCount()));
                             else if (partialOperation != null)
                                 b.Update<T, object>(u => u.Id(h.Id)
                                     .Routing(h.Routing)
@@ -1368,21 +1376,26 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             var bulkRequest = new BulkRequest();
             var list = documents.Select(d =>
             {
-                var createOperation = new BulkCreateOperation<T>(d) { Pipeline = DefaultPipeline };
-                var indexOperation = new BulkIndexOperation<T>(d) { Pipeline = DefaultPipeline };
-                var baseOperation = isCreateOperation ? (IBulkOperation)createOperation : indexOperation;
+                IBulkOperation baseOperation;
+                if (isCreateOperation)
+                {
+                    baseOperation = new BulkCreateOperation<T>(d) { Pipeline = DefaultPipeline };
+                }
+                else
+                {
+                    var indexOperation = new BulkIndexOperation<T>(d) { Pipeline = DefaultPipeline };
+                    if (HasVersion && !options.ShouldSkipVersionCheck())
+                    {
+                        var elasticVersion = ((IVersioned)d).GetElasticVersion();
+                        indexOperation.IfSequenceNumber = elasticVersion.SequenceNumber;
+                        indexOperation.IfPrimaryTerm = elasticVersion.PrimaryTerm;
+                    }
+                    baseOperation = indexOperation;
+                }
 
                 if (GetParentIdFunc != null)
                     baseOperation.Routing = GetParentIdFunc(d);
-                //baseOperation.Routing = GetParentIdFunc != null ? GetParentIdFunc(d) : d.Id;
                 baseOperation.Index = ElasticIndex.GetIndex(d);
-
-                if (HasVersion && !isCreateOperation && !options.ShouldSkipVersionCheck())
-                {
-                    var elasticVersion = ((IVersioned)d).GetElasticVersion();
-                    indexOperation.IfSequenceNumber = elasticVersion.SequenceNumber;
-                    indexOperation.IfPrimaryTerm = elasticVersion.PrimaryTerm;
-                }
 
                 return baseOperation;
             }).ToList();
@@ -1394,13 +1407,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             if (HasVersion)
             {
+                var documentsById = documents.ToDictionary(d => d.Id);
                 foreach (var hit in response.Items)
                 {
                     if (!hit.IsValid)
                         continue;
 
-                    var document = documents.FirstOrDefault(d => d.Id == hit.Id);
-                    if (document == null)
+                    if (!documentsById.TryGetValue(hit.Id, out var document))
                         continue;
 
                     var versionDoc = (IVersioned)document;
