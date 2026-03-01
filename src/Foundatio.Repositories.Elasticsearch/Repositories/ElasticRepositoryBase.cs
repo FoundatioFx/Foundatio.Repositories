@@ -293,6 +293,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             {
                 var request = new UpdateRequest<T, object>(ElasticIndex.GetIndex(id), id.Value)
                 {
+                    // TODO: Null-valued properties are silently dropped by the ES client's SourceSerializer
+                    // (elastic/elasticsearch-net#8763). Consumers must use ScriptPatch or JsonPatch to set fields to null.
                     Doc = partialOperation.Document,
                     RetryOnConflict = options.GetRetryCount()
                 };
@@ -494,6 +496,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     {
                         u.Id(id.Value)
                             .Index(ElasticIndex.GetIndex(id))
+                            // TODO: Null-valued properties are silently dropped by the ES client's SourceSerializer
+                            // (elastic/elasticsearch-net#8763). Consumers must use ScriptPatch or JsonPatch to set fields to null.
                             .Doc(partialOperation.Document)
                             .RetriesOnConflict(options.GetRetryCount());
 
@@ -956,6 +960,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                                     .Script(s => s.Source(scriptOperation.Script).Params(scriptOperation.Params))
                                     .RetriesOnConflict(options.GetRetryCount()));
                             else if (partialOperation != null)
+                                // TODO: Null-valued properties are silently dropped by the ES client's SourceSerializer
+                                // (elastic/elasticsearch-net#8763). Consumers must use ScriptPatch or JsonPatch to set fields to null.
                                 b.Update<T, object>(u => u.Id(h.Id)
                                     .Routing(h.Routing)
                                     .Index(h.GetIndex())
