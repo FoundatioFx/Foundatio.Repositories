@@ -427,6 +427,12 @@ public class DailyIndex : VersionedIndex
 
         if (!mappingResponse.IsValid)
         {
+            if (mappingResponse.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+            {
+                _logger.LogWarning("Index {Index} not found when getting mapping", latestIndex.Index);
+                return null;
+            }
+
             _logger.LogError("Error getting mapping for {Index}: {Error}", latestIndex.Index, mappingResponse.ServerError);
             return null;
         }
