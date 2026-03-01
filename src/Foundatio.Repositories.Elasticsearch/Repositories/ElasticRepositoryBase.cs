@@ -1551,11 +1551,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             if (HasVersion)
             {
                 var documentsById = new Dictionary<string, T>();
-                foreach (var d in documents)
-                {
-                    if (!String.IsNullOrEmpty(d.Id))
-                        documentsById.TryAdd(d.Id, d);
-                }
+                foreach (var d in documents.Where(d => !String.IsNullOrEmpty(d.Id)))
+                    documentsById.TryAdd(d.Id, d);
                 foreach (var hit in response.Items)
                 {
                     if (!hit.IsValid)
