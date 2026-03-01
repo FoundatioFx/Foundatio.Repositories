@@ -16,8 +16,9 @@ public sealed class RuntimeFieldsQueryBuilderTests : TestWithLoggingBase
     }
 
     [Fact]
-    public async Task AddToContext_TransfersQueryFieldsToContext()
+    public async Task BuildAsync_WithRuntimeFields_TransfersFieldsToContext()
     {
+        // Arrange
         var queryBuilder = new AddRuntimeFieldsToContextQueryBuilder();
         var query = new RepositoryQuery<Employee>()
             .RuntimeField("field_one", ElasticRuntimeFieldType.Keyword)
@@ -27,8 +28,10 @@ public sealed class RuntimeFieldsQueryBuilderTests : TestWithLoggingBase
 
         Assert.Empty(ctxElastic.RuntimeFields);
 
+        // Act
         await queryBuilder.BuildAsync(ctx);
 
+        // Assert
         Assert.Equal(2, ctxElastic.RuntimeFields.Count);
         Assert.Equal("field_one", ctxElastic.RuntimeFields.ElementAt(0).Name);
         Assert.Equal(ElasticRuntimeFieldType.Keyword, ctxElastic.RuntimeFields.ElementAt(0).FieldType);
@@ -38,8 +41,9 @@ public sealed class RuntimeFieldsQueryBuilderTests : TestWithLoggingBase
     }
 
     [Fact]
-    public async Task Build_WithFields_ConsumesContextFields()
+    public async Task BuildAsync_WithContextFields_ConsumesFields()
     {
+        // Arrange
         var queryBuilder = new RuntimeFieldsQueryBuilder();
         var query = new RepositoryQuery<Employee>();
         var ctx = new QueryBuilderContext<Employee>(query, new CommandOptions<Employee>());
@@ -47,21 +51,26 @@ public sealed class RuntimeFieldsQueryBuilderTests : TestWithLoggingBase
         ctxElastic.RuntimeFields.Add(new ElasticRuntimeField { Name = "field_one", FieldType = ElasticRuntimeFieldType.Keyword });
         ctxElastic.RuntimeFields.Add(new ElasticRuntimeField { Name = "field_two", FieldType = ElasticRuntimeFieldType.Long, Script = "emit(doc['age'].value)" });
 
+        // Act
         await queryBuilder.BuildAsync(ctx);
 
+        // Assert
         Assert.Equal(2, ctxElastic.RuntimeFields.Count);
     }
 
     [Fact]
-    public async Task Build_EmptyFields_DoesNotMutateSearch()
+    public async Task BuildAsync_WithEmptyFields_DoesNotMutateSearch()
     {
+        // Arrange
         var queryBuilder = new RuntimeFieldsQueryBuilder();
         var query = new RepositoryQuery<Employee>();
         var ctx = new QueryBuilderContext<Employee>(query, new CommandOptions<Employee>());
         var ctxElastic = (IElasticQueryVisitorContext)ctx;
 
+        // Act
         await queryBuilder.BuildAsync(ctx);
 
+        // Assert
         Assert.Empty(ctxElastic.RuntimeFields);
     }
 }

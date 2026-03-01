@@ -407,8 +407,9 @@ public class JsonPatchTests
     }
 
     [Fact]
-    public void Remove_array_item_by_matching()
+    public void Remove_WithJsonPathFilter_RemovesMatchingArrayItems()
     {
+        // Arrange
         var sample = JsonNode.Parse(@"{
     ""books"": [
         {
@@ -428,36 +429,39 @@ public class JsonPatchTests
 
         var patchDocument = new PatchDocument();
         string pointer = "$.books[?(@.author == 'John Steinbeck')]";
-
         patchDocument.AddOperation(new RemoveOperation { Path = pointer });
 
+        // Act
         new JsonPatcher().Patch(ref sample, patchDocument);
 
+        // Assert
         var list = sample["books"] as System.Text.Json.Nodes.JsonArray;
-
         Assert.Single(list);
     }
 
     [Fact]
-    public void Remove_array_item_by_value()
+    public void Remove_WithJsonPathValueFilter_RemovesMatchingItem()
     {
+        // Arrange
         var sample = JsonNode.Parse(@"{ ""tags"": [ ""tag1"", ""tag2"", ""tag3"" ] }");
 
         var patchDocument = new PatchDocument();
         string pointer = "$.tags[?(@ == 'tag2')]";
-
         patchDocument.AddOperation(new RemoveOperation { Path = pointer });
 
+        // Act
         new JsonPatcher().Patch(ref sample, patchDocument);
 
+        // Assert
         var list = sample["tags"] as System.Text.Json.Nodes.JsonArray;
         Assert.NotNull(list);
         Assert.Equal(2, list.Count);
     }
 
     [Fact]
-    public void Replace_multiple_property_values_with_jsonpath()
+    public void Replace_WithJsonPathFilter_ReplacesMatchingProperties()
     {
+        // Arrange
         var sample = JsonNode.Parse(@"{
     ""books"": [
         {
@@ -477,11 +481,12 @@ public class JsonPatchTests
 
         var patchDocument = new PatchDocument();
         string pointer = "$.books[?(@.author == 'John Steinbeck')].author";
-
         patchDocument.AddOperation(new ReplaceOperation { Path = pointer, Value = JsonValue.Create("Eric") });
 
+        // Act
         new JsonPatcher().Patch(ref sample, patchDocument);
 
+        // Assert
         string newPointer = "/books/1/author";
         Assert.Equal("Eric", sample.SelectPatchToken(newPointer)?.GetValue<string>());
 

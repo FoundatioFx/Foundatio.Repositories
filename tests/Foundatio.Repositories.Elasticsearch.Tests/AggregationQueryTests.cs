@@ -106,8 +106,9 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task GetNestedAggregationsAsync()
+    public async Task GetNestedAggregationsAsync_WithPeerReviews_ReturnsNestedAndFilteredBuckets()
     {
+        // Arrange
         var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
         var employees = new List<Employee> {
             EmployeeGenerator.Generate(nextReview: utcToday.SubtractDays(2)),
@@ -120,16 +121,19 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
 
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
+        // Act
         var nestedAggQuery = _client.Search<Employee>(d => d.Indices("employees").Aggregations(a => a
            .Add("nested_reviewRating", agg => agg
                .Nested(h => h.Path("peerReviews"))
                .Aggregations(a1 => a1.Add("terms_rating", t => t.Terms(t1 => t1.Field("peerReviews.rating")).Meta(m => m.Add("@field_type", "integer")))))
             ));
 
+        // Assert
         var result = nestedAggQuery.Aggregations.ToAggregations();
         Assert.Single(result);
         Assert.Equal(2, ((Foundatio.Repositories.Models.BucketAggregate)((Foundatio.Repositories.Models.SingleBucketAggregate)result["nested_reviewRating"]).Aggregations["terms_rating"]).Items.Count);
 
+        // Act (with filter)
         var nestedAggQueryWithFilter = _client.Search<Employee>(d => d.Indices("employees").Aggregations(a => a
            .Add("nested_reviewRating", agg => agg
                .Nested(h => h.Path("peerReviews"))
@@ -139,6 +143,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
                         .Aggregations(a2 => a2.Add("terms_rating", t => t.Terms(t1 => t1.Field("peerReviews.rating")).Meta(m => m.Add("@field_type", "integer")))))
             ))));
 
+        // Assert (with filter)
         result = nestedAggQueryWithFilter.Aggregations.ToAggregations();
         Assert.Single(result);
 

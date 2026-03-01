@@ -979,14 +979,14 @@ public sealed class IndexTests : ElasticRepositoryTestBase
             await repository.AddAsync(employee);
         }
 
-        // This test verifies that adding many dates doesn't throw exceptions,
-        // but it highlights the fact that _ensuredDates will grow unbounded.
-        // A proper fix would implement a cleanup mechanism.
+        // Assert: verifies that adding many dates doesn't throw exceptions,
+        // but highlights that _ensuredDates will grow unbounded.
     }
 
     [Fact]
     public async Task UpdateAliasesAsync_CreateAliasFailure_ShouldThrow()
     {
+        // Arrange
         var index = new DailyEmployeeIndex(_configuration, 2);
         await index.DeleteAsync();
 
@@ -1005,6 +1005,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var repository = new EmployeeRepository(index);
         var employee = EmployeeGenerator.Generate(createdUtc: DateTime.UtcNow);
 
+        // Act & Assert
         await Assert.ThrowsAnyAsync<Exception>(() => repository.AddAsync(employee));
     }
 
@@ -1069,6 +1070,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
     [Fact]
     public void GetIndexes_ThreeMonthPeriod_ShouldReturnEmptyForDailyIndex()
     {
+        // Arrange
         var index = new DailyEmployeeIndex(_configuration, 2);
         // Use AddDays(-93) instead of AddMonths(-3) because GetTotalMonths() uses
         // an average-days-per-month constant (30.436875), so 3 calendar months may
@@ -1076,8 +1078,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var startDate = DateTime.UtcNow.AddDays(-93);
         var endDate = DateTime.UtcNow;
 
+        // Act
         string[] indexes = index.GetIndexes(startDate, endDate);
 
+        // Assert
         Assert.Empty(indexes);
     }
 

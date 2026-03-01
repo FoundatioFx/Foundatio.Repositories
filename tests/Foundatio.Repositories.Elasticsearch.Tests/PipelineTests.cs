@@ -34,10 +34,13 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task AddAsync()
+    public async Task AddAsync_WithLowercasePipeline_LowercasesName()
     {
-        // Arrange & Act
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "  BLAKE  "), o => o.ImmediateConsistency());
+        // Arrange
+        var employee = EmployeeGenerator.Generate(name: "  BLAKE  ");
+
+        // Act
+        employee = await _employeeRepository.AddAsync(employee, o => o.ImmediateConsistency());
 
         // Assert
         Assert.NotNull(employee?.Id);
@@ -46,7 +49,7 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task AddCollectionAsync()
+    public async Task AddCollectionAsync_WithLowercasePipeline_LowercasesNames()
     {
         // Arrange
         var employees = new List<Employee>
@@ -65,7 +68,7 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task SaveCollectionAsync()
+    public async Task SaveCollectionAsync_WithLowercasePipeline_LowercasesNames()
     {
         // Arrange
         var employee1 = EmployeeGenerator.Generate(id: ObjectId.GenerateNewId().ToString(), name: "Original1");
@@ -84,7 +87,7 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task JsonPatchAsync()
+    public async Task JsonPatchAsync_WithLowercasePipeline_LowercasesName()
     {
         // Arrange
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
@@ -100,7 +103,7 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task JsonPatchAllAsync()
+    public async Task JsonPatchAllAsync_WithLowercasePipeline_LowercasesNames()
     {
         // Arrange
         var employees = new List<Employee>
@@ -121,7 +124,7 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task PartialPatchAsync()
+    public async Task PartialPatchAsync_WithLowercasePipeline_LowercasesName()
     {
         // Arrange
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
@@ -136,7 +139,7 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task PartialPatchAllAsync()
+    public async Task PartialPatchAllAsync_WithLowercasePipeline_LowercasesNames()
     {
         // Arrange
         var employees = new List<Employee>
@@ -156,7 +159,7 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task ScriptPatchAsync()
+    public async Task ScriptPatchAsync_WithLowercasePipeline_LowercasesName()
     {
         // Arrange
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
@@ -171,7 +174,7 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task ScriptPatchAllAsync()
+    public async Task ScriptPatchAllAsync_WithLowercasePipeline_LowercasesNames()
     {
         // Arrange
         var employees = new List<Employee>

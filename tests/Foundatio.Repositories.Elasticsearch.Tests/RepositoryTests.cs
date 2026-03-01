@@ -902,14 +902,16 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     /// Use ScriptPatch or JsonPatch to set fields to null instead.
     /// </summary>
     [Fact]
-    public async Task PartialPatchNullFieldIsIgnored()
+    public async Task PartialPatchAsync_WithNullField_RetainsOriginalValue()
     {
+        // Arrange
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyName: "OriginalCompany"));
         Assert.Equal("OriginalCompany", employee.CompanyName);
 
-        // Attempt to null out CompanyName via PartialPatch -- the null is silently dropped
+        // Act
         await _employeeRepository.PatchAsync(employee.Id, new PartialPatch(new { companyName = (string)null }));
 
+        // Assert
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
         // TODO: This should be null once elastic/elasticsearch-net#8763 is fixed.
         // Currently the null value is silently dropped, so the field retains its original value.
