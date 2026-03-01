@@ -783,7 +783,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     if (!taskStatus.IsValid)
                     {
+                        if (taskStatus.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+                        {
+                            _logger.LogWarning("Task {TaskId} not found (404), treating as completed", taskId);
+                            break;
+                        }
+
                         _logger.LogError("Error getting task status for {TaskId}: {Error}", taskId, taskStatus.ServerError);
+                        if (attempts >= 20)
+                            throw new DocumentException($"Failed to get task status for {taskId} after {attempts} attempts");
+
                         var retryDelay = TimeSpan.FromSeconds(attempts <= 5 ? 1 : 5);
                         await ElasticIndex.Configuration.TimeProvider.Delay(retryDelay).AnyContext();
                         continue;
@@ -1407,7 +1416,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             if (HasVersion)
             {
-                var documentsById = documents.ToDictionary(d => d.Id);
+                var documentsById = new Dictionary<string, T>();
+                foreach (var d in documents)
+                {
+                    if (!String.IsNullOrEmpty(d.Id))
+                        documentsById.TryAdd(d.Id, d);
+                }
                 foreach (var hit in response.Items)
                 {
                     if (!hit.IsValid)

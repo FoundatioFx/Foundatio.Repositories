@@ -229,7 +229,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             }).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
-            if (!response.IsValid)
+            if (!response.IsValid && response.ApiCall.HttpStatusCode.GetValueOrDefault() != 404)
                 throw new DocumentException(response.GetErrorMessage($"Error checking if document {id.Value} exists"), response.OriginalException);
 
             return response.Exists;
