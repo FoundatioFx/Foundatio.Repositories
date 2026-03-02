@@ -3,7 +3,7 @@
     <Compile Include="..\Foundatio.Repositories\Extensions\TaskExtensions.cs" Link="Extensions\TaskExtensions.cs" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="7.18.0-beta4" Condition="'$(ReferenceFoundatioRepositoriesSource)' == '' OR '$(ReferenceFoundatioRepositoriesSource)' == 'false'" />
+    <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="7.18.0-beta4.elastic-client-opus-needs-review.5" Condition="'$(ReferenceFoundatioRepositoriesSource)' == '' OR '$(ReferenceFoundatioRepositoriesSource)' == 'false'" />
     <ProjectReference Include="$(FoundatioProjectsDir)Foundatio.Parsers\src\Foundatio.Parsers.ElasticQueries\Foundatio.Parsers.ElasticQueries.csproj" Condition="'$(ReferenceFoundatioRepositoriesSource)' == 'true'" />
     <ProjectReference Include="..\Foundatio.Repositories\Foundatio.Repositories.csproj" />
   </ItemGroup>
