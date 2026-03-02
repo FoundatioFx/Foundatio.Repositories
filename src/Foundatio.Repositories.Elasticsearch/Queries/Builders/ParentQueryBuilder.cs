@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories
 {
@@ -84,31 +84,31 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             {
                 foreach (var parentQuery in parentQueries)
                 {
+                    if (parentQuery.GetDocumentType() == typeof(object))
+                        parentQuery.DocumentType(ctx.Options.ParentDocumentType());
+
                     var parentOptions = ctx.Options.Clone();
                     parentOptions.DocumentType(parentQuery.GetDocumentType());
                     parentOptions.ParentDocumentType(null);
-
-                    if (parentQuery.GetDocumentType() == typeof(object))
-                        parentQuery.DocumentType(ctx.Options.ParentDocumentType());
 
                     var parentContext = new QueryBuilderContext<object>(parentQuery, parentOptions, null);
 
                     await index.QueryBuilder.BuildAsync(parentContext);
 
-                    if (parentContext.Filter != null && ((IQueryContainer)parentContext.Filter).IsConditionless == false)
+                    if (parentContext.Filter != null)
                         ctx.Filter &= new HasParentQuery
                         {
-                            ParentType = parentQuery.GetDocumentType(),
+                            ParentType = parentQuery.GetDocumentType().Name.ToLowerInvariant(),
                             Query = new BoolQuery
                             {
                                 Filter = new[] { parentContext.Filter }
                             }
                         };
 
-                    if (parentContext.Query != null && ((IQueryContainer)parentContext.Query).IsConditionless == false)
+                    if (parentContext.Query != null)
                         ctx.Query &= new HasParentQuery
                         {
-                            ParentType = parentQuery.GetDocumentType(),
+                            ParentType = parentQuery.GetDocumentType().Name.ToLowerInvariant(),
                             Query = new BoolQuery
                             {
                                 Must = new[] { parentContext.Query }

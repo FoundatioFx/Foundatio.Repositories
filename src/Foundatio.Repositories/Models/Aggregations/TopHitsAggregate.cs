@@ -1,5 +1,8 @@
-﻿using System.Collections.Generic;
+using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Text;
+using Foundatio.Serializer;
 
 namespace Foundatio.Repositories.Models;
 
@@ -10,13 +13,39 @@ public class TopHitsAggregate : MetricAggregateBase
     public long Total { get; set; }
     public double? MaxScore { get; set; }
 
+    /// <summary>
+    /// Raw JSON sources for each hit, used for serialization/deserialization round-tripping (e.g., caching).
+    /// </summary>
+    public IList<string> Hits { get; set; }
+
     public TopHitsAggregate(IList<ILazyDocument> hits)
     {
         _hits = hits ?? new List<ILazyDocument>();
     }
 
-    public IReadOnlyCollection<T> Documents<T>() where T : class
+    public TopHitsAggregate() { }
+
+    public IReadOnlyCollection<T> Documents<T>(ITextSerializer serializer = null) where T : class
     {
-        return _hits.Select(h => h.As<T>()).ToList();
+        if (_hits != null && _hits.Count > 0)
+            return _hits.Select(h => h.As<T>()).ToList();
+
+        if (Hits != null && Hits.Count > 0)
+        {
+            ArgumentNullException.ThrowIfNull(serializer);
+
+            return Hits
+                .Select(json =>
+                {
+                    if (string.IsNullOrEmpty(json))
+                        return null;
+                    var lazy = new LazyDocument(Encoding.UTF8.GetBytes(json), serializer);
+                    return lazy.As<T>();
+                })
+                .Where(d => d != null)
+                .ToList();
+        }
+
+        return new List<T>();
     }
 }

@@ -53,10 +53,10 @@ Creates Elasticsearch snapshots for backup:
 ```csharp
 public class SnapshotJob : IJob
 {
-    private readonly IElasticClient _client;
+    private readonly ElasticsearchClient _client;
     private readonly string _repositoryName;
 
-    public SnapshotJob(IElasticClient client, string repositoryName = "backups")
+    public SnapshotJob(ElasticsearchClient client, string repositoryName = "backups")
     {
         _client = client;
         _repositoryName = repositoryName;
@@ -66,13 +66,13 @@ public class SnapshotJob : IJob
     {
         var snapshotName = $"snapshot-{DateTime.UtcNow:yyyy-MM-dd-HH-mm-ss}";
         
-        var response = await _client.Snapshot.SnapshotAsync(
+        var response = await _client.Snapshot.CreateAsync(
             _repositoryName,
             snapshotName,
             s => s.WaitForCompletion(false));
         
-        if (!response.IsValid)
-            return JobResult.FromException(response.OriginalException);
+        if (!response.IsValidResponse)
+            return JobResult.FromException(response.OriginalException(), response.GetErrorMessage());
         
         return JobResult.Success;
     }
@@ -100,11 +100,11 @@ Cleans up old snapshots:
 ```csharp
 public class CleanupSnapshotJob : IJob
 {
-    private readonly IElasticClient _client;
+    private readonly ElasticsearchClient _client;
     private readonly string _repositoryName;
     private readonly TimeSpan _maxAge;
 
-    public CleanupSnapshotJob(IElasticClient client, string repositoryName, TimeSpan maxAge)
+    public CleanupSnapshotJob(ElasticsearchClient client, string repositoryName, TimeSpan maxAge)
     {
         _client = client;
         _repositoryName = repositoryName;
@@ -137,11 +137,11 @@ Deletes old indexes based on patterns and age:
 ```csharp
 public class CleanupIndexesJob : IJob
 {
-    private readonly IElasticClient _client;
+    private readonly ElasticsearchClient _client;
     private readonly string _indexPattern;
     private readonly TimeSpan _maxAge;
 
-    public CleanupIndexesJob(IElasticClient client, string indexPattern, TimeSpan maxAge)
+    public CleanupIndexesJob(ElasticsearchClient client, string indexPattern, TimeSpan maxAge)
     {
         _client = client;
         _indexPattern = indexPattern;
@@ -413,10 +413,10 @@ services.AddCronJob<ScheduledMaintenanceJob>("0 0 * * *");  // Daily at midnight
 ```csharp
 public class IndexStatisticsJob : IJob
 {
-    private readonly IElasticClient _client;
+    private readonly ElasticsearchClient _client;
     private readonly ILogger _logger;
 
-    public IndexStatisticsJob(IElasticClient client, ILogger<IndexStatisticsJob> logger)
+    public IndexStatisticsJob(ElasticsearchClient client, ILogger<IndexStatisticsJob> logger)
     {
         _client = client;
         _logger = logger;
@@ -445,10 +445,10 @@ public class IndexStatisticsJob : IJob
 ```csharp
 public class ElasticsearchHealthJob : IJob
 {
-    private readonly IElasticClient _client;
+    private readonly ElasticsearchClient _client;
     private readonly ILogger _logger;
 
-    public ElasticsearchHealthJob(IElasticClient client, ILogger<ElasticsearchHealthJob> logger)
+    public ElasticsearchHealthJob(ElasticsearchClient client, ILogger<ElasticsearchHealthJob> logger)
     {
         _client = client;
         _logger = logger;

@@ -1,10 +1,11 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories
 {
@@ -41,9 +42,9 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries
                 return Task.CompletedTask;
 
             if (companyIds.Count == 1)
-                ctx.Filter &= Query<Employee>.Term(f => f.CompanyId, companyIds.Single());
+                ctx.Filter &= new TermQuery { Field = Infer.Field<Employee>(f => f.CompanyId), Value = companyIds.Single() };
             else
-                ctx.Filter &= Query<Employee>.Terms(d => d.Field(f => f.CompanyId).Terms(companyIds));
+                ctx.Filter &= new TermsQuery { Field = Infer.Field<Employee>(f => f.CompanyId), Terms = new TermsQueryField(companyIds.Select(c => FieldValue.String(c)).ToArray()) };
 
             return Task.CompletedTask;
         }

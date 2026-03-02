@@ -1,9 +1,9 @@
 ﻿using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories;
 
@@ -19,7 +19,7 @@ public class ParentRepository : ElasticRepositoryBase<Parent>, IParentRepository
 
     private Task OnDocumentsChanging(object sender, DocumentsChangeEventArgs<Parent> args)
     {
-        foreach (var doc in args.Documents.Select(d => d.Value).Cast<IParentChildDocument>())
+        foreach (var doc in args.Documents.Select(d => d.Value))
             doc.Discriminator = JoinField.Root<Parent>();
 
         return Task.CompletedTask;

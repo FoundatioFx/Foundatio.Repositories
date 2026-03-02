@@ -1,14 +1,20 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Foundatio.Repositories.Extensions;
-using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Utility;
 
-public class JsonPatcher : AbstractPatcher<JToken>
+/// <summary>
+/// Applies JSON Patch operations to a JSON document.
+/// Converted from Newtonsoft.Json (JToken) to System.Text.Json (JsonNode) to align with
+/// Elastic.Clients.Elasticsearch which exclusively uses System.Text.Json for serialization.
+/// </summary>
+public class JsonPatcher : AbstractPatcher<JsonNode>
 {
-    protected override JToken Replace(ReplaceOperation operation, JToken target)
+    protected override JsonNode Replace(ReplaceOperation operation, JsonNode target)
     {
         var tokens = target.SelectPatchTokens(operation.Path).ToList();
         if (tokens.Count == 0)
@@ -17,26 +23,39 @@ public class JsonPatcher : AbstractPatcher<JToken>
             string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
             string propertyName = parts.LastOrDefault();
 
-            if (target.SelectOrCreatePatchToken(parentPath) is not JObject parent)
+            if (target.SelectOrCreatePatchToken(parentPath) is not JsonObject parent)
                 return target;
 
-            parent[propertyName] = operation.Value;
+            parent[propertyName] = operation.Value?.DeepClone();
 
             return target;
         }
 
         foreach (var token in tokens)
         {
-            if (token.Parent != null)
-                token.Replace(operation.Value);
+            var parent = token.Parent;
+            if (parent is JsonObject parentObj)
+            {
+                var propName = parentObj.FirstOrDefault(p => ReferenceEquals(p.Value, token)).Key;
+                if (propName != null)
+                    parentObj[propName] = operation.Value?.DeepClone();
+            }
+            else if (parent is JsonArray parentArr)
+            {
+                var index = parentArr.ToList().IndexOf(token);
+                if (index >= 0)
+                    parentArr[index] = operation.Value?.DeepClone();
+            }
             else // root object
-                return operation.Value;
+            {
+                return operation.Value?.DeepClone();
+            }
         }
 
         return target;
     }
 
-    protected override void Add(AddOperation operation, JToken target)
+    protected override void Add(AddOperation operation, JsonNode target)
     {
         string[] parts = operation.Path.Split('/');
         string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
@@ -44,141 +63,441 @@ public class JsonPatcher : AbstractPatcher<JToken>
 
         if (propertyName == "-")
         {
-            var array = target.SelectOrCreatePatchArrayToken(parentPath) as JArray;
-            array?.Add(operation.Value);
+            var array = target.SelectOrCreatePatchArrayToken(parentPath) as JsonArray;
+            array?.Add(operation.Value?.DeepClone());
         }
         else if (propertyName.IsNumeric())
         {
-            var array = target.SelectOrCreatePatchArrayToken(parentPath) as JArray;
+            var array = target.SelectOrCreatePatchArrayToken(parentPath) as JsonArray;
             if (Int32.TryParse(propertyName, out int index))
-                array?.Insert(index, operation.Value);
+                array?.Insert(index, operation.Value?.DeepClone());
         }
         else
         {
-            var parent = target.SelectOrCreatePatchToken(parentPath) as JObject;
-            var property = parent?.Property(propertyName);
-            if (property == null)
-                parent?.Add(propertyName, operation.Value);
-            else
-                property.Value = operation.Value;
+            var parent = target.SelectOrCreatePatchToken(parentPath) as JsonObject;
+            if (parent != null)
+            {
+                if (parent.ContainsKey(propertyName))
+                    parent[propertyName] = operation.Value?.DeepClone();
+                else
+                    parent.Add(propertyName, operation.Value?.DeepClone());
+            }
         }
     }
 
-    protected override void Remove(RemoveOperation operation, JToken target)
+    protected override void Remove(RemoveOperation operation, JsonNode target)
     {
-        var tokens = target.SelectPatchTokens(operation.Path).ToList();
-        if (tokens.Count == 0)
+        // Handle JSONPath expressions (e.g., $.books[?(@.author == 'X')])
+        if (operation.Path.StartsWith("$.", StringComparison.Ordinal) || operation.Path.StartsWith("$[", StringComparison.Ordinal))
+        {
+            var tokens = target.SelectPatchTokens(operation.Path).ToList();
+            foreach (var token in tokens)
+            {
+                var tokenParent = token.Parent;
+                if (tokenParent is JsonArray arr)
+                {
+                    for (int i = 0; i < arr.Count; i++)
+                    {
+                        if (ReferenceEquals(arr[i], token))
+                        {
+                            arr.RemoveAt(i);
+                            break;
+                        }
+                    }
+                }
+                else if (tokenParent is JsonObject tokenParentObj)
+                {
+                    var key = tokenParentObj.FirstOrDefault(p => ReferenceEquals(p.Value, token)).Key;
+                    if (key != null)
+                        tokenParentObj.Remove(key);
+                }
+            }
+            return;
+        }
+
+        string[] parts = operation.Path.Split('/');
+        if (parts.Length == 0)
             return;
 
-        foreach (var token in tokens)
+        string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
+        string propertyName = parts.LastOrDefault();
+
+        if (String.IsNullOrEmpty(propertyName))
+            return;
+
+        var parent = target.SelectPatchToken(parentPath);
+        if (parent is JsonObject parentObjPointer)
         {
-            if (token.Parent is JProperty)
-            {
-                token.Parent.Remove();
-            }
-            else
-            {
-                token.Remove();
-            }
+            if (parentObjPointer.ContainsKey(propertyName))
+                parentObjPointer.Remove(propertyName);
+        }
+        else if (parent is JsonArray parentArr)
+        {
+            if (int.TryParse(propertyName, out int index) && index >= 0 && index < parentArr.Count)
+                parentArr.RemoveAt(index);
         }
     }
 
-    protected override void Move(MoveOperation operation, JToken target)
+    protected override void Move(MoveOperation operation, JsonNode target)
     {
         if (operation.Path.StartsWith(operation.FromPath))
             throw new ArgumentException("To path cannot be below from path");
 
         var token = target.SelectPatchToken(operation.FromPath);
         Remove(new RemoveOperation { Path = operation.FromPath }, target);
-        Add(new AddOperation { Path = operation.Path, Value = token }, target);
+        Add(new AddOperation { Path = operation.Path, Value = token?.DeepClone() }, target);
     }
 
-    protected override void Test(TestOperation operation, JToken target)
+    protected override void Test(TestOperation operation, JsonNode target)
     {
         var existingValue = target.SelectPatchToken(operation.Path);
-        if (!existingValue.Equals(target))
+        if (!JsonNode.DeepEquals(existingValue, operation.Value))
         {
-            throw new InvalidOperationException("Value at " + operation.Path + " does not match.");
+            throw new InvalidOperationException($"Value at {operation.Path} does not match.");
         }
     }
 
-    protected override void Copy(CopyOperation operation, JToken target)
+    protected override void Copy(CopyOperation operation, JsonNode target)
     {
-        var token = target.SelectPatchToken(operation.FromPath);  // Do I need to clone this?
-        Add(new AddOperation { Path = operation.Path, Value = token }, target);
+        var token = target.SelectPatchToken(operation.FromPath);
+        Add(new AddOperation { Path = operation.Path, Value = token?.DeepClone() }, target);
     }
 }
 
-public static class JTokenExtensions
+/// <summary>
+/// Extension methods for JsonNode to support JSON Pointer paths used in JSON Patch.
+/// </summary>
+public static class JsonNodeExtensions
 {
-    public static JToken SelectPatchToken(this JToken token, string path)
+    private static readonly Regex _dotPropFilterRegex = new(@"^@\.(\w+)\s*==\s*'(.+)'$", RegexOptions.Compiled);
+    private static readonly Regex _directValueFilterRegex = new(@"^@\s*==\s*'(.+)'$", RegexOptions.Compiled);
+
+    public static JsonNode SelectPatchToken(this JsonNode token, string path)
     {
-        return token.SelectToken(path.ToJTokenPath());
+        return SelectToken(token, path.ToJsonPointerPath());
     }
 
-    public static IEnumerable<JToken> SelectPatchTokens(this JToken token, string path)
+    public static IEnumerable<JsonNode> SelectPatchTokens(this JsonNode token, string path)
     {
-        return token.SelectTokens(path.ToJTokenPath());
-    }
+        if (path.StartsWith("$.", StringComparison.Ordinal) || path.StartsWith("$[", StringComparison.Ordinal))
+            return SelectJsonPathTokens(token, path);
 
-    public static JToken SelectOrCreatePatchToken(this JToken token, string path)
-    {
-        var result = token.SelectToken(path.ToJTokenPath());
+        var result = SelectToken(token, path.ToJsonPointerPath());
         if (result != null)
-            return result;
+            return new[] { result };
+        return Enumerable.Empty<JsonNode>();
+    }
 
-        string[] parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Any(p => p.IsNumeric()))
-            return null;
+    /// <summary>
+    /// Evaluates a subset of JSONPath expressions against a JSON node.
+    /// Supports filter expressions like <c>$.array[?(@.prop == 'value')]</c> and <c>$.array[?(@ == 'value')]</c>.
+    /// </summary>
+    private static IEnumerable<JsonNode> SelectJsonPathTokens(JsonNode root, string path)
+    {
+        // Strip leading $
+        string remaining = path.StartsWith("$.", StringComparison.Ordinal) ? path[2..] : path[1..];
 
-        JToken current = token;
-        for (int i = 0; i < parts.Length; i++)
+        // Split on dots, but respect brackets
+        var segments = SplitJsonPathSegments(remaining);
+        IEnumerable<JsonNode> current = new[] { root };
+
+        foreach (var segment in segments)
         {
-            string part = parts[i];
-            var partToken = current.SelectPatchToken(part);
-            if (partToken == null)
+            var next = new List<JsonNode>();
+            foreach (var node in current)
             {
-                if (current is JObject partObject)
-                    current = partObject[part] = new JObject();
+                if (node is null) continue;
+
+                // Segment like "books[?(@.author == 'X')]" or "books[?(@.author == 'X')].prop"
+                // or pure filter "[?(@.author == 'X')]"
+                int bracketStart = segment.IndexOf('[');
+                if (bracketStart >= 0)
+                {
+                    // Navigate to named property first (if any)
+                    JsonNode target2 = node;
+                    if (bracketStart > 0)
+                    {
+                        string propName = segment[..bracketStart];
+                        if (node is JsonObject propObj && propObj.TryGetPropertyValue(propName, out var propVal) && propVal is not null)
+                            target2 = propVal;
+                        else
+                            continue;
+                    }
+
+                    // Extract the bracket expression
+                    int bracketEnd = segment.LastIndexOf(']');
+                    if (bracketEnd < 0) continue;
+                    string expr = segment[(bracketStart + 1)..bracketEnd];
+
+                    // Filter expression: [?(...)]
+                    if (expr.StartsWith("?(", StringComparison.Ordinal) && expr.EndsWith(')'))
+                    {
+                        string filter = expr[2..^1];
+                        if (target2 is JsonArray arr)
+                            next.AddRange(arr.Where(item => item is not null && EvaluateJsonPathFilter(item, filter)).Select(item => item!));
+                    }
+                }
+                else
+                {
+                    if (node is JsonObject obj && obj.TryGetPropertyValue(segment, out var value) && value is not null)
+                        next.Add(value);
+                }
+            }
+            current = next;
+        }
+
+        return current;
+    }
+
+    private static bool EvaluateJsonPathFilter(JsonNode node, string filter)
+    {
+        var dotPropMatch = _dotPropFilterRegex.Match(filter);
+        if (dotPropMatch.Success)
+        {
+            string prop = dotPropMatch.Groups[1].Value;
+            string expected = dotPropMatch.Groups[2].Value;
+            if (node is JsonObject obj && obj.TryGetPropertyValue(prop, out var val))
+                return val?.GetValue<string>() == expected;
+            return false;
+        }
+
+        var directMatch = _directValueFilterRegex.Match(filter);
+        if (directMatch.Success)
+        {
+            string expected = directMatch.Groups[1].Value;
+            if (node is JsonValue jsonVal)
+            {
+                try { return jsonVal.GetValue<string>() == expected; }
+                catch { return false; }
+            }
+            return false;
+        }
+
+        return false;
+    }
+
+    private static List<string> SplitJsonPathSegments(string path)
+    {
+        var segments = new List<string>();
+        int start = 0;
+        int depth = 0;
+
+        for (int i = 0; i < path.Length; i++)
+        {
+            char c = path[i];
+            if (c == '[') depth++;
+            else if (c == ']') depth--;
+            else if (c == '.' && depth == 0)
+            {
+                if (i > start)
+                    segments.Add(path[start..i]);
+                start = i + 1;
+            }
+        }
+
+        if (start < path.Length)
+            segments.Add(path[start..]);
+
+        return segments;
+    }
+
+    private static JsonNode SelectToken(JsonNode node, string[] pathParts)
+    {
+        JsonNode current = node;
+        foreach (var part in pathParts)
+        {
+            if (current == null)
+                return null;
+
+            if (current is JsonObject obj)
+            {
+                if (!obj.TryGetPropertyValue(part, out var value))
+                    return null;
+                current = value;
+            }
+            else if (current is JsonArray arr)
+            {
+                if (!int.TryParse(part, out int index) || index < 0 || index >= arr.Count)
+                    return null;
+                current = arr[index];
             }
             else
             {
-                current = partToken;
+                return null;
             }
         }
 
         return current;
     }
 
-    public static JToken SelectOrCreatePatchArrayToken(this JToken token, string path)
+    public static JsonNode SelectOrCreatePatchToken(this JsonNode token, string path)
     {
-        var result = token.SelectToken(path.ToJTokenPath());
-        if (result != null)
-            return result;
+        var pathParts = path.ToJsonPointerPath();
+        if (pathParts.Length == 0)
+            return token;
 
-        string[] parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Any(p => p.IsNumeric()))
-            return null;
-
-        JToken current = token;
-        for (int i = 0; i < parts.Length; i++)
+        // Validate that the path can be created: numeric parts must resolve to existing array indices
+        JsonNode validationNode = token;
+        for (int i = 0; i < pathParts.Length; i++)
         {
-            string part = parts[i];
-            var partToken = current.SelectPatchToken(part);
-            if (partToken == null)
+            string part = pathParts[i];
+
+            if (validationNode is JsonObject validationObj)
             {
-                if (current is JObject partObject)
+                if (validationObj.TryGetPropertyValue(part, out var partToken))
+                    validationNode = partToken;
+                else if (part.IsNumeric())
+                    return null;
+                else
+                    validationNode = null;
+            }
+            else if (validationNode is JsonArray validationArr)
+            {
+                if (int.TryParse(part, out int index) && index >= 0 && index < validationArr.Count)
+                    validationNode = validationArr[index];
+                else
+                    return null;
+            }
+            else if (validationNode == null)
+            {
+                if (part.IsNumeric())
+                    return null;
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        // Create missing intermediate objects
+        JsonNode current = token;
+        for (int i = 0; i < pathParts.Length; i++)
+        {
+            string part = pathParts[i];
+
+            if (current is JsonObject currentObj)
+            {
+                if (currentObj.TryGetPropertyValue(part, out var partToken))
                 {
-                    bool isLastPart = i == parts.Length - 1;
-                    current = partObject[part] = isLastPart ? new JArray() : new JObject();
+                    current = partToken;
+                }
+                else
+                {
+                    var newObj = new JsonObject();
+                    currentObj[part] = newObj;
+                    current = newObj;
+                }
+            }
+            else if (current is JsonArray currentArr)
+            {
+                if (int.TryParse(part, out int index) && index >= 0 && index < currentArr.Count)
+                {
+                    current = currentArr[index];
+                }
+                else
+                {
+                    return null;
                 }
             }
             else
             {
-                current = partToken;
+                return null;
             }
         }
 
         return current;
+    }
+
+    public static JsonNode SelectOrCreatePatchArrayToken(this JsonNode token, string path)
+    {
+        var pathParts = path.ToJsonPointerPath();
+        if (pathParts.Length == 0)
+            return token;
+
+        // Validate that the path can be created: numeric parts must resolve to existing array indices
+        JsonNode validationNode = token;
+        for (int i = 0; i < pathParts.Length; i++)
+        {
+            string part = pathParts[i];
+
+            if (validationNode is JsonObject validationObj)
+            {
+                if (validationObj.TryGetPropertyValue(part, out var partToken))
+                    validationNode = partToken;
+                else if (part.IsNumeric())
+                    return null;
+                else
+                    validationNode = null;
+            }
+            else if (validationNode is JsonArray validationArr)
+            {
+                if (int.TryParse(part, out int index) && index >= 0 && index < validationArr.Count)
+                    validationNode = validationArr[index];
+                else
+                    return null;
+            }
+            else if (validationNode == null)
+            {
+                if (part.IsNumeric())
+                    return null;
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        // Create missing intermediate objects (arrays for last segment)
+        JsonNode current = token;
+        for (int i = 0; i < pathParts.Length; i++)
+        {
+            string part = pathParts[i];
+            bool isLastPart = i == pathParts.Length - 1;
+
+            if (current is JsonObject currentObj)
+            {
+                if (currentObj.TryGetPropertyValue(part, out var partToken))
+                {
+                    current = partToken;
+                }
+                else
+                {
+                    JsonNode newNode = isLastPart ? new JsonArray() : new JsonObject();
+                    currentObj[part] = newNode;
+                    current = newNode;
+                }
+            }
+            else if (current is JsonArray currentArr)
+            {
+                if (int.TryParse(part, out int index) && index >= 0 && index < currentArr.Count)
+                {
+                    current = currentArr[index];
+                }
+                else
+                {
+                    return null;
+                }
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        return current;
+    }
+
+    /// <summary>
+    /// Converts a JSON Patch path to an array of path segments.
+    /// </summary>
+    private static string[] ToJsonPointerPath(this string path)
+    {
+        if (String.IsNullOrEmpty(path))
+            return Array.Empty<string>();
+
+        if (path.StartsWith('$'))
+            throw new NotSupportedException($"JSONPath expressions are not supported in patch operations. Use JSON Pointer format (e.g., '/foo/bar') instead of JSONPath (e.g., '$.foo.bar'). Path: {path}");
+
+        return path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
     }
 }

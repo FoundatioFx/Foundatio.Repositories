@@ -3,7 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Elasticsearch.Net;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Transport;
 using Foundatio.Caching;
 using Foundatio.Jobs;
 using Foundatio.Lock;
@@ -17,7 +18,6 @@ using Foundatio.Resilience;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
@@ -29,7 +29,7 @@ public class ElasticConfiguration : IElasticConfiguration
     protected readonly ILockProvider _lockProvider;
     private readonly List<IIndex> _indexes = new();
     private readonly Lazy<IReadOnlyCollection<IIndex>> _frozenIndexes;
-    private readonly Lazy<IElasticClient> _client;
+    private readonly Lazy<ElasticsearchClient> _client;
     private readonly Lazy<ICustomFieldDefinitionRepository> _customFieldDefinitionRepository;
     protected readonly bool _shouldDisposeCache;
     private readonly bool _shouldDisposeMessageBus;
@@ -51,35 +51,34 @@ public class ElasticConfiguration : IElasticConfiguration
         MessageBus = messageBus ?? new InMemoryMessageBus(new InMemoryMessageBusOptions { ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
         _frozenIndexes = new Lazy<IReadOnlyCollection<IIndex>>(() => _indexes.AsReadOnly());
         _customFieldDefinitionRepository = new Lazy<ICustomFieldDefinitionRepository>(CreateCustomFieldDefinitionRepository);
-        _client = new Lazy<IElasticClient>(CreateElasticClient);
+        _client = new Lazy<ElasticsearchClient>(CreateElasticClient);
     }
 
-    protected virtual IElasticClient CreateElasticClient()
+    protected virtual ElasticsearchClient CreateElasticClient()
     {
-        var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")));
-        settings.EnableApiVersioningHeader();
+        var settings = new ElasticsearchClientSettings(CreateConnectionPool() ?? new SingleNodePool(new Uri("http://localhost:9200")));
         ConfigureSettings(settings);
         foreach (var index in Indexes)
             index.ConfigureSettings(settings);
 
-        return new ElasticClient(settings);
+        return new ElasticsearchClient(settings);
     }
 
     public virtual void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder) { }
 
     public virtual void ConfigureGlobalQueryParsers(ElasticQueryParserConfiguration config) { }
 
-    protected virtual void ConfigureSettings(ConnectionSettings settings)
+    protected virtual void ConfigureSettings(ElasticsearchClientSettings settings)
     {
         settings.EnableTcpKeepAlive(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2));
     }
 
-    protected virtual IConnectionPool CreateConnectionPool()
+    protected virtual NodePool CreateConnectionPool()
     {
         return null;
     }
 
-    public IElasticClient Client => _client.Value;
+    public ElasticsearchClient Client => _client.Value;
     public ICacheClient Cache { get; }
     public IMessageBus MessageBus { get; }
     public ILoggerFactory LoggerFactory { get; }
@@ -229,6 +228,9 @@ public class ElasticConfiguration : IElasticConfiguration
             return;
 
         _disposed = true;
+
+        if (_client.IsValueCreated)
+            (_client.Value.ElasticsearchClientSettings as IDisposable)?.Dispose();
 
         if (_shouldDisposeCache)
             Cache.Dispose();

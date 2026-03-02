@@ -86,16 +86,49 @@ public static class AggregationsExtensions
 
     private static IEnumerable<KeyedBucket<TKey>> GetKeyedBuckets<TKey>(IEnumerable<IBucket> items)
     {
-        var buckets = items.Cast<KeyedBucket<object>>();
-
-        foreach (var bucket in buckets)
+        foreach (var item in items)
         {
+            object key = null;
+            string keyAsString = null;
+            IReadOnlyDictionary<string, IAggregate> aggregations = null;
+            long? total = null;
+
+            switch (item)
+            {
+                case KeyedBucket<string> stringBucket:
+                    key = stringBucket.Key;
+                    keyAsString = stringBucket.KeyAsString;
+                    aggregations = stringBucket.Aggregations;
+                    total = stringBucket.Total;
+                    break;
+                case KeyedBucket<double> doubleBucket:
+                    key = doubleBucket.Key;
+                    keyAsString = doubleBucket.KeyAsString;
+                    aggregations = doubleBucket.Aggregations;
+                    total = doubleBucket.Total;
+                    break;
+                case KeyedBucket<long> longBucket:
+                    key = longBucket.Key;
+                    keyAsString = longBucket.KeyAsString;
+                    aggregations = longBucket.Aggregations;
+                    total = longBucket.Total;
+                    break;
+                case KeyedBucket<object> objectBucket:
+                    key = objectBucket.Key;
+                    keyAsString = objectBucket.KeyAsString;
+                    aggregations = objectBucket.Aggregations;
+                    total = objectBucket.Total;
+                    break;
+                default:
+                    continue;
+            }
+
             yield return new KeyedBucket<TKey>
             {
-                Key = (TKey)Convert.ChangeType(bucket.Key, typeof(TKey)),
-                KeyAsString = bucket.KeyAsString,
-                Aggregations = bucket.Aggregations,
-                Total = bucket.Total
+                Key = (TKey)Convert.ChangeType(key, typeof(TKey)),
+                KeyAsString = keyAsString,
+                Aggregations = aggregations,
+                Total = total
             };
         }
     }

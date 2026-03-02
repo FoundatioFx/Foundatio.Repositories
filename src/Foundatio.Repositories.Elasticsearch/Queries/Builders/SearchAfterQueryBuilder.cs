@@ -1,9 +1,12 @@
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories
 {
@@ -117,19 +120,58 @@ namespace Foundatio.Repositories.Options
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 {
+    /// <summary>
+    /// Handles search_after paging by collecting sorts from context data,
+    /// adding the ID field for uniqueness, and reversing sorts for SearchBefore.
+    /// This builder runs last (Int32.MaxValue priority) so it sees all accumulated sorts.
+    /// </summary>
     public class SearchAfterQueryBuilder : IElasticQueryBuilder
     {
+        private const string Id = nameof(IIdentity.Id);
+
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
-            if (!ctx.Options.ShouldUseSearchAfterPaging())
-                return Task.CompletedTask;
+            // Get sorts from context data (set by SortQueryBuilder or ExpressionQueryBuilder)
+            List<SortOptions> sortFields = null;
+            if (ctx.Data.TryGetValue(SortQueryBuilder.SortFieldsKey, out var sortsObj) && sortsObj is List<SortOptions> sorts)
+            {
+                sortFields = sorts;
+            }
 
-            if (ctx.Search is not ISearchRequest searchRequest)
-                return Task.CompletedTask;
+            // For search_after paging, we need to ensure we have at least the ID field for uniqueness
+            if (ctx.Options.ShouldUseSearchAfterPaging())
+            {
+                sortFields ??= new List<SortOptions>();
 
-            // reverse sort orders on all sorts for search before
-            if (ctx.Options.HasSearchBefore())
-                searchRequest.Sort?.ReverseOrder();
+                var resolver = ctx.GetMappingResolver();
+                string idField = resolver.GetResolvedField(Id) ?? "_id";
+
+                // Check if id field is already in the sort list
+                bool hasIdField = sortFields.Any(s =>
+                {
+                    if (s?.Field?.Field == null)
+                        return false;
+                    string fieldName = resolver.GetSortFieldName(s.Field.Field);
+                    return fieldName?.Equals(idField) == true;
+                });
+
+                if (!hasIdField)
+                {
+                    sortFields.Add(new FieldSort { Field = idField });
+                }
+
+                // Reverse sort orders if searching before
+                if (ctx.Options.HasSearchBefore())
+                {
+                    sortFields = sortFields.Select(s => s.ReverseOrder()).ToList();
+                }
+            }
+
+            // Apply sorts to search descriptor if we have any
+            if (sortFields != null && sortFields.Count > 0)
+            {
+                ctx.Search.Sort(sortFields);
+            }
 
             return Task.CompletedTask;
         }

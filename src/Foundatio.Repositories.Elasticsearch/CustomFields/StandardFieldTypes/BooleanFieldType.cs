@@ -1,5 +1,6 @@
-﻿using System.Threading.Tasks;
-using Nest;
+﻿using System;
+using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch.Mapping;
 
 namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
@@ -13,8 +14,8 @@ public class BooleanFieldType : ICustomFieldType
         return Task.FromResult(new ProcessFieldValueResult { Value = value });
     }
 
-    public virtual IProperty ConfigureMapping<T>(SingleMappingSelector<T> map) where T : class
+    public virtual Func<PropertyFactory<T>, IProperty> ConfigureMapping<T>() where T : class
     {
-        return map.Boolean(mp => mp);
+        return factory => factory.Boolean();
     }
 }

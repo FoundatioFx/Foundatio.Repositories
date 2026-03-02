@@ -1,6 +1,7 @@
-﻿using Foundatio.Repositories.Elasticsearch.Configuration;
+﻿using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Clients.Elasticsearch.Mapping;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Migrations;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
@@ -22,21 +23,22 @@ public class MigrationIndex : Index<MigrationState>
         _replicas = replicas;
     }
 
-    public override TypeMappingDescriptor<MigrationState> ConfigureIndexMapping(TypeMappingDescriptor<MigrationState> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<MigrationState> map)
     {
-        return map
-            .Dynamic(false)
+        map
+            .Dynamic(DynamicMapping.False)
             .Properties(p => p
-                .Keyword(f => f.Name(e => e.Id))
-                .Number(f => f.Name(e => e.Version).Type(NumberType.Integer))
-                .Date(f => f.Name(e => e.StartedUtc))
-                .Date(f => f.Name(e => e.CompletedUtc))
+                .Keyword(f => f.Id)
+                .IntegerNumber(f => f.Version)
+                .Date(f => f.StartedUtc)
+                .Date(f => f.CompletedUtc)
             );
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        return base.ConfigureIndex(idx).Settings(s => s
+        base.ConfigureIndex(idx);
+        idx.Settings(s => s
             .NumberOfShards(1)
             .NumberOfReplicas(_replicas));
     }

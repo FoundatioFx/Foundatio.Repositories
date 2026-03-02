@@ -52,6 +52,9 @@ public class BucketsSystemTextJsonConverter : System.Text.Json.Serialization.Jso
                 case "double":
                     value = element.Deserialize<KeyedBucket<double>>(options);
                     break;
+                case "geohash":
+                    value = element.Deserialize<KeyedBucket<string>>(options);
+                    break;
                 case "object":
                     value = element.Deserialize<KeyedBucket<object>>(options);
                     break;
@@ -74,7 +77,7 @@ public class BucketsSystemTextJsonConverter : System.Text.Json.Serialization.Jso
         if (element.TryGetProperty(propertyName, out var dataElement))
             return dataElement;
 
-        if (element.TryGetProperty(propertyName.ToLower(), out dataElement))
+        if (element.TryGetProperty(propertyName.ToLowerInvariant(), out dataElement))
             return dataElement;
 
         return null;

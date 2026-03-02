@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Exceptionless;
 using Exceptionless.DateTimeExtensions;
@@ -112,22 +112,6 @@ public enum EmploymentType
 public class EmployeeWithCustomFields : Employee, IHaveCustomFields
 {
     public IDictionary<string, object> Idx { get; set; } = new Dictionary<string, object>();
-
-    //IDictionary<string, object> IHaveVirtualCustomFields.GetCustomFields() {
-    //    return Data;
-    //}
-
-    //object IHaveVirtualCustomFields.GetCustomField(string name) {
-    //    return Data[name];
-    //}
-
-    //void IHaveVirtualCustomFields.SetCustomField(string name, object value) {
-    //    Data[name] = value;
-    //}
-
-    //void IHaveVirtualCustomFields.RemoveCustomField(string name) {
-    //    Data.Remove(name);
-    //}
 
     string IHaveCustomFields.GetTenantKey()
     {

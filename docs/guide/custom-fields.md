@@ -177,16 +177,15 @@ public sealed class EmployeeIndex : VersionedIndex<Employee>
         AddStandardCustomFieldTypes();
     }
 
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(
-        TypeMappingDescriptor<Employee> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
     {
-        return map
-            .Dynamic(false)
+        map
+            .Dynamic(DynamicMapping.False)
             .Properties(p => p
                 .SetupDefaults()
-                .Keyword(f => f.Name(e => e.Id))
-                .Keyword(f => f.Name(e => e.CompanyId))
-                .Text(f => f.Name(e => e.Name))
+                .Keyword(e => e.Id)
+                .Keyword(e => e.CompanyId)
+                .Text(e => e.Name)
             );
     }
 }
@@ -417,7 +416,7 @@ public interface ICustomFieldType
     string Type { get; }
     Task<ProcessFieldValueResult> ProcessValueAsync<T>(
         T document, object value, CustomFieldDefinition fieldDefinition) where T : class;
-    IProperty ConfigureMapping<T>(SingleMappingSelector<T> map) where T : class;
+    Func<PropertyFactory<T>, IProperty> ConfigureMapping<T>() where T : class;
 }
 
 public class ProcessFieldValueResult
@@ -453,9 +452,9 @@ public class PercentFieldType : ICustomFieldType
         return Task.FromResult(new ProcessFieldValueResult { Value = value });
     }
 
-    public IProperty ConfigureMapping<T>(SingleMappingSelector<T> map) where T : class
+    public Func<PropertyFactory<T>, IProperty> ConfigureMapping<T>() where T : class
     {
-        return map.Number(n => n.Type(NumberType.Integer));
+        return factory => factory.IntegerNumber();
     }
 }
 ```

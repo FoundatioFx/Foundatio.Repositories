@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Parsers.ElasticQueries.Visitors;
@@ -8,7 +9,6 @@ using Foundatio.Parsers.LuceneQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories
 {
@@ -144,7 +144,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
                 var sortFields = GetSortFieldsVisitor.Run(result, ctx).ToList();
 
-                ctx.Search.Sort(sortFields);
+                // Store sorts in context data - SearchAfterQueryBuilder will apply them
+                ctx.Data[SortQueryBuilder.SortFieldsKey] = sortFields;
             }
 
             return Task.CompletedTask;
@@ -184,7 +185,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
                 var sortFields = GetSortFieldsVisitor.Run(result, ctx).ToList();
 
-                ctx.Search.Sort(sortFields);
+                // Store sorts in context data - SearchAfterQueryBuilder will apply them
+                ctx.Data[SortQueryBuilder.SortFieldsKey] = sortFields;
             }
 
             return Task.CompletedTask;
@@ -217,7 +219,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             {
                 var sortFields = (await _parser.BuildSortAsync(sort, ctx).AnyContext()).ToList();
 
-                ctx.Search.Sort(sortFields);
+                // Store sorts in context data - SearchAfterQueryBuilder will apply them
+                ctx.Data[SortQueryBuilder.SortFieldsKey] = sortFields;
             }
         }
     }

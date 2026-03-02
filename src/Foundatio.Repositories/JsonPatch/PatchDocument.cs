@@ -1,12 +1,17 @@
-using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace Foundatio.Repositories.Utility;
 
+/// <summary>
+/// Represents a JSON Patch document (RFC 6902).
+/// Converted from Newtonsoft.Json to System.Text.Json to align with Elastic.Clients.Elasticsearch
+/// which exclusively uses System.Text.Json for serialization.
+/// </summary>
 [JsonConverter(typeof(PatchDocumentConverter))]
 public class PatchDocument
 {
@@ -22,15 +27,27 @@ public class PatchDocument
 
     public List<Operation> Operations => _operations;
 
-    public void Add(string path, JToken value)
+    public void Add(string path, JsonNode value)
     {
         Operations.Add(new AddOperation { Path = path, Value = value });
     }
 
-    public void Replace(string path, JToken value)
+    public void Add(string path, string value) => Add(path, JsonValue.Create(value));
+    public void Add(string path, int value) => Add(path, JsonValue.Create(value));
+    public void Add(string path, long value) => Add(path, JsonValue.Create(value));
+    public void Add(string path, double value) => Add(path, JsonValue.Create(value));
+    public void Add(string path, bool value) => Add(path, JsonValue.Create(value));
+
+    public void Replace(string path, JsonNode value)
     {
         Operations.Add(new ReplaceOperation { Path = path, Value = value });
     }
+
+    public void Replace(string path, string value) => Replace(path, JsonValue.Create(value));
+    public void Replace(string path, int value) => Replace(path, JsonValue.Create(value));
+    public void Replace(string path, long value) => Replace(path, JsonValue.Create(value));
+    public void Replace(string path, double value) => Replace(path, JsonValue.Create(value));
+    public void Replace(string path, bool value) => Replace(path, JsonValue.Create(value));
 
     public void Remove(string path)
     {
@@ -49,17 +66,17 @@ public class PatchDocument
         return Parse(reader.ReadToEnd());
     }
 
-    public static PatchDocument Load(JArray document)
+    public static PatchDocument Load(JsonArray document)
     {
         var root = new PatchDocument();
 
         if (document == null)
             return root;
 
-        foreach (var child in document.Children())
+        foreach (var item in document)
         {
-            if (child is not JObject jOperation)
-                throw new ArgumentException($"Invalid patch operation: expected a JSON object but found {child.Type}");
+            if (item is not JsonObject jOperation)
+                throw new JsonException($"Invalid patch operation: expected a JSON object but found {item?.GetValueKind().ToString() ?? "null"}");
 
             var op = Operation.Build(jOperation);
             root.AddOperation(op);
@@ -70,7 +87,7 @@ public class PatchDocument
 
     public static PatchDocument Parse(string jsondocument)
     {
-        var root = JToken.Parse(jsondocument) as JArray;
+        var root = JsonNode.Parse(jsondocument) as JsonArray;
 
         return Load(root);
     }
@@ -104,32 +121,29 @@ public class PatchDocument
         return stream;
     }
 
-    public void CopyToStream(Stream stream, Formatting formatting = Formatting.Indented)
+    public void CopyToStream(Stream stream, bool indented = true)
     {
-        var sw = new JsonTextWriter(new StreamWriter(stream))
-        {
-            Formatting = formatting
-        };
+        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = indented });
 
-        sw.WriteStartArray();
+        writer.WriteStartArray();
 
         foreach (var operation in Operations)
-            operation.Write(sw);
+            operation.Write(writer);
 
-        sw.WriteEndArray();
+        writer.WriteEndArray();
 
-        sw.Flush();
+        writer.Flush();
     }
 
     public override string ToString()
     {
-        return ToString(Formatting.Indented);
+        return ToString(indented: true);
     }
 
-    public string ToString(Formatting formatting)
+    public string ToString(bool indented)
     {
         using var ms = new MemoryStream();
-        CopyToStream(ms, formatting);
+        CopyToStream(ms, indented);
         ms.Position = 0;
         using StreamReader reader = new StreamReader(ms, Encoding.UTF8);
         return reader.ReadToEnd();

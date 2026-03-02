@@ -66,34 +66,34 @@ public class Employee : IIdentity, IHaveDates
 Define how your entity is indexed in Elasticsearch:
 
 ```csharp
+using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
-using Nest;
 
 public sealed class EmployeeIndex : VersionedIndex<Employee>
 {
     public EmployeeIndex(IElasticConfiguration configuration) 
         : base(configuration, "employees", version: 1) { }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        return base.ConfigureIndex(idx.Settings(s => s
+        base.ConfigureIndex(idx.Settings(s => s
             .NumberOfReplicas(0)
             .NumberOfShards(1)));
     }
 
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(
-        TypeMappingDescriptor<Employee> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
     {
-        return map
-            .Dynamic(false)
+        map
+            .Dynamic(DynamicMapping.False)
             .Properties(p => p
                 .SetupDefaults()
-                .Keyword(f => f.Name(e => e.CompanyId))
-                .Text(f => f.Name(e => e.Name).AddKeywordAndSortFields())
-                .Text(f => f.Name(e => e.Email).AddKeywordAndSortFields())
-                .Number(f => f.Name(e => e.Age).Type(NumberType.Integer))
+                .Keyword(e => e.CompanyId)
+                .Text(e => e.Name, t => t.AddKeywordAndSortFields())
+                .Text(e => e.Email, t => t.AddKeywordAndSortFields())
+                .IntegerNumber(e => e.Age)
             );
     }
 }
@@ -104,10 +104,9 @@ public sealed class EmployeeIndex : VersionedIndex<Employee>
 Set up the connection to Elasticsearch:
 
 ```csharp
-using Elasticsearch.Net;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Microsoft.Extensions.Logging;
-using Nest;
+using Elastic.Transport;
 
 public class MyElasticConfiguration : ElasticConfiguration
 {
@@ -117,9 +116,9 @@ public class MyElasticConfiguration : ElasticConfiguration
         AddIndex(Employees = new EmployeeIndex(this));
     }
 
-    protected override IConnectionPool CreateConnectionPool()
+    protected override NodePool CreateConnectionPool()
     {
-        return new SingleNodeConnectionPool(new Uri("http://localhost:9200"));
+        return new SingleNodePool(new Uri("http://localhost:9200"));
     }
 
     public EmployeeIndex Employees { get; }

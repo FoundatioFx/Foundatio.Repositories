@@ -1,9 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Snapshot;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Jobs;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -11,29 +13,28 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs;
 
 public class CleanupSnapshotJob : IJob
 {
-    protected readonly IElasticClient _client;
+    protected readonly ElasticsearchClient _client;
     protected readonly IResiliencePolicyProvider _resiliencePolicyProvider;
     protected readonly IResiliencePolicy _resiliencePolicy;
     protected readonly TimeProvider _timeProvider;
     protected readonly ILogger _logger;
     private readonly ICollection<RepositoryMaxAge> _repositories = new List<RepositoryMaxAge>();
 
-    public CleanupSnapshotJob(IElasticClient client, ILoggerFactory loggerFactory) : this(client, TimeProvider.System, new ResiliencePolicyProvider(), loggerFactory)
+    public CleanupSnapshotJob(ElasticsearchClient client, ILoggerFactory loggerFactory) : this(client, TimeProvider.System, new ResiliencePolicyProvider(), loggerFactory)
     {
     }
 
-    public CleanupSnapshotJob(IElasticClient client, TimeProvider timeProvider, ILoggerFactory loggerFactory)
+    public CleanupSnapshotJob(ElasticsearchClient client, TimeProvider timeProvider, ILoggerFactory loggerFactory)
         : this(client, timeProvider, new ResiliencePolicyProvider(), loggerFactory)
     {
     }
 
-    public CleanupSnapshotJob(IElasticClient client, TimeProvider timeProvider, IResiliencePolicyProvider resiliencePolicyProvider, ILoggerFactory loggerFactory)
+    public CleanupSnapshotJob(ElasticsearchClient client, TimeProvider timeProvider, IResiliencePolicyProvider resiliencePolicyProvider, ILoggerFactory loggerFactory)
     {
         _client = client;
         _resiliencePolicyProvider = resiliencePolicyProvider;
@@ -74,15 +75,15 @@ public class CleanupSnapshotJob : IJob
         _logger.LogRequest(result);
 
         var snapshots = new List<SnapshotDate>();
-        if (result.IsValid && result.Snapshots != null)
+        if (result.IsValidResponse && result.Snapshots != null)
         {
             snapshots = result.Snapshots
                 .Where(r => !String.Equals(r.State, "IN_PROGRESS"))
-                .Select(r => new SnapshotDate { Name = r.Name, Date = r.EndTime })
+                .Select(r => new SnapshotDate { Name = r.Snapshot, Date = r.EndTime.HasValue ? r.EndTime.Value.UtcDateTime : DateTime.MinValue })
                 .ToList();
         }
 
-        if (result.IsValid)
+        if (result.IsValidResponse)
             _logger.LogInformation("Retrieved list of {SnapshotCount} snapshots from {Repo} in {Duration:g}", snapshots.Count, repo, sw.Elapsed);
         else
             _logger.LogErrorRequest(result, "Failed to retrieve list of snapshots from {Repo} in {Duration:g}", repo, sw.Elapsed);
@@ -125,10 +126,10 @@ public class CleanupSnapshotJob : IJob
                 {
                     _logger.LogInformation("Deleting {SnapshotCount} expired snapshot(s) from {Repo}: {SnapshotNames}", snapshotCount, repo, snapshotNames);
 
-                    var response = await _client.Snapshot.DeleteAsync(repo, snapshotNames, r => r.RequestConfiguration(c => c.RequestTimeout(TimeSpan.FromMinutes(5))), ct: pct).AnyContext();
+                    var response = await _client.Snapshot.DeleteAsync(repo, snapshotNames, r => r.RequestConfiguration(c => c.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken: pct).AnyContext();
                     _logger.LogRequest(response);
 
-                    if (response.IsValid)
+                    if (response.IsValidResponse)
                     {
                         await OnSnapshotDeleted(snapshotNames, sw.Elapsed).AnyContext();
                     }
@@ -136,7 +137,7 @@ public class CleanupSnapshotJob : IJob
                     {
                         shouldContinue = await OnSnapshotDeleteFailure(snapshotNames, sw.Elapsed, response, null).AnyContext();
                         if (shouldContinue)
-                            throw response.OriginalException ?? new ApplicationException($"Failed deleting snapshot(s) \"{snapshotNames}\"");
+                            throw response.OriginalException() ?? new ApplicationException($"Failed deleting snapshot(s) \"{snapshotNames}\"");
                     }
                 }, cancellationToken);
                 sw.Stop();

@@ -1,9 +1,11 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Snapshot;
 using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries.Extensions;
@@ -13,24 +15,23 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs;
 
 public class SnapshotJob : IJob
 {
-    protected readonly IElasticClient _client;
+    protected readonly ElasticsearchClient _client;
     protected readonly ILockProvider _lockProvider;
     protected readonly IResiliencePolicyProvider _resiliencePolicyProvider;
     protected readonly IResiliencePolicy _resiliencePolicy;
     protected readonly TimeProvider _timeProvider;
     protected readonly ILogger _logger;
 
-    public SnapshotJob(IElasticClient client, ILockProvider lockProvider, TimeProvider timeProvider, ILoggerFactory loggerFactory) : this(client, lockProvider, timeProvider, new ResiliencePolicyProvider(), loggerFactory)
+    public SnapshotJob(ElasticsearchClient client, ILockProvider lockProvider, TimeProvider timeProvider, ILoggerFactory loggerFactory) : this(client, lockProvider, timeProvider, new ResiliencePolicyProvider(), loggerFactory)
     {
     }
 
-    public SnapshotJob(IElasticClient client, ILockProvider lockProvider, TimeProvider timeProvider, IResiliencePolicyProvider resiliencePolicyProvider, ILoggerFactory loggerFactory)
+    public SnapshotJob(ElasticsearchClient client, ILockProvider lockProvider, TimeProvider timeProvider, IResiliencePolicyProvider resiliencePolicyProvider, ILoggerFactory loggerFactory)
     {
         _client = client;
         _lockProvider = lockProvider;
@@ -43,14 +44,14 @@ public class SnapshotJob : IJob
 
     public virtual async Task<JobResult> RunAsync(CancellationToken cancellationToken = default)
     {
-        var hasSnapshotRepositoryResponse = await _client.Snapshot.GetRepositoryAsync(r => r.RepositoryName(Repository), cancellationToken);
+        var hasSnapshotRepositoryResponse = await _client.Snapshot.GetRepositoryAsync(r => r.Name(Repository), cancellationToken);
         _logger.LogRequest(hasSnapshotRepositoryResponse);
-        if (!hasSnapshotRepositoryResponse.IsValid)
+        if (!hasSnapshotRepositoryResponse.IsValidResponse)
         {
-            if (hasSnapshotRepositoryResponse.ApiCall.HttpStatusCode == 404)
+            if (hasSnapshotRepositoryResponse.ApiCallDetails.HttpStatusCode == 404)
                 return JobResult.CancelledWithMessage($"Snapshot repository {Repository} has not been configured.");
 
-            return JobResult.FromException(hasSnapshotRepositoryResponse.OriginalException, hasSnapshotRepositoryResponse.GetErrorMessage());
+            return JobResult.FromException(hasSnapshotRepositoryResponse.OriginalException(), hasSnapshotRepositoryResponse.GetErrorMessage());
         }
 
         string snapshotName = _timeProvider.GetUtcNow().UtcDateTime.ToString("'" + Repository + "-'yyyy-MM-dd-HH-mm");
@@ -62,34 +63,34 @@ public class SnapshotJob : IJob
             using var linkedCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lockCancellationToken);
             var result = await _resiliencePolicy.ExecuteAsync(async ct =>
             {
-                var response = await _client.Snapshot.SnapshotAsync(
+                var response = await _client.Snapshot.CreateAsync(
                     Repository,
                     snapshotName,
                     d => d
                         .Indices(IncludedIndexes.Count > 0 ? String.Join(",", IncludedIndexes) : "*")
-                        .IgnoreUnavailable()
+                        .IgnoreUnavailable(true)
                         .IncludeGlobalState(false)
                         .WaitForCompletion(false)
                     , ct).AnyContext();
                 _logger.LogRequest(response);
 
                 // 400 means the snapshot already exists
-                if (!response.IsValid && response.ApiCall.HttpStatusCode != 400)
-                    throw new RepositoryException(response.GetErrorMessage("Snapshot failed"), response.OriginalException);
+                if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode != 400)
+                    throw new RepositoryException(response.GetErrorMessage("Snapshot failed"), response.OriginalException());
 
                 return response;
             }, linkedCancellationTokenSource.Token).AnyContext();
 
-            _logger.LogTrace("Started snapshot {SnapshotName} in {Repository}: httpstatus={StatusCode}", snapshotName, Repository, result.ApiCall?.HttpStatusCode);
+            _logger.LogTrace("Started snapshot {SnapshotName} in {Repository}: httpstatus={StatusCode}", snapshotName, Repository, result.ApiCallDetails?.HttpStatusCode);
 
             bool success = false;
             do
             {
                 await Task.Delay(TimeSpan.FromSeconds(10), linkedCancellationTokenSource.Token).AnyContext();
 
-                var status = await _client.Snapshot.StatusAsync(s => s.Snapshot(snapshotName).RepositoryName(Repository), linkedCancellationTokenSource.Token).AnyContext();
+                var status = await _client.Snapshot.StatusAsync(s => s.Snapshot(snapshotName).Repository(Repository), linkedCancellationTokenSource.Token).AnyContext();
                 _logger.LogRequest(status);
-                if (status.IsValid && status.Snapshots.Count > 0)
+                if (status.IsValidResponse && status.Snapshots.Count > 0)
                 {
                     string state = status.Snapshots.First().State;
                     if (state.Equals("SUCCESS", StringComparison.OrdinalIgnoreCase))
@@ -126,7 +127,7 @@ public class SnapshotJob : IJob
         return Task.CompletedTask;
     }
 
-    public virtual Task OnFailure(string snapshotName, SnapshotResponse response, TimeSpan duration)
+    public virtual Task OnFailure(string snapshotName, CreateSnapshotResponse response, TimeSpan duration)
     {
         _logger.LogErrorRequest(response, "Failed snapshot {SnapshotName} in {Repository} after {Duration:g}", snapshotName, Repository, duration);
         return Task.CompletedTask;

@@ -393,8 +393,14 @@ public class FindResultsSerializationTests
         {
             ["exstats_age"] = new ExtendedStatsAggregate
             {
-                Count = 100, Min = 18, Max = 65, Average = 35.5, Sum = 3550,
-                SumOfSquares = 150000, Variance = 200.5, StdDeviation = 14.16,
+                Count = 100,
+                Min = 18,
+                Max = 65,
+                Average = 35.5,
+                Sum = 3550,
+                SumOfSquares = 150000,
+                Variance = 200.5,
+                StdDeviation = 14.16,
                 Data = new Dictionary<string, object> { ["@type"] = "exstats" }
             }
         });

@@ -4,6 +4,9 @@ using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -12,7 +15,6 @@ using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Microsoft.Extensions.Logging;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
@@ -69,7 +71,13 @@ public class VersionedIndex : Index, IVersionedIndex
         if (!await IndexExistsAsync(VersionedName).AnyContext())
         {
             if (!await AliasExistsAsync(Name).AnyContext())
-                await CreateIndexAsync(VersionedName, d => ConfigureIndex(d).Aliases(ad => ad.Alias(Name))).AnyContext();
+            {
+                await CreateIndexAsync(VersionedName, d =>
+                {
+                    ConfigureIndex(d);
+                    d.Aliases(ad => ad.Add(Name, a => { }));
+                }).AnyContext();
+            }
             else // new version of an existing index, don't set the alias yet
                 await CreateIndexAsync(VersionedName, ConfigureIndex).AnyContext();
         }
@@ -89,23 +97,23 @@ public class VersionedIndex : Index, IVersionedIndex
         if (await AliasExistsAsync(name).AnyContext())
             return;
 
-        var response = await Configuration.Client.Indices.BulkAliasAsync(a => a.Add(s => s.Index(index).Alias(name))).AnyContext();
-        if (response.IsValid)
+        var response = await Configuration.Client.Indices.UpdateAliasesAsync(a => a.Actions(actions => actions.Add(s => s.Index(index).Alias(name)))).AnyContext();
+        if (response.IsValidResponse)
             return;
 
         if (await AliasExistsAsync(name).AnyContext())
             return;
 
-        throw new RepositoryException(response.GetErrorMessage($"Error creating alias {name}"), response.OriginalException);
+        throw new RepositoryException(response.GetErrorMessage($"Error creating alias {name}"), response.OriginalException());
     }
 
     protected async Task<bool> AliasExistsAsync(string alias)
     {
-        var response = await Configuration.Client.Indices.AliasExistsAsync(Names.Parse(alias)).AnyContext();
-        if (response.ApiCall.Success)
+        var response = await Configuration.Client.Indices.ExistsAliasAsync(Names.Parse(alias)).AnyContext();
+        if (response.ApiCallDetails.HasSuccessfulStatusCode)
             return response.Exists;
 
-        throw new RepositoryException(response.GetErrorMessage($"Error checking to see if alias {alias}"), response.OriginalException);
+        throw new RepositoryException(response.GetErrorMessage($"Error checking to see if alias {alias}"), response.OriginalException());
     }
 
     public override async Task DeleteAsync()
@@ -202,14 +210,16 @@ public class VersionedIndex : Index, IVersionedIndex
 
     protected virtual async Task<int> GetVersionFromAliasAsync(string alias)
     {
-        var response = await Configuration.Client.Indices.GetAliasAsync(alias).AnyContext();
-        if (!response.IsValid && response.ServerError?.Status == 404)
+        var response = await Configuration.Client.Indices.GetAliasAsync(a => a.Name(Names.Parse(alias))).AnyContext();
+        if (!response.IsValidResponse && response.ElasticsearchServerError?.Status == 404)
             return -1;
 
-        if (response.IsValid && response.Indices.Count > 0)
+        // GetAliasResponse IS the dictionary (inherits from DictionaryResponse)
+        var indices = response.Aliases;
+        if (response.IsValidResponse && indices != null && indices.Count > 0)
         {
             _logger.LogRequest(response);
-            return response.Indices.Keys.Select(i => GetIndexVersion(i.Name)).OrderBy(v => v).First();
+            return indices.Keys.Select(i => GetIndexVersion(i.ToString())).OrderBy(v => v).First();
         }
 
         _logger.LogErrorRequest(response, "Error getting index version from alias");
@@ -243,35 +253,45 @@ public class VersionedIndex : Index, IVersionedIndex
             filter += "-*";
 
         var sw = Stopwatch.StartNew();
-        var response = await Configuration.Client.Cat.IndicesAsync(i => i.Pri().Index(Indices.Index((IndexName)filter))).AnyContext();
+        var response = await Configuration.Client.Indices.GetAsync((Indices)(IndexName)filter).AnyContext();
         sw.Stop();
         _logger.LogRequest(response);
 
-        if (!response.IsValid)
-            throw new RepositoryException(response.GetErrorMessage($"Error getting indices {filter}"), response.OriginalException);
+        if (!response.IsValidResponse)
+        {
+            if (response.ElasticsearchServerError?.Status == 404)
+                return new List<IndexInfo>();
 
-        if (response.Records.Count == 0)
+            throw new RepositoryException(response.GetErrorMessage($"Error getting indices {filter}"), response.OriginalException());
+        }
+
+        if (response.Indices.Count == 0)
             return new List<IndexInfo>();
 
-        var aliasResponse = await Configuration.Client.Cat.AliasesAsync(i => i.Name($"{Name}-*")).AnyContext();
+        var aliasResponse = await Configuration.Client.Indices.GetAliasAsync(a => a.Name($"{Name}-*")).AnyContext();
         _logger.LogRequest(aliasResponse);
 
-        if (!aliasResponse.IsValid)
-            throw new RepositoryException(response.GetErrorMessage($"Error getting index aliases for {filter}"), response.OriginalException);
+        if (!aliasResponse.IsValidResponse && aliasResponse.ElasticsearchServerError?.Status != 404)
+            throw new RepositoryException(response.GetErrorMessage($"Error getting index aliases for {filter}"), response.OriginalException());
 
-        var indices = response.Records
-            .Where(i => version < 0 || GetIndexVersion(i.Index) == version)
+        var aliasIndices = aliasResponse.Aliases;
+        var indices = response.Indices.Keys
+            .Where(i => version < 0 || GetIndexVersion(i.ToString()) == version)
             .Select(i =>
             {
-                var indexDate = GetIndexDate(i.Index);
-                string indexAliasName = GetIndexByDate(GetIndexDate(i.Index));
-                var aliasRecord = aliasResponse.Records.FirstOrDefault(r => r.Alias == indexAliasName);
+                string indexName = i.ToString();
+                var indexDate = GetIndexDate(indexName);
+                string indexAliasName = GetIndexByDate(GetIndexDate(indexName));
 
                 int currentVersion = -1;
-                if (aliasRecord != null)
-                    currentVersion = GetIndexVersion(aliasRecord.Index);
+                if (aliasResponse.IsValidResponse && aliasIndices != null && aliasIndices.TryGetValue(i, out var indexAliases))
+                {
+                    // Find if any of our aliases point to this index
+                    if (indexAliases.Aliases.ContainsKey(indexAliasName))
+                        currentVersion = GetIndexVersion(indexName);
+                }
 
-                return new IndexInfo { DateUtc = indexDate, Index = i.Index, Version = GetIndexVersion(i.Index), CurrentVersion = currentVersion };
+                return new IndexInfo { DateUtc = indexDate, Index = indexName, Version = GetIndexVersion(indexName), CurrentVersion = currentVersion };
             })
             .OrderBy(i => i.DateUtc)
             .ToList();
@@ -314,65 +334,59 @@ public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class
         return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client, VersionedName, _logger);
     }
 
-    public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map)
+    public virtual void ConfigureIndexMapping(TypeMappingDescriptor<T> map)
     {
-        return map.AutoMap<T>().Properties(p => p.SetupDefaults());
+        map.Properties(p => p.SetupDefaults());
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        idx = base.ConfigureIndex(idx);
-        return idx.Map<T>(f =>
+        base.ConfigureIndex(idx);
+        idx.Mappings<T>(f =>
         {
             if (CustomFieldTypes.Count > 0)
             {
                 f.DynamicTemplates(d =>
                 {
                     foreach (var customFieldType in CustomFieldTypes.Values)
-                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
-
-                    return d;
+                        d.Add($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping<T>()));
                 });
             }
 
-            return ConfigureIndexMapping(f);
+            ConfigureIndexMapping(f);
         });
     }
 
-    protected override async Task UpdateIndexAsync(string name, Func<UpdateIndexSettingsDescriptor, UpdateIndexSettingsDescriptor> descriptor = null)
+    protected override async Task UpdateIndexAsync(string name, Action<PutIndicesSettingsRequestDescriptor> descriptor = null)
     {
         await base.UpdateIndexAsync(name, descriptor).AnyContext();
 
         var typeMappingDescriptor = new TypeMappingDescriptor<T>();
-        typeMappingDescriptor = ConfigureIndexMapping(typeMappingDescriptor);
-        var mapping = (ITypeMapping)typeMappingDescriptor;
+        ConfigureIndexMapping(typeMappingDescriptor);
+        var mapping = (TypeMapping)typeMappingDescriptor;
 
         var response = await Configuration.Client.Indices.PutMappingAsync<T>(m =>
         {
-            m.Index(name);
-            m.Properties(_ => new NestPromise<IProperties>(mapping.Properties));
+            m.Indices(name);
+            m.Properties(mapping.Properties);
             if (CustomFieldTypes.Count > 0)
             {
                 m.DynamicTemplates(d =>
                 {
                     foreach (var customFieldType in CustomFieldTypes.Values)
-                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
-
-                    return d;
+                        d.Add($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping<T>()));
                 });
             }
-
-            return m;
         }).AnyContext();
 
         // TODO: Check for issues with attempting to change existing fields and warn that index version needs to be incremented
-        if (response.IsValid)
+        if (response.IsValidResponse)
             _logger.LogRequest(response);
         else
             _logger.LogErrorRequest(response, $"Error updating index ({name}) mappings. Changing existing fields requires a new index version.");
     }
 
-    public override void ConfigureSettings(ConnectionSettings settings)
+    public override void ConfigureSettings(ElasticsearchClientSettings settings)
     {
         settings.DefaultMappingFor<T>(d => d.IndexName(Name));
     }

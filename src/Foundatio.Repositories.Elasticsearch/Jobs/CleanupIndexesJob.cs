@@ -1,10 +1,12 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.IndexManagement;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Jobs;
 using Foundatio.Lock;
@@ -12,20 +14,19 @@ using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs;
 
 public class CleanupIndexesJob : IJob
 {
-    protected readonly IElasticClient _client;
+    protected readonly ElasticsearchClient _client;
     protected readonly ILogger _logger;
     protected readonly ILockProvider _lockProvider;
     protected readonly TimeProvider _timeProvider;
     private static readonly CultureInfo _enUS = new("en-US");
     private readonly ICollection<IndexMaxAge> _indexes = new List<IndexMaxAge>();
 
-    public CleanupIndexesJob(IElasticClient client, ILockProvider lockProvider, TimeProvider timeProvider, ILoggerFactory loggerFactory)
+    public CleanupIndexesJob(ElasticsearchClient client, ILockProvider lockProvider, TimeProvider timeProvider, ILoggerFactory loggerFactory)
     {
         _client = client;
         _lockProvider = lockProvider;
@@ -54,14 +55,14 @@ public class CleanupIndexesJob : IJob
         _logger.LogInformation("Starting index cleanup...");
 
         var sw = Stopwatch.StartNew();
-        var result = await _client.Cat.IndicesAsync(
+        var result = await _client.Indices.ResolveIndexAsync("*",
             d => d.RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
         sw.Stop();
 
-        if (result.IsValid)
+        if (result.IsValidResponse)
         {
             _logger.LogRequest(result);
-            _logger.LogInformation("Retrieved list of {IndexCount} indexes in {Duration:g}", result.Records?.Count, sw.Elapsed.ToWords(true));
+            _logger.LogInformation("Retrieved list of {IndexCount} indexes in {Duration:g}", result.Indices?.Count, sw.Elapsed.ToWords(true));
         }
         else
         {
@@ -69,8 +70,8 @@ public class CleanupIndexesJob : IJob
         }
 
         var indexes = new List<IndexDate>();
-        if (result.IsValid && result.Records != null)
-            indexes = result.Records?.Select(r => GetIndexDate(r.Index)).Where(r => r != null).ToList();
+        if (result.IsValidResponse && result.Indices != null)
+            indexes = result.Indices?.Select(r => GetIndexDate(r.Name)).Where(r => r != null).ToList();
 
         if (indexes == null || indexes.Count == 0)
             return JobResult.Success;
@@ -107,11 +108,11 @@ public class CleanupIndexesJob : IJob
                 {
                     _logger.LogInformation("Got lock to delete index {OldIndex}", oldIndex.Index);
                     sw.Restart();
-                    var response = await _client.Indices.DeleteAsync(oldIndex.Index, d => d, t).AnyContext();
+                    var response = await _client.Indices.DeleteAsync(Indices.Index(oldIndex.Index), t).AnyContext();
                     sw.Stop();
                     _logger.LogRequest(response);
 
-                    if (response.IsValid)
+                    if (response.IsValidResponse)
                         await OnIndexDeleted(oldIndex.Index, sw.Elapsed).AnyContext();
                     else
                         shouldContinue = await OnIndexDeleteFailure(oldIndex.Index, sw.Elapsed, response, null).AnyContext();

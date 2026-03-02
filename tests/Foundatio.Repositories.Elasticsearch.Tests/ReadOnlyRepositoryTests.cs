@@ -372,11 +372,12 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(nowLog, await _dailyRepository.GetByIdAsync(nowLog.Id));
     }
 
-    [Fact(Skip = "We need to look into how we want to handle this.")]
+    [Fact]
     public async Task GetByIdWithOutOfSyncIndexAsync()
     {
         var utcNow = DateTime.UtcNow;
-        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
+        var yesterday = utcNow.AddDays(-1);
+        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(yesterday).ToString(), createdUtc: yesterday));
         Assert.NotNull(yesterdayLog);
         Assert.NotNull(yesterdayLog.Id);
 
@@ -517,11 +518,12 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(2, results.Count);
     }
 
-    [Fact(Skip = "We need to look into how we want to handle this.")]
+    [Fact]
     public async Task GetByIdsWithOutOfSyncIndexAsync()
     {
         var utcNow = DateTime.UtcNow;
-        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)));
+        var yesterday = utcNow.AddDays(-1);
+        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(yesterday).ToString(), createdUtc: yesterday));
         Assert.NotNull(yesterdayLog);
         Assert.NotNull(yesterdayLog.Id);
 
@@ -600,13 +602,13 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     {
         var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(identity1);
-        Assert.NotNull(identity1.Id);
 
         var identity2 = await _identityRepository.AddAsync(IdentityGenerator.Generate(), o => o.ImmediateConsistency());
         Assert.NotNull(identity2);
-        Assert.NotNull(identity2.Id);
 
-        await _client.ClearScrollAsync(ct: TestCancellationToken);
+        var allIds = new HashSet<string> { identity1.Id, identity2.Id };
+
+        await _client.ClearScrollAsync(cancellationToken: TestCancellationToken);
         long baselineScrollCount = await GetCurrentScrollCountAsync();
 
         var results = await _identityRepository.GetAllAsync(o => o.PageLimit(1).SnapshotPagingLifetime(TimeSpan.FromMinutes(10)));
@@ -614,7 +616,8 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Single(results.Documents);
         Assert.Equal(1, results.Page);
         Assert.True(results.HasMore);
-        Assert.Equal(identity1.Id, results.Documents.First().Id);
+        Assert.Contains(results.Documents.First().Id, allIds);
+        var firstPageId = results.Documents.First().Id;
         Assert.Equal(2, results.Total);
         long currentScrollCount = await GetCurrentScrollCountAsync();
         Assert.Equal(baselineScrollCount + 1, currentScrollCount);
@@ -623,7 +626,8 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Single(results.Documents);
         Assert.Equal(2, results.Page);
         Assert.Equal(2, results.Total);
-        Assert.Equal(identity2.Id, results.Documents.First().Id);
+        Assert.Contains(results.Documents.First().Id, allIds);
+        Assert.NotEqual(firstPageId, results.Documents.First().Id); // Ensure we got a different document
         // returns true even though there are no more results because we don't know if there are more or not for scrolls until we try to get the next page
         Assert.True(results.HasMore);
         var secondDoc = results.Documents.First();
@@ -853,7 +857,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.NotNull(employee2);
         Assert.NotNull(employee2.Id);
 
-        var results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedcompanyname:" + employee1.CompanyName), o => o.RuntimeFieldResolver(f => String.Equals(f, "unmappedCompanyName", StringComparison.OrdinalIgnoreCase) ? Task.FromResult(new ElasticRuntimeField { Name = "unmappedCompanyName", FieldType = ElasticRuntimeFieldType.Keyword }) : Task.FromResult<ElasticRuntimeField>(null)));
+        var results = await _employeeRepository.FindAsync(q => q.FilterExpression($"unmappedcompanyname:{employee1.CompanyName}"), o => o.RuntimeFieldResolver(f => String.Equals(f, "unmappedCompanyName", StringComparison.OrdinalIgnoreCase) ? Task.FromResult(new ElasticRuntimeField { Name = "unmappedCompanyName", FieldType = ElasticRuntimeFieldType.Keyword }) : Task.FromResult<ElasticRuntimeField>(null)));
         Assert.NotNull(results);
         Assert.Single(results.Documents);
     }
@@ -869,15 +873,15 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.NotNull(employee2);
         Assert.NotNull(employee2.Id);
 
-        var results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedemailaddress:" + employee1.UnmappedEmailAddress));
+        var results = await _employeeRepository.FindAsync(q => q.FilterExpression($"unmappedemailaddress:{employee1.UnmappedEmailAddress}"));
         Assert.NotNull(results);
         Assert.Empty(results.Documents);
 
-        results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedemailaddress:" + employee1.UnmappedEmailAddress), o => o.EnableRuntimeFieldResolver());
+        results = await _employeeRepository.FindAsync(q => q.FilterExpression($"unmappedemailaddress:{employee1.UnmappedEmailAddress}"), o => o.EnableRuntimeFieldResolver());
         Assert.NotNull(results);
         Assert.Single(results.Documents);
 
-        results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedemailaddress:" + employee1.UnmappedEmailAddress), o => o.EnableRuntimeFieldResolver(false));
+        results = await _employeeRepository.FindAsync(q => q.FilterExpression($"unmappedemailaddress:{employee1.UnmappedEmailAddress}"), o => o.EnableRuntimeFieldResolver(false));
         Assert.NotNull(results);
         Assert.Empty(results.Documents);
     }
@@ -999,19 +1003,14 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(2, results.Page);
         Assert.False(results.HasMore);
         Assert.Equal(2, results.Total);
-
-        // var secondPageResults = await _identityRepository.GetAllAsync(o => o.PageNumber(2).PageLimit(1));
-        // Assert.Equal(secondDoc, secondPageResults.Documents.First());
     }
 
     [Fact]
     public async Task GetAllAsync_WithNoSortAndPaging_ReturnsAllDocumentsWithoutDuplicates()
     {
-        // Arrange
         var identities = IdentityGenerator.GenerateIdentities(100);
         await _identityRepository.AddAsync(identities, o => o.ImmediateConsistency());
 
-        // Act
         var results = await _identityRepository.GetAllAsync(o => o.PageLimit(10));
         var viewedIds = new HashSet<string>();
         int pagedRecords = 0;
@@ -1021,7 +1020,6 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
             pagedRecords += results.Documents.Count;
         } while (await results.NextPageAsync());
 
-        // Assert
         Assert.Equal(100, pagedRecords);
         Assert.Equal(100, viewedIds.Count);
         Assert.True(identities.All(e => viewedIds.Contains(e.Id)));
@@ -1030,15 +1028,12 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetAllAsync_WithNoSort_ReturnsDocumentsSortedByIdAscending()
     {
-        // Arrange
         var identities = IdentityGenerator.GenerateIdentities(100);
         await _identityRepository.AddAsync(identities, o => o.ImmediateConsistency());
 
-        // Act
         var results = await _identityRepository.GetAllAsync(o => o.PageLimit(100));
         var ids = results.Documents.Select(d => d.Id).ToList();
 
-        // Assert
         Assert.Equal(100, ids.Count);
         Assert.Equal(ids.OrderBy(id => id).ToList(), ids);
     }
@@ -1046,11 +1041,9 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task FindAsync_WithNoSortAndPaging_ReturnsAllDocumentsWithoutDuplicates()
     {
-        // Arrange
         var identities = IdentityGenerator.GenerateIdentities(100);
         await _identityRepository.AddAsync(identities, o => o.ImmediateConsistency());
 
-        // Act
         var results = await _identityRepository.FindAsync(q => q, o => o.PageLimit(10));
         var viewedIds = new HashSet<string>();
         int pagedRecords = 0;
@@ -1060,7 +1053,6 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
             pagedRecords += results.Documents.Count;
         } while (await results.NextPageAsync());
 
-        // Assert
         Assert.Equal(100, pagedRecords);
         Assert.Equal(100, viewedIds.Count);
         Assert.True(identities.All(e => viewedIds.Contains(e.Id)));

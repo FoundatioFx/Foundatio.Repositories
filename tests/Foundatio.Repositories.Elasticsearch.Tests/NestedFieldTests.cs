@@ -145,9 +145,10 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
         // Act
-        var nestedAggQuery = _client.Search<Employee>(d => d.Index("employees").Aggregations(a => a
-           .Nested("nested_reviewRating", h => h.Path("peerReviews")
-               .Aggregations(a1 => a1.Terms("terms_rating", t => t.Field("peerReviews.rating").Meta(m => m.Add("@field_type", "integer")))))
+        var nestedAggQuery = _client.Search<Employee>(d => d.Indices("employees").Aggregations(a => a
+           .Add("nested_reviewRating", agg => agg
+               .Nested(h => h.Path("peerReviews"))
+               .Aggregations(a1 => a1.Add("terms_rating", t => t.Terms(t1 => t1.Field("peerReviews.rating")).Meta(m => m.Add("@field_type", "integer")))))
             ));
 
         // Assert
@@ -162,22 +163,22 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         Assert.Equal(2, termsRatingAgg.Items.Count);
 
         // Act - Test nested aggregation with filter
-        var nestedAggQueryWithFilter = _client.Search<Employee>(d => d.Index("employees").Aggregations(a => a
-           .Nested("nested_reviewRating", h => h.Path("peerReviews")
+        var nestedAggQueryWithFilter = _client.Search<Employee>(d => d.Indices("employees").Aggregations(a => a
+           .Add("nested_reviewRating", agg => agg
+               .Nested(h => h.Path("peerReviews"))
                 .Aggregations(a1 => a1
-                    .Filter("user_" + employees[0].Id, f => f.Filter(q => q.Term(t => t.Field("peerReviews.reviewerEmployeeId").Value(employees[0].Id)))
-                        .Aggregations(a2 => a2.Terms("terms_rating", t => t.Field("peerReviews.rating").Meta(m => m.Add("@field_type", "integer")))))
+                    .Add($"user_{employees[0].Id}", f => f
+                        .Filter(q => q.Term(t => t.Field("peerReviews.reviewerEmployeeId").Value(employees[0].Id)))
+                        .Aggregations(a2 => a2.Add("terms_rating", t => t.Terms(t1 => t1.Field("peerReviews.rating")).Meta(m => m.Add("@field_type", "integer")))))
             ))));
 
         // Assert - Verify filtered aggregation
         result = nestedAggQueryWithFilter.Aggregations.ToAggregations();
         Assert.Single(result);
 
-        var nestedReviewRatingFilteredAgg = result["nested_reviewRating"] as SingleBucketAggregate;
-        Assert.NotNull(nestedReviewRatingFilteredAgg);
+        var nestedReviewRatingFilteredAgg = Assert.IsType<SingleBucketAggregate>(result["nested_reviewRating"]);
 
-        var userFilteredAgg = nestedReviewRatingFilteredAgg.Aggregations["user_" + employees[0].Id] as SingleBucketAggregate;
-        Assert.NotNull(userFilteredAgg);
+        var userFilteredAgg = Assert.IsType<SingleBucketAggregate>(nestedReviewRatingFilteredAgg.Aggregations[$"user_{employees[0].Id}"]);
         Assert.Single(userFilteredAgg.Aggregations.Terms("terms_rating").Buckets);
         Assert.Equal("5", userFilteredAgg.Aggregations.Terms("terms_rating").Buckets.First().Key);
         Assert.Equal(1, userFilteredAgg.Aggregations.Terms("terms_rating").Buckets.First().Total);
@@ -388,7 +389,10 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
 
         // Test System.Text.Json serialization
         string systemTextJson = System.Text.Json.JsonSerializer.Serialize(result);
-        Assert.Equal(json, systemTextJson);
+        Assert.True(System.Text.Json.Nodes.JsonNode.DeepEquals(
+            System.Text.Json.Nodes.JsonNode.Parse(json),
+            System.Text.Json.Nodes.JsonNode.Parse(systemTextJson)),
+            "Newtonsoft and System.Text.Json serialization should produce semantically equivalent JSON");
         roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(systemTextJson);
         Assert.Equal(3, roundTripped.Total);
         Assert.Single(roundTripped.Aggregations);

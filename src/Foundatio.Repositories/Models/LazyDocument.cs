@@ -39,11 +39,12 @@ public class LazyDocument : ILazyDocument
     /// Initializes a new instance of the <see cref="LazyDocument"/> class.
     /// </summary>
     /// <param name="data">The raw document data.</param>
-    /// <param name="serializer">The serializer to use for deserialization. Defaults to JSON.</param>
-    public LazyDocument(byte[] data, ITextSerializer serializer = null)
+    /// <param name="serializer">The serializer to use for deserialization.</param>
+    public LazyDocument(byte[] data, ITextSerializer serializer)
     {
+        ArgumentNullException.ThrowIfNull(serializer);
         _data = data;
-        _serializer = serializer ?? new JsonNetSerializer();
+        _serializer = serializer;
     }
 
     /// <inheritdoc/>

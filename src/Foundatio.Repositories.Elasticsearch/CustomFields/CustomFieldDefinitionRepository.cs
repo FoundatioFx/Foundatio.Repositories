@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Caching;
 using Foundatio.Lock;
 using Foundatio.Repositories.Elasticsearch.Configuration;
@@ -11,7 +13,7 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Microsoft.Extensions.Logging;
-using Nest;
+using ChangeType = Foundatio.Repositories.Models.ChangeType;
 
 namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
@@ -334,25 +336,23 @@ public class CustomFieldDefinitionIndex : VersionedIndex<CustomFieldDefinition>
         _replicas = replicas;
     }
 
-    public override TypeMappingDescriptor<CustomFieldDefinition> ConfigureIndexMapping(TypeMappingDescriptor<CustomFieldDefinition> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<CustomFieldDefinition> map)
     {
-        return map
-            .Dynamic(false)
+        map
+            .Dynamic(DynamicMapping.False)
             .Properties(p => p
                 .SetupDefaults()
-                .Keyword(f => f.Name(e => e.Id))
-                .Keyword(f => f.Name(e => e.EntityType))
-                .Keyword(f => f.Name(e => e.TenantKey))
-                .Keyword(f => f.Name(e => e.IndexType))
-                .Number(f => f.Name(e => e.IndexSlot))
-                .Date(f => f.Name(e => e.CreatedUtc))
-                .Date(f => f.Name(e => e.UpdatedUtc))
+                .Keyword(e => e.EntityType)
+                .Keyword(e => e.TenantKey)
+                .Keyword(e => e.IndexType)
+                .IntegerNumber(e => e.IndexSlot)
             );
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        return base.ConfigureIndex(idx).Settings(s => s
+        base.ConfigureIndex(idx);
+        idx.Settings(s => s
             .NumberOfShards(1)
             .NumberOfReplicas(_replicas));
     }

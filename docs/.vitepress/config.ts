@@ -75,6 +75,7 @@ export default withMermaid(
             { text: 'Jobs', link: '/guide/jobs' },
             { text: 'Custom Fields', link: '/guide/custom-fields' },
             { text: 'Troubleshooting', link: '/guide/troubleshooting' },
+            { text: 'Upgrading to ES9', link: '/guide/upgrading-to-es9' },
           ],
         },
       ],

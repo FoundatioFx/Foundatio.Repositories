@@ -370,18 +370,17 @@ When querying fields inside [nested objects](https://www.elastic.co/guide/en/ela
 The field must be mapped as `nested` in your index configuration:
 
 ```csharp
-public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(
-    TypeMappingDescriptor<Employee> map)
+public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
 {
-    return map
-        .Dynamic(false)
+    map
+        .Dynamic(DynamicMapping.False)
         .Properties(p => p
             .SetupDefaults()
-            .Keyword(f => f.Name(e => e.Id))
-            .Text(f => f.Name(e => e.Name).AddKeywordAndSortFields())
-            .Nested<PeerReview>(f => f.Name(e => e.PeerReviews).Properties(p1 => p1
-                .Keyword(f2 => f2.Name(p2 => p2.ReviewerEmployeeId))
-                .Scalar(p3 => p3.Rating, f2 => f2.Name(p3 => p3.Rating))))
+            .Keyword(e => e.Id)
+            .Text(e => e.Name, t => t.AddKeywordAndSortFields())
+            .Nested(e => e.PeerReviews, n => n.Properties(p1 => p1
+                .Keyword("reviewerEmployeeId")
+                .IntegerNumber("rating")))
         );
 }
 ```

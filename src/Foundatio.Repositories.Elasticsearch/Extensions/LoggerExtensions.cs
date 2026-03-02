@@ -1,61 +1,54 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using Elasticsearch.Net;
+using Elastic.Transport.Products.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Microsoft.Extensions.Logging;
-using Nest;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 public static class LoggerExtensions
 {
-    [Obsolete("Use LogRequest instead")]
-    public static void LogTraceRequest(this ILogger logger, IElasticsearchResponse elasticResponse, LogLevel logLevel = LogLevel.Trace)
-    {
-        LogRequest(logger, elasticResponse, logLevel);
-    }
-
-    public static void LogRequest(this ILogger logger, IElasticsearchResponse elasticResponse, LogLevel logLevel = LogLevel.Trace)
+    public static void LogRequest(this ILogger logger, ElasticsearchResponse elasticResponse, LogLevel logLevel = LogLevel.Trace)
     {
         if (elasticResponse == null || !logger.IsEnabled(logLevel))
             return;
 
-        var apiCall = elasticResponse?.ApiCall;
+        var apiCall = elasticResponse.ApiCallDetails;
         if (apiCall?.RequestBodyInBytes != null)
         {
-            string body = Encoding.UTF8.GetString(apiCall?.RequestBodyInBytes);
+            string body = Encoding.UTF8.GetString(apiCall.RequestBodyInBytes);
             body = JsonUtility.Normalize(body);
 
             logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}\r\n{HttpBody}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri.PathAndQuery, body);
         }
-        else
+        else if (apiCall != null)
         {
             logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri.PathAndQuery);
         }
     }
 
-    public static void LogErrorRequest(this ILogger logger, IElasticsearchResponse elasticResponse, string message, params object[] args)
+    public static void LogErrorRequest(this ILogger logger, ElasticsearchResponse elasticResponse, string message, params object[] args)
     {
         LogErrorRequest(logger, null, elasticResponse, message, args);
     }
 
-    public static void LogErrorRequest(this ILogger logger, Exception ex, IElasticsearchResponse elasticResponse, string message, params object[] args)
+    public static void LogErrorRequest(this ILogger logger, Exception ex, ElasticsearchResponse elasticResponse, string message, params object[] args)
     {
         if (elasticResponse == null || !logger.IsEnabled(LogLevel.Error))
             return;
 
-        var response = elasticResponse as IResponse;
+        var originalException = elasticResponse.ApiCallDetails?.OriginalException;
 
         AggregateException aggEx = null;
-        if (ex != null && response?.OriginalException != null)
-            aggEx = new AggregateException(ex, response.OriginalException);
+        if (ex != null && originalException != null)
+            aggEx = new AggregateException(ex, originalException);
 
-        logger.LogError(aggEx ?? response?.OriginalException, elasticResponse.GetErrorMessage(message), args);
+        logger.LogError(aggEx ?? originalException, elasticResponse.GetErrorMessage(message), args);
     }
 }
 
@@ -134,7 +127,7 @@ internal class JsonUtility
                 break;
 
             default:
-                throw new NotImplementedException($"Kind: {element.ValueKind}");
+                throw new NotSupportedException($"Unsupported JsonValueKind: {element.ValueKind}");
         }
     }
 }
