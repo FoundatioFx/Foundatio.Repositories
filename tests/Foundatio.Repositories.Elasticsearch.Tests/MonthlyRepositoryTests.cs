@@ -29,7 +29,8 @@ public sealed class MonthlyRepositoryTests : ElasticRepositoryTestBase
     {
         var utcNow = new DateTime(2023, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var history = await _fileAccessHistoryRepository.AddAsync(new FileAccessHistory { Path = "path1", AccessedDateUtc = utcNow }, o => o.ImmediateConsistency());
-        Assert.NotNull(history?.Id);
+        Assert.NotNull(history);
+        Assert.NotNull(history.Id);
 
         var result = await _fileAccessHistoryRepository.FindOneAsync(f => f.Id(history.Id));
         Assert.Equal("file-access-history-monthly-v1-2023.01", result.Data.GetString("index"));
@@ -46,7 +47,8 @@ public sealed class MonthlyRepositoryTests : ElasticRepositoryTestBase
             _fileAccessHistoryRepository.DocumentsAdding.AddHandler(OnDocumentsAdding);
 
             var history = await _fileAccessHistoryRepository.AddAsync(new FileAccessHistory { Path = "path2" }, o => o.ImmediateConsistency());
-            Assert.NotNull(history?.Id);
+            Assert.NotNull(history);
+            Assert.NotNull(history.Id);
 
             var result = await _fileAccessHistoryRepository.FindOneAsync(f => f.Id(history.Id));
             Assert.Equal("file-access-history-monthly-v1-2023.02", result.Data.GetString("index"));

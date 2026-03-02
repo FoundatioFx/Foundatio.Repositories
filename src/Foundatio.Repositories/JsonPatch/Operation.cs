@@ -1,4 +1,5 @@
-﻿using Newtonsoft.Json;
+using System;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Utility;
@@ -42,7 +43,14 @@ public abstract class Operation
 
     public static Operation Build(JObject jOperation)
     {
-        var op = PatchDocument.CreateOperation((string)jOperation["op"]);
+        ArgumentNullException.ThrowIfNull(jOperation);
+
+        var opName = (string)jOperation["op"];
+        ArgumentException.ThrowIfNullOrWhiteSpace(opName, "op");
+
+        var op = PatchDocument.CreateOperation(opName)
+            ?? throw new ArgumentException($"Unsupported JSON patch operation type '{opName}'.", nameof(jOperation));
+
         op.Read(jOperation);
         return op;
     }

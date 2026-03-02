@@ -1,6 +1,6 @@
-﻿using System.Collections.Generic;
+using System;
+using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -44,7 +44,7 @@ public class PatchDocument
 
     public static PatchDocument Load(Stream document)
     {
-        var reader = new StreamReader(document);
+        using var reader = new StreamReader(document, leaveOpen: true);
 
         return Parse(reader.ReadToEnd());
     }
@@ -56,8 +56,11 @@ public class PatchDocument
         if (document == null)
             return root;
 
-        foreach (var jOperation in document.Children().Cast<JObject>())
+        foreach (var child in document.Children())
         {
+            if (child is not JObject jOperation)
+                throw new ArgumentException($"Invalid patch operation: expected a JSON object but found {child.Type}");
+
             var op = Operation.Build(jOperation);
             root.AddOperation(op);
         }

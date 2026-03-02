@@ -30,7 +30,8 @@ public sealed class DailyRepositoryTests : ElasticRepositoryTestBase
     {
         var utcNow = new DateTime(2023, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var history = await _fileAccessHistoryRepository.AddAsync(new FileAccessHistory { Path = "path1", AccessedDateUtc = utcNow }, o => o.ImmediateConsistency());
-        Assert.NotNull(history?.Id);
+        Assert.NotNull(history);
+        Assert.NotNull(history.Id);
 
         var result = await _fileAccessHistoryRepository.FindOneAsync(f => f.Id(history.Id));
         Assert.Equal("file-access-history-daily-v1-2023.01.01", result.Data.GetString("index"));
@@ -47,7 +48,8 @@ public sealed class DailyRepositoryTests : ElasticRepositoryTestBase
             _fileAccessHistoryRepository.DocumentsAdding.AddHandler(OnDocumentsAdding);
 
             var history = await _fileAccessHistoryRepository.AddAsync(new FileAccessHistory { Path = "path2" }, o => o.ImmediateConsistency());
-            Assert.NotNull(history?.Id);
+            Assert.NotNull(history);
+            Assert.NotNull(history.Id);
 
             var result = await _fileAccessHistoryRepository.FindOneAsync(f => f.Id(history.Id));
             Assert.Equal("file-access-history-daily-v1-2023.02.01", result.Data.GetString("index"));
@@ -73,7 +75,8 @@ public sealed class DailyRepositoryTests : ElasticRepositoryTestBase
     public async Task CanAddAsync()
     {
         var history = await _fileAccessHistoryRepository.AddAsync(new FileAccessHistory { AccessedDateUtc = DateTime.UtcNow });
-        Assert.NotNull(history?.Id);
+        Assert.NotNull(history);
+        Assert.NotNull(history.Id);
     }
 
     [Fact]
@@ -87,7 +90,8 @@ public sealed class DailyRepositoryTests : ElasticRepositoryTestBase
             await Parallel.ForEachAsync(Enumerable.Range(0, 10), async (_, _) =>
             {
                 var history = await _fileAccessHistoryRepository.AddAsync(new FileAccessHistory { AccessedDateUtc = DateTime.UtcNow.AddDays(index) });
-                Assert.NotNull(history?.Id);
+                Assert.NotNull(history);
+                Assert.NotNull(history.Id);
             });
         }
     }

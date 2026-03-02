@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -26,7 +26,7 @@ public class PatchDocumentConverter : JsonConverter
         }
         catch (Exception ex)
         {
-            throw new ArgumentException("Invalid patch document: " + ex.Message);
+            throw new ArgumentException("Invalid patch document: " + ex.Message, ex);
         }
     }
 
