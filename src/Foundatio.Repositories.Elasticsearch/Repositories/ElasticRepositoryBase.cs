@@ -750,7 +750,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             if (scriptOperation == null && partialOperation == null)
                 throw new ArgumentException("Unknown operation type", nameof(operation));
 
-            if (!IsCacheEnabled && scriptOperation != null && (DocumentsChanged == null || !DocumentsChanged.HasHandlers))
+            if (!IsCacheEnabled && scriptOperation != null)
             {
                 var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", ElasticIndex.GetIndexesByQuery(query))))
                 {
