@@ -43,8 +43,10 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
         employee = await _employeeRepository.AddAsync(employee, o => o.ImmediateConsistency());
 
         // Assert
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
         var result = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(result);
         Assert.Equal("  blake  ", result.Name);
     }
 
@@ -98,6 +100,7 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
 
         // Assert
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
         Assert.Equal("patched", employee.Name);
     }
@@ -134,6 +137,7 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
 
         // Assert
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
         Assert.Equal("patched", employee.Name);
     }
@@ -169,6 +173,7 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
 
         // Assert
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
         Assert.Equal("patched", employee.Name);
     }

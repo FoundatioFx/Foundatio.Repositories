@@ -1249,7 +1249,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         var utcNow = DateTime.UtcNow;
         var yesterday = utcNow.AddDays(-1);
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(yesterday).ToString(), createdUtc: yesterday), o => o.ImmediateConsistency());
-        Assert.NotNull(yesterdayLog?.Id);
+        Assert.NotNull(yesterdayLog);
+        Assert.NotNull(yesterdayLog.Id);
 
         Assert.Equal(1, await _dailyRepository.CountAsync());
 
@@ -1369,7 +1370,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         var utcNow = DateTime.UtcNow;
         var yesterday = utcNow.AddDays(-1);
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(yesterday).ToString(), createdUtc: yesterday), o => o.ImmediateConsistency());
-        Assert.NotNull(yesterdayLog?.Id);
+        Assert.NotNull(yesterdayLog);
+        Assert.NotNull(yesterdayLog.Id);
 
         Assert.Equal(1, await _dailyRepository.CountAsync());
 

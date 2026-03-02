@@ -478,8 +478,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             b.Refresh(options.GetRefreshMode(DefaultConsistency));
             foreach (var id in ids)
             {
-                b.Pipeline(DefaultPipeline);
-
                 if (scriptOperation != null)
                     b.Update<T>(u =>
                     {

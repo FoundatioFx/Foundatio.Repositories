@@ -2,12 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch.Core.Search;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
+using Foundatio.Serializer;
 using Microsoft.Extensions.Time.Testing;
 using Newtonsoft.Json;
 using Xunit;
@@ -532,7 +534,8 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
 
         tophits = bucket.Aggregations.TopHits();
         Assert.NotNull(tophits);
-        employees = tophits.Documents<Employee>();
+        var serializer = new SystemTextJsonSerializer(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        employees = tophits.Documents<Employee>(serializer);
         Assert.Single(employees);
         Assert.Equal(19, employees.First().Age);
         Assert.Equal(1, employees.First().YearsEmployed);

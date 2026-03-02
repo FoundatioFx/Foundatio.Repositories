@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Foundatio.Repositories.Models;
 
@@ -7,6 +8,8 @@ namespace Foundatio.Repositories.Utility;
 
 public class AggregationsSystemTextJsonConverter : System.Text.Json.Serialization.JsonConverter<IAggregate>
 {
+    private static readonly ConditionalWeakTable<JsonSerializerOptions, JsonSerializerOptions> _writeOptionsCache = new();
+
     public override bool CanConvert(Type type)
     {
         return typeof(IAggregate).IsAssignableFrom(type);
@@ -36,10 +39,8 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
 
     public override void Write(Utf8JsonWriter writer, IAggregate value, JsonSerializerOptions options)
     {
-        var serializerOptions = new JsonSerializerOptions(options)
-        {
-            Converters = { new DoubleSystemTextJsonConverter() }
-        };
+        var serializerOptions = _writeOptionsCache.GetValue(options, static o =>
+            new JsonSerializerOptions(o) { Converters = { new DoubleSystemTextJsonConverter() } });
 
         JsonSerializer.Serialize(writer, value, value.GetType(), serializerOptions);
     }

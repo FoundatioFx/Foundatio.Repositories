@@ -12,7 +12,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 public static class FindHitExtensions
 {
-    private static JsonSerializerOptions _options;
+    private static readonly JsonSerializerOptions _options;
     static FindHitExtensions()
     {
         _options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };

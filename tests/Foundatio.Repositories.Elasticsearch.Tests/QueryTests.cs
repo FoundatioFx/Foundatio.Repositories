@@ -142,7 +142,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     {
         Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Warning);
         var log = await _dailyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency().QueryLogLevel(LogLevel.Warning));
-        Assert.NotNull(log?.Id);
+        Assert.NotNull(log);
+        Assert.NotNull(log.Id);
 
         var results = await _dailyRepository.FindAsync(q => q.Company(log.CompanyId), o => o.QueryLogLevel(LogLevel.Warning));
         Assert.Single(results.Documents);

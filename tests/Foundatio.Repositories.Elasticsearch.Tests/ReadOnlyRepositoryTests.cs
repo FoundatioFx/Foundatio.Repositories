@@ -378,7 +378,8 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         var utcNow = DateTime.UtcNow;
         var yesterday = utcNow.AddDays(-1);
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(yesterday).ToString(), createdUtc: yesterday));
-        Assert.NotNull(yesterdayLog?.Id);
+        Assert.NotNull(yesterdayLog);
+        Assert.NotNull(yesterdayLog.Id);
 
         Assert.Equal(yesterdayLog, await _dailyRepository.GetByIdAsync(yesterdayLog.Id));
     }
@@ -523,7 +524,8 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         var utcNow = DateTime.UtcNow;
         var yesterday = utcNow.AddDays(-1);
         var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(yesterday).ToString(), createdUtc: yesterday));
-        Assert.NotNull(yesterdayLog?.Id);
+        Assert.NotNull(yesterdayLog);
+        Assert.NotNull(yesterdayLog.Id);
 
         var results = await _dailyRepository.GetByIdsAsync(new[] { yesterdayLog.Id });
         Assert.NotNull(results);
@@ -598,8 +600,6 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetAllWithSnapshotPagingAsync()
     {
-        var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
-        Assert.NotNull(identity1);
         var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
         Assert.NotNull(identity1);
 

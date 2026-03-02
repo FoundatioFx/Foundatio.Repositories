@@ -108,7 +108,8 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase
     {
         var parent = ParentGenerator.Default;
         parent = await _parentRepository.AddAsync(parent, o => o.ImmediateConsistency());
-        Assert.NotNull(parent?.Id);
+        Assert.NotNull(parent);
+        Assert.NotNull(parent.Id);
 
         await _parentRepository.AddAsync(ParentGenerator.Generate(), o => o.ImmediateConsistency());
 
