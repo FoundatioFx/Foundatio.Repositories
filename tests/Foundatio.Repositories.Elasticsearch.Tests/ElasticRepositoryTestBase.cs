@@ -9,6 +9,7 @@ using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
+using Foundatio.Serializer;
 using Foundatio.Utility;
 using Foundatio.Xunit;
 using Microsoft.Extensions.Logging;
@@ -25,6 +26,7 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
     protected readonly ElasticsearchClient _client;
     protected readonly IQueue<WorkItemData> _workItemQueue;
     protected readonly InMemoryMessageBus _messageBus;
+    protected readonly ITextSerializer _serializer;
 
     public ElasticRepositoryTestBase(ITestOutputHelper output) : base(output)
     {
@@ -35,6 +37,7 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
         _workItemQueue = new InMemoryQueue<WorkItemData>(new InMemoryQueueOptions<WorkItemData> { LoggerFactory = Log });
         _configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log);
         _client = _configuration.Client;
+        _serializer = _configuration.Serializer;
     }
 
     private static bool _elasticsearchReady;

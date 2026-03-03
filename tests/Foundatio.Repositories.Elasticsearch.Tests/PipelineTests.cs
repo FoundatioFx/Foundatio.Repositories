@@ -66,7 +66,8 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
         // Assert
         var result = await _employeeRepository.GetByIdsAsync(new Ids(employees.Select(e => e.Id)));
         Assert.Equal(2, result.Count);
-        Assert.True(result.All(e => String.Equals(e.Name, e.Name.ToLowerInvariant())));
+        Assert.Contains(result, e => String.Equals(e.Name, "  blake  "));
+        Assert.Contains(result, e => String.Equals(e.Name, "\tblake  "));
     }
 
     [Fact]
@@ -85,7 +86,8 @@ public sealed class PipelineTests : ElasticRepositoryTestBase
         // Assert
         var result = await _employeeRepository.GetByIdsAsync(new List<string> { employee1.Id, employee2.Id });
         Assert.Equal(2, result.Count);
-        Assert.True(result.All(e => String.Equals(e.Name, e.Name.ToLowerInvariant())));
+        Assert.Contains(result, e => String.Equals(e.Name, "  blake  "));
+        Assert.Contains(result, e => String.Equals(e.Name, "\tblake  "));
     }
 
     [Fact]

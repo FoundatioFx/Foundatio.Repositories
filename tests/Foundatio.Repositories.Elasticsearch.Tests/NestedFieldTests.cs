@@ -152,7 +152,7 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
             ));
 
         // Assert
-        var result = nestedAggQuery.Aggregations.ToAggregations();
+        var result = nestedAggQuery.Aggregations.ToAggregations(_serializer);
         Assert.Single(result);
 
         var nestedReviewRatingAgg = result["nested_reviewRating"] as SingleBucketAggregate;
@@ -173,7 +173,7 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
             ))));
 
         // Assert - Verify filtered aggregation
-        result = nestedAggQueryWithFilter.Aggregations.ToAggregations();
+        result = nestedAggQueryWithFilter.Aggregations.ToAggregations(_serializer);
         Assert.Single(result);
 
         var nestedReviewRatingFilteredAgg = Assert.IsType<SingleBucketAggregate>(result["nested_reviewRating"]);

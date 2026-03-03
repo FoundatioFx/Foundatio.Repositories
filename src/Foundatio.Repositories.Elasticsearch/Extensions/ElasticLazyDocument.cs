@@ -1,7 +1,7 @@
 using System;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Elastic.Clients.Elasticsearch.Core.Search;
+using Foundatio.Serializer;
 using ILazyDocument = Foundatio.Repositories.Models.ILazyDocument;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
@@ -9,15 +9,12 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions;
 public class ElasticLazyDocument : ILazyDocument
 {
     private readonly Hit<object> _hit;
-    private static readonly JsonSerializerOptions _jsonSerializerOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: true) }
-    };
+    private readonly ITextSerializer _serializer;
 
-    public ElasticLazyDocument(Hit<object> hit)
+    public ElasticLazyDocument(Hit<object> hit, ITextSerializer serializer)
     {
         _hit = hit;
+        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
     }
 
     public T As<T>() where T : class
@@ -29,10 +26,9 @@ public class ElasticLazyDocument : ILazyDocument
             return typed;
 
         if (_hit.Source is JsonElement jsonElement)
-            return JsonSerializer.Deserialize<T>(jsonElement.GetRawText(), _jsonSerializerOptions);
+            return _serializer.Deserialize<T>(jsonElement.GetRawText());
 
-        var json = JsonSerializer.Serialize(_hit.Source);
-        return JsonSerializer.Deserialize<T>(json, _jsonSerializerOptions);
+        return _serializer.Deserialize<T>(JsonSerializer.Serialize(_hit.Source));
     }
 
     public object As(Type objectType)
@@ -44,9 +40,8 @@ public class ElasticLazyDocument : ILazyDocument
             return _hit.Source;
 
         if (_hit.Source is JsonElement jsonElement)
-            return JsonSerializer.Deserialize(jsonElement.GetRawText(), objectType, _jsonSerializerOptions);
+            return _serializer.Deserialize(jsonElement.GetRawText(), objectType);
 
-        var json = JsonSerializer.Serialize(_hit.Source);
-        return JsonSerializer.Deserialize(json, objectType, _jsonSerializerOptions);
+        return _serializer.Deserialize(JsonSerializer.Serialize(_hit.Source), objectType);
     }
 }

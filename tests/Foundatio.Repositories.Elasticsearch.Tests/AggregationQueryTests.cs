@@ -131,7 +131,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
             ));
 
         // Assert
-        var result = nestedAggQuery.Aggregations.ToAggregations();
+        var result = nestedAggQuery.Aggregations.ToAggregations(_serializer);
         Assert.Single(result);
         Assert.Equal(2, ((Foundatio.Repositories.Models.BucketAggregate)((Foundatio.Repositories.Models.SingleBucketAggregate)result["nested_reviewRating"]).Aggregations["terms_rating"]).Items.Count);
 
@@ -146,7 +146,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
             ))));
 
         // Assert (with filter)
-        result = nestedAggQueryWithFilter.Aggregations.ToAggregations();
+        result = nestedAggQueryWithFilter.Aggregations.ToAggregations(_serializer);
         Assert.Single(result);
 
         var nestedAgg = (Foundatio.Repositories.Models.SingleBucketAggregate)result["nested_reviewRating"];
@@ -534,8 +534,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
 
         tophits = bucket.Aggregations.TopHits();
         Assert.NotNull(tophits);
-        var serializer = new SystemTextJsonSerializer(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-        employees = tophits.Documents<Employee>(serializer);
+        employees = tophits.Documents<Employee>(_serializer);
         Assert.Single(employees);
         Assert.Equal(19, employees.First().Age);
         Assert.Equal(1, employees.First().YearsEmployed);

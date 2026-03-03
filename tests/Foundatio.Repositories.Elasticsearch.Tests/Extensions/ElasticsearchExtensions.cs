@@ -41,7 +41,12 @@ public static class ElasticsearchExtensions
         var response = await client.Indices.GetAliasAsync((Indices)aliasName, a => a.IgnoreUnavailable());
 
         if (!response.IsValidResponse)
-            return [];
+        {
+            if (response.ApiCallDetails is { HttpStatusCode: 404 })
+                return [];
+
+            throw new InvalidOperationException($"Failed to get alias '{aliasName}': {response.ElasticsearchServerError?.Error?.Reason ?? "Unknown error"}");
+        }
 
         return response.Aliases.Keys.ToList();
     }
@@ -51,7 +56,12 @@ public static class ElasticsearchExtensions
         var response = client.Indices.GetAlias((Indices)aliasName, a => a.IgnoreUnavailable());
 
         if (!response.IsValidResponse)
-            return [];
+        {
+            if (response.ApiCallDetails is { HttpStatusCode: 404 })
+                return [];
+
+            throw new InvalidOperationException($"Failed to get alias '{aliasName}': {response.ElasticsearchServerError?.Error?.Reason ?? "Unknown error"}");
+        }
 
         return response.Aliases.Keys.ToList();
     }

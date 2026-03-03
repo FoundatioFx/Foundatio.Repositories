@@ -8,6 +8,7 @@ using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Resilience;
+using Foundatio.Serializer;
 using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
@@ -17,6 +18,7 @@ public interface IElasticConfiguration : IDisposable
     ElasticsearchClient Client { get; }
     ICacheClient Cache { get; }
     IMessageBus MessageBus { get; }
+    ITextSerializer Serializer { get; }
     ILoggerFactory LoggerFactory { get; }
     IResiliencePolicyProvider ResiliencePolicyProvider { get; }
     TimeProvider TimeProvider { get; set; }

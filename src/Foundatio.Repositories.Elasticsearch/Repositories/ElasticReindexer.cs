@@ -370,13 +370,24 @@ public class ElasticReindexer
         var aliasesResponse = await _client.Indices.GetAliasAsync(Indices.Index(index)).AnyContext();
         _logger.LogRequest(aliasesResponse);
 
-        var indices = aliasesResponse.Aliases;
-        if (aliasesResponse.IsValidResponse && indices != null && indices.Count > 0)
+        if (aliasesResponse.IsValidResponse)
         {
-            var aliases = indices.SingleOrDefault(a => String.Equals(a.Key, index));
-            if (aliases.Value?.Aliases != null)
-                return aliases.Value.Aliases.Select(a => a.Key).ToList();
+            var indices = aliasesResponse.Aliases;
+            if (indices != null && indices.Count > 0)
+            {
+                var aliases = indices.SingleOrDefault(a => String.Equals(a.Key, index));
+                if (aliases.Value?.Aliases != null)
+                    return aliases.Value.Aliases.Select(a => a.Key).ToList();
+            }
+
+            return new List<string>();
         }
+
+        if (aliasesResponse.ApiCallDetails is { HttpStatusCode: 404 })
+            return new List<string>();
+
+        _logger.LogWarning("Failed to get aliases for index {Index}: {Error}", index,
+            aliasesResponse.ElasticsearchServerError?.Error?.Reason ?? "Unknown error");
 
         return new List<string>();
     }

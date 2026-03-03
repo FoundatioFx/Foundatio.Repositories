@@ -15,6 +15,7 @@ using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Resilience;
+using Foundatio.Serializer;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -35,9 +36,11 @@ public class ElasticConfiguration : IElasticConfiguration
     private readonly bool _shouldDisposeMessageBus;
     private bool _disposed;
 
-    public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, TimeProvider timeProvider = null, IResiliencePolicyProvider resiliencePolicyProvider = null, ILoggerFactory loggerFactory = null)
+    public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, ITextSerializer serializer = null, TimeProvider timeProvider = null, IResiliencePolicyProvider resiliencePolicyProvider = null, ILoggerFactory loggerFactory = null)
     {
         _workItemQueue = workItemQueue;
+        Serializer = serializer ?? new Foundatio.Serializer.SystemTextJsonSerializer(
+            new System.Text.Json.JsonSerializerOptions().ConfigureFoundatioRepositoryDefaults());
         TimeProvider = timeProvider ?? TimeProvider.System;
         LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _logger = LoggerFactory.CreateLogger(GetType());
@@ -81,6 +84,7 @@ public class ElasticConfiguration : IElasticConfiguration
     public ElasticsearchClient Client => _client.Value;
     public ICacheClient Cache { get; }
     public IMessageBus MessageBus { get; }
+    public ITextSerializer Serializer { get; }
     public ILoggerFactory LoggerFactory { get; }
     public IResiliencePolicyProvider ResiliencePolicyProvider { get; }
     public IResiliencePolicy ResiliencePolicy { get; }
