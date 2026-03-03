@@ -11,22 +11,16 @@ public class ObjectValueAggregate : MetricAggregateBase
 {
     public object Value { get; set; }
 
-    public T ValueAs<T>(ITextSerializer serializer = null)
+    public T ValueAs<T>(ITextSerializer serializer)
     {
-        if (Value is string stringValue && serializer is not null)
+        if (Value is string stringValue)
             return serializer.Deserialize<T>(stringValue);
 
         if (Value is JsonNode jNode)
-        {
-            ArgumentNullException.ThrowIfNull(serializer);
             return serializer.Deserialize<T>(jNode.ToJsonString());
-        }
 
         if (Value is JsonElement jElement)
-        {
-            ArgumentNullException.ThrowIfNull(serializer);
             return serializer.Deserialize<T>(jElement.GetRawText());
-        }
 
         return (T)Convert.ChangeType(Value, typeof(T));
     }
