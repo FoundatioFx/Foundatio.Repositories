@@ -261,7 +261,7 @@ public class Index : IIndex
             foreach (var analyzer in settings.Analysis.Analyzers.ToList())
             {
                 if (!currentKeys.Contains(analyzer.Key))
-                    _logger.LogError("New analyzer {AnalyzerKey} can't be added to existing index", analyzer.Key);
+                    _logger.LogInformation("Adding new analyzer {AnalyzerKey} to existing index (requires close/reopen)", analyzer.Key);
             }
         }
 
@@ -271,7 +271,7 @@ public class Index : IIndex
             foreach (var tokenizer in settings.Analysis.Tokenizers.ToList())
             {
                 if (!currentKeys.Contains(tokenizer.Key))
-                    _logger.LogError("New tokenizer {TokenizerKey}  can't be added to existing index", tokenizer.Key);
+                    _logger.LogInformation("Adding new tokenizer {TokenizerKey} to existing index (requires close/reopen)", tokenizer.Key);
             }
         }
 
@@ -281,7 +281,7 @@ public class Index : IIndex
             foreach (var tokenFilter in settings.Analysis.TokenFilters.ToList())
             {
                 if (!currentKeys.Contains(tokenFilter.Key))
-                    _logger.LogError("New token filter {TokenFilterKey} can't be added to existing index", tokenFilter.Key);
+                    _logger.LogInformation("Adding new token filter {TokenFilterKey} to existing index (requires close/reopen)", tokenFilter.Key);
             }
         }
 
@@ -291,7 +291,7 @@ public class Index : IIndex
             foreach (var normalizer in settings.Analysis.Normalizers.ToList())
             {
                 if (!currentKeys.Contains(normalizer.Key))
-                    _logger.LogError("New normalizer {NormalizerKey} can't be added to existing index", normalizer.Key);
+                    _logger.LogInformation("Adding new normalizer {NormalizerKey} to existing index (requires close/reopen)", normalizer.Key);
             }
         }
 
@@ -301,11 +301,9 @@ public class Index : IIndex
             foreach (var charFilter in settings.Analysis.CharFilters.ToList())
             {
                 if (!currentKeys.Contains(charFilter.Key))
-                    _logger.LogError("New char filter {CharFilterKey} can't be added to existing index", charFilter.Key);
+                    _logger.LogInformation("Adding new char filter {CharFilterKey} to existing index (requires close/reopen)", charFilter.Key);
             }
         }
-
-        settings.Analysis = null;
 
         var updateResponse = await Configuration.Client.Indices.PutSettingsAsync(name, d => d.Reopen().Settings(settings)).AnyContext();
 
@@ -340,6 +338,10 @@ public class Index : IIndex
                 {
                     foreach (var kvp in getResponse.Indices)
                         indexNames.Add(kvp.Key);
+                }
+                else if (getResponse.ElasticsearchServerError?.Status != 404)
+                {
+                    _logger.LogErrorRequest(getResponse, "Error resolving wildcard index pattern {Pattern}", name);
                 }
             }
             else

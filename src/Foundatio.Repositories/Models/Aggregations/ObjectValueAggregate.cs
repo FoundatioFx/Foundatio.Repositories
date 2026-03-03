@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Foundatio.Repositories.Extensions;
 using Foundatio.Serializer;
 
 namespace Foundatio.Repositories.Models;
@@ -9,6 +10,8 @@ namespace Foundatio.Repositories.Models;
 [DebuggerDisplay("Value: {Value}")]
 public class ObjectValueAggregate : MetricAggregateBase
 {
+    private static readonly JsonSerializerOptions s_defaultOptions = new JsonSerializerOptions().ConfigureFoundatioRepositoryDefaults();
+
     public object Value { get; set; }
 
     public T ValueAs<T>(ITextSerializer serializer = null)
@@ -23,11 +26,10 @@ public class ObjectValueAggregate : MetricAggregateBase
                 return serializer.Deserialize<T>(jsonElementValue.GetRawText());
         }
 
-        // Handle System.Text.Json types (used by Elastic.Clients.Elasticsearch)
         if (Value is JsonNode jNode)
-            return jNode.Deserialize<T>();
+            return jNode.Deserialize<T>(s_defaultOptions);
         if (Value is JsonElement jElement)
-            return jElement.Deserialize<T>();
+            return jElement.Deserialize<T>(s_defaultOptions);
 
         return (T)Convert.ChangeType(Value, typeof(T));
     }

@@ -235,6 +235,24 @@ public static class ElasticIndexExtensions
         else
             protectedResults.HasMore = response.Response.Hits.Count > limit || response.Response.Hits.Count >= options.GetMaxLimit();
 
+        if (options.HasSearchAfter())
+        {
+            results.SetSearchBeforeToken();
+            if (results.HasMore)
+                results.SetSearchAfterToken();
+        }
+        else if (options.HasSearchBefore())
+        {
+            protectedResults.Reverse();
+            results.SetSearchAfterToken();
+            if (results.HasMore)
+                results.SetSearchBeforeToken();
+        }
+        else if (results.HasMore)
+        {
+            results.SetSearchAfterToken();
+        }
+
         protectedResults.Page = options.GetPage();
 
         return results;

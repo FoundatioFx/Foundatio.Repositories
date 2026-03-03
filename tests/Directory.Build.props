@@ -4,6 +4,9 @@
     <TargetFrameworks>net10.0</TargetFrameworks>
     <OutputType>Exe</OutputType>
     <IsPackable>False</IsPackable>
+    <!-- CS1591: Missing XML docs (not needed in test projects)
+         NU1701: Package version fallback
+         CS8002: GitHubActionsTestLogger is not strong-named; no signed alternative available -->
     <NoWarn>$(NoWarn);CS1591;NU1701;CS8002</NoWarn>
   </PropertyGroup>
   <ItemGroup>

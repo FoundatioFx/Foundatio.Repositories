@@ -374,7 +374,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (options.HasAsyncQueryId())
         {
             var queryId = options.GetAsyncQueryId();
-            ArgumentException.ThrowIfNullOrEmpty(queryId, nameof(queryId));
+            ArgumentException.ThrowIfNullOrEmpty(queryId);
 
             var response = await _client.AsyncSearch.GetAsync<TResult>(queryId, s =>
             {
@@ -550,7 +550,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (options.HasAsyncQueryId())
         {
             var queryId = options.GetAsyncQueryId();
-            ArgumentException.ThrowIfNullOrEmpty(queryId, nameof(queryId));
+            ArgumentException.ThrowIfNullOrEmpty(queryId);
 
             var response = await _client.AsyncSearch.GetAsync<T>(queryId, s =>
             {
@@ -859,7 +859,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         {
             string[] indices = ElasticIndex.GetIndexesByQuery(query);
             var response = await _client.Indices.RefreshAsync(indices);
-            if (response.IsValid)
+            if (response.IsValidResponse)
                 _logger.LogRequest(response);
             else
                 _logger.LogErrorRequest(response, "Failed to refresh indices for immediate consistency");
