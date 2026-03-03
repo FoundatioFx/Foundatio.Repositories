@@ -357,7 +357,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (options.HasAsyncQueryId())
         {
             var queryId = options.GetAsyncQueryId();
-            ArgumentException.ThrowIfNullOrEmpty(queryId, nameof(queryId));
+            ArgumentException.ThrowIfNullOrEmpty(queryId);
 
             var response = await _client.AsyncSearch.GetAsync<TResult>(queryId, s =>
             {
@@ -534,7 +534,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (options.HasAsyncQueryId())
         {
             var queryId = options.GetAsyncQueryId();
-            ArgumentException.ThrowIfNullOrEmpty(queryId, nameof(queryId));
+            ArgumentException.ThrowIfNullOrEmpty(queryId);
 
             var response = await _client.AsyncSearch.GetAsync<T>(queryId, s =>
             {
