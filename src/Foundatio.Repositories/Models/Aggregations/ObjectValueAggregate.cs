@@ -18,16 +18,14 @@ public class ObjectValueAggregate : MetricAggregateBase
 
         if (Value is JsonNode jNode)
         {
-            if (serializer is not null)
-                return serializer.Deserialize<T>(jNode.ToJsonString());
-            return jNode.Deserialize<T>();
+            ArgumentNullException.ThrowIfNull(serializer);
+            return serializer.Deserialize<T>(jNode.ToJsonString());
         }
 
         if (Value is JsonElement jElement)
         {
-            if (serializer is not null)
-                return serializer.Deserialize<T>(jElement.GetRawText());
-            return jElement.Deserialize<T>();
+            ArgumentNullException.ThrowIfNull(serializer);
+            return serializer.Deserialize<T>(jElement.GetRawText());
         }
 
         return (T)Convert.ChangeType(Value, typeof(T));

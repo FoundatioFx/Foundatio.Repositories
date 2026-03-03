@@ -1,7 +1,6 @@
-using System;
 using System.Linq;
 using System.Threading.Tasks;
-using Elastic.Clients.Elasticsearch;
+using Foundatio.Repositories.Elasticsearch.Utility;
 using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders;
@@ -24,30 +23,12 @@ public class PageableQueryBuilder : IElasticQueryBuilder
         // can only use search_after or skip
         // Note: skip (from) is not allowed in scroll context, so only apply if not snapshot paging
         if (ctx.Options.HasSearchAfter())
-            ctx.Search.SearchAfter(ctx.Options.GetSearchAfter().Select(ToFieldValue).ToList());
+            ctx.Search.SearchAfter(ctx.Options.GetSearchAfter().Select(FieldValueHelper.ToFieldValue).ToList());
         else if (ctx.Options.HasSearchBefore())
-            ctx.Search.SearchAfter(ctx.Options.GetSearchBefore().Select(ToFieldValue).ToList());
+            ctx.Search.SearchAfter(ctx.Options.GetSearchBefore().Select(FieldValueHelper.ToFieldValue).ToList());
         else if (ctx.Options.ShouldUseSkip() && !ctx.Options.ShouldUseSnapshotPaging())
             ctx.Search.From(ctx.Options.GetSkip());
 
         return Task.CompletedTask;
-    }
-
-    private static FieldValue ToFieldValue(object value)
-    {
-        return value switch
-        {
-            null => FieldValue.Null,
-            string s => FieldValue.String(s),
-            bool b => FieldValue.Boolean(b),
-            long l => FieldValue.Long(l),
-            int i => FieldValue.Long(i),
-            double d => FieldValue.Double(d),
-            float f => FieldValue.Double(f),
-            decimal m => FieldValue.Double((double)m),
-            DateTime dt => FieldValue.String(dt.ToString("o")),
-            DateTimeOffset dto => FieldValue.String(dto.ToString("o")),
-            _ => FieldValue.String(value.ToString())
-        };
     }
 }
