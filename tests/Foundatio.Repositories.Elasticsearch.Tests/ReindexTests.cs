@@ -352,7 +352,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             var utcNow = DateTime.UtcNow;
             var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
             Assert.NotNull(employee);
-        Assert.NotNull(employee.Id);
+            Assert.NotNull(employee.Id);
 
             await using AsyncDisposableAction version20Scope = new(() => version20Index.DeleteAsync());
             await version20Index.ConfigureAsync();
@@ -379,7 +379,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             var utcNow = DateTime.UtcNow;
             var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
             Assert.NotNull(employee);
-        Assert.NotNull(employee.Id);
+            Assert.NotNull(employee.Id);
 
             await using AsyncDisposableAction version21Scope = new(() => version21Index.DeleteAsync());
             await version21Index.ConfigureAsync();

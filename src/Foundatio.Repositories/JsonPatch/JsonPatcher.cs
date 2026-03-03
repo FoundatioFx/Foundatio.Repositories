@@ -21,7 +21,7 @@ public class JsonPatcher : AbstractPatcher<JsonNode>
         {
             string[] parts = operation.Path.Split('/');
             string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
-            string propertyName = parts.LastOrDefault();
+            string propertyName = JsonNodeExtensions.UnescapeJsonPointer(parts.LastOrDefault() ?? String.Empty);
 
             if (target.SelectOrCreatePatchToken(parentPath) is not JsonObject parent)
                 return target;
@@ -59,7 +59,7 @@ public class JsonPatcher : AbstractPatcher<JsonNode>
     {
         string[] parts = operation.Path.Split('/');
         string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
-        string propertyName = parts.LastOrDefault();
+        string propertyName = JsonNodeExtensions.UnescapeJsonPointer(parts.LastOrDefault() ?? String.Empty);
 
         if (propertyName == "-")
         {
@@ -120,7 +120,7 @@ public class JsonPatcher : AbstractPatcher<JsonNode>
             return;
 
         string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
-        string propertyName = parts.LastOrDefault();
+        string propertyName = JsonNodeExtensions.UnescapeJsonPointer(parts.LastOrDefault() ?? String.Empty);
 
         if (String.IsNullOrEmpty(propertyName))
             return;
@@ -140,7 +140,7 @@ public class JsonPatcher : AbstractPatcher<JsonNode>
 
     protected override void Move(MoveOperation operation, JsonNode target)
     {
-        if (operation.Path.StartsWith(operation.FromPath))
+        if (operation.Path == operation.FromPath || operation.Path.StartsWith(operation.FromPath + "/"))
             throw new ArgumentException("To path cannot be below from path");
 
         var token = target.SelectPatchToken(operation.FromPath);
@@ -488,7 +488,7 @@ public static class JsonNodeExtensions
     }
 
     /// <summary>
-    /// Converts a JSON Patch path to an array of path segments.
+    /// Converts a JSON Patch path to an array of path segments, unescaping per RFC 6901.
     /// </summary>
     private static string[] ToJsonPointerPath(this string path)
     {
@@ -498,6 +498,17 @@ public static class JsonNodeExtensions
         if (path.StartsWith('$'))
             throw new NotSupportedException($"JSONPath expressions are not supported in patch operations. Use JSON Pointer format (e.g., '/foo/bar') instead of JSONPath (e.g., '$.foo.bar'). Path: {path}");
 
-        return path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+        return path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(UnescapeJsonPointer)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Unescapes a JSON Pointer reference token per RFC 6901 Section 4.
+    /// Order matters: ~1 -> / first, then ~0 -> ~.
+    /// </summary>
+    internal static string UnescapeJsonPointer(string token)
+    {
+        return token.Replace("~1", "/").Replace("~0", "~");
     }
 }

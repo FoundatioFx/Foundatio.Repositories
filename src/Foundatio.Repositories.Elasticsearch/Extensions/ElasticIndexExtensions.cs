@@ -16,6 +16,7 @@ using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Serializer;
 using Foundatio.Utility;
+using Microsoft.Extensions.Logging;
 using ElasticAggregations = Elastic.Clients.Elasticsearch.Aggregations;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
@@ -370,7 +371,7 @@ public static class ElasticIndexExtensions
         return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), hit.GetElasticVersion(), hit.Routing, data);
     }
 
-    public static IEnumerable<FindHit<T>> ToFindHits<T>(this MultiGetResponse<T> response) where T : class
+    public static IEnumerable<FindHit<T>> ToFindHits<T>(this MultiGetResponse<T> response, ILogger logger = null) where T : class
     {
         foreach (var doc in response.Docs)
         {
@@ -392,8 +393,15 @@ public static class ElasticIndexExtensions
 
                         findHit = new FindHit<T>(result.Id, result.Source, 0, version, result.Routing, data);
                     }
+                    else
+                    {
+                        logger?.LogDebug("MultiGet document not found: index={Index}, id={Id}", result.Index, result.Id);
+                    }
                 },
-                error => { /* not found or error, skip */ }
+                error =>
+                {
+                    logger?.LogWarning("MultiGet document error: index={Index}, id={Id}, error={Error}", error.Index, error.Id, error.Error?.Reason);
+                }
             );
             if (findHit != null)
                 yield return findHit;

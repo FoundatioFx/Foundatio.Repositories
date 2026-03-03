@@ -446,7 +446,9 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         // Match returns the value from either side of the union
         var replicaCount = replicas.Match(i => i, s => int.Parse(s));
         Assert.Equal(0, replicaCount);
-        Assert.NotNull(indexSettings.Index?.Analysis?.Analyzers["custom1"]);
+        Assert.NotNull(indexSettings.Index);
+        Assert.NotNull(indexSettings.Index.Analysis);
+        Assert.NotNull(indexSettings.Index.Analysis.Analyzers["custom1"]);
 
         var index2 = new VersionedEmployeeIndex(_configuration, 1, i => i.Settings(s => s
             .NumberOfReplicas(1)
@@ -461,7 +463,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         Assert.NotNull(replicas);
         replicaCount = replicas.Match(i => i, s => int.Parse(s));
         Assert.Equal(1, replicaCount);
-        Assert.NotNull(indexSettings.Index?.Analysis?.Analyzers["custom1"]);
+        Assert.NotNull(indexSettings.Index);
+        Assert.NotNull(indexSettings.Index.Analysis);
+        Assert.NotNull(indexSettings.Index.Analysis.Analyzers["custom1"]);
+        Assert.NotNull(indexSettings.Index.Analysis.Analyzers["custom2"]);
     }
 
     [Fact]

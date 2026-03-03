@@ -43,7 +43,6 @@ protected override void ConfigureSettings(ElasticsearchClientSettings settings)
 {
     settings.DisableDirectStreaming();
     settings.PrettyJson();
-    settings.EnableDebugMode();
 }
 ```
 
@@ -414,14 +413,6 @@ protected override void ConfigureSettings(ElasticsearchClientSettings settings)
 {
     settings.DisableDirectStreaming();
     settings.PrettyJson();
-    settings.OnRequestCompleted(details =>
-    {
-        _logger.LogDebug("Request: {Method} {Uri}", 
-            details.HttpMethod, details.Uri);
-        if (details.RequestBodyInBytes != null)
-            _logger.LogDebug("Body: {Body}", 
-                Encoding.UTF8.GetString(details.RequestBodyInBytes));
-    });
 }
 
 // Per query

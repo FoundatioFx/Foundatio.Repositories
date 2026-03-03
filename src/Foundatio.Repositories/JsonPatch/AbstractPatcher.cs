@@ -1,4 +1,4 @@
-﻿namespace Foundatio.Repositories.Utility;
+namespace Foundatio.Repositories.Utility;
 
 public abstract class AbstractPatcher<TDoc> where TDoc : class
 {
@@ -12,18 +12,27 @@ public abstract class AbstractPatcher<TDoc> where TDoc : class
 
     public virtual TDoc ApplyOperation(Operation operation, TDoc target)
     {
-        if (operation is AddOperation)
-            Add((AddOperation)operation, target);
-        else if (operation is CopyOperation)
-            Copy((CopyOperation)operation, target);
-        else if (operation is MoveOperation)
-            Move((MoveOperation)operation, target);
-        else if (operation is RemoveOperation)
-            Remove((RemoveOperation)operation, target);
-        else if (operation is ReplaceOperation)
-            target = Replace((ReplaceOperation)operation, target) ?? target;
-        else if (operation is TestOperation)
-            Test((TestOperation)operation, target);
+        switch (operation)
+        {
+            case AddOperation add:
+                Add(add, target);
+                break;
+            case CopyOperation copy:
+                Copy(copy, target);
+                break;
+            case MoveOperation move:
+                Move(move, target);
+                break;
+            case RemoveOperation remove:
+                Remove(remove, target);
+                break;
+            case ReplaceOperation replace:
+                target = Replace(replace, target) ?? target;
+                break;
+            case TestOperation test:
+                Test(test, target);
+                break;
+        }
         return target;
     }
 

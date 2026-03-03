@@ -464,7 +464,7 @@ public class ElasticsearchHealthJob : IJob
             health.NumberOfNodes,
             health.ActiveShards);
         
-        if (health.Status == Health.Red)
+        if (health.Status == HealthStatus.Red)
         {
             _logger.LogError("Cluster is in RED status!");
             return JobResult.FromException(new Exception("Cluster health is RED"));

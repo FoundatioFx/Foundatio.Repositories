@@ -24,11 +24,16 @@ public class JsonDiffer
 
     private static Operation Build(string op, string path, string key, JsonNode value)
     {
-        string valueStr = value == null ? "null" : value.ToJsonString();
-        if (String.IsNullOrEmpty(key))
-            return Operation.Parse($"{{ \"op\" : \"{op}\" , \"path\": \"{path}\", \"value\": {valueStr}}}");
+        string fullPath = String.IsNullOrEmpty(key) ? path : Extend(path, key);
+        var jOperation = new JsonObject
+        {
+            ["op"] = op,
+            ["path"] = fullPath
+        };
+        if (!String.Equals(op, "remove", StringComparison.Ordinal))
+            jOperation["value"] = value?.DeepClone();
 
-        return Operation.Parse($"{{ \"op\" : \"{op}\" , \"path\" : \"{Extend(path, key)}\" , \"value\" : {valueStr}}}");
+        return Operation.Build(jOperation);
     }
 
     internal static Operation Add(string path, string key, JsonNode value)

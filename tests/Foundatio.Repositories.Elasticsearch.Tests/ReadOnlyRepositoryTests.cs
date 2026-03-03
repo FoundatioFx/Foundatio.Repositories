@@ -1106,8 +1106,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
 
         Assert.Single(results.Aggregations);
         Assert.True(results.Aggregations.ContainsKey("date_next"));
-        var aggregation = results.Aggregations["date_next"] as BucketAggregate;
-        Assert.NotNull(aggregation);
+        var aggregation = Assert.IsType<BucketAggregate>(results.Aggregations["date_next"]);
         Assert.InRange(aggregation.Items.Count, 120, 121);
         Assert.Equal(0, aggregation.Total);
     }

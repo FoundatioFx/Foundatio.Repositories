@@ -356,7 +356,7 @@ public class Index : IIndex
         const int batchSize = 50;
         foreach (var batch in indexNames.Chunk(batchSize))
         {
-            var response = await Configuration.Client.Indices.DeleteAsync(Indices.Parse(string.Join(",", batch)), i => i.IgnoreUnavailable()).AnyContext();
+            var response = await Configuration.Client.Indices.DeleteAsync(Indices.Parse(String.Join(",", batch)), i => i.IgnoreUnavailable()).AnyContext();
 
             if (response.IsValidResponse)
             {
@@ -364,7 +364,7 @@ public class Index : IIndex
                 continue;
             }
 
-            throw new RepositoryException(response.GetErrorMessage($"Error deleting the index {names}"), response.OriginalException());
+            throw new RepositoryException(response.GetErrorMessage($"Error deleting the index {String.Join(",", batch)}"), response.OriginalException());
         }
     }
 

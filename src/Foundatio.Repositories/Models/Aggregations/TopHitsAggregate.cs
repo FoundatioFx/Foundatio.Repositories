@@ -37,7 +37,7 @@ public class TopHitsAggregate : MetricAggregateBase
             return Hits
                 .Select(json =>
                 {
-                    if (string.IsNullOrEmpty(json))
+                    if (String.IsNullOrEmpty(json))
                         return null;
                     var lazy = new LazyDocument(Encoding.UTF8.GetBytes(json), serializer);
                     return lazy.As<T>();

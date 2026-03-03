@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -252,7 +252,7 @@ public class MigrationManager
         return new MigrationStatus(pendingMigrations, currentVersion);
     }
 
-    private static IEnumerable<Type> GetDerivedTypes<TAction>(IList<Assembly> assemblies = null)
+    private IEnumerable<Type> GetDerivedTypes<TAction>(IList<Assembly> assemblies = null)
     {
         if (assemblies == null || assemblies.Count == 0)
             assemblies = AppDomain.CurrentDomain.GetAssemblies();
@@ -267,7 +267,7 @@ public class MigrationManager
             catch (ReflectionTypeLoadException ex)
             {
                 string loaderMessages = String.Join(", ", ex.LoaderExceptions.ToList().Select(le => le.Message));
-                Trace.TraceInformation("Unable to search types from assembly \"{0}\" for plugins of type \"{1}\": {2}", assembly.FullName, typeof(TAction).Name, loaderMessages);
+                _logger.LogInformation(ex, "Unable to search types from assembly \"{Assembly}\" for plugins of type \"{PluginType}\": {LoaderMessages}", assembly.FullName, typeof(TAction).Name, loaderMessages);
             }
         }
 
