@@ -357,8 +357,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (options.HasAsyncQueryId())
         {
             var queryId = options.GetAsyncQueryId();
-            if (String.IsNullOrEmpty(queryId))
-                throw new ArgumentNullException("AsyncQueryId must not be null");
+            ArgumentException.ThrowIfNullOrEmpty(queryId, nameof(queryId));
 
             var response = await _client.AsyncSearch.GetAsync<TResult>(queryId, s =>
             {
@@ -437,8 +436,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     private async Task<FindResults<TResult>> GetNextPageFunc<TResult>(FindResults<TResult> previousResults, IRepositoryQuery query, ICommandOptions options) where TResult : class, new()
     {
-        if (previousResults == null)
-            throw new ArgumentException(nameof(previousResults));
+        ArgumentNullException.ThrowIfNull(previousResults);
 
         string scrollId = previousResults.GetScrollId();
         if (!String.IsNullOrEmpty(scrollId))
@@ -536,8 +534,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (options.HasAsyncQueryId())
         {
             var queryId = options.GetAsyncQueryId();
-            if (String.IsNullOrEmpty(queryId))
-                throw new ArgumentNullException("AsyncQueryId must not be null");
+            ArgumentException.ThrowIfNullOrEmpty(queryId, nameof(queryId));
 
             var response = await _client.AsyncSearch.GetAsync<T>(queryId, s =>
             {
@@ -835,12 +832,14 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     protected async Task RefreshForConsistency(IRepositoryQuery query, ICommandOptions options)
     {
-        // if not using eventual consistency, force a refresh
         if (options.GetConsistency(DefaultConsistency) != Consistency.Eventual)
         {
             string[] indices = ElasticIndex.GetIndexesByQuery(query);
             var response = await _client.Indices.RefreshAsync(indices);
-            _logger.LogRequest(response);
+            if (response.IsValid)
+                _logger.LogRequest(response);
+            else
+                _logger.LogErrorRequest(response, "Failed to refresh indices for immediate consistency");
         }
     }
 
