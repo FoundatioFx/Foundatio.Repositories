@@ -13,20 +13,22 @@ public class ObjectValueAggregate : MetricAggregateBase
 
     public T ValueAs<T>(ITextSerializer serializer = null)
     {
-        if (serializer is not null)
-        {
-            if (Value is string stringValue)
-                return serializer.Deserialize<T>(stringValue);
-            else if (Value is JsonNode jsonNodeValue)
-                return serializer.Deserialize<T>(jsonNodeValue.ToJsonString());
-            else if (Value is JsonElement jsonElementValue)
-                return serializer.Deserialize<T>(jsonElementValue.GetRawText());
-        }
+        if (Value is string stringValue && serializer is not null)
+            return serializer.Deserialize<T>(stringValue);
 
         if (Value is JsonNode jNode)
+        {
+            if (serializer is not null)
+                return serializer.Deserialize<T>(jNode.ToJsonString());
             return jNode.Deserialize<T>();
+        }
+
         if (Value is JsonElement jElement)
+        {
+            if (serializer is not null)
+                return serializer.Deserialize<T>(jElement.GetRawText());
             return jElement.Deserialize<T>();
+        }
 
         return (T)Convert.ChangeType(Value, typeof(T));
     }
