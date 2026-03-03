@@ -13,6 +13,8 @@ public class ObjectValueAggregate : MetricAggregateBase
 
     public T ValueAs<T>(ITextSerializer serializer)
     {
+        ArgumentNullException.ThrowIfNull(serializer);
+
         if (Value is string stringValue)
             return serializer.Deserialize<T>(stringValue);
 
