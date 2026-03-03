@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Foundatio.Repositories.Extensions;
 using Foundatio.Serializer;
 
 namespace Foundatio.Repositories.Models;
@@ -10,13 +9,11 @@ namespace Foundatio.Repositories.Models;
 [DebuggerDisplay("Value: {Value}")]
 public class ObjectValueAggregate : MetricAggregateBase
 {
-    private static readonly JsonSerializerOptions s_defaultOptions = new JsonSerializerOptions().ConfigureFoundatioRepositoryDefaults();
-
     public object Value { get; set; }
 
     public T ValueAs<T>(ITextSerializer serializer = null)
     {
-        if (serializer != null)
+        if (serializer is not null)
         {
             if (Value is string stringValue)
                 return serializer.Deserialize<T>(stringValue);
@@ -27,9 +24,9 @@ public class ObjectValueAggregate : MetricAggregateBase
         }
 
         if (Value is JsonNode jNode)
-            return jNode.Deserialize<T>(s_defaultOptions);
+            return jNode.Deserialize<T>();
         if (Value is JsonElement jElement)
-            return jElement.Deserialize<T>(s_defaultOptions);
+            return jElement.Deserialize<T>();
 
         return (T)Convert.ChangeType(Value, typeof(T));
     }

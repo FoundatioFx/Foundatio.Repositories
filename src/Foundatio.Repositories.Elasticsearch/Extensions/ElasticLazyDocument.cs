@@ -1,7 +1,6 @@
 using System;
 using System.Text.Json;
 using Elastic.Clients.Elasticsearch.Core.Search;
-using Foundatio.Repositories.Extensions;
 using Foundatio.Serializer;
 using ILazyDocument = Foundatio.Repositories.Models.ILazyDocument;
 
@@ -9,7 +8,6 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 public class ElasticLazyDocument : ILazyDocument
 {
-    private static readonly JsonSerializerOptions s_defaultOptions = new JsonSerializerOptions().ConfigureFoundatioRepositoryDefaults();
     private readonly Hit<object> _hit;
     private readonly ITextSerializer _serializer;
 
@@ -21,7 +19,7 @@ public class ElasticLazyDocument : ILazyDocument
 
     public T As<T>() where T : class
     {
-        if (_hit?.Source == null)
+        if (_hit?.Source is null)
             return null;
 
         if (_hit.Source is T typed)
@@ -30,12 +28,12 @@ public class ElasticLazyDocument : ILazyDocument
         if (_hit.Source is JsonElement jsonElement)
             return _serializer.Deserialize<T>(jsonElement.GetRawText());
 
-        return _serializer.Deserialize<T>(JsonSerializer.Serialize(_hit.Source, s_defaultOptions));
+        return _serializer.Deserialize<T>(_serializer.SerializeToString(_hit.Source));
     }
 
     public object As(Type objectType)
     {
-        if (_hit?.Source == null)
+        if (_hit?.Source is null)
             return null;
 
         if (objectType.IsInstanceOfType(_hit.Source))
@@ -44,6 +42,6 @@ public class ElasticLazyDocument : ILazyDocument
         if (_hit.Source is JsonElement jsonElement)
             return _serializer.Deserialize(jsonElement.GetRawText(), objectType);
 
-        return _serializer.Deserialize(JsonSerializer.Serialize(_hit.Source, s_defaultOptions), objectType);
+        return _serializer.Deserialize(_serializer.SerializeToString(_hit.Source), objectType);
     }
 }

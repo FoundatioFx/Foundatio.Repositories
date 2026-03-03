@@ -855,7 +855,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     protected async Task RefreshForConsistency(IRepositoryQuery query, ICommandOptions options)
     {
-        if (options.GetConsistency(DefaultConsistency) != Consistency.Eventual)
+        if (options.GetConsistency(DefaultConsistency) is not Consistency.Eventual)
         {
             string[] indices = ElasticIndex.GetIndexesByQuery(query);
             var response = await _client.Indices.RefreshAsync(indices);

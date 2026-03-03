@@ -255,53 +255,53 @@ public class Index : IIndex
         settings.Sort = null;
         settings.SoftDeletes = null;
 
-        if (settings.Analysis?.Analyzers != null && currentAnalyzers != null)
+        if (settings.Analysis?.Analyzers is not null && currentAnalyzers is not null)
         {
             var currentKeys = currentAnalyzers.Select(kvp => kvp.Key).ToHashSet();
             foreach (var analyzer in settings.Analysis.Analyzers.ToList())
             {
                 if (!currentKeys.Contains(analyzer.Key))
-                    _logger.LogInformation("Adding new analyzer {AnalyzerKey} to existing index (requires close/reopen)", analyzer.Key);
+                    _logger.LogWarning("Adding new analyzer {AnalyzerKey} to existing index (requires close/reopen)", analyzer.Key);
             }
         }
 
-        if (settings.Analysis?.Tokenizers != null && currentTokenizers != null)
+        if (settings.Analysis?.Tokenizers is not null && currentTokenizers is not null)
         {
             var currentKeys = currentTokenizers.Select(kvp => kvp.Key).ToHashSet();
             foreach (var tokenizer in settings.Analysis.Tokenizers.ToList())
             {
                 if (!currentKeys.Contains(tokenizer.Key))
-                    _logger.LogInformation("Adding new tokenizer {TokenizerKey} to existing index (requires close/reopen)", tokenizer.Key);
+                    _logger.LogWarning("Adding new tokenizer {TokenizerKey} to existing index (requires close/reopen)", tokenizer.Key);
             }
         }
 
-        if (settings.Analysis?.TokenFilters != null && currentTokenFilters != null)
+        if (settings.Analysis?.TokenFilters is not null && currentTokenFilters is not null)
         {
             var currentKeys = currentTokenFilters.Select(kvp => kvp.Key).ToHashSet();
             foreach (var tokenFilter in settings.Analysis.TokenFilters.ToList())
             {
                 if (!currentKeys.Contains(tokenFilter.Key))
-                    _logger.LogInformation("Adding new token filter {TokenFilterKey} to existing index (requires close/reopen)", tokenFilter.Key);
+                    _logger.LogWarning("Adding new token filter {TokenFilterKey} to existing index (requires close/reopen)", tokenFilter.Key);
             }
         }
 
-        if (settings.Analysis?.Normalizers != null && currentNormalizers != null)
+        if (settings.Analysis?.Normalizers is not null && currentNormalizers is not null)
         {
             var currentKeys = currentNormalizers.Select(kvp => kvp.Key).ToHashSet();
             foreach (var normalizer in settings.Analysis.Normalizers.ToList())
             {
                 if (!currentKeys.Contains(normalizer.Key))
-                    _logger.LogInformation("Adding new normalizer {NormalizerKey} to existing index (requires close/reopen)", normalizer.Key);
+                    _logger.LogWarning("Adding new normalizer {NormalizerKey} to existing index (requires close/reopen)", normalizer.Key);
             }
         }
 
-        if (settings.Analysis?.CharFilters != null && currentCharFilters != null)
+        if (settings.Analysis?.CharFilters is not null && currentCharFilters is not null)
         {
             var currentKeys = currentCharFilters.Select(kvp => kvp.Key).ToHashSet();
             foreach (var charFilter in settings.Analysis.CharFilters.ToList())
             {
                 if (!currentKeys.Contains(charFilter.Key))
-                    _logger.LogInformation("Adding new char filter {CharFilterKey} to existing index (requires close/reopen)", charFilter.Key);
+                    _logger.LogWarning("Adding new char filter {CharFilterKey} to existing index (requires close/reopen)", charFilter.Key);
             }
         }
 
@@ -334,12 +334,12 @@ public class Index : IIndex
             if (name.Contains("*") || name.Contains("?"))
             {
                 var getResponse = await Configuration.Client.Indices.GetAsync(Indices.Parse(name), d => d.IgnoreUnavailable()).AnyContext();
-                if (getResponse.IsValidResponse && getResponse.Indices != null)
+                if (getResponse.IsValidResponse && getResponse.Indices is not null)
                 {
                     foreach (var kvp in getResponse.Indices)
                         indexNames.Add(kvp.Key);
                 }
-                else if (getResponse.ElasticsearchServerError?.Status != 404)
+                else if (getResponse.ElasticsearchServerError?.Status is not 404)
                 {
                     _logger.LogErrorRequest(getResponse, "Error resolving wildcard index pattern {Pattern}", name);
                 }
