@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -105,7 +105,7 @@ public class VersionedIndex : Index, IVersionedIndex
         if (response.ApiCall.Success)
             return response.Exists;
 
-        throw new RepositoryException(response.GetErrorMessage($"Error checking to see if alias {alias}"), response.OriginalException);
+        throw new RepositoryException(response.GetErrorMessage($"Error checking to see if alias {alias} exists"), response.OriginalException);
     }
 
     public override async Task DeleteAsync()
@@ -257,7 +257,7 @@ public class VersionedIndex : Index, IVersionedIndex
         _logger.LogRequest(aliasResponse);
 
         if (!aliasResponse.IsValid)
-            throw new RepositoryException(response.GetErrorMessage($"Error getting index aliases for {filter}"), response.OriginalException);
+            throw new RepositoryException(aliasResponse.GetErrorMessage($"Error getting index aliases for {filter}"), aliasResponse.OriginalException);
 
         var indices = response.Records
             .Where(i => version < 0 || GetIndexVersion(i.Index) == version)
