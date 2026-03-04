@@ -250,7 +250,7 @@ public class DailyIndex : VersionedIndex
         if (indexes.Count == 0)
             return;
 
-        var reindexer = new ElasticReindexer(Configuration.Client, _logger);
+        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);
         foreach (var index in indexes)
         {
             if (Configuration.TimeProvider.GetUtcNow().UtcDateTime > GetIndexExpirationDate(index.DateUtc))

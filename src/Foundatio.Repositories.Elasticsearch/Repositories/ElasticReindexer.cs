@@ -16,6 +16,7 @@ using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
 using Foundatio.Resilience;
+using Foundatio.Serializer;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -24,6 +25,7 @@ namespace Foundatio.Repositories.Elasticsearch;
 public class ElasticReindexer
 {
     private readonly ElasticsearchClient _client;
+    private readonly ITextSerializer _serializer;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
     private readonly IResiliencePolicyProvider _resiliencePolicyProvider;
@@ -31,17 +33,18 @@ public class ElasticReindexer
     private const string ID_FIELD = "id";
     private const int MAX_STATUS_FAILS = 10;
 
-    public ElasticReindexer(ElasticsearchClient client, ILogger logger = null) : this(client, TimeProvider.System, logger)
+    public ElasticReindexer(ElasticsearchClient client, ITextSerializer serializer, ILogger logger = null) : this(client, serializer, TimeProvider.System, logger)
     {
     }
 
-    public ElasticReindexer(ElasticsearchClient client, TimeProvider timeProvider, ILogger logger = null) : this(client, timeProvider ?? TimeProvider.System, new ResiliencePolicyProvider(), logger ?? NullLogger.Instance)
+    public ElasticReindexer(ElasticsearchClient client, ITextSerializer serializer, TimeProvider timeProvider, ILogger logger = null) : this(client, serializer, timeProvider ?? TimeProvider.System, new ResiliencePolicyProvider(), logger ?? NullLogger.Instance)
     {
     }
 
-    public ElasticReindexer(ElasticsearchClient client, TimeProvider timeProvider, IResiliencePolicyProvider resiliencePolicyProvider, ILogger logger = null)
+    public ElasticReindexer(ElasticsearchClient client, ITextSerializer serializer, TimeProvider timeProvider, IResiliencePolicyProvider resiliencePolicyProvider, ILogger logger = null)
     {
         _client = client;
+        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
         _timeProvider = timeProvider ?? TimeProvider.System;
         _resiliencePolicyProvider = resiliencePolicyProvider ?? new ResiliencePolicyProvider();
         _logger = logger ?? NullLogger.Instance;
@@ -229,7 +232,7 @@ public class ElasticReindexer
 
             statusGetFails = 0;
 
-            var response = status.DeserializeRaw<TaskWithReindexResponse>();
+            var response = status.DeserializeRaw<TaskWithReindexResponse>(_serializer);
             if (response?.Error != null)
             {
                 _logger.LogError("Error reindex: {Type}, {Reason}, Cause: {CausedBy} Stack: {Stack}", response.Error.Type, response.Error.Reason, response.Error.Caused_By?.Reason, String.Join("\r\n", response.Error.Script_Stack ?? new List<string>()));

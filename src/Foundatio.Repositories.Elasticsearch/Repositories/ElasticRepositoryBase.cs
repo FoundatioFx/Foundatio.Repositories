@@ -251,7 +251,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     var sourceJson = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(response.Source);
                     var sourceNode = JsonNode.Parse(sourceJson);
-                    var partialJson = JsonSerializer.Serialize(partialOperation.Document);
+                    var partialJson = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(partialOperation.Document);
                     var partialNode = JsonNode.Parse(partialJson);
 
                     if (sourceNode is JsonObject sourceObj && partialNode is JsonObject partialObj)
@@ -930,7 +930,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                             {
                                 var sourceJson = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(h.Document);
                                 var sourceNode = JsonNode.Parse(sourceJson);
-                                var partialJson = JsonSerializer.Serialize(partialOperation.Document);
+                                var partialJson = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(partialOperation.Document);
                                 var partialNode = JsonNode.Parse(partialJson);
 
                                 if (sourceNode is JsonObject sourceObj && partialNode is JsonObject partialObj)

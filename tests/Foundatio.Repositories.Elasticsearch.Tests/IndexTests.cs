@@ -979,15 +979,20 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var baseDate = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         // Act
+        Employee lastEmployee = null;
         for (int i = 0; i < UNIQUE_DATES; i++)
         {
             var testDate = baseDate.AddDays(i);
             var employee = EmployeeGenerator.Generate(createdUtc: testDate);
-            await repository.AddAsync(employee);
+            lastEmployee = await repository.AddAsync(employee);
         }
 
-        // Assert: verifies that adding many dates doesn't throw exceptions,
-        // but highlights that _ensuredDates will grow unbounded.
+        // Assert
+        Assert.NotNull(lastEmployee);
+        Assert.NotNull(lastEmployee.Id);
+        var retrieved = await repository.GetByIdAsync(lastEmployee.Id);
+        Assert.NotNull(retrieved);
+        Assert.Equal(lastEmployee.Id, retrieved.Id);
     }
 
     [Fact]
@@ -1012,8 +1017,9 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var repository = new EmployeeRepository(index);
         var employee = EmployeeGenerator.Generate(createdUtc: DateTime.UtcNow);
 
-        // Act & Assert
-        await Assert.ThrowsAnyAsync<Exception>(() => repository.AddAsync(employee));
+        // Act & Assert: exception type depends on ES transport layer error handling
+        var ex = await Assert.ThrowsAnyAsync<Exception>(() => repository.AddAsync(employee));
+        Assert.Contains("alias", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

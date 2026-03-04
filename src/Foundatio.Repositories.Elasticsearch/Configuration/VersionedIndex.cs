@@ -175,7 +175,7 @@ public class VersionedIndex : Index, IVersionedIndex
             return;
 
         var reindexWorkItem = CreateReindexWorkItem(currentVersion);
-        var reindexer = new ElasticReindexer(Configuration.Client, _logger);
+        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);
         await reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync).AnyContext();
     }
 

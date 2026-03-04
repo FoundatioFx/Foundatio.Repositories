@@ -625,7 +625,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.VersionedName), cancellationToken: TestCancellationToken);
         _logger.LogRequest(countResponse);
-        Assert.True(countResponse.ApiCallDetails.HttpStatusCode == 404, countResponse.GetErrorMessage());
+        Assert.Equal(404, countResponse.ApiCallDetails.HttpStatusCode);
         Assert.Equal(0, countResponse.Count);
 
         countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), cancellationToken: TestCancellationToken);

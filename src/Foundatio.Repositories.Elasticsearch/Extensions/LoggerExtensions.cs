@@ -65,7 +65,7 @@ internal class JsonUtility
 
     public static string Normalize(JsonElement element)
     {
-        var ms = new MemoryStream();
+        using var ms = new MemoryStream();
         var opts = new JsonWriterOptions
         {
             Indented = true,

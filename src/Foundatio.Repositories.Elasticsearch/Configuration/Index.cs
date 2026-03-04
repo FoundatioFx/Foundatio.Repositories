@@ -395,7 +395,7 @@ public class Index : IIndex
             TimestampField = GetTimeStampField()
         };
 
-        var reindexer = new ElasticReindexer(Configuration.Client, _logger);
+        var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);
         return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
     }
 

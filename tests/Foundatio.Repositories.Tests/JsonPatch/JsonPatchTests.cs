@@ -200,8 +200,9 @@ public class JsonPatchTests
         string roundTrippedJson = JsonSerializer.Serialize(roundTripped);
         Assert.Equal(json, roundTrippedJson);
 
-        var outputstream = patchDoc.ToStream();
-        string output = new StreamReader(outputstream).ReadToEnd();
+        using var outputstream = patchDoc.ToStream();
+        using var streamReader = new StreamReader(outputstream);
+        string output = streamReader.ReadToEnd();
 
         var jOutput = JsonNode.Parse(output);
 

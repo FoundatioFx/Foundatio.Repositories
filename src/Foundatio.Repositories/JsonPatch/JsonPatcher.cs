@@ -267,8 +267,12 @@ public static class JsonNodeExtensions
             string expected = directMatch.Groups[1].Value;
             if (node is JsonValue jsonVal)
             {
-                try { return jsonVal.GetValue<string>() == expected; }
-                catch { return false; }
+                try
+                {
+                    return jsonVal.GetValue<string>() == expected;
+                }
+                catch (InvalidOperationException) { return false; }
+                catch (FormatException) { return false; }
             }
             return false;
         }

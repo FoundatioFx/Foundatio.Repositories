@@ -571,7 +571,8 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
                 }
             }";
 
-        var employeeHit = _configuration.Client.ElasticsearchClientSettings.RequestResponseSerializer.Deserialize<Hit<Employee>>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(json)));
+        using var hitStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(json));
+        var employeeHit = _configuration.Client.ElasticsearchClientSettings.RequestResponseSerializer.Deserialize<Hit<Employee>>(hitStream);
         Assert.Equal("employees", employeeHit.Index);
         Assert.Equal("62d982efd3e0d1fed81452f3", employeeHit.Source.CompanyId);
     }

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Text.Json;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.AsyncSearch;
 using Elastic.Clients.Elasticsearch.Core.Bulk;
@@ -490,7 +489,7 @@ public static class ElasticIndexExtensions
             case ElasticAggregations.TopHitsAggregate topHits:
                 var docs = topHits.Hits?.Hits?.Select(h => new ElasticLazyDocument(h, serializer)).Cast<ILazyDocument>().ToList();
                 var rawHits = topHits.Hits?.Hits?
-                    .Select(h => h.Source != null ? JsonSerializer.Serialize(h.Source) : null)
+                    .Select(h => h.Source != null ? serializer.SerializeToString(h.Source) : null)
                     .Where(s => s != null)
                     .ToList();
                 return new TopHitsAggregate(docs)
