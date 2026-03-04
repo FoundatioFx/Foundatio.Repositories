@@ -8,7 +8,7 @@ namespace Foundatio.Repositories.Models;
 
 public class TopHitsAggregate : MetricAggregateBase
 {
-    private readonly IList<ILazyDocument> _hits;
+    private readonly IList<ILazyDocument> _hits = [];
 
     public long Total { get; set; }
     public double? MaxScore { get; set; }
@@ -20,14 +20,14 @@ public class TopHitsAggregate : MetricAggregateBase
 
     public TopHitsAggregate(IList<ILazyDocument> hits)
     {
-        _hits = hits ?? new List<ILazyDocument>();
+        _hits = hits ?? [];
     }
 
     public TopHitsAggregate() { }
 
     public IReadOnlyCollection<T> Documents<T>(ITextSerializer serializer = null) where T : class
     {
-        if (_hits != null && _hits.Count > 0)
+        if (_hits.Count > 0)
             return _hits.Select(h => h.As<T>()).ToList();
 
         if (Hits != null && Hits.Count > 0)

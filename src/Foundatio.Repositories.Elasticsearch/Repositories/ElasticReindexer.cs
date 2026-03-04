@@ -415,9 +415,9 @@ public class ElasticReindexer
             return descriptor;
 
         if (!String.IsNullOrEmpty(timestampField))
-            return descriptor.Range(dr => dr.Date(drr => drr.Field(timestampField).Gte(startTime)));
+            return descriptor.Range(dr => dr.Date(drr => drr.Field(timestampField).Gte(startTime.Value)));
 
-        return descriptor.Range(dr => dr.Term(tr => tr.Field(ID_FIELD).Gte(ObjectId.GenerateNewId(startTime.GetValueOrDefault()).ToString())));
+        return descriptor.Range(dr => dr.Term(tr => tr.Field(ID_FIELD).Gte(ObjectId.GenerateNewId(startTime.Value).ToString())));
     }
 
     private async Task<DateTime?> GetResumeStartingPointAsync(string newIndex, string timestampField)
