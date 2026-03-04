@@ -19,7 +19,7 @@ namespace Foundatio.Repositories.Serialization;
 /// <list type="bullet">
 ///   <item><description><c>true</c>/<c>false</c> → <see cref="bool"/></description></item>
 ///   <item><description>Numbers → <see cref="long"/> for integers, <see cref="double"/> for floats</description></item>
-///   <item><description>Strings with ISO 8601 date format → <see cref="DateTimeOffset"/></description></item>
+///   <item><description>Strings with ISO 8601 datetime format (containing 'T') → <see cref="DateTimeOffset"/> or <see cref="DateTime"/></description></item>
 ///   <item><description>Other strings → <see cref="string"/></description></item>
 ///   <item><description><c>null</c> → <c>null</c></description></item>
 ///   <item><description>Objects → <see cref="Dictionary{TKey,TValue}"/> with <see cref="StringComparer.OrdinalIgnoreCase"/></description></item>
@@ -82,11 +82,22 @@ public sealed class ObjectToInferredTypesConverter : JsonConverter<object>
 
     private static object ReadString(ref Utf8JsonReader reader)
     {
-        if (reader.TryGetDateTimeOffset(out DateTimeOffset dateTimeOffset))
-            return dateTimeOffset;
+        // Only attempt date parsing for strings that contain 'T', which is required
+        // by ISO 8601 datetime format (e.g. "2025-01-01T10:30:00Z"). Date-only strings
+        // like "2025-01-01" also satisfy TryGetDateTimeOffset but should remain as strings
+        // since they are typically identifiers, labels, or display values — not timestamps.
+        ReadOnlySpan<byte> raw = reader.HasValueSequence
+            ? reader.ValueSequence.ToArray()
+            : reader.ValueSpan;
 
-        if (reader.TryGetDateTime(out var dt))
-            return dt;
+        if (raw.Contains((byte)'T'))
+        {
+            if (reader.TryGetDateTimeOffset(out DateTimeOffset dateTimeOffset))
+                return dateTimeOffset;
+
+            if (reader.TryGetDateTime(out DateTime dt))
+                return dt;
+        }
 
         return reader.GetString();
     }

@@ -25,6 +25,11 @@ public class TopHitsAggregate : MetricAggregateBase
 
     public TopHitsAggregate() { }
 
+    /// <param name="serializer">
+    /// Required when this aggregate was round-tripped through the cache (i.e., <see cref="Hits"/> is populated).
+    /// Can be omitted when reading directly from an Elasticsearch response where <c>_hits</c> are populated from
+    /// the live response.
+    /// </param>
     public IReadOnlyCollection<T> Documents<T>(ITextSerializer serializer = null) where T : class
     {
         if (_hits.Count > 0)

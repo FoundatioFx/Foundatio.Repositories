@@ -152,7 +152,7 @@ public class ObjectToInferredTypesConverterTests
     }
 
     [Fact]
-    public void Read_WithIso8601Date_ReturnsDateTimeOffset()
+    public void Read_WithIso8601Datetime_ReturnsDateTimeOffset()
     {
         // Arrange
         string json = "\"2026-03-03T12:00:00Z\"";
@@ -163,6 +163,32 @@ public class ObjectToInferredTypesConverterTests
         // Assert
         Assert.IsType<DateTimeOffset>(result);
         Assert.Equal(new DateTimeOffset(2026, 3, 3, 12, 0, 0, TimeSpan.Zero), result);
+    }
+
+    [Theory]
+    [InlineData("\"2026-03-03\"")]        // date-only ISO 8601
+    [InlineData("\"12/31/2025\"")]        // US date format
+    [InlineData("\"January 1, 2025\"")]   // long form date
+    public void Read_WithDateOnlyOrNonIsoString_ReturnsString(string json)
+    {
+        // Act
+        var result = _serializer.Deserialize<object>(json);
+
+        // Assert — date-only strings must NOT be silently promoted to DateTimeOffset
+        Assert.IsType<string>(result);
+    }
+
+    [Theory]
+    [InlineData("\"2026-03-03T12:00:00Z\"")]
+    [InlineData("\"2026-03-03T10:30:00+05:00\"")]
+    [InlineData("\"2026-03-03T00:00:00\"")]
+    public void Read_WithIso8601DatetimeWithTimeComponent_ReturnsDateTimeOffset(string json)
+    {
+        // Act
+        var result = _serializer.Deserialize<object>(json);
+
+        // Assert — only strings with 'T' (time component) are treated as dates
+        Assert.IsType<DateTimeOffset>(result);
     }
 
     [Fact]
