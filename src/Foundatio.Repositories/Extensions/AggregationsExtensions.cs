@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -120,7 +120,7 @@ public static class AggregationsExtensions
                     total = objectBucket.Total;
                     break;
                 default:
-                    continue;
+                    throw new NotSupportedException($"Unsupported bucket type: {item.GetType().FullName}");
             }
 
             yield return new KeyedBucket<TKey>

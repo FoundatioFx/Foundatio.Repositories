@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -19,9 +20,16 @@ public static class JsonSerializerOptionsExtensions
     public static JsonSerializerOptions ConfigureFoundatioRepositoryDefaults(this JsonSerializerOptions options)
     {
         options.PropertyNameCaseInsensitive = true;
-        options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: true));
-        options.Converters.Add(new DoubleSystemTextJsonConverter());
-        options.Converters.Add(new ObjectToInferredTypesConverter());
+
+        if (!options.Converters.Any(c => c is JsonStringEnumConverter))
+            options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: true));
+
+        if (!options.Converters.Any(c => c is DoubleSystemTextJsonConverter))
+            options.Converters.Add(new DoubleSystemTextJsonConverter());
+
+        if (!options.Converters.Any(c => c is ObjectToInferredTypesConverter))
+            options.Converters.Add(new ObjectToInferredTypesConverter());
+
         return options;
     }
 }

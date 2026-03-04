@@ -211,17 +211,16 @@ public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
             .DoubleNumber(e => e.Salary)
             
             // Date fields
-            .Date(f => f.Name(e => e.HireDate))
+            .Date(e => e.HireDate)
             
             // Boolean fields
-            .Boolean(f => f.Name(e => e.IsActive))
+            .Boolean(e => e.IsActive)
             
             // Nested objects
-            .Nested<Address>(n => n
-                .Name(e => e.Addresses)
+            .Nested(e => e.Addresses, n => n
                 .Properties(ap => ap
-                    .Keyword(f => f.Name(a => a.City))
-                    .Keyword(f => f.Name(a => a.Country))
+                    .Keyword(a => a.City)
+                    .Keyword(a => a.Country)
                 ))
         );
 }
