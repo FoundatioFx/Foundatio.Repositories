@@ -14,6 +14,7 @@ using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Serialization;
 using Foundatio.Resilience;
 using Foundatio.Serializer;
 using Foundatio.Utility;

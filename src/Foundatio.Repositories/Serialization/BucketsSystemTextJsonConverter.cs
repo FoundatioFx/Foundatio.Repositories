@@ -2,7 +2,7 @@ using System;
 using System.Text.Json;
 using Foundatio.Repositories.Models;
 
-namespace Foundatio.Repositories.Utility;
+namespace Foundatio.Repositories.Serialization;
 
 public class BucketsSystemTextJsonConverter : System.Text.Json.Serialization.JsonConverter<IBucket>
 {

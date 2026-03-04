@@ -2,23 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Elastic.Clients.Elasticsearch;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
+using Foundatio.Serializer;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 public static class FindHitExtensions
 {
-    private static readonly JsonSerializerOptions _options;
-    static FindHitExtensions()
-    {
-        _options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        _options.Converters.Add(new ObjectConverter());
-    }
-
     public static string GetIndex<T>(this FindHit<T> hit)
     {
         return hit?.Data?.GetString(ElasticDataKeys.Index);
@@ -36,7 +28,7 @@ public static class FindHitExtensions
         if (sorts is IEnumerable<FieldValue> fieldValues)
         {
             // Extract actual values from FieldValue objects
-            return fieldValues.Select(fv => GetFieldValueAsObject(fv)).ToArray();
+            return fieldValues.Select(GetFieldValueAsObject).ToArray();
         }
 
         if (sorts is IEnumerable<object> sortsList)
@@ -80,33 +72,33 @@ public static class FindHitExtensions
         return results.Data.GetString(ElasticDataKeys.SearchAfterToken, null);
     }
 
-    internal static void SetSearchBeforeToken<T>(this FindResults<T> results) where T : class
+    internal static void SetSearchBeforeToken<T>(this FindResults<T> results, ITextSerializer serializer) where T : class
     {
         if (results == null || results.Hits.Count == 0)
             return;
 
-        string token = results.Hits.First().GetSortToken();
+        string token = results.Hits.First().GetSortToken(serializer);
         if (!String.IsNullOrEmpty(token))
             results.Data[ElasticDataKeys.SearchBeforeToken] = token;
     }
 
-    internal static void SetSearchAfterToken<T>(this FindResults<T> results) where T : class
+    internal static void SetSearchAfterToken<T>(this FindResults<T> results, ITextSerializer serializer) where T : class
     {
         if (results == null || results.Hits.Count == 0)
             return;
 
-        string token = results.Hits.Last().GetSortToken();
+        string token = results.Hits.Last().GetSortToken(serializer);
         if (!String.IsNullOrEmpty(token))
             results.Data[ElasticDataKeys.SearchAfterToken] = token;
     }
 
-    public static string GetSortToken<T>(this FindHit<T> hit)
+    public static string GetSortToken<T>(this FindHit<T> hit, ITextSerializer serializer)
     {
         object[] sorts = hit?.GetSorts();
         if (sorts == null || sorts.Length == 0)
             return null;
 
-        return Encode(JsonSerializer.Serialize(sorts));
+        return Encode(serializer.SerializeToString(sorts));
     }
 
     public static SortOptions ReverseOrder(this SortOptions sort)
@@ -149,10 +141,9 @@ public static class FindHitExtensions
         return sortList;
     }
 
-    public static object[] DecodeSortToken(string sortToken)
+    public static object[] DecodeSortToken(string sortToken, ITextSerializer serializer)
     {
-        object[] tokens = JsonSerializer.Deserialize<object[]>(Decode(sortToken), _options);
-        return tokens;
+        return serializer.Deserialize<object[]>(Decode(sortToken));
     }
 
     private static string Encode(string text)
@@ -188,60 +179,4 @@ public static class ElasticDataKeys
     public const string Sorts = "sorts";
     public const string SearchBeforeToken = nameof(SearchBeforeToken);
     public const string SearchAfterToken = nameof(SearchAfterToken);
-}
-
-public class ObjectConverter : JsonConverter<object>
-{
-    public override object Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-    {
-        return reader.TokenType switch
-        {
-            JsonTokenType.Number => GetNumber(reader),
-            JsonTokenType.String => reader.GetString(),
-            JsonTokenType.True => reader.GetBoolean(),
-            JsonTokenType.False => reader.GetBoolean(),
-            _ => null
-        };
-    }
-
-    private object GetNumber(Utf8JsonReader reader)
-    {
-        if (reader.TryGetInt64(out var l))
-            return l;
-        else if (reader.TryGetDecimal(out var d))
-            return d;
-        else
-            throw new InvalidOperationException("Value is not a number");
-    }
-
-    public override void Write(Utf8JsonWriter writer, object value, JsonSerializerOptions options)
-    {
-        switch (value)
-        {
-            case null:
-                writer.WriteNullValue();
-                break;
-            case long l:
-                writer.WriteNumberValue(l);
-                break;
-            case int i:
-                writer.WriteNumberValue(i);
-                break;
-            case double d:
-                writer.WriteNumberValue(d);
-                break;
-            case decimal dec:
-                writer.WriteNumberValue(dec);
-                break;
-            case string s:
-                writer.WriteStringValue(s);
-                break;
-            case bool b:
-                writer.WriteBooleanValue(b);
-                break;
-            default:
-                JsonSerializer.Serialize(writer, value, value.GetType(), options);
-                break;
-        }
-    }
 }

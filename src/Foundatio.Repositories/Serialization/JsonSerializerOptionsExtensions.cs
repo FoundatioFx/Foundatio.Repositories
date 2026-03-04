@@ -1,8 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Foundatio.Repositories.Utility;
 
-namespace Foundatio.Repositories.Extensions;
+namespace Foundatio.Repositories.Serialization;
 
 public static class JsonSerializerOptionsExtensions
 {
@@ -13,6 +12,7 @@ public static class JsonSerializerOptionsExtensions
     ///   <item><see cref="JsonSerializerOptions.PropertyNameCaseInsensitive"/> set to <c>true</c> for case-insensitive property matching</item>
     ///   <item><see cref="JsonStringEnumConverter"/> with camelCase naming and integer fallback for enum values stored as strings in Elasticsearch</item>
     ///   <item><see cref="DoubleSystemTextJsonConverter"/> to preserve decimal points on whole-number doubles (workaround for dotnet/runtime#35195)</item>
+    ///   <item><see cref="ObjectToInferredTypesConverter"/> to deserialize <see cref="object"/>-typed properties as CLR primitives instead of <see cref="JsonElement"/></item>
     /// </list>
     /// </summary>
     /// <returns>The same <see cref="JsonSerializerOptions"/> instance for chaining.</returns>
@@ -21,6 +21,7 @@ public static class JsonSerializerOptionsExtensions
         options.PropertyNameCaseInsensitive = true;
         options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: true));
         options.Converters.Add(new DoubleSystemTextJsonConverter());
+        options.Converters.Add(new ObjectToInferredTypesConverter());
         return options;
     }
 }

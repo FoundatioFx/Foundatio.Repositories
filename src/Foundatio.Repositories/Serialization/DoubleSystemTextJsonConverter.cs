@@ -1,9 +1,13 @@
 using System;
 using System.Text.Json;
 
-namespace Foundatio.Repositories.Utility;
+namespace Foundatio.Repositories.Serialization;
 
-// NOTE: This fixes an issue where doubles were converted to integers (https://github.com/dotnet/runtime/issues/35195)
+/// <summary>
+/// Preserves decimal points on whole-number doubles during JSON serialization.
+/// Without this, <c>1.0</c> round-trips as <c>1</c>, losing the floating-point representation.
+/// </summary>
+/// <seealso href="https://github.com/dotnet/runtime/issues/35195"/>
 public class DoubleSystemTextJsonConverter : System.Text.Json.Serialization.JsonConverter<double>
 {
     public override double Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)

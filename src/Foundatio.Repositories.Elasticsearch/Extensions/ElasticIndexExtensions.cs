@@ -83,21 +83,21 @@ public static class ElasticIndexExtensions
 
         if (options.HasSearchAfter())
         {
-            results.SetSearchBeforeToken();
+            results.SetSearchBeforeToken(serializer);
             if (results.HasMore)
-                results.SetSearchAfterToken();
+                results.SetSearchAfterToken(serializer);
         }
         else if (options.HasSearchBefore())
         {
             // reverse results
             protectedResults.Reverse();
-            results.SetSearchAfterToken();
+            results.SetSearchAfterToken(serializer);
             if (results.HasMore)
-                results.SetSearchBeforeToken();
+                results.SetSearchBeforeToken(serializer);
         }
         else if (results.HasMore)
         {
-            results.SetSearchAfterToken();
+            results.SetSearchAfterToken(serializer);
         }
 
         protectedResults.Page = options.GetPage();
@@ -137,21 +137,21 @@ public static class ElasticIndexExtensions
 
         if (options.HasSearchAfter())
         {
-            results.SetSearchBeforeToken();
+            results.SetSearchBeforeToken(serializer);
             if (results.HasMore)
-                results.SetSearchAfterToken();
+                results.SetSearchAfterToken(serializer);
         }
         else if (options.HasSearchBefore())
         {
             // reverse results
             protectedResults.Reverse();
-            results.SetSearchAfterToken();
+            results.SetSearchAfterToken(serializer);
             if (results.HasMore)
-                results.SetSearchBeforeToken();
+                results.SetSearchBeforeToken(serializer);
         }
         else if (results.HasMore)
         {
-            results.SetSearchAfterToken();
+            results.SetSearchAfterToken(serializer);
         }
 
         protectedResults.Page = options.GetPage();
@@ -236,20 +236,20 @@ public static class ElasticIndexExtensions
 
         if (options.HasSearchAfter())
         {
-            results.SetSearchBeforeToken();
+            results.SetSearchBeforeToken(serializer);
             if (results.HasMore)
-                results.SetSearchAfterToken();
+                results.SetSearchAfterToken(serializer);
         }
         else if (options.HasSearchBefore())
         {
             protectedResults.Reverse();
-            results.SetSearchAfterToken();
+            results.SetSearchAfterToken(serializer);
             if (results.HasMore)
-                results.SetSearchBeforeToken();
+                results.SetSearchBeforeToken(serializer);
         }
         else if (results.HasMore)
         {
-            results.SetSearchAfterToken();
+            results.SetSearchAfterToken(serializer);
         }
 
         protectedResults.Page = options.GetPage();

@@ -4,7 +4,7 @@ using Foundatio.Repositories.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace Foundatio.Repositories.Utility;
+namespace Foundatio.Repositories.Serialization;
 
 public class BucketsNewtonsoftJsonConverter : JsonConverter
 {

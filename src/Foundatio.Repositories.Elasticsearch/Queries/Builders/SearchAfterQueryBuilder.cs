@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -7,6 +7,7 @@ using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
+using Foundatio.Serializer;
 
 namespace Foundatio.Repositories
 {
@@ -36,12 +37,12 @@ namespace Foundatio.Repositories
             return options;
         }
 
-        public static T SearchAfterToken<T>(this T options, string searchAfterToken) where T : ICommandOptions
+        public static T SearchAfterToken<T>(this T options, string searchAfterToken, ITextSerializer serializer) where T : ICommandOptions
         {
             options.SearchAfterPaging();
             if (!String.IsNullOrEmpty(searchAfterToken))
             {
-                object[] values = FindHitExtensions.DecodeSortToken(searchAfterToken);
+                object[] values = FindHitExtensions.DecodeSortToken(searchAfterToken, serializer);
                 options.Values.Set(SearchAfterKey, values);
             }
             else
@@ -67,12 +68,12 @@ namespace Foundatio.Repositories
             return options;
         }
 
-        public static T SearchBeforeToken<T>(this T options, string searchBeforeToken) where T : ICommandOptions
+        public static T SearchBeforeToken<T>(this T options, string searchBeforeToken, ITextSerializer serializer) where T : ICommandOptions
         {
             options.SearchAfterPaging();
             if (!String.IsNullOrEmpty(searchBeforeToken))
             {
-                object[] values = FindHitExtensions.DecodeSortToken(searchBeforeToken);
+                object[] values = FindHitExtensions.DecodeSortToken(searchBeforeToken, serializer);
                 options.Values.Set(SearchBeforeKey, values);
             }
             else

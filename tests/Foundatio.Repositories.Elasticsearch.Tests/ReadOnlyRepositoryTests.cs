@@ -935,7 +935,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.NotEmpty(results.GetSearchAfterToken());
 
         // try search before
-        results = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchBeforeToken(searchBeforeToken));
+        results = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchBeforeToken(searchBeforeToken, _serializer));
         Assert.NotNull(results);
         Assert.Single(results.Documents);
         Assert.Equal(1, results.Page);
@@ -1296,7 +1296,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         do
         {
             page++;
-            var employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(secondarySort), o => o.SearchAfterToken(searchAfterToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
+            var employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(secondarySort), o => o.SearchAfterToken(searchAfterToken, _serializer).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
             searchBeforeToken = employees.GetSearchBeforeToken();
             searchAfterToken = employees.GetSearchAfterToken();
             if (page == 1)
@@ -1336,7 +1336,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         do
         {
             page--;
-            var employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(e => e.Age), o => o.SearchBeforeToken(searchBeforeToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
+            var employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(e => e.Age), o => o.SearchBeforeToken(searchBeforeToken, _serializer).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
             searchBeforeToken = employees.GetSearchBeforeToken();
             searchAfterToken = employees.GetSearchAfterToken();
             if (page == 1)
@@ -1374,7 +1374,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         do
         {
             page++;
-            var employees = await _employeeRepository.FindAsync(q => q.SortExpression("name companyname -age"), o => o.SearchAfterToken(searchAfterToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
+            var employees = await _employeeRepository.FindAsync(q => q.SortExpression("name companyname -age"), o => o.SearchAfterToken(searchAfterToken, _serializer).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
             searchBeforeToken = employees.GetSearchBeforeToken();
             searchAfterToken = employees.GetSearchAfterToken();
             if (page == 1)
@@ -1414,7 +1414,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         do
         {
             page--;
-            var employees = await _employeeRepository.FindAsync(q => q.SortExpression("name companyname -age"), o => o.SearchBeforeToken(searchBeforeToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
+            var employees = await _employeeRepository.FindAsync(q => q.SortExpression("name companyname -age"), o => o.SearchBeforeToken(searchBeforeToken, _serializer).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
             searchBeforeToken = employees.GetSearchBeforeToken();
             searchAfterToken = employees.GetSearchAfterToken();
             if (page == 1)
