@@ -87,7 +87,9 @@ public class PatchDocument
 
     public static PatchDocument Parse(string jsondocument)
     {
-        var root = JsonNode.Parse(jsondocument) as JsonArray;
+        var node = JsonNode.Parse(jsondocument);
+        if (node is not JsonArray root)
+            throw new JsonException("Invalid JSON Patch document: expected a JSON array per RFC 6902");
 
         return Load(root);
     }

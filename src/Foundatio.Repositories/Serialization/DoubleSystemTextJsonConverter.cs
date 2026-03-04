@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Text.Json;
 
 namespace Foundatio.Repositories.Serialization;
@@ -22,6 +23,22 @@ public class DoubleSystemTextJsonConverter : System.Text.Json.Serialization.Json
 
     public override void Write(Utf8JsonWriter writer, double value, JsonSerializerOptions options)
     {
-        writer.WriteRawValue($"{value:0.0}");
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            writer.WriteRawValue("0.0");
+            return;
+        }
+
+        if (value != Math.Truncate(value))
+        {
+            writer.WriteNumberValue(value);
+            return;
+        }
+
+        string text = value.ToString("R", CultureInfo.InvariantCulture);
+        if (!text.Contains('.') && !text.Contains('E') && !text.Contains('e'))
+            text += ".0";
+
+        writer.WriteRawValue(text);
     }
 }

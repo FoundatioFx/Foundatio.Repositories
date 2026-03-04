@@ -92,6 +92,7 @@ public static class AggregationsExtensions
             string keyAsString = null;
             IReadOnlyDictionary<string, IAggregate> aggregations = null;
             long? total = null;
+            IReadOnlyDictionary<string, object> data = null;
 
             switch (item)
             {
@@ -100,24 +101,28 @@ public static class AggregationsExtensions
                     keyAsString = stringBucket.KeyAsString;
                     aggregations = stringBucket.Aggregations;
                     total = stringBucket.Total;
+                    data = stringBucket.Data;
                     break;
                 case KeyedBucket<double> doubleBucket:
                     key = doubleBucket.Key;
                     keyAsString = doubleBucket.KeyAsString;
                     aggregations = doubleBucket.Aggregations;
                     total = doubleBucket.Total;
+                    data = doubleBucket.Data;
                     break;
                 case KeyedBucket<long> longBucket:
                     key = longBucket.Key;
                     keyAsString = longBucket.KeyAsString;
                     aggregations = longBucket.Aggregations;
                     total = longBucket.Total;
+                    data = longBucket.Data;
                     break;
                 case KeyedBucket<object> objectBucket:
                     key = objectBucket.Key;
                     keyAsString = objectBucket.KeyAsString;
                     aggregations = objectBucket.Aggregations;
                     total = objectBucket.Total;
+                    data = objectBucket.Data;
                     break;
                 default:
                     throw new NotSupportedException($"Unsupported bucket type: {item.GetType().FullName}");
@@ -128,7 +133,8 @@ public static class AggregationsExtensions
                 Key = (TKey)Convert.ChangeType(key, typeof(TKey)),
                 KeyAsString = keyAsString,
                 Aggregations = aggregations,
-                Total = total
+                Total = total,
+                Data = data
             };
         }
     }

@@ -433,7 +433,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             string scrollId = result.GetScrollId();
             if (!String.IsNullOrEmpty(scrollId))
             {
-                var response = await _client.ClearScrollAsync(s => s.ScrollId(result.GetScrollId())).AnyContext();
+                var response = await _client.ClearScrollAsync(s => s.ScrollId(scrollId)).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
             }
         }

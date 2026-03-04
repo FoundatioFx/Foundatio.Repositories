@@ -494,6 +494,18 @@ public class JsonPatchTests
         newPointer = "/books/2/author";
         Assert.Equal("Eric", sample.SelectPatchToken(newPointer)?.GetValue<string>());
     }
+
+    [Fact]
+    public void Parse_WithNonArrayJson_ThrowsJsonException()
+    {
+        Assert.Throws<JsonException>(() => PatchDocument.Parse(@"{ ""op"": ""add"" }"));
+    }
+
+    [Fact]
+    public void Parse_WithJsonPrimitive_ThrowsJsonException()
+    {
+        Assert.Throws<JsonException>(() => PatchDocument.Parse(@"""hello"""));
+    }
 }
 
 public class MyConfigClass

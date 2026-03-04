@@ -37,7 +37,7 @@ public class DoubleSystemTextJsonConverterTests
     }
 
     [Fact]
-    public void Write_WithFractionalDouble_PreservesValue()
+    public void Write_WithFractionalDouble_PreservesFullPrecision()
     {
         // Arrange
         double value = 3.14;
@@ -46,7 +46,7 @@ public class DoubleSystemTextJsonConverterTests
         string json = _serializer.SerializeToString(value);
 
         // Assert
-        Assert.StartsWith("3.1", json);
+        Assert.Equal("3.14", json);
     }
 
     [Fact]
@@ -115,5 +115,78 @@ public class DoubleSystemTextJsonConverterTests
 
         // Assert
         Assert.Contains("1.0", json);
+    }
+
+    [Fact]
+    public void Write_WithNaN_WritesZero()
+    {
+        string json = _serializer.SerializeToString(double.NaN);
+        Assert.Equal("0.0", json);
+    }
+
+    [Fact]
+    public void Write_WithPositiveInfinity_WritesZero()
+    {
+        string json = _serializer.SerializeToString(double.PositiveInfinity);
+        Assert.Equal("0.0", json);
+    }
+
+    [Fact]
+    public void Write_WithNegativeInfinity_WritesZero()
+    {
+        string json = _serializer.SerializeToString(double.NegativeInfinity);
+        Assert.Equal("0.0", json);
+    }
+
+    [Fact]
+    public void Write_WithMaxValue_ProducesValidJson()
+    {
+        string json = _serializer.SerializeToString(double.MaxValue);
+        double roundTripped = _serializer.Deserialize<double>(json);
+        Assert.Equal(double.MaxValue, roundTripped);
+    }
+
+    [Fact]
+    public void Write_WithMinValue_ProducesValidJson()
+    {
+        string json = _serializer.SerializeToString(double.MinValue);
+        double roundTripped = _serializer.Deserialize<double>(json);
+        Assert.Equal(double.MinValue, roundTripped);
+    }
+
+    [Fact]
+    public void Write_WithEpsilon_ProducesValidJson()
+    {
+        string json = _serializer.SerializeToString(double.Epsilon);
+        double roundTripped = _serializer.Deserialize<double>(json);
+        Assert.Equal(double.Epsilon, roundTripped);
+    }
+
+    [Fact]
+    public void Write_WithLargePrecisionDouble_PreservesValue()
+    {
+        double value = 123456789.123456;
+        string json = _serializer.SerializeToString(value);
+        double roundTripped = _serializer.Deserialize<double>(json);
+        Assert.Equal(value, roundTripped);
+    }
+
+    [Fact]
+    public void Write_WithNegativeWholeDouble_PreservesDecimalPoint()
+    {
+        string json = _serializer.SerializeToString(-5.0);
+        Assert.Equal("-5.0", json);
+    }
+
+    [Theory]
+    [InlineData(0.1)]
+    [InlineData(0.001)]
+    [InlineData(999999.999999)]
+    [InlineData(-0.5)]
+    public void RoundTrip_WithVariousFractions_PreservesValue(double value)
+    {
+        string json = _serializer.SerializeToString(value);
+        double roundTripped = _serializer.Deserialize<double>(json);
+        Assert.Equal(value, roundTripped);
     }
 }
