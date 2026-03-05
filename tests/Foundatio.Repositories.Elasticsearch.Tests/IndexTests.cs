@@ -1483,8 +1483,9 @@ public sealed class IndexTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task EnsureIndexAsync_WhenCreateFails_DoesNotCacheSuccess()
+    public async Task CreateIndexAsync_WithInvalidSettings_DoesNotCacheEnsured()
     {
+        // Arrange
         var badIndex = new VersionedEmployeeIndex(_configuration, 1,
             createIndex: d => d
                 .Settings(s => s
@@ -1498,8 +1499,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await badIndex.DeleteAsync();
         await using AsyncDisposableAction cleanup = new(() => badIndex.DeleteAsync());
 
+        // Act
         await Assert.ThrowsAsync<RepositoryException>(() => badIndex.ConfigureAsync());
 
+        // Assert - index should not exist and a subsequent valid configure should succeed
         var existsResponse = await _client.Indices.ExistsAsync(badIndex.VersionedName, cancellationToken: TestCancellationToken);
         Assert.False(existsResponse.Exists);
 
@@ -1512,17 +1515,19 @@ public sealed class IndexTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task GetIndexListAsync_ReturnsCreatedIndexes()
+    public async Task GetIndexListAsync_WithExistingIndex_ReturnsIndexNames()
     {
+        // Arrange
         var index = new VersionedEmployeeIndex(_configuration, 1);
         await index.DeleteAsync();
         await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
-
         await index.ConfigureAsync();
 
+        // Act
         var utility = new ElasticUtility(_client, _logger);
         var indexes = await utility.GetIndexListAsync();
 
+        // Assert
         Assert.NotNull(indexes);
         Assert.Contains(indexes, i => i.Contains("employees"));
     }

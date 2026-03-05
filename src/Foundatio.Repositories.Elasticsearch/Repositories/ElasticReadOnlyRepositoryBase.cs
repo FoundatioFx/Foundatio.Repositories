@@ -735,9 +735,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (options.HasQueryTimeout())
         {
             var timeout = options.GetQueryTimeout();
-            search.Timeout(timeout.TotalMilliseconds < 1000
-                ? $"{(int)timeout.TotalMilliseconds}ms"
-                : $"{(int)timeout.TotalSeconds}s");
+            search.Timeout(timeout.ToElasticDuration());
         }
 
         search.IgnoreUnavailable();

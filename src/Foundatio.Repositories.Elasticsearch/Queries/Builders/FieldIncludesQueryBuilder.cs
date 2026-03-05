@@ -354,6 +354,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                     filter.Includes = resolvedIncludes;
                 if (resolvedExcludes.Length > 0)
                     filter.Excludes = resolvedExcludes;
+
                 ctx.Search.Source(new SourceConfig(filter));
             }
 

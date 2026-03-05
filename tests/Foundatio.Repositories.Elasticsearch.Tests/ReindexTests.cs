@@ -734,8 +734,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task CanReindexTimeSeriesIndexWithReindexScriptAsync()
+    public async Task ReindexAsync_DailyIndexWithReindexScript_ExecutesScript()
     {
+        // Arrange
         var version1Index = new DailyEmployeeIndexWithReindexScripts(_configuration, 1);
         await version1Index.DeleteAsync();
 
@@ -751,14 +752,15 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.NotNull(employee);
         Assert.NotNull(employee.Id);
         Assert.NotEqual("daily-scripted", employee.CompanyName);
-
         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
 
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
         await version2Index.ConfigureAsync();
 
+        // Act
         await version2Index.ReindexAsync();
 
+        // Assert
         Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
 
         IEmployeeRepository version2Repository = new EmployeeRepository(version2Index);
