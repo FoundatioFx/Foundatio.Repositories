@@ -430,7 +430,7 @@ public static class ElasticIndexExtensions
                 },
                 error =>
                 {
-                    logger?.LogWarning("MultiGet document error: index={Index}, id={Id}, error={Error}", error.Index, error.Id, error.Error?.Reason);
+                    logger?.LogWarning("MultiGet document error: index={Index}, id={Id}, reason={Reason}", error.Index, error.Id, error.Error?.Reason);
                 }
             );
             if (findHit is not null)

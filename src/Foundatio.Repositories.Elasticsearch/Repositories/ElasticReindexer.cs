@@ -194,7 +194,7 @@ public class ElasticReindexer
 
         if (result.Task == null)
         {
-            _logger.LogError("Reindex failed to start - no task returned. Response valid: {IsValid}, Error: {Error}",
+            _logger.LogError("Reindex failed to start - no task returned. Response valid: {IsValid}, Reason: {Reason}",
                 result.IsValidResponse, result.ElasticsearchServerError?.Error?.Reason ?? "Unknown");
             _logger.LogErrorRequest(result, "Reindex failed");
             return new ReindexResult { Total = 0, Completed = 0 };
