@@ -734,6 +734,40 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task CanReindexTimeSeriesIndexWithReindexScriptAsync()
+    {
+        var version1Index = new DailyEmployeeIndexWithReindexScripts(_configuration, 1);
+        await version1Index.DeleteAsync();
+
+        var version2Index = new DailyEmployeeIndexWithReindexScripts(_configuration, 2) { DiscardIndexesOnReindex = false };
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository version1Repository = new EmployeeRepository(version1Index);
+
+        var utcNow = DateTime.UtcNow;
+        var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
+        Assert.NotEqual("daily-scripted", employee.CompanyName);
+
+        Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+
+        await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
+        await version2Index.ConfigureAsync();
+
+        await version2Index.ReindexAsync();
+
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+        IEmployeeRepository version2Repository = new EmployeeRepository(version2Index);
+        var result = await version2Repository.GetByIdAsync(employee.Id);
+        Assert.NotNull(result);
+        Assert.Equal("daily-scripted", result.CompanyName);
+    }
+
+    [Fact]
     public async Task CanReindexTimeSeriesIndexWithCorrectMappingsAsync()
     {
         var version1Index = new DailyEmployeeIndex(_configuration, 1);

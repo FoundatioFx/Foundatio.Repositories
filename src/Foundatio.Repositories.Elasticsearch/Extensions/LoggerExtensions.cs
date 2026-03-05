@@ -48,7 +48,10 @@ public static class LoggerExtensions
         if (ex != null && originalException != null)
             aggEx = new AggregateException(ex, originalException);
 
-        logger.LogError(aggEx ?? originalException, elasticResponse.GetErrorMessage(message), args);
+        var allArgs = new object[args.Length + 1];
+        args.CopyTo(allArgs, 0);
+        allArgs[^1] = elasticResponse.GetErrorMessage();
+        logger.LogError(aggEx ?? originalException, message + ": {ElasticError}", allArgs);
     }
 }
 

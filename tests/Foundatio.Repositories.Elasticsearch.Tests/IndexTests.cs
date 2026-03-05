@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -1479,5 +1480,50 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         Assert.False(indexResponse1.Exists);
         var indexResponse2 = await _client.Indices.ExistsAsync(index.GetIndex(id2), cancellationToken: TestCancellationToken);
         Assert.False(indexResponse2.Exists);
+    }
+
+    [Fact]
+    public async Task EnsureIndexAsync_WhenCreateFails_DoesNotCacheSuccess()
+    {
+        var badIndex = new VersionedEmployeeIndex(_configuration, 1,
+            createIndex: d => d
+                .Settings(s => s
+                    .NumberOfReplicas(0)
+                    .NumberOfShards(1)
+                    .Analysis(a => a.Analyzers(an => an.Custom("broken_analyzer", c => c.Tokenizer("nonexistent_tokenizer")))))
+                .Mappings<Employee>(map => map
+                    .Dynamic(DynamicMapping.False)
+                    .Properties(p => p.Keyword(e => e.CompanyName))),
+            createMappings: _ => { });
+        await badIndex.DeleteAsync();
+        await using AsyncDisposableAction cleanup = new(() => badIndex.DeleteAsync());
+
+        await Assert.ThrowsAsync<RepositoryException>(() => badIndex.ConfigureAsync());
+
+        var existsResponse = await _client.Indices.ExistsAsync(badIndex.VersionedName, cancellationToken: TestCancellationToken);
+        Assert.False(existsResponse.Exists);
+
+        var goodIndex = new VersionedEmployeeIndex(_configuration, 1);
+        await using AsyncDisposableAction goodCleanup = new(() => goodIndex.DeleteAsync());
+        await goodIndex.ConfigureAsync();
+
+        existsResponse = await _client.Indices.ExistsAsync(goodIndex.VersionedName, cancellationToken: TestCancellationToken);
+        Assert.True(existsResponse.Exists);
+    }
+
+    [Fact]
+    public async Task GetIndexListAsync_ReturnsCreatedIndexes()
+    {
+        var index = new VersionedEmployeeIndex(_configuration, 1);
+        await index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+
+        await index.ConfigureAsync();
+
+        var utility = new ElasticUtility(_client, _logger);
+        var indexes = await utility.GetIndexListAsync();
+
+        Assert.NotNull(indexes);
+        Assert.Contains(indexes, i => i.Contains("employees"));
     }
 }

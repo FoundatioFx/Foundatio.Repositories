@@ -207,6 +207,44 @@ public sealed class DailyEmployeeIndex : DailyIndex<Employee>
     }
 }
 
+public sealed class DailyEmployeeIndexWithReindexScripts : DailyIndex<Employee>
+{
+    public DailyEmployeeIndexWithReindexScripts(IElasticConfiguration configuration, int version) : base(configuration, "daily-employees", version)
+    {
+        AddAlias($"{Name}-today", TimeSpan.FromDays(1));
+        AddAlias($"{Name}-last7days", TimeSpan.FromDays(7));
+        AddAlias($"{Name}-last30days", TimeSpan.FromDays(30));
+        AddReindexScript(2, "ctx._source.companyName = 'daily-scripted';");
+    }
+
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
+    {
+        base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+    }
+
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
+    {
+        map
+            .Dynamic(DynamicMapping.False)
+            .Properties(p => p
+                .SetupDefaults()
+                .Keyword(e => e.CompanyId)
+                .Keyword(e => e.CompanyName)
+                .Text(e => e.Name, t => t.AddKeywordField())
+                .IntegerNumber(e => e.Age)
+                .Date(e => e.LastReview)
+                .Date(e => e.NextReview)
+                .FieldAlias("next", a => a.Path(e => e.NextReview))
+            );
+    }
+
+    protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder)
+    {
+        builder.Register<AgeQueryBuilder>();
+        builder.Register<CompanyQueryBuilder>();
+    }
+}
+
 public sealed class DailyEmployeeIndexWithWrongEmployeeType : DailyIndex<Employee>
 {
     public DailyEmployeeIndexWithWrongEmployeeType(IElasticConfiguration configuration, int version) : base(configuration, "daily-employees", version) { }
