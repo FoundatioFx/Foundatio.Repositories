@@ -122,11 +122,11 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
         // Act
-        var nestedAggQuery = _client.Search<Employee>(d => d.Indices("employees").Aggregations(a => a
+        var nestedAggQuery = await _client.SearchAsync<Employee>(d => d.Indices("employees").Aggregations(a => a
            .Add("nested_reviewRating", agg => agg
                .Nested(h => h.Path("peerReviews"))
                .Aggregations(a1 => a1.Add("terms_rating", t => t.Terms(t1 => t1.Field("peerReviews.rating")).Meta(m => m.Add("@field_type", "integer")))))
-            ));
+            ), cancellationToken: TestCancellationToken);
 
         // Assert
         var result = nestedAggQuery.Aggregations.ToAggregations(_serializer);
@@ -134,14 +134,14 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(2, ((Foundatio.Repositories.Models.BucketAggregate)((Foundatio.Repositories.Models.SingleBucketAggregate)result["nested_reviewRating"]).Aggregations["terms_rating"]).Items.Count);
 
         // Act (with filter)
-        var nestedAggQueryWithFilter = _client.Search<Employee>(d => d.Indices("employees").Aggregations(a => a
+        var nestedAggQueryWithFilter = await _client.SearchAsync<Employee>(d => d.Indices("employees").Aggregations(a => a
            .Add("nested_reviewRating", agg => agg
                .Nested(h => h.Path("peerReviews"))
                .Aggregations(a1 => a1
                     .Add($"user_{employees[0].Id}", f => f
                         .Filter(q => q.Term(t => t.Field("peerReviews.reviewerEmployeeId").Value(employees[0].Id)))
                         .Aggregations(a2 => a2.Add("terms_rating", t => t.Terms(t1 => t1.Field("peerReviews.rating")).Meta(m => m.Add("@field_type", "integer")))))
-            ))));
+            ))), cancellationToken: TestCancellationToken);
 
         // Assert (with filter)
         result = nestedAggQueryWithFilter.Aggregations.ToAggregations(_serializer);

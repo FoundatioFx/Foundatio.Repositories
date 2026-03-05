@@ -144,7 +144,7 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
         // Act
-        var nestedAggQuery = _client.Search<Employee>(d => d.Indices("employees").Aggregations(a => a
+        var nestedAggQuery = await _client.SearchAsync<Employee>(d => d.Indices("employees").Aggregations(a => a
            .Add("nested_reviewRating", agg => agg
                .Nested(h => h.Path("peerReviews"))
                .Aggregations(a1 => a1.Add("terms_rating", t => t.Terms(t1 => t1.Field("peerReviews.rating")).Meta(m => m.Add("@field_type", "integer")))))
@@ -160,7 +160,7 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         Assert.Equal(2, termsRatingAgg.Items.Count);
 
         // Act - Test nested aggregation with filter
-        var nestedAggQueryWithFilter = _client.Search<Employee>(d => d.Indices("employees").Aggregations(a => a
+        var nestedAggQueryWithFilter = await _client.SearchAsync<Employee>(d => d.Indices("employees").Aggregations(a => a
            .Add("nested_reviewRating", agg => agg
                .Nested(h => h.Path("peerReviews"))
                 .Aggregations(a1 => a1
