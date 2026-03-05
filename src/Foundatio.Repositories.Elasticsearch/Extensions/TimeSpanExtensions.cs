@@ -2,7 +2,7 @@ using System;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
-public static class TimeSpanExtensions
+internal static class TimeSpanExtensions
 {
     /// <summary>
     /// Converts a <see cref="TimeSpan"/> to an Elasticsearch duration string (e.g., "500ms", "30s", "5m", "2h", "1d").
