@@ -12,7 +12,6 @@ using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Utility;
-using Foundatio.Serializer;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Xunit;
@@ -837,6 +836,10 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
     private string ToJson(object data)
     {
-        return _serializer.SerializeToString(data);
+        using var stream = new System.IO.MemoryStream();
+        _client.ElasticsearchClientSettings.SourceSerializer.Serialize(data, stream);
+        stream.Position = 0;
+        using var reader = new System.IO.StreamReader(stream);
+        return reader.ReadToEnd();
     }
 }

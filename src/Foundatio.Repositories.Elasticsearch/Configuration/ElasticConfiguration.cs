@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Serialization;
 using Elastic.Transport;
 using Foundatio.Caching;
 using Foundatio.Jobs;
@@ -67,7 +68,10 @@ public class ElasticConfiguration : IElasticConfiguration
 
     protected virtual ElasticsearchClient CreateElasticClient()
     {
-        var settings = new ElasticsearchClientSettings(CreateConnectionPool() ?? new SingleNodePool(new Uri("http://localhost:9200")));
+        var settings = new ElasticsearchClientSettings(
+            CreateConnectionPool() ?? new SingleNodePool(new Uri("http://localhost:9200")),
+            sourceSerializer: (_, clientSettings) =>
+                new DefaultSourceSerializer(clientSettings, options => options.ConfigureFoundatioRepositoryDefaults()));
         ConfigureSettings(settings);
         foreach (var index in Indexes)
             index.ConfigureSettings(settings);

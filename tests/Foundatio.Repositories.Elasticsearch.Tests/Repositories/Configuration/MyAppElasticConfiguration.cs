@@ -47,16 +47,6 @@ public class MyAppElasticConfiguration : ElasticConfiguration
         return new SingleNodePool(new Uri($"http://{host}:9200"));
     }
 
-    protected override ElasticsearchClient CreateElasticClient()
-    {
-        var settings = new ElasticsearchClientSettings(CreateConnectionPool() ?? new SingleNodePool(new Uri("http://localhost:9200")));
-        ConfigureSettings(settings);
-        foreach (var index in Indexes)
-            index.ConfigureSettings(settings);
-
-        return new ElasticsearchClient(settings);
-    }
-
     protected override void ConfigureSettings(ElasticsearchClientSettings settings)
     {
         // only do this in test and dev mode

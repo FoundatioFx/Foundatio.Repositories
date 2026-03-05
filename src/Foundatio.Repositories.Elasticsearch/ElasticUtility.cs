@@ -6,6 +6,7 @@ using Elastic.Clients.Elasticsearch;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Resilience;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -16,16 +17,27 @@ public class ElasticUtility
     private readonly ElasticsearchClient _client;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
+    private readonly IResiliencePolicy _resiliencePolicy;
 
     public ElasticUtility(ElasticsearchClient client, ILogger logger) : this(client, TimeProvider.System, logger)
     {
     }
 
     public ElasticUtility(ElasticsearchClient client, TimeProvider timeProvider, ILogger logger)
+        : this(client, timeProvider, new ResiliencePolicyProvider(), logger)
+    {
+    }
+
+    public ElasticUtility(ElasticsearchClient client, TimeProvider timeProvider, IResiliencePolicyProvider resiliencePolicyProvider, ILogger logger)
     {
         _client = client;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger ?? NullLogger.Instance;
+
+        resiliencePolicyProvider ??= new ResiliencePolicyProvider();
+        _resiliencePolicy = resiliencePolicyProvider.GetPolicy<ElasticUtility>(
+            fallback => fallback.WithMaxAttempts(3).WithDelay(TimeSpan.FromSeconds(2)),
+            _logger, _timeProvider);
     }
 
     public async Task<bool> SnapshotRepositoryExistsAsync(string repository)
@@ -212,46 +224,34 @@ public class ElasticUtility
     }
 
     /// <summary>
-    /// Deletes the specified snapshots with configurable retries.
+    /// Deletes the specified snapshots using the configured resilience policy.
     /// </summary>
     /// <param name="repository">The snapshot repository.</param>
     /// <param name="snapshots">The snapshot names to delete.</param>
-    /// <param name="maxRetries">Number of retry attempts per snapshot. Defaults to 3.</param>
-    /// <param name="retryInterval">Interval between retries. Defaults to 2 seconds.</param>
     /// <returns>True if all snapshots were deleted; false if any deletion failed after retries.</returns>
-    public async Task<bool> DeleteSnapshotsAsync(string repository, ICollection<string> snapshots, int? maxRetries = null, TimeSpan? retryInterval = null)
+    public async Task<bool> DeleteSnapshotsAsync(string repository, ICollection<string> snapshots)
     {
         if (snapshots == null || snapshots.Count == 0)
             return true;
 
-        int retries = maxRetries ?? 3;
-        var interval = retryInterval ?? TimeSpan.FromSeconds(2);
         bool allSucceeded = true;
 
         foreach (var snapshot in snapshots)
         {
-            bool deleted = false;
-            for (int attempt = 0; attempt <= retries; attempt++)
+            try
             {
-                var response = await _client.Snapshot.DeleteAsync(repository, snapshot).AnyContext();
-                _logger.LogRequest(response);
-
-                if (response.IsValidResponse)
+                await _resiliencePolicy.ExecuteAsync(async _ =>
                 {
-                    deleted = true;
-                    break;
-                }
+                    var response = await _client.Snapshot.DeleteAsync(repository, snapshot).AnyContext();
+                    _logger.LogRequest(response);
 
-                if (attempt < retries)
-                {
-                    _logger.LogWarning("Failed to delete snapshot '{Snapshot}' (attempt {Attempt}/{Retries}); retrying...", snapshot, attempt + 1, retries);
-                    await Task.Delay(interval, _timeProvider).AnyContext();
-                }
+                    if (!response.IsValidResponse)
+                        throw response.OriginalException() ?? new ApplicationException($"Failed to delete snapshot '{snapshot}'");
+                }).AnyContext();
             }
-
-            if (!deleted)
+            catch (Exception ex)
             {
-                _logger.LogError("Failed to delete snapshot '{Snapshot}' after {Retries} attempt(s)", snapshot, retries);
+                _logger.LogError(ex, "Failed to delete snapshot '{Snapshot}'", snapshot);
                 allSucceeded = false;
             }
         }
@@ -260,37 +260,33 @@ public class ElasticUtility
     }
 
     /// <summary>
-    /// Deletes the specified indices with configurable retries.
+    /// Deletes the specified indices using the configured resilience policy.
     /// </summary>
     /// <param name="indices">The index names to delete.</param>
-    /// <param name="maxRetries">Number of retry attempts. Defaults to 3.</param>
-    /// <param name="retryInterval">Interval between retries. Defaults to 2 seconds.</param>
-    /// <returns>True if all indices were deleted; false if any deletion failed after retries.</returns>
-    public async Task<bool> DeleteIndicesAsync(ICollection<string> indices, int? maxRetries = null, TimeSpan? retryInterval = null)
+    /// <returns>True if all indices were deleted; false if deletion failed after retries.</returns>
+    public async Task<bool> DeleteIndicesAsync(ICollection<string> indices)
     {
         if (indices == null || indices.Count == 0)
             return true;
 
-        int retries = maxRetries ?? 3;
-        var interval = retryInterval ?? TimeSpan.FromSeconds(2);
-
-        for (int attempt = 0; attempt <= retries; attempt++)
+        try
         {
-            var response = await _client.Indices.DeleteAsync(Indices.Parse(String.Join(",", indices))).AnyContext();
-            _logger.LogRequest(response);
-
-            if (response.IsValidResponse)
-                return true;
-
-            if (attempt < retries)
+            await _resiliencePolicy.ExecuteAsync(async _ =>
             {
-                _logger.LogWarning("Failed to delete indices (attempt {Attempt}/{Retries}); retrying...", attempt + 1, retries);
-                await Task.Delay(interval, _timeProvider).AnyContext();
-            }
-        }
+                var response = await _client.Indices.DeleteAsync(Indices.Parse(String.Join(",", indices))).AnyContext();
+                _logger.LogRequest(response);
 
-        _logger.LogError("Failed to delete indices [{Indices}] after {Retries} attempt(s)", String.Join(", ", indices), retries);
-        return false;
+                if (!response.IsValidResponse)
+                    throw response.OriginalException() ?? new ApplicationException($"Failed to delete indices [{String.Join(", ", indices)}]");
+            }).AnyContext();
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete indices [{Indices}]", String.Join(", ", indices));
+            return false;
+        }
     }
 }
 
