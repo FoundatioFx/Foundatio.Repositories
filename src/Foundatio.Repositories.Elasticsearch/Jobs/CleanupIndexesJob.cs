@@ -55,8 +55,9 @@ public class CleanupIndexesJob : IJob
         _logger.LogInformation("Starting index cleanup...");
 
         var sw = Stopwatch.StartNew();
-        var result = await _client.Indices.ResolveIndexAsync("*",
-            d => d.RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
+        // Note: ResolveIndexAsync sends a body in ES 9.x client which ES rejects; use GetAsync instead.
+        var result = await _client.Indices.GetAsync(Indices.All,
+            d => d.IgnoreUnavailable().RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
         sw.Stop();
 
         if (result.IsValidResponse)
@@ -71,7 +72,7 @@ public class CleanupIndexesJob : IJob
 
         var indexes = new List<IndexDate>();
         if (result.IsValidResponse && result.Indices != null)
-            indexes = result.Indices?.Select(r => GetIndexDate(r.Name)).Where(r => r != null).ToList();
+            indexes = result.Indices?.Keys.Select(k => GetIndexDate(k.ToString())).Where(r => r != null).ToList();
 
         if (indexes == null || indexes.Count == 0)
             return JobResult.Success;

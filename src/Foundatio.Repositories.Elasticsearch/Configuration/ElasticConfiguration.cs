@@ -40,11 +40,18 @@ public class ElasticConfiguration : IElasticConfiguration
     public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, ITextSerializer serializer = null, TimeProvider timeProvider = null, IResiliencePolicyProvider resiliencePolicyProvider = null, ILoggerFactory loggerFactory = null)
     {
         _workItemQueue = workItemQueue;
-        Serializer = serializer ?? new Foundatio.Serializer.SystemTextJsonSerializer(
-            new System.Text.Json.JsonSerializerOptions().ConfigureFoundatioRepositoryDefaults());
         TimeProvider = timeProvider ?? TimeProvider.System;
         LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _logger = LoggerFactory.CreateLogger(GetType());
+
+        if (serializer is null)
+        {
+            _logger.LogWarning("No serializer configured, using default System.Text.Json serializer");
+            serializer = new Foundatio.Serializer.SystemTextJsonSerializer(
+                new System.Text.Json.JsonSerializerOptions().ConfigureFoundatioRepositoryDefaults());
+        }
+
+        Serializer = serializer;
         ResiliencePolicyProvider = resiliencePolicyProvider ?? cacheClient?.GetResiliencePolicyProvider() ?? new ResiliencePolicyProvider();
         ResiliencePolicy = ResiliencePolicyProvider.GetPolicy<ElasticConfiguration>(_logger, TimeProvider);
         Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { CloneValues = true, ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
@@ -234,6 +241,8 @@ public class ElasticConfiguration : IElasticConfiguration
 
         _disposed = true;
 
+        // ElasticsearchClientSettings implements IDisposable internally but doesn't expose it
+        // on its public API, so we must cast to IDisposable to release its underlying resources.
         if (_client.IsValueCreated)
             (_client.Value.ElasticsearchClientSettings as IDisposable)?.Dispose();
 

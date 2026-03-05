@@ -43,6 +43,7 @@ public class LazyDocument : ILazyDocument
     public LazyDocument(byte[] data, ITextSerializer serializer)
     {
         ArgumentNullException.ThrowIfNull(serializer);
+
         _data = data;
         _serializer = serializer;
     }

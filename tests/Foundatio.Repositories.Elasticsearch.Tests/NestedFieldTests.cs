@@ -148,7 +148,7 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
            .Add("nested_reviewRating", agg => agg
                .Nested(h => h.Path("peerReviews"))
                .Aggregations(a1 => a1.Add("terms_rating", t => t.Terms(t1 => t1.Field("peerReviews.rating")).Meta(m => m.Add("@field_type", "integer")))))
-            ));
+            ), cancellationToken: TestCancellationToken);
 
         // Assert
         var result = nestedAggQuery.Aggregations.ToAggregations(_serializer);
@@ -167,7 +167,7 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
                     .Add($"user_{employees[0].Id}", f => f
                         .Filter(q => q.Term(t => t.Field("peerReviews.reviewerEmployeeId").Value(employees[0].Id)))
                         .Aggregations(a2 => a2.Add("terms_rating", t => t.Terms(t1 => t1.Field("peerReviews.rating")).Meta(m => m.Add("@field_type", "integer")))))
-            ))));
+            ))), cancellationToken: TestCancellationToken);
 
         // Assert - Verify filtered aggregation
         result = nestedAggQueryWithFilter.Aggregations.ToAggregations(_serializer);

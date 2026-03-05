@@ -264,6 +264,7 @@ public class DailyIndex : VersionedIndex
                 OldIndex = index.Index,
                 NewIndex = GetVersionedIndex(GetIndexDate(index.Index), Version),
                 Alias = Name,
+                Script = GetReindexScripts(index.CurrentVersion),
                 TimestampField = GetTimeStampField()
             };
 
@@ -294,7 +295,7 @@ public class DailyIndex : VersionedIndex
         if (indexes.Count == 0)
             return;
 
-        var aliasActions = new List<IndexUpdateAliasesAction>();
+        var aliasActions = new List<IndexUpdateAliasesAction>(indexes.Count * (Aliases.Count + 1));
 
         foreach (var indexGroup in indexes.OrderBy(i => i.Version).GroupBy(i => i.DateUtc))
         {

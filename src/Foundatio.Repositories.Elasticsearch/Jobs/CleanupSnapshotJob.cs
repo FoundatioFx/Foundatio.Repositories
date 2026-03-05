@@ -139,7 +139,7 @@ public class CleanupSnapshotJob : IJob
                         if (shouldContinue)
                             throw response.OriginalException() ?? new ApplicationException($"Failed deleting snapshot(s) \"{snapshotNames}\"");
                     }
-                }, cancellationToken);
+                }, cancellationToken).AnyContext();
                 sw.Stop();
             }
             catch (Exception ex)

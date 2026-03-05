@@ -203,15 +203,15 @@ public class Index : IIndex
 
         var response = await Configuration.Client.Indices.CreateAsync((IndexName)name, descriptor).AnyContext();
         _logger.LogRequest(response);
-        _isEnsured = true;
 
-        // check for valid response or that the index already exists
         if (response.IsValidResponse || response.ElasticsearchServerError?.Status == 400 &&
             response.ElasticsearchServerError.Error.Type is "index_already_exists_exception" or "resource_already_exists_exception")
         {
+            _isEnsured = true;
             return;
         }
 
+        _logger.LogErrorRequest(response, "Error creating the index {Name}", name);
         throw new RepositoryException(response.GetErrorMessage($"Error creating the index {name}"), response.OriginalException());
     }
 
@@ -230,7 +230,10 @@ public class Index : IIndex
 
         var currentSettings = await Configuration.Client.Indices.GetSettingsAsync((Indices)name).AnyContext();
         if (!currentSettings.IsValidResponse)
+        {
+            _logger.LogErrorRequest(currentSettings, "Error getting index settings for {Name}", name);
             throw new RepositoryException(currentSettings.GetErrorMessage($"Error getting index settings for {name}"), currentSettings.OriginalException());
+        }
 
         var indexState = currentSettings.Settings.TryGetValue(name, out var indexSettings) ? indexSettings : null;
         var currentAnalyzers = indexState?.Settings?.Analysis?.Analyzers ?? new Analyzers();
@@ -326,8 +329,7 @@ public class Index : IIndex
         if (names == null || names.Length == 0)
             throw new ArgumentNullException(nameof(names));
 
-        // Resolve wildcards to actual index names to avoid issues with action.destructive_requires_name=true.
-        // Note: ResolveIndexAsync sends a body in ES 9.x client which ES rejects; use GetAsync instead.
+        // Resolve wildcards to actual index names; use GetAsync because ResolveIndexAsync is broken in ES 9.x client.
         var indexNames = new List<string>();
         foreach (var name in names)
         {
@@ -366,6 +368,7 @@ public class Index : IIndex
                 continue;
             }
 
+            _logger.LogErrorRequest(response, "Error deleting the index {Indexes}", String.Join(",", batch));
             throw new RepositoryException(response.GetErrorMessage($"Error deleting the index {String.Join(",", batch)}"), response.OriginalException());
         }
     }
@@ -382,6 +385,7 @@ public class Index : IIndex
             return response.Exists;
         }
 
+        _logger.LogErrorRequest(response, "Error checking to see if index {Name} exists", name);
         throw new RepositoryException(response.GetErrorMessage($"Error checking to see if index {name} exists"), response.OriginalException());
     }
 

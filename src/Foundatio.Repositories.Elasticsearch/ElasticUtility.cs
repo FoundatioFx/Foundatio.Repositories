@@ -107,15 +107,16 @@ public class ElasticUtility
 
     public async Task<ICollection<string>> GetIndexListAsync()
     {
-        var resolveResponse = await _client.Indices.ResolveIndexAsync("*").AnyContext();
-        _logger.LogRequest(resolveResponse);
-        if (!resolveResponse.IsValidResponse)
+        // Note: ResolveIndexAsync sends a body in ES 9.x client which ES rejects; use GetAsync instead.
+        var response = await _client.Indices.GetAsync(Indices.All, d => d.IgnoreUnavailable()).AnyContext();
+        _logger.LogRequest(response);
+        if (!response.IsValidResponse || response.Indices is null)
         {
-            _logger.LogWarning("Failed to get index list: {Error}", resolveResponse.ElasticsearchServerError);
+            _logger.LogWarning("Failed to get index list: {Error}", response.ElasticsearchServerError);
             return Array.Empty<string>();
         }
 
-        return resolveResponse.Indices.Select(i => i.Name).ToList();
+        return response.Indices.Keys.Select(k => k.ToString()).ToList();
     }
 
     /// <summary>
@@ -145,7 +146,7 @@ public class ElasticUtility
             if (getTaskResponse.Completed)
                 return true;
 
-            await Task.Delay(interval).AnyContext();
+            await Task.Delay(interval, _timeProvider).AnyContext();
         }
 
         _logger.LogWarning("Timed out waiting for task {TaskId} after {MaxWaitTime}", taskId, maxWait);
@@ -172,7 +173,7 @@ public class ElasticUtility
                 return true;
 
             _logger.LogDebug("Snapshot in progress for repository {Repository}; waiting {Interval}...", repository, interval);
-            await Task.Delay(interval).AnyContext();
+            await Task.Delay(interval, _timeProvider).AnyContext();
         }
 
         _logger.LogWarning("Timed out waiting for safe snapshot window after {MaxWaitTime}", maxWait);
@@ -207,8 +208,7 @@ public class ElasticUtility
         }
 
         // Wait for the snapshot to complete by polling until it's no longer IN_PROGRESS
-        bool completed = await WaitForSafeToSnapshotAsync(options.Repository, maxWaitTime: TimeSpan.FromHours(2)).AnyContext();
-        return completed;
+        return await WaitForSafeToSnapshotAsync(options.Repository, maxWaitTime: TimeSpan.FromHours(2)).AnyContext();
     }
 
     /// <summary>
@@ -245,7 +245,7 @@ public class ElasticUtility
                 if (attempt < retries)
                 {
                     _logger.LogWarning("Failed to delete snapshot '{Snapshot}' (attempt {Attempt}/{Retries}); retrying...", snapshot, attempt + 1, retries);
-                    await Task.Delay(interval).AnyContext();
+                    await Task.Delay(interval, _timeProvider).AnyContext();
                 }
             }
 
@@ -285,7 +285,7 @@ public class ElasticUtility
             if (attempt < retries)
             {
                 _logger.LogWarning("Failed to delete indices (attempt {Attempt}/{Retries}); retrying...", attempt + 1, retries);
-                await Task.Delay(interval).AnyContext();
+                await Task.Delay(interval, _timeProvider).AnyContext();
             }
         }
 

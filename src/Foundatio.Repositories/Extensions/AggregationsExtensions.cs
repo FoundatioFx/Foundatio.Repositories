@@ -110,12 +110,26 @@ public static class AggregationsExtensions
                     total = doubleBucket.Total;
                     data = doubleBucket.Data;
                     break;
+                case KeyedBucket<int> intBucket:
+                    key = intBucket.Key;
+                    keyAsString = intBucket.KeyAsString;
+                    aggregations = intBucket.Aggregations;
+                    total = intBucket.Total;
+                    data = intBucket.Data;
+                    break;
                 case KeyedBucket<long> longBucket:
                     key = longBucket.Key;
                     keyAsString = longBucket.KeyAsString;
                     aggregations = longBucket.Aggregations;
                     total = longBucket.Total;
                     data = longBucket.Data;
+                    break;
+                case KeyedBucket<bool> boolBucket:
+                    key = boolBucket.Key;
+                    keyAsString = boolBucket.KeyAsString;
+                    aggregations = boolBucket.Aggregations;
+                    total = boolBucket.Total;
+                    data = boolBucket.Data;
                     break;
                 case KeyedBucket<object> objectBucket:
                     key = objectBucket.Key;

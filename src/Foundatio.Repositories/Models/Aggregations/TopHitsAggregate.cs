@@ -16,7 +16,7 @@ public class TopHitsAggregate : MetricAggregateBase
     /// <summary>
     /// Raw JSON sources for each hit, used for serialization/deserialization round-tripping (e.g., caching).
     /// </summary>
-    public IList<string> Hits { get; set; }
+    public IReadOnlyList<string> Hits { get; set; }
 
     public TopHitsAggregate(IList<ILazyDocument> hits)
     {
@@ -35,7 +35,7 @@ public class TopHitsAggregate : MetricAggregateBase
         if (_hits.Count > 0)
             return _hits.Select(h => h.As<T>()).ToList();
 
-        if (Hits != null && Hits.Count > 0)
+        if (Hits is { Count: > 0 })
         {
             ArgumentNullException.ThrowIfNull(serializer);
 

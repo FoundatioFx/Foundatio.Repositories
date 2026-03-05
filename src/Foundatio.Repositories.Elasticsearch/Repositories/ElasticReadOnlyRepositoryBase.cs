@@ -90,7 +90,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         options = ConfigureOptions(options.As<T>());
 
-        await OnBeforeGetAsync(new Ids(id), options, typeof(T));
+        await OnBeforeGetAsync(new Ids(id), options, typeof(T)).AnyContext();
 
         // we don't have the parent id so we have to do a query
         if (HasParent && id.Routing == null)
@@ -147,7 +147,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         options = ConfigureOptions(options.As<T>());
 
-        await OnBeforeGetAsync(new Ids(idList), options, typeof(T));
+        await OnBeforeGetAsync(new Ids(idList), options, typeof(T)).AnyContext();
 
         var hits = new List<FindHit<T>>();
         if (IsCacheEnabled && options.ShouldReadCache())
@@ -383,7 +383,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             }).AnyContext();
 
             if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
-                await RemoveQueryAsync(queryId);
+                await RemoveQueryAsync(queryId).AnyContext();
 
             _logger.LogRequest(response, options.GetQueryLogLevel());
             if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
@@ -560,7 +560,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
             if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
-                await RemoveQueryAsync(queryId);
+                await RemoveQueryAsync(queryId).AnyContext();
 
             result = response.ToCountResult(options, ElasticIndex.Configuration.Serializer);
         }
@@ -858,7 +858,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (options.GetConsistency(DefaultConsistency) is not Consistency.Eventual)
         {
             string[] indices = ElasticIndex.GetIndexesByQuery(query);
-            var response = await _client.Indices.RefreshAsync(indices);
+            var response = await _client.Indices.RefreshAsync(indices).AnyContext();
             if (response.IsValidResponse)
                 _logger.LogRequest(response);
             else

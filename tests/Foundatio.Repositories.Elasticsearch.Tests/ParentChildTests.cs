@@ -100,7 +100,7 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase
 
         parent.IsDeleted = false;
         await _parentRepository.SaveAsync(parent, o => o.ImmediateConsistency());
-        Assert.Equal(1, await _childRepository.GetAllAsync());
+        Assert.Equal(1, await _childRepository.CountAsync());
     }
 
     [Fact]

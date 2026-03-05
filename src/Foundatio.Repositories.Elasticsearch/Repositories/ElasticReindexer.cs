@@ -383,16 +383,16 @@ public class ElasticReindexer
                     return aliases.Value.Aliases.Select(a => a.Key).ToList();
             }
 
-            return new List<string>();
+            return [];
         }
 
         if (aliasesResponse.ApiCallDetails is { HttpStatusCode: 404 })
-            return new List<string>();
+            return [];
 
         _logger.LogWarning("Failed to get aliases for index {Index}: {Error}", index,
             aliasesResponse.ElasticsearchServerError?.Error?.Reason ?? "Unknown error");
 
-        return new List<string>();
+        return [];
     }
 
     private async Task<Query> GetResumeQueryAsync(string newIndex, string timestampField, DateTime? startTime)
@@ -450,19 +450,21 @@ public class ElasticReindexer
         if (value == null)
             return null;
 
-        // In the new Elastic client, field values are typically JsonElement objects
-        if (value is JsonElement jsonElement)
+        if (value is not JsonElement jsonElement)
+            return null;
+
+        var target = jsonElement;
+        if (jsonElement.ValueKind == JsonValueKind.Array)
         {
-            if (jsonElement.ValueKind == JsonValueKind.Array && jsonElement.GetArrayLength() > 0)
-            {
-                var firstElement = jsonElement[0];
-                if (firstElement.TryGetDateTime(out var dateTime))
-                    return dateTime;
-                // Try parsing as string if direct DateTime conversion fails
-                if (firstElement.ValueKind == JsonValueKind.String && DateTime.TryParse(firstElement.GetString(), out dateTime))
-                    return dateTime;
-            }
+            if (jsonElement.GetArrayLength() == 0)
+                return null;
+            target = jsonElement[0];
         }
+
+        if (target.TryGetDateTime(out var dateTime))
+            return dateTime;
+        if (target.ValueKind == JsonValueKind.String && DateTime.TryParse(target.GetString(), out dateTime))
+            return dateTime;
 
         return null;
     }

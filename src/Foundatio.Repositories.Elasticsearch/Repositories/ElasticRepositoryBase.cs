@@ -287,7 +287,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                         throw new DocumentException(indexResponse.GetErrorMessage("Error saving document"), indexResponse.OriginalException());
                     }
-                });
+                }).AnyContext();
             }
             else
             {
@@ -377,7 +377,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     throw new DocumentException(updateResponse.GetErrorMessage("Error saving document"), updateResponse.OriginalException());
                 }
-            });
+            }).AnyContext();
         }
         else if (operation is ActionPatch<T> actionPatch)
         {
@@ -415,8 +415,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 foreach (var action in actionPatch.Actions)
                     action?.Invoke(response.Source);
 
-                await IndexDocumentsAsync([response.Source], false, options);
-            });
+                await IndexDocumentsAsync([response.Source], false, options).AnyContext();
+            }).AnyContext();
         }
         else
         {
@@ -657,10 +657,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     public virtual async Task<long> RemoveAllAsync(ICommandOptions options = null)
     {
-        long count = await RemoveAllAsync(NewQuery(), options);
+        long count = await RemoveAllAsync(NewQuery(), options).AnyContext();
 
         if (IsCacheEnabled && count > 0)
-            await Cache.RemoveAllAsync();
+            await Cache.RemoveAllAsync().AnyContext();
 
         return count;
     }
@@ -736,7 +736,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
 
                         string[] ids = bulkResult.ItemsWithErrors.Where(i => i.Status == 409).Select(i => i.Id).ToArray();
-                        await PatchAsync(ids, operation, options);
+                        await PatchAsync(ids, operation, options).AnyContext();
                     }
                     else
                     {
@@ -805,7 +805,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
 
                         string[] ids = bulkResult.ItemsWithErrors.Where(i => i.Status == 409).Select(i => i.Id).ToArray();
-                        await PatchAsync(ids, operation, options);
+                        await PatchAsync(ids, operation, options).AnyContext();
                     }
                     else
                     {
@@ -1007,7 +1007,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (affectedRecords > 0)
         {
             if (IsCacheEnabled)
-                await InvalidateCacheByQueryAsync(query.As<T>());
+                await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
 
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
             await SendQueryNotificationsAsync(ChangeType.Saved, query, options).AnyContext();
@@ -1062,7 +1062,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (response.Deleted.HasValue && response.Deleted > 0)
         {
             if (IsCacheEnabled)
-                await InvalidateCacheByQueryAsync(query.As<T>());
+                await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
 
             await OnDocumentsRemovedAsync(EmptyList, options).AnyContext();
             await SendQueryNotificationsAsync(ChangeType.Removed, query, options).AnyContext();
@@ -1162,7 +1162,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (String.IsNullOrEmpty(tenantKey))
             return;
 
-        var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenantKey);
+        var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenantKey).AnyContext();
         var mapping = fieldMapping.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.GetIdxName(), StringComparer.OrdinalIgnoreCase);
 
         args.Options.QueryFieldResolver(mapping.ToHierarchicalFieldResolver("idx."));
@@ -1174,7 +1174,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         foreach (var tenant in tenantGroups)
         {
-            var fieldDefinitions = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenant.Key);
+            var fieldDefinitions = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenant.Key).AnyContext();
 
             foreach (var doc in tenant)
             {
@@ -1192,7 +1192,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 {
                     if (!fieldDefinitions.TryGetValue(customField.Key, out var fieldDefinition))
                     {
-                        fieldDefinition = await HandleUnmappedCustomField(doc, customField.Key, customField.Value, fieldDefinitions);
+                        fieldDefinition = await HandleUnmappedCustomField(doc, customField.Key, customField.Value, fieldDefinitions).AnyContext();
                         if (fieldDefinition == null)
                             continue;
 
@@ -1205,12 +1205,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         continue;
                     }
 
-                    var result = await fieldType.ProcessValueAsync(doc, customField.Value, fieldDefinition);
+                    var result = await fieldType.ProcessValueAsync(doc, customField.Value, fieldDefinition).AnyContext();
                     SetDocumentCustomField(doc, customField.Key, result.Value);
                     idx[fieldDefinition.GetIdxName()] = result.Idx ?? result.Value;
 
                     if (result.IsCustomFieldDefinitionModified)
-                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(fieldDefinition);
+                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(fieldDefinition).AnyContext();
                 }
 
                 foreach (var alwaysProcessField in fieldDefinitions.Values.Where(f => f.ProcessMode == CustomFieldProcessMode.AlwaysProcess))
@@ -1222,12 +1222,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     }
 
                     var value = GetDocumentCustomField(doc, alwaysProcessField.Name);
-                    var result = await fieldType.ProcessValueAsync(doc, value, alwaysProcessField);
+                    var result = await fieldType.ProcessValueAsync(doc, value, alwaysProcessField).AnyContext();
                     SetDocumentCustomField(doc, alwaysProcessField.Name, result.Value);
                     idx[alwaysProcessField.GetIdxName()] = result.Idx ?? result.Value;
 
                     if (result.IsCustomFieldDefinitionModified)
-                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(alwaysProcessField);
+                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(alwaysProcessField).AnyContext();
                 }
             }
         }
@@ -1242,7 +1242,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (String.IsNullOrEmpty(tenantKey))
             return null;
 
-        return await ElasticIndex.Configuration.CustomFieldDefinitionRepository.AddFieldAsync(EntityTypeName, GetDocumentTenantKey(document), name, StringFieldType.IndexType);
+        return await ElasticIndex.Configuration.CustomFieldDefinitionRepository.AddFieldAsync(EntityTypeName, GetDocumentTenantKey(document), name, StringFieldType.IndexType).AnyContext();
     }
 
     protected string GetDocumentTenantKey(T document)
@@ -1767,5 +1767,4 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     }
 
     public AsyncEvent<BeforePublishEntityChangedEventArgs<T>> BeforePublishEntityChanged { get; } = new AsyncEvent<BeforePublishEntityChangedEventArgs<T>>();
-
 }

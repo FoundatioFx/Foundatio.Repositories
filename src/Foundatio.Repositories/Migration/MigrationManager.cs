@@ -94,13 +94,13 @@ public class MigrationManager
         if (Migrations.Count == 0)
             AddMigrationsFromLoadedAssemblies();
 
-        var migrationsLock = await _lockProvider.AcquireAsync("migration-manager", TimeSpan.FromMinutes(30), TimeSpan.Zero);
+        var migrationsLock = await _lockProvider.AcquireAsync("migration-manager", TimeSpan.FromMinutes(30), TimeSpan.Zero).AnyContext();
         if (migrationsLock == null)
             return MigrationResult.UnableToAcquireLock;
 
         try
         {
-            var migrationStatus = await GetMigrationStatus();
+            var migrationStatus = await GetMigrationStatus().AnyContext();
             if (!migrationStatus.NeedsMigration)
                 return MigrationResult.Success;
 
@@ -124,7 +124,7 @@ public class MigrationManager
                     if (migrationInfo.Migration.MigrationType != MigrationType.Versioned)
                         await _resiliencePolicy.ExecuteAsync(async ct =>
                         {
-                            await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30));
+                            await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30)).AnyContext();
                             if (ct.IsCancellationRequested)
                                 return MigrationResult.Cancelled;
 
@@ -147,12 +147,12 @@ public class MigrationManager
                 await MarkMigrationCompleteAsync(migrationInfo).AnyContext();
 
                 // renew migration lock
-                await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30));
+                await migrationsLock.RenewAsync(TimeSpan.FromMinutes(30)).AnyContext();
             }
         }
         finally
         {
-            await migrationsLock.ReleaseAsync();
+            await migrationsLock.ReleaseAsync().AnyContext();
         }
 
         return MigrationResult.Success;

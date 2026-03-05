@@ -99,11 +99,15 @@ public class VersionedIndex : Index, IVersionedIndex
 
         var response = await Configuration.Client.Indices.UpdateAliasesAsync(a => a.Actions(actions => actions.Add(s => s.Index(index).Alias(name)))).AnyContext();
         if (response.IsValidResponse)
+        {
+            _logger.LogRequest(response);
             return;
+        }
 
         if (await AliasExistsAsync(name).AnyContext())
             return;
 
+        _logger.LogErrorRequest(response, "Error creating alias {Name}", name);
         throw new RepositoryException(response.GetErrorMessage($"Error creating alias {name}"), response.OriginalException());
     }
 
@@ -147,7 +151,7 @@ public class VersionedIndex : Index, IVersionedIndex
         return reindexWorkItem;
     }
 
-    private string GetReindexScripts(int currentVersion)
+    protected string GetReindexScripts(int currentVersion)
     {
         var scripts = ReindexScripts.Where(s => s.Version > currentVersion && Version >= s.Version).OrderBy(s => s.Version).ToList();
         if (scripts.Count == 0)
@@ -214,7 +218,6 @@ public class VersionedIndex : Index, IVersionedIndex
         if (!response.IsValidResponse && response.ElasticsearchServerError?.Status == 404)
             return -1;
 
-        // GetAliasResponse IS the dictionary (inherits from DictionaryResponse)
         var indices = response.Aliases;
         if (response.IsValidResponse && indices != null && indices.Count > 0)
         {

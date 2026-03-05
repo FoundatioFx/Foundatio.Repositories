@@ -59,6 +59,10 @@ public static class ElasticIndexExtensions
 
     public static FindResults<T> ToFindResults<T>(this SearchResponse<T> response, ICommandOptions options, ITextSerializer serializer) where T : class, new()
     {
+        ArgumentNullException.ThrowIfNull(response);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(serializer);
+
         if (!response.IsValidResponse)
         {
             if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
@@ -107,6 +111,10 @@ public static class ElasticIndexExtensions
 
     public static FindResults<T> ToFindResults<T>(this SubmitAsyncSearchResponse<T> response, ICommandOptions options, ITextSerializer serializer) where T : class, new()
     {
+        ArgumentNullException.ThrowIfNull(response);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(serializer);
+
         if (!response.IsValidResponse)
         {
             if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
@@ -206,6 +214,10 @@ public static class ElasticIndexExtensions
 
     public static FindResults<T> ToFindResults<T>(this GetAsyncSearchResponse<T> response, ICommandOptions options, ITextSerializer serializer) where T : class, new()
     {
+        ArgumentNullException.ThrowIfNull(response);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(serializer);
+
         if (!response.IsValidResponse)
         {
             if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
@@ -282,6 +294,10 @@ public static class ElasticIndexExtensions
 
     public static FindResults<T> ToFindResults<T>(this ScrollResponse<T> response, ICommandOptions options, ITextSerializer serializer) where T : class, new()
     {
+        ArgumentNullException.ThrowIfNull(response);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(serializer);
+
         if (!response.IsValidResponse)
         {
             if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
@@ -310,8 +326,7 @@ public static class ElasticIndexExtensions
     {
         var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
 
-        var versionedDoc = hit.Source as IVersioned;
-        if (versionedDoc != null)
+        if (hit.Source is IVersioned versionedDoc)
             versionedDoc.Version = hit.GetElasticVersion();
 
         return new FindHit<T>(hit.Id, hit.Source, 0, hit.GetElasticVersion(), hit.Routing, data);
@@ -381,8 +396,7 @@ public static class ElasticIndexExtensions
         if (hit.Sort != null && hit.Sort.Count > 0)
             data[ElasticDataKeys.Sorts] = hit.Sort;
 
-        var versionedDoc = hit.Source as IVersioned;
-        if (versionedDoc != null && hit.PrimaryTerm.HasValue)
+        if (hit.Source is IVersioned versionedDoc && hit.PrimaryTerm.HasValue)
             versionedDoc.Version = hit.GetElasticVersion();
 
         return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), hit.GetElasticVersion(), hit.Routing, data);
@@ -404,8 +418,7 @@ public static class ElasticIndexExtensions
                         if (result.PrimaryTerm.HasValue && result.SeqNo.HasValue && (result.PrimaryTerm.Value != 0 || result.SeqNo.Value != 0))
                             version = new ElasticDocumentVersion(result.PrimaryTerm.Value, result.SeqNo.Value);
 
-                        var versionedDoc = result.Source as IVersioned;
-                        if (versionedDoc != null)
+                        if (result.Source is IVersioned versionedDoc)
                             versionedDoc.Version = version;
 
                         findHit = new FindHit<T>(result.Id, result.Source, 0, version, result.Routing, data);
@@ -420,12 +433,16 @@ public static class ElasticIndexExtensions
                     logger?.LogWarning("MultiGet document error: index={Index}, id={Id}, error={Error}", error.Index, error.Id, error.Error?.Reason);
                 }
             );
-            if (findHit != null)
+            if (findHit is not null)
                 yield return findHit;
         }
     }
 
     private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
+    private static readonly IReadOnlyDictionary<string, object> _stringBucketData = new ReadOnlyDictionary<string, object>(new Dictionary<string, object> { { "@type", "string" } });
+    private static readonly IReadOnlyDictionary<string, object> _doubleBucketData = new ReadOnlyDictionary<string, object>(new Dictionary<string, object> { { "@type", "double" } });
+    private static readonly IReadOnlyDictionary<string, object> _rangeBucketData = new ReadOnlyDictionary<string, object>(new Dictionary<string, object> { { "@type", "range" } });
+    private static readonly IReadOnlyDictionary<string, object> _geohashBucketData = new ReadOnlyDictionary<string, object>(new Dictionary<string, object> { { "@type", "geohash" } });
 
     public static IAggregate ToAggregate(this ElasticAggregations.IAggregate aggregate, string key, ITextSerializer serializer)
     {
@@ -529,11 +546,11 @@ public static class ElasticIndexExtensions
                     Total = filter.DocCount
                 };
 
-            case ElasticAggregations.GlobalAggregate global:
-                return new SingleBucketAggregate(global.ToAggregations(serializer))
+            case ElasticAggregations.GlobalAggregate globalAgg:
+                return new SingleBucketAggregate(globalAgg.ToAggregations(serializer))
                 {
-                    Data = global.Meta.ToReadOnlyData<SingleBucketAggregate>(),
-                    Total = global.DocCount
+                    Data = globalAgg.Meta.ToReadOnlyData<SingleBucketAggregate>(),
+                    Total = globalAgg.DocCount
                 };
 
             case ElasticAggregations.MissingAggregate missing:
@@ -602,6 +619,7 @@ public static class ElasticIndexExtensions
             var bucketData = new Dictionary<string, object> { { "@type", "datehistogram" } };
             if (hasTimezone)
                 bucketData["@timezone"] = timezoneValue;
+
             return (IBucket)new DateHistogramBucket(date, b.ToAggregations(serializer))
             {
                 Total = b.DocCount,
@@ -631,7 +649,7 @@ public static class ElasticIndexExtensions
             Total = b.DocCount,
             Key = b.Key.ToString(),
             KeyAsString = b.Key.ToString(),
-            Data = new Dictionary<string, object> { { "@type", "string" } }
+            Data = _stringBucketData
         }).ToList();
 
         return new BucketAggregate
@@ -654,7 +672,7 @@ public static class ElasticIndexExtensions
             Total = b.DocCount,
             Key = b.Key,
             KeyAsString = b.KeyAsString ?? b.Key.ToString(),
-            Data = new Dictionary<string, object> { { "@type", "double" } }
+            Data = _doubleBucketData
         }).ToList();
 
         return new BucketAggregate
@@ -677,7 +695,7 @@ public static class ElasticIndexExtensions
             Total = b.DocCount,
             Key = b.Key,
             KeyAsString = b.KeyAsString ?? b.Key.ToString(),
-            Data = new Dictionary<string, object> { { "@type", "double" } }
+            Data = _doubleBucketData
         }).ToList();
 
         return new BucketAggregate
@@ -699,7 +717,7 @@ public static class ElasticIndexExtensions
             FromAsString = b.FromAsString,
             To = b.To,
             ToAsString = b.ToAsString,
-            Data = new Dictionary<string, object> { { "@type", "range" } }
+            Data = _rangeBucketData
         }).ToList();
 
         return new BucketAggregate
@@ -721,7 +739,7 @@ public static class ElasticIndexExtensions
             FromAsString = b.FromAsString,
             To = b.To,
             ToAsString = b.ToAsString,
-            Data = new Dictionary<string, object> { { "@type", "range" } }
+            Data = _rangeBucketData
         }).ToList();
 
         return new BucketAggregate
@@ -740,7 +758,7 @@ public static class ElasticIndexExtensions
             Total = b.DocCount,
             Key = b.Key,
             KeyAsString = b.Key,
-            Data = new Dictionary<string, object> { { "@type", "geohash" } }
+            Data = _geohashBucketData
         }).ToList();
 
         return new BucketAggregate

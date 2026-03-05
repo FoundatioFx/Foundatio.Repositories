@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Elastic.Clients.Elasticsearch;
@@ -40,7 +40,7 @@ public static class ResolverExtensions
             var fieldSort = sort.Field;
             var resolvedField = resolver.GetSortFieldName(fieldSort.Field);
             // Create a new FieldSort with the resolved field name
-            var newFieldSort = new FieldSort
+            return new FieldSort
             {
                 Field = resolvedField,
                 Missing = fieldSort.Missing,
@@ -50,7 +50,6 @@ public static class ResolverExtensions
                 Order = fieldSort.Order,
                 UnmappedType = fieldSort.UnmappedType
             };
-            return newFieldSort;
         }
 
         return sort;

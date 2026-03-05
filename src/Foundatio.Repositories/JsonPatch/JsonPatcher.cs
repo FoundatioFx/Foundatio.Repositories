@@ -274,6 +274,7 @@ public static class JsonNodeExtensions
                 catch (InvalidOperationException) { return false; }
                 catch (FormatException) { return false; }
             }
+
             return false;
         }
 

@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch.QueryDsl;
+using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories
@@ -93,7 +94,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
                     var parentContext = new QueryBuilderContext<object>(parentQuery, parentOptions, null);
 
-                    await index.QueryBuilder.BuildAsync(parentContext);
+                    await index.QueryBuilder.BuildAsync(parentContext).AnyContext();
 
                     if (parentContext.Filter != null)
                         ctx.Filter &= new HasParentQuery

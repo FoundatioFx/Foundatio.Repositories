@@ -800,19 +800,19 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false));
         string employeeId = employee.Id;
-        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (i, ct) =>
+        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (iteration, ct) =>
         {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
             resetEvent.Set();
-            e.CompanyName = $"Company {i}";
+            e.CompanyName = $"Company {iteration}";
             try
             {
                 await _employeeRepository.SaveAsync(e, o => o.Cache(false));
-                _logger.LogInformation("Set company {Iteration}", i);
+                _logger.LogInformation("Set company {Iteration}", iteration);
             }
             catch (VersionConflictDocumentException)
             {
-                _logger.LogInformation("Got version conflict {Iteration}", i);
+                _logger.LogInformation("Got version conflict {Iteration}", iteration);
             }
         });
 
@@ -855,19 +855,19 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false));
         string employeeId = employee.Id;
-        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (i, ct) =>
+        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (iteration, ct) =>
         {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
             resetEvent.Set();
-            e.CompanyName = $"Company {i}";
+            e.CompanyName = $"Company {iteration}";
             try
             {
                 await _employeeRepository.SaveAsync(e, o => o.Cache(false));
-                _logger.LogInformation("Set company {Iteration}", i);
+                _logger.LogInformation("Set company {Iteration}", iteration);
             }
             catch (VersionConflictDocumentException)
             {
-                _logger.LogInformation("Got version conflict {Iteration}", i);
+                _logger.LogInformation("Got version conflict {Iteration}", iteration);
             }
         });
 
@@ -956,19 +956,19 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false));
         string employeeId = employee.Id;
-        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (i, ct) =>
+        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (iteration, ct) =>
         {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
             resetEvent.Set();
-            e.CompanyName = $"Company {i}";
+            e.CompanyName = $"Company {iteration}";
             try
             {
                 await _employeeRepository.SaveAsync(e, o => o.Cache(false));
-                _logger.LogInformation("Set company {Iteration}", i);
+                _logger.LogInformation("Set company {Iteration}", iteration);
             }
             catch (VersionConflictDocumentException)
             {
-                _logger.LogInformation("Got version conflict {Iteration}", i);
+                _logger.LogInformation("Got version conflict {Iteration}", iteration);
             }
         });
 
@@ -1033,19 +1033,19 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false));
         string employeeId = employee.Id;
-        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (i, ct) =>
+        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (iteration, ct) =>
         {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
             resetEvent.Set();
-            e.CompanyName = $"Company {i}";
+            e.CompanyName = $"Company {iteration}";
             try
             {
                 await _employeeRepository.SaveAsync(e, o => o.Cache(false));
-                _logger.LogInformation("Set company {Iteration}", i);
+                _logger.LogInformation("Set company {Iteration}", iteration);
             }
             catch (VersionConflictDocumentException)
             {
-                _logger.LogInformation("Got version conflict {Iteration}", i);
+                _logger.LogInformation("Got version conflict {Iteration}", iteration);
             }
         });
 
