@@ -387,7 +387,11 @@ public class ElasticReindexer
 
         if (aliasesResponse.IsValidResponse)
         {
+#if ELASTICSEARCH9
             var indices = aliasesResponse.Aliases;
+#else
+            var indices = aliasesResponse.Values;
+#endif
             if (indices != null && indices.Count > 0)
             {
                 var aliases = indices.SingleOrDefault(a => String.Equals(a.Key, index));

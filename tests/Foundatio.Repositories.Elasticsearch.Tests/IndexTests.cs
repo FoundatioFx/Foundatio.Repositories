@@ -59,9 +59,14 @@ public sealed class IndexTests : ElasticRepositoryTestBase
             var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
             _logger.LogRequest(aliasesResponse);
             Assert.True(aliasesResponse.IsValidResponse);
-            Assert.Single(aliasesResponse.Aliases);
+#if ELASTICSEARCH9
+            var indices = aliasesResponse.Aliases;
+#else
+            var indices = aliasesResponse.Values;
+#endif
+            Assert.Single(indices);
 
-            var aliases = aliasesResponse.Aliases.Values.Single().Aliases.Select(s => s.Key).ToList();
+            var aliases = indices.Values.Single().Aliases.Select(s => s.Key).ToList();
             aliases.Sort();
 
             Assert.Equal(GetExpectedEmployeeDailyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
@@ -95,9 +100,14 @@ public sealed class IndexTests : ElasticRepositoryTestBase
             var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
             _logger.LogRequest(aliasesResponse);
             Assert.True(aliasesResponse.IsValidResponse);
-            Assert.Single(aliasesResponse.Aliases);
+#if ELASTICSEARCH9
+            var indices = aliasesResponse.Aliases;
+#else
+            var indices = aliasesResponse.Values;
+#endif
+            Assert.Single(indices);
 
-            var aliases = aliasesResponse.Aliases.Values.Single().Aliases.Select(s => s.Key).ToList();
+            var aliases = indices.Values.Single().Aliases.Select(s => s.Key).ToList();
             aliases.Sort();
 
             Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
@@ -139,7 +149,12 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         alias = await _client.Indices.GetAliasAsync((Indices)_configuration.DailyLogEvents.Name, cancellationToken: TestCancellationToken);
         _logger.LogRequest(alias);
         Assert.True(alias.IsValidResponse);
-        Assert.Equal(2, alias.Aliases.Count);
+#if ELASTICSEARCH9
+        var aliasIndices = alias.Aliases;
+#else
+        var aliasIndices = alias.Values;
+#endif
+        Assert.Equal(2, aliasIndices.Count);
 
         indexes = await _client.GetIndicesPointingToAliasAsync(_configuration.DailyLogEvents.Name);
         Assert.Equal(2, indexes.Count);
@@ -179,7 +194,12 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         await _client.Indices.RefreshAsync(Elastic.Clients.Elasticsearch.Indices.All, cancellationToken: TestCancellationToken);
         var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)$"{version1Index.VersionedName},{version2Index.VersionedName}", cancellationToken: TestCancellationToken);
-        Assert.Empty(aliasesResponse.Aliases.Values.SelectMany(i => i.Aliases));
+#if ELASTICSEARCH9
+        var indices = aliasesResponse.Aliases;
+#else
+        var indices = aliasesResponse.Values;
+#endif
+        Assert.Empty(indices.Values.SelectMany(i => i.Aliases));
 
         // Indexes exist but no alias so the oldest index version will be used.
         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
@@ -187,9 +207,19 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         await version1Index.MaintainAsync();
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)version1Index.VersionedName, cancellationToken: TestCancellationToken);
-        Assert.Single(aliasesResponse.Aliases.Single().Value.Aliases);
+#if ELASTICSEARCH9
+        indices = aliasesResponse.Aliases;
+#else
+        indices = aliasesResponse.Values;
+#endif
+        Assert.Single(indices.Single().Value.Aliases);
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.VersionedName, cancellationToken: TestCancellationToken);
-        Assert.Empty(aliasesResponse.Aliases.Single().Value.Aliases);
+#if ELASTICSEARCH9
+        indices = aliasesResponse.Aliases;
+#else
+        indices = aliasesResponse.Values;
+#endif
+        Assert.Empty(indices.Single().Value.Aliases);
 
         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
         Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
@@ -232,7 +262,12 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         await _client.Indices.RefreshAsync(Elastic.Clients.Elasticsearch.Indices.All, cancellationToken: TestCancellationToken);
         var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)$"{version1Index.GetVersionedIndex(utcNow.UtcDateTime)},{version2Index.GetVersionedIndex(utcNow.UtcDateTime)}", cancellationToken: TestCancellationToken);
-        Assert.Empty(aliasesResponse.Aliases.Values.SelectMany(i => i.Aliases));
+#if ELASTICSEARCH9
+        var indices = aliasesResponse.Aliases;
+#else
+        var indices = aliasesResponse.Values;
+#endif
+        Assert.Empty(indices.Values.SelectMany(i => i.Aliases));
 
         // Indexes exist but no alias so the oldest index version will be used.
         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
@@ -240,9 +275,19 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         await version1Index.MaintainAsync();
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)version1Index.GetVersionedIndex(utcNow.UtcDateTime), cancellationToken: TestCancellationToken);
-        Assert.Equal(version1Index.Aliases.Count + 1, aliasesResponse.Aliases.Single().Value.Aliases.Count);
+#if ELASTICSEARCH9
+        indices = aliasesResponse.Aliases;
+#else
+        indices = aliasesResponse.Values;
+#endif
+        Assert.Equal(version1Index.Aliases.Count + 1, indices.Single().Value.Aliases.Count);
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.GetVersionedIndex(utcNow.UtcDateTime), cancellationToken: TestCancellationToken);
-        Assert.Empty(aliasesResponse.Aliases.Single().Value.Aliases);
+#if ELASTICSEARCH9
+        indices = aliasesResponse.Aliases;
+#else
+        indices = aliasesResponse.Values;
+#endif
+        Assert.Empty(indices.Single().Value.Aliases);
 
         Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
         Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
@@ -251,7 +296,12 @@ public sealed class IndexTests : ElasticRepositoryTestBase
     private async Task DeleteAliasesAsync(string index)
     {
         var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index, cancellationToken: TestCancellationToken);
-        var aliases = aliasesResponse.Aliases.Single(a => a.Key == index).Value.Aliases.Select(s => s.Key).ToList();
+#if ELASTICSEARCH9
+        var indices = aliasesResponse.Aliases;
+#else
+        var indices = aliasesResponse.Values;
+#endif
+        var aliases = indices.Single(a => a.Key == index).Value.Aliases.Select(s => s.Key).ToList();
         foreach (string alias in aliases)
         {
             await _client.Indices.DeleteAliasAsync(new Elastic.Clients.Elasticsearch.IndexManagement.DeleteAliasRequest(index, alias), cancellationToken: TestCancellationToken);
@@ -284,8 +334,13 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
-        Assert.Single(aliasesResponse.Aliases);
-        var aliases = aliasesResponse.Aliases.Values.Single().Aliases.Select(s => s.Key).ToList();
+#if ELASTICSEARCH9
+        var indices = aliasesResponse.Aliases;
+#else
+        var indices = aliasesResponse.Values;
+#endif
+        Assert.Single(indices);
+        var aliases = indices.Values.Single().Aliases.Select(s => s.Key).ToList();
         aliases.Sort();
         Assert.Equal(GetExpectedEmployeeDailyAliases(index, timeProvider.GetUtcNow().UtcDateTime, employee.CreatedUtc), String.Join(", ", aliases));
 
@@ -300,8 +355,13 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
-        Assert.Single(aliasesResponse.Aliases);
-        aliases = aliasesResponse.Aliases.Values.Single().Aliases.Select(s => s.Key).ToList();
+#if ELASTICSEARCH9
+        indices = aliasesResponse.Aliases;
+#else
+        indices = aliasesResponse.Values;
+#endif
+        Assert.Single(indices);
+        aliases = indices.Values.Single().Aliases.Select(s => s.Key).ToList();
         aliases.Sort();
         Assert.Equal(GetExpectedEmployeeDailyAliases(index, timeProvider.GetUtcNow().UtcDateTime, employee.CreatedUtc), String.Join(", ", aliases));
 
@@ -349,9 +409,14 @@ public sealed class IndexTests : ElasticRepositoryTestBase
             var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
             _logger.LogRequest(aliasesResponse);
             Assert.True(aliasesResponse.IsValidResponse);
-            Assert.Single(aliasesResponse.Aliases);
+#if ELASTICSEARCH9
+            var indices = aliasesResponse.Aliases;
+#else
+            var indices = aliasesResponse.Values;
+#endif
+            Assert.Single(indices);
 
-            var aliases = aliasesResponse.Aliases.Values.Single().Aliases.Select(s => s.Key).ToList();
+            var aliases = indices.Values.Single().Aliases.Select(s => s.Key).ToList();
             aliases.Sort();
 
             Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow.UtcDateTime, employee.CreatedUtc), String.Join(", ", aliases));
@@ -375,9 +440,14 @@ public sealed class IndexTests : ElasticRepositoryTestBase
             var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
             _logger.LogRequest(aliasesResponse);
             Assert.True(aliasesResponse.IsValidResponse);
-            Assert.Single(aliasesResponse.Aliases);
+#if ELASTICSEARCH9
+            var indices = aliasesResponse.Aliases;
+#else
+            var indices = aliasesResponse.Values;
+#endif
+            Assert.Single(indices);
 
-            var aliases = aliasesResponse.Aliases.Values.Single().Aliases.Select(s => s.Key).ToList();
+            var aliases = indices.Values.Single().Aliases.Select(s => s.Key).ToList();
             aliases.Sort();
 
             Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow.UtcDateTime, employee.CreatedUtc), String.Join(", ", aliases));
@@ -652,8 +722,13 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
-        Assert.Single(aliasesResponse.Aliases);
-        var aliases = aliasesResponse.Aliases.Values.Single().Aliases.Select(s => s.Key).ToList();
+#if ELASTICSEARCH9
+        var indices = aliasesResponse.Aliases;
+#else
+        var indices = aliasesResponse.Values;
+#endif
+        Assert.Single(indices);
+        var aliases = indices.Values.Single().Aliases.Select(s => s.Key).ToList();
         aliases.Sort();
         Assert.Equal(GetExpectedEmployeeDailyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
@@ -669,8 +744,13 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
-        Assert.Single(aliasesResponse.Aliases);
-        aliases = aliasesResponse.Aliases.Values.Single().Aliases.Select(s => s.Key).ToList();
+#if ELASTICSEARCH9
+        indices = aliasesResponse.Aliases;
+#else
+        indices = aliasesResponse.Values;
+#endif
+        Assert.Single(indices);
+        aliases = indices.Values.Single().Aliases.Select(s => s.Key).ToList();
         aliases.Sort();
         Assert.Equal(GetExpectedEmployeeDailyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
@@ -686,8 +766,13 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
-        Assert.Single(aliasesResponse.Aliases);
-        aliases = aliasesResponse.Aliases.Values.Single().Aliases.Select(s => s.Key).ToList();
+#if ELASTICSEARCH9
+        indices = aliasesResponse.Aliases;
+#else
+        indices = aliasesResponse.Values;
+#endif
+        Assert.Single(indices);
+        aliases = indices.Values.Single().Aliases.Select(s => s.Key).ToList();
         aliases.Sort();
         Assert.Equal(GetExpectedEmployeeDailyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
     }
@@ -720,8 +805,13 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
-        Assert.Single(aliasesResponse.Aliases);
-        var aliases = aliasesResponse.Aliases.Values.Single().Aliases.Select(s => s.Key).ToList();
+#if ELASTICSEARCH9
+        var indices = aliasesResponse.Aliases;
+#else
+        var indices = aliasesResponse.Values;
+#endif
+        Assert.Single(indices);
+        var aliases = indices.Values.Single().Aliases.Select(s => s.Key).ToList();
         aliases.Sort();
         Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
@@ -737,8 +827,13 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
-        Assert.Single(aliasesResponse.Aliases);
-        aliases = aliasesResponse.Aliases.Values.Single().Aliases.Select(s => s.Key).ToList();
+#if ELASTICSEARCH9
+        indices = aliasesResponse.Aliases;
+#else
+        indices = aliasesResponse.Values;
+#endif
+        Assert.Single(indices);
+        aliases = indices.Values.Single().Aliases.Select(s => s.Key).ToList();
         aliases.Sort();
         Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
 
@@ -754,8 +849,13 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
-        Assert.Single(aliasesResponse.Aliases);
-        aliases = aliasesResponse.Aliases.Values.Single().Aliases.Select(s => s.Key).ToList();
+#if ELASTICSEARCH9
+        indices = aliasesResponse.Aliases;
+#else
+        indices = aliasesResponse.Values;
+#endif
+        Assert.Single(indices);
+        aliases = indices.Values.Single().Aliases.Select(s => s.Key).ToList();
         aliases.Sort();
         Assert.Equal(GetExpectedEmployeeMonthlyAliases(index, utcNow, employee.CreatedUtc), String.Join(", ", aliases));
     }

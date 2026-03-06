@@ -218,7 +218,11 @@ public class VersionedIndex : Index, IVersionedIndex
         if (!response.IsValidResponse && response.ElasticsearchServerError?.Status == 404)
             return -1;
 
+#if ELASTICSEARCH9
         var indices = response.Aliases;
+#else
+        var indices = response.Values;
+#endif
         if (response.IsValidResponse && indices != null && indices.Count > 0)
         {
             _logger.LogRequest(response);
@@ -277,7 +281,11 @@ public class VersionedIndex : Index, IVersionedIndex
         if (!aliasResponse.IsValidResponse && aliasResponse.ElasticsearchServerError?.Status != 404)
             throw new RepositoryException(aliasResponse.GetErrorMessage($"Error getting index aliases for {filter}"), aliasResponse.OriginalException());
 
+#if ELASTICSEARCH9
         var aliasIndices = aliasResponse.Aliases;
+#else
+        var aliasIndices = aliasResponse.Values;
+#endif
         var indices = response.Indices.Keys
             .Where(i => version < 0 || GetIndexVersion(i.ToString()) == version)
             .Select(i =>

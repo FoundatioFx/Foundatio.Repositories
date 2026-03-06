@@ -13,9 +13,14 @@ public static class ElasticsearchExtensions
     {
         var aliasResponse = await client.Indices.GetAliasAsync((Indices)aliasName, a => a.IgnoreUnavailable());
         Assert.True(aliasResponse.IsValidResponse);
-        Assert.Contains(indexName, aliasResponse.Aliases.Keys);
-        Assert.Single(aliasResponse.Aliases);
-        var aliasedIndex = aliasResponse.Aliases[indexName];
+#if ELASTICSEARCH9
+        var indices = aliasResponse.Aliases;
+#else
+        var indices = aliasResponse.Values;
+#endif
+        Assert.Contains(indexName, indices.Keys);
+        Assert.Single(indices);
+        var aliasedIndex = indices[indexName];
         Assert.NotNull(aliasedIndex);
         Assert.Contains(aliasName, aliasedIndex.Aliases.Keys);
         Assert.Single(aliasedIndex.Aliases);
@@ -33,7 +38,11 @@ public static class ElasticsearchExtensions
             throw new InvalidOperationException($"Failed to get alias '{aliasName}': {response.ElasticsearchServerError?.Error?.Reason ?? "Unknown error"}");
         }
 
+#if ELASTICSEARCH9
         return response.Aliases.Count;
+#else
+        return response.Values.Count;
+#endif
     }
 
     public static async Task<IReadOnlyCollection<string>> GetIndicesPointingToAliasAsync(this ElasticsearchClient client, string aliasName)
@@ -48,7 +57,11 @@ public static class ElasticsearchExtensions
             throw new InvalidOperationException($"Failed to get alias '{aliasName}': {response.ElasticsearchServerError?.Error?.Reason ?? "Unknown error"}");
         }
 
+#if ELASTICSEARCH9
         return response.Aliases.Keys.ToList();
+#else
+        return response.Values.Keys.ToList();
+#endif
     }
 
     public static IReadOnlyCollection<string> GetIndicesPointingToAlias(this ElasticsearchClient client, string aliasName)
@@ -63,6 +76,10 @@ public static class ElasticsearchExtensions
             throw new InvalidOperationException($"Failed to get alias '{aliasName}': {response.ElasticsearchServerError?.Error?.Reason ?? "Unknown error"}");
         }
 
+#if ELASTICSEARCH9
         return response.Aliases.Keys.ToList();
+#else
+        return response.Values.Keys.ToList();
+#endif
     }
 }
