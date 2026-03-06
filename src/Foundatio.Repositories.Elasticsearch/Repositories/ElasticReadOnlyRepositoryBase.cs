@@ -389,14 +389,14 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 throw new AsyncQueryNotFoundException(queryId);
 
-            result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer);
+            result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
         }
         else if (options.HasSnapshotScrollId())
         {
             var scrollRequest = new ScrollRequest(options.GetSnapshotScrollId()) { Scroll = options.GetSnapshotLifetime() };
             var response = await _client.ScrollAsync<TResult>(scrollRequest).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
-            result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer);
+            result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
         }
         else
         {
@@ -417,13 +417,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
                 var response = await _client.AsyncSearch.SubmitAsync<TResult>(asyncSearchRequest).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
-                result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer);
+                result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
             }
             else
             {
                 var response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
-                result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer);
+                result = response.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
             }
         }
 
@@ -463,7 +463,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             var scrollResponse = await _client.ScrollAsync<TResult>(scrollRequest).AnyContext();
             _logger.LogRequest(scrollResponse, options.GetQueryLogLevel());
 
-            var results = scrollResponse.ToFindResults(options, ElasticIndex.Configuration.Serializer);
+            var results = scrollResponse.ToFindResults(options, ElasticIndex.Configuration.Serializer, _logger);
             ((IFindResults<TResult>)results).Page = previousResults.Page + 1;
 
             // clear the scroll
@@ -562,7 +562,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
                 await RemoveQueryAsync(queryId).AnyContext();
 
-            result = response.ToCountResult(options, ElasticIndex.Configuration.Serializer);
+            result = response.ToCountResult(options, ElasticIndex.Configuration.Serializer, _logger);
         }
         else if (options.ShouldUseAsyncQuery())
         {
@@ -577,13 +577,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                     s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
             }).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
-            result = response.ToCountResult(options, ElasticIndex.Configuration.Serializer);
+            result = response.ToCountResult(options, ElasticIndex.Configuration.Serializer, _logger);
         }
         else
         {
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
-            result = response.ToCountResult(options, ElasticIndex.Configuration.Serializer);
+            result = response.ToCountResult(options, ElasticIndex.Configuration.Serializer, _logger);
         }
 
         if (IsCacheEnabled && options.ShouldUseCache() && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())

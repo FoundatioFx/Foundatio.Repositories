@@ -57,7 +57,7 @@ public static class ElasticIndexExtensions
         return asyncSearchRequest;
     }
 
-    public static FindResults<T> ToFindResults<T>(this SearchResponse<T> response, ICommandOptions options, ITextSerializer serializer) where T : class, new()
+    public static FindResults<T> ToFindResults<T>(this SearchResponse<T> response, ICommandOptions options, ITextSerializer serializer, ILogger logger = null) where T : class, new()
     {
         ArgumentNullException.ThrowIfNull(response);
         ArgumentNullException.ThrowIfNull(options);
@@ -78,7 +78,7 @@ public static class ElasticIndexExtensions
         if (response.ScrollId != null)
             data.Add(ElasticDataKeys.ScrollId, response.ScrollId.ToString());
 
-        var results = new FindResults<T>(docs, response.Total, response.ToAggregations(serializer), null, data);
+        var results = new FindResults<T>(docs, response.Total, response.ToAggregations(serializer, logger), null, data);
         var protectedResults = (IFindResults<T>)results;
         if (options.ShouldUseSnapshotPaging())
             protectedResults.HasMore = response.Hits.Count >= limit;
@@ -109,7 +109,7 @@ public static class ElasticIndexExtensions
         return results;
     }
 
-    public static FindResults<T> ToFindResults<T>(this SubmitAsyncSearchResponse<T> response, ICommandOptions options, ITextSerializer serializer) where T : class, new()
+    public static FindResults<T> ToFindResults<T>(this SubmitAsyncSearchResponse<T> response, ICommandOptions options, ITextSerializer serializer, ILogger logger = null) where T : class, new()
     {
         ArgumentNullException.ThrowIfNull(response);
         ArgumentNullException.ThrowIfNull(options);
@@ -136,7 +136,7 @@ public static class ElasticIndexExtensions
         if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
             data.Remove(AsyncQueryDataKeys.AsyncQueryId);
 
-        var results = new FindResults<T>(docs, response.Response.Total, response.ToAggregations(serializer), null, data);
+        var results = new FindResults<T>(docs, response.Response.Total, response.ToAggregations(serializer, logger), null, data);
         var protectedResults = (IFindResults<T>)results;
         if (options.ShouldUseSnapshotPaging())
             protectedResults.HasMore = response.Response.Hits.Count >= limit;
@@ -172,7 +172,7 @@ public static class ElasticIndexExtensions
         return hits.Select(h => h.ToFindHit());
     }
 
-    public static CountResult ToCountResult<T>(this SearchResponse<T> response, ICommandOptions options, ITextSerializer serializer) where T : class, new()
+    public static CountResult ToCountResult<T>(this SearchResponse<T> response, ICommandOptions options, ITextSerializer serializer, ILogger logger = null) where T : class, new()
     {
         if (!response.IsValidResponse)
         {
@@ -186,10 +186,10 @@ public static class ElasticIndexExtensions
         if (response.ScrollId != null)
             data.Add(ElasticDataKeys.ScrollId, response.ScrollId.ToString());
 
-        return new CountResult(response.Total, response.ToAggregations(serializer), data);
+        return new CountResult(response.Total, response.ToAggregations(serializer, logger), data);
     }
 
-    public static CountResult ToCountResult<T>(this SubmitAsyncSearchResponse<T> response, ICommandOptions options, ITextSerializer serializer) where T : class, new()
+    public static CountResult ToCountResult<T>(this SubmitAsyncSearchResponse<T> response, ICommandOptions options, ITextSerializer serializer, ILogger logger = null) where T : class, new()
     {
         if (!response.IsValidResponse)
         {
@@ -209,10 +209,10 @@ public static class ElasticIndexExtensions
         if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
             data.Remove(AsyncQueryDataKeys.AsyncQueryId);
 
-        return new CountResult(response.Response.Total, response.ToAggregations(serializer), data);
+        return new CountResult(response.Response.Total, response.ToAggregations(serializer, logger), data);
     }
 
-    public static FindResults<T> ToFindResults<T>(this GetAsyncSearchResponse<T> response, ICommandOptions options, ITextSerializer serializer) where T : class, new()
+    public static FindResults<T> ToFindResults<T>(this GetAsyncSearchResponse<T> response, ICommandOptions options, ITextSerializer serializer, ILogger logger = null) where T : class, new()
     {
         ArgumentNullException.ThrowIfNull(response);
         ArgumentNullException.ThrowIfNull(options);
@@ -239,7 +239,7 @@ public static class ElasticIndexExtensions
         if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
             data.Remove(AsyncQueryDataKeys.AsyncQueryId);
 
-        var results = new FindResults<T>(docs, response.Response.Total, response.ToAggregations(serializer), null, data);
+        var results = new FindResults<T>(docs, response.Response.Total, response.ToAggregations(serializer, logger), null, data);
         var protectedResults = (IFindResults<T>)results;
         if (options.ShouldUseSnapshotPaging())
             protectedResults.HasMore = response.Response.Hits.Count >= limit;
@@ -269,7 +269,7 @@ public static class ElasticIndexExtensions
         return results;
     }
 
-    public static CountResult ToCountResult<T>(this GetAsyncSearchResponse<T> response, ICommandOptions options, ITextSerializer serializer) where T : class, new()
+    public static CountResult ToCountResult<T>(this GetAsyncSearchResponse<T> response, ICommandOptions options, ITextSerializer serializer, ILogger logger = null) where T : class, new()
     {
         if (!response.IsValidResponse)
         {
@@ -289,10 +289,10 @@ public static class ElasticIndexExtensions
         if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
             data.Remove(AsyncQueryDataKeys.AsyncQueryId);
 
-        return new CountResult(response.Response.Total, response.ToAggregations(serializer), data);
+        return new CountResult(response.Response.Total, response.ToAggregations(serializer, logger), data);
     }
 
-    public static FindResults<T> ToFindResults<T>(this ScrollResponse<T> response, ICommandOptions options, ITextSerializer serializer) where T : class, new()
+    public static FindResults<T> ToFindResults<T>(this ScrollResponse<T> response, ICommandOptions options, ITextSerializer serializer, ILogger logger = null) where T : class, new()
     {
         ArgumentNullException.ThrowIfNull(response);
         ArgumentNullException.ThrowIfNull(options);
@@ -313,7 +313,7 @@ public static class ElasticIndexExtensions
         if (response.ScrollId != null)
             data.Add(ElasticDataKeys.ScrollId, response.ScrollId.ToString());
 
-        var results = new FindResults<T>(docs, response.Total, response.ToAggregations(serializer), null, data);
+        var results = new FindResults<T>(docs, response.Total, response.ToAggregations(serializer, logger), null, data);
         var protectedResults = (IFindResults<T>)results;
         protectedResults.HasMore = response.Hits.Count > 0 && response.Hits.Count >= limit;
 
@@ -444,7 +444,7 @@ public static class ElasticIndexExtensions
     private static readonly IReadOnlyDictionary<string, object> _rangeBucketData = new ReadOnlyDictionary<string, object>(new Dictionary<string, object> { { "@type", "range" } });
     private static readonly IReadOnlyDictionary<string, object> _geohashBucketData = new ReadOnlyDictionary<string, object>(new Dictionary<string, object> { { "@type", "geohash" } });
 
-    public static IAggregate ToAggregate(this ElasticAggregations.IAggregate aggregate, string key, ITextSerializer serializer)
+    public static IAggregate ToAggregate(this ElasticAggregations.IAggregate aggregate, string key, ITextSerializer serializer, ILogger logger = null)
     {
         switch (aggregate)
         {
@@ -540,67 +540,67 @@ public static class ElasticIndexExtensions
                 };
 
             case ElasticAggregations.FilterAggregate filter:
-                return new SingleBucketAggregate(filter.ToAggregations(serializer))
+                return new SingleBucketAggregate(filter.ToAggregations(serializer, logger))
                 {
                     Data = filter.Meta.ToReadOnlyData<SingleBucketAggregate>(),
                     Total = filter.DocCount
                 };
 
             case ElasticAggregations.GlobalAggregate globalAgg:
-                return new SingleBucketAggregate(globalAgg.ToAggregations(serializer))
+                return new SingleBucketAggregate(globalAgg.ToAggregations(serializer, logger))
                 {
                     Data = globalAgg.Meta.ToReadOnlyData<SingleBucketAggregate>(),
                     Total = globalAgg.DocCount
                 };
 
             case ElasticAggregations.MissingAggregate missing:
-                return new SingleBucketAggregate(missing.ToAggregations(serializer))
+                return new SingleBucketAggregate(missing.ToAggregations(serializer, logger))
                 {
                     Data = missing.Meta.ToReadOnlyData<SingleBucketAggregate>(),
                     Total = missing.DocCount
                 };
 
             case ElasticAggregations.NestedAggregate nested:
-                return new SingleBucketAggregate(nested.ToAggregations(serializer))
+                return new SingleBucketAggregate(nested.ToAggregations(serializer, logger))
                 {
                     Data = nested.Meta.ToReadOnlyData<SingleBucketAggregate>(),
                     Total = nested.DocCount
                 };
 
             case ElasticAggregations.ReverseNestedAggregate reverseNested:
-                return new SingleBucketAggregate(reverseNested.ToAggregations(serializer))
+                return new SingleBucketAggregate(reverseNested.ToAggregations(serializer, logger))
                 {
                     Data = reverseNested.Meta.ToReadOnlyData<SingleBucketAggregate>(),
                     Total = reverseNested.DocCount
                 };
 
             case ElasticAggregations.DateHistogramAggregate dateHistogram:
-                return ToDateHistogramBucketAggregate(dateHistogram, serializer);
+                return ToDateHistogramBucketAggregate(dateHistogram, serializer, logger);
 
             case ElasticAggregations.StringTermsAggregate stringTerms:
-                return ToTermsBucketAggregate(stringTerms, serializer);
+                return ToTermsBucketAggregate(stringTerms, key, serializer, logger);
 
             case ElasticAggregations.LongTermsAggregate longTerms:
-                return ToTermsBucketAggregate(longTerms, serializer);
+                return ToTermsBucketAggregate(longTerms, key, serializer, logger);
 
             case ElasticAggregations.DoubleTermsAggregate doubleTerms:
-                return ToTermsBucketAggregate(doubleTerms, serializer);
+                return ToTermsBucketAggregate(doubleTerms, key, serializer, logger);
 
             case ElasticAggregations.DateRangeAggregate dateRange:
-                return ToRangeBucketAggregate(dateRange, serializer);
+                return ToRangeBucketAggregate(dateRange, serializer, logger);
 
             case ElasticAggregations.RangeAggregate range:
-                return ToRangeBucketAggregate(range, serializer);
+                return ToRangeBucketAggregate(range, serializer, logger);
 
             case ElasticAggregations.GeohashGridAggregate geohashGrid:
-                return ToGeohashGridBucketAggregate(geohashGrid, serializer);
+                return ToGeohashGridBucketAggregate(geohashGrid, serializer, logger);
 
             default:
                 return null;
         }
     }
 
-    private static BucketAggregate ToDateHistogramBucketAggregate(ElasticAggregations.DateHistogramAggregate aggregate, ITextSerializer serializer)
+    private static BucketAggregate ToDateHistogramBucketAggregate(ElasticAggregations.DateHistogramAggregate aggregate, ITextSerializer serializer, ILogger logger = null)
     {
         var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
 
@@ -620,7 +620,7 @@ public static class ElasticIndexExtensions
             if (hasTimezone)
                 bucketData["@timezone"] = timezoneValue;
 
-            return (IBucket)new DateHistogramBucket(date, b.ToAggregations(serializer))
+            return (IBucket)new DateHistogramBucket(date, b.ToAggregations(serializer, logger))
             {
                 Total = b.DocCount,
                 Key = keyAsLong,
@@ -636,15 +636,18 @@ public static class ElasticIndexExtensions
         };
     }
 
-    private static BucketAggregate ToTermsBucketAggregate(ElasticAggregations.StringTermsAggregate aggregate, ITextSerializer serializer)
+    private static BucketAggregate ToTermsBucketAggregate(ElasticAggregations.StringTermsAggregate aggregate, string name, ITextSerializer serializer, ILogger logger = null)
     {
         var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
         if (aggregate.DocCountErrorUpperBound.GetValueOrDefault() > 0)
+        {
+            logger?.LogWarning("Terms aggregation {AggregationName} has doc_count_error_upper_bound of {DocCountErrorUpperBound}. Results may be inaccurate. Consider increasing shard_size.", name, aggregate.DocCountErrorUpperBound);
             data.Add(nameof(aggregate.DocCountErrorUpperBound), aggregate.DocCountErrorUpperBound);
+        }
         if (aggregate.SumOtherDocCount.GetValueOrDefault() > 0)
             data.Add(nameof(aggregate.SumOtherDocCount), aggregate.SumOtherDocCount);
 
-        var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<string>(b.ToAggregations(serializer))
+        var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<string>(b.ToAggregations(serializer, logger))
         {
             Total = b.DocCount,
             Key = b.Key.ToString(),
@@ -659,15 +662,18 @@ public static class ElasticIndexExtensions
         };
     }
 
-    private static BucketAggregate ToTermsBucketAggregate(ElasticAggregations.LongTermsAggregate aggregate, ITextSerializer serializer)
+    private static BucketAggregate ToTermsBucketAggregate(ElasticAggregations.LongTermsAggregate aggregate, string name, ITextSerializer serializer, ILogger logger = null)
     {
         var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
         if (aggregate.DocCountErrorUpperBound.GetValueOrDefault() > 0)
+        {
+            logger?.LogWarning("Terms aggregation {AggregationName} has doc_count_error_upper_bound of {DocCountErrorUpperBound}. Results may be inaccurate. Consider increasing shard_size.", name, aggregate.DocCountErrorUpperBound);
             data.Add(nameof(aggregate.DocCountErrorUpperBound), aggregate.DocCountErrorUpperBound);
+        }
         if (aggregate.SumOtherDocCount.GetValueOrDefault() > 0)
             data.Add(nameof(aggregate.SumOtherDocCount), aggregate.SumOtherDocCount);
 
-        var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<double>(b.ToAggregations(serializer))
+        var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<double>(b.ToAggregations(serializer, logger))
         {
             Total = b.DocCount,
             Key = b.Key,
@@ -682,15 +688,18 @@ public static class ElasticIndexExtensions
         };
     }
 
-    private static BucketAggregate ToTermsBucketAggregate(ElasticAggregations.DoubleTermsAggregate aggregate, ITextSerializer serializer)
+    private static BucketAggregate ToTermsBucketAggregate(ElasticAggregations.DoubleTermsAggregate aggregate, string name, ITextSerializer serializer, ILogger logger = null)
     {
         var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
         if (aggregate.DocCountErrorUpperBound.GetValueOrDefault() > 0)
+        {
+            logger?.LogWarning("Terms aggregation {AggregationName} has doc_count_error_upper_bound of {DocCountErrorUpperBound}. Results may be inaccurate. Consider increasing shard_size.", name, aggregate.DocCountErrorUpperBound);
             data.Add(nameof(aggregate.DocCountErrorUpperBound), aggregate.DocCountErrorUpperBound);
+        }
         if (aggregate.SumOtherDocCount.GetValueOrDefault() > 0)
             data.Add(nameof(aggregate.SumOtherDocCount), aggregate.SumOtherDocCount);
 
-        var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<double>(b.ToAggregations(serializer))
+        var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<double>(b.ToAggregations(serializer, logger))
         {
             Total = b.DocCount,
             Key = b.Key,
@@ -705,11 +714,11 @@ public static class ElasticIndexExtensions
         };
     }
 
-    private static BucketAggregate ToRangeBucketAggregate(ElasticAggregations.DateRangeAggregate aggregate, ITextSerializer serializer)
+    private static BucketAggregate ToRangeBucketAggregate(ElasticAggregations.DateRangeAggregate aggregate, ITextSerializer serializer, ILogger logger = null)
     {
         var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
 
-        var buckets = aggregate.Buckets.Select(b => (IBucket)new RangeBucket(b.ToAggregations(serializer))
+        var buckets = aggregate.Buckets.Select(b => (IBucket)new RangeBucket(b.ToAggregations(serializer, logger))
         {
             Total = b.DocCount,
             Key = b.Key,
@@ -727,11 +736,11 @@ public static class ElasticIndexExtensions
         };
     }
 
-    private static BucketAggregate ToRangeBucketAggregate(ElasticAggregations.RangeAggregate aggregate, ITextSerializer serializer)
+    private static BucketAggregate ToRangeBucketAggregate(ElasticAggregations.RangeAggregate aggregate, ITextSerializer serializer, ILogger logger = null)
     {
         var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
 
-        var buckets = aggregate.Buckets.Select(b => (IBucket)new RangeBucket(b.ToAggregations(serializer))
+        var buckets = aggregate.Buckets.Select(b => (IBucket)new RangeBucket(b.ToAggregations(serializer, logger))
         {
             Total = b.DocCount,
             Key = b.Key,
@@ -749,11 +758,11 @@ public static class ElasticIndexExtensions
         };
     }
 
-    private static BucketAggregate ToGeohashGridBucketAggregate(ElasticAggregations.GeohashGridAggregate aggregate, ITextSerializer serializer)
+    private static BucketAggregate ToGeohashGridBucketAggregate(ElasticAggregations.GeohashGridAggregate aggregate, ITextSerializer serializer, ILogger logger = null)
     {
         var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
 
-        var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<string>(b.ToAggregations(serializer))
+        var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<string>(b.ToAggregations(serializer, logger))
         {
             Total = b.DocCount,
             Key = b.Key,
@@ -806,87 +815,87 @@ public static class ElasticIndexExtensions
         return new DateTime(ticks, kind);
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.AggregateDictionary aggregations, ITextSerializer serializer)
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.AggregateDictionary aggregations, ITextSerializer serializer, ILogger logger = null)
     {
         if (aggregations == null)
             return null;
 
-        return aggregations.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer));
+        return aggregations.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer, logger));
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.DateHistogramBucket bucket, ITextSerializer serializer)
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.DateHistogramBucket bucket, ITextSerializer serializer, ILogger logger = null)
     {
-        return bucket.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer));
+        return bucket.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer, logger));
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.StringTermsBucket bucket, ITextSerializer serializer)
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.StringTermsBucket bucket, ITextSerializer serializer, ILogger logger = null)
     {
-        return bucket.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer));
+        return bucket.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer, logger));
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.LongTermsBucket bucket, ITextSerializer serializer)
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.LongTermsBucket bucket, ITextSerializer serializer, ILogger logger = null)
     {
-        return bucket.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer));
+        return bucket.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer, logger));
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.DoubleTermsBucket bucket, ITextSerializer serializer)
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.DoubleTermsBucket bucket, ITextSerializer serializer, ILogger logger = null)
     {
-        return bucket.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer));
+        return bucket.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer, logger));
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.RangeBucket bucket, ITextSerializer serializer)
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.RangeBucket bucket, ITextSerializer serializer, ILogger logger = null)
     {
-        return bucket.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer));
+        return bucket.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer, logger));
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.GeohashGridBucket bucket, ITextSerializer serializer)
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.GeohashGridBucket bucket, ITextSerializer serializer, ILogger logger = null)
     {
-        return bucket.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer));
+        return bucket.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer, logger));
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.FilterAggregate aggregate, ITextSerializer serializer)
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.FilterAggregate aggregate, ITextSerializer serializer, ILogger logger = null)
     {
-        return aggregate.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer));
+        return aggregate.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer, logger));
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.GlobalAggregate aggregate, ITextSerializer serializer)
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.GlobalAggregate aggregate, ITextSerializer serializer, ILogger logger = null)
     {
-        return aggregate.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer));
+        return aggregate.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer, logger));
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.MissingAggregate aggregate, ITextSerializer serializer)
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.MissingAggregate aggregate, ITextSerializer serializer, ILogger logger = null)
     {
-        return aggregate.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer));
+        return aggregate.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer, logger));
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.NestedAggregate aggregate, ITextSerializer serializer)
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.NestedAggregate aggregate, ITextSerializer serializer, ILogger logger = null)
     {
-        return aggregate.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer));
+        return aggregate.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer, logger));
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.ReverseNestedAggregate aggregate, ITextSerializer serializer)
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this ElasticAggregations.ReverseNestedAggregate aggregate, ITextSerializer serializer, ILogger logger = null)
     {
-        return aggregate.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer));
+        return aggregate.Aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, serializer, logger));
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this SearchResponse<T> res, ITextSerializer serializer) where T : class
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this SearchResponse<T> res, ITextSerializer serializer, ILogger logger = null) where T : class
     {
-        return res.Aggregations.ToAggregations(serializer);
+        return res.Aggregations.ToAggregations(serializer, logger);
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this SubmitAsyncSearchResponse<T> res, ITextSerializer serializer) where T : class
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this SubmitAsyncSearchResponse<T> res, ITextSerializer serializer, ILogger logger = null) where T : class
     {
-        return res.Response?.Aggregations.ToAggregations(serializer);
+        return res.Response?.Aggregations.ToAggregations(serializer, logger);
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this GetAsyncSearchResponse<T> res, ITextSerializer serializer) where T : class
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this GetAsyncSearchResponse<T> res, ITextSerializer serializer, ILogger logger = null) where T : class
     {
-        return res.Response?.Aggregations.ToAggregations(serializer);
+        return res.Response?.Aggregations.ToAggregations(serializer, logger);
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this ScrollResponse<T> res, ITextSerializer serializer) where T : class
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this ScrollResponse<T> res, ITextSerializer serializer, ILogger logger = null) where T : class
     {
-        return res.Aggregations.ToAggregations(serializer);
+        return res.Aggregations.ToAggregations(serializer, logger);
     }
 
     public static PropertiesDescriptor<T> SetupDefaults<T>(this PropertiesDescriptor<T> pd) where T : class
