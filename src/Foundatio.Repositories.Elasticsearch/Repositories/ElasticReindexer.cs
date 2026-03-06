@@ -241,7 +241,8 @@ public class ElasticReindexer
 
             lastReindexResponse = response?.Response;
 
-            // Extract status values from the raw JSON. The Status property is object? and gets deserialized as JsonElement
+            // Extract status values from the raw JSON. The Status property is object? and may be
+            // deserialized as JsonElement or IDictionary<string, object> depending on serializer config.
             TaskStatusValues taskStatus = null;
             if (status.Task.Status is JsonElement jsonElement)
             {
@@ -252,6 +253,17 @@ public class ElasticReindexer
                     Updated = jsonElement.TryGetProperty("updated", out var updatedProp) ? updatedProp.GetInt64() : 0,
                     Noops = jsonElement.TryGetProperty("noops", out var noopsProp) ? noopsProp.GetInt64() : 0,
                     VersionConflicts = jsonElement.TryGetProperty("version_conflicts", out var conflictsProp) ? conflictsProp.GetInt64() : 0
+                };
+            }
+            else if (status.Task.Status is IDictionary<string, object> dict)
+            {
+                taskStatus = new TaskStatusValues
+                {
+                    Total = dict.TryGetValue("total", out var totalVal) ? Convert.ToInt64(totalVal) : 0,
+                    Created = dict.TryGetValue("created", out var createdVal) ? Convert.ToInt64(createdVal) : 0,
+                    Updated = dict.TryGetValue("updated", out var updatedVal) ? Convert.ToInt64(updatedVal) : 0,
+                    Noops = dict.TryGetValue("noops", out var noopsVal) ? Convert.ToInt64(noopsVal) : 0,
+                    VersionConflicts = dict.TryGetValue("version_conflicts", out var conflictsVal) ? Convert.ToInt64(conflictsVal) : 0
                 };
             }
             else if (status.Task.Status != null)

@@ -886,7 +886,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         continue;
                     }
 
-                    // Extract status values from the raw JSON. The Status property is object? and gets deserialized as JsonElement
+                    // Extract status values from the raw JSON. The Status property is object? and may be
+                    // deserialized as JsonElement or IDictionary<string, object> depending on serializer config.
                     long? created = null, updated = null, deleted = null, versionConflicts = null, total = null;
                     if (taskStatus.Task.Status is JsonElement jsonElement)
                     {
@@ -895,6 +896,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         updated = jsonElement.TryGetProperty("updated", out var updatedProp) ? updatedProp.GetInt64() : 0;
                         deleted = jsonElement.TryGetProperty("deleted", out var deletedProp) ? deletedProp.GetInt64() : 0;
                         versionConflicts = jsonElement.TryGetProperty("version_conflicts", out var conflictsProp) ? conflictsProp.GetInt64() : 0;
+                    }
+                    else if (taskStatus.Task.Status is IDictionary<string, object> dict)
+                    {
+                        total = dict.TryGetValue("total", out var totalVal) ? Convert.ToInt64(totalVal) : 0;
+                        created = dict.TryGetValue("created", out var createdVal) ? Convert.ToInt64(createdVal) : 0;
+                        updated = dict.TryGetValue("updated", out var updatedVal) ? Convert.ToInt64(updatedVal) : 0;
+                        deleted = dict.TryGetValue("deleted", out var deletedVal) ? Convert.ToInt64(deletedVal) : 0;
+                        versionConflicts = dict.TryGetValue("version_conflicts", out var conflictsVal) ? Convert.ToInt64(conflictsVal) : 0;
                     }
 
                     if (taskStatus.Completed)

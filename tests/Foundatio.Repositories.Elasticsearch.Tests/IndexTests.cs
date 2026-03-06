@@ -990,7 +990,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         // Assert
         Assert.NotNull(lastEmployee);
-        Assert.NotNull(lastEmployee.Id);
+        Assert.NotNull(lastEmployee!.Id);
         var retrieved = await repository.GetByIdAsync(lastEmployee.Id);
         Assert.NotNull(retrieved);
         Assert.Equal(lastEmployee.Id, retrieved.Id);

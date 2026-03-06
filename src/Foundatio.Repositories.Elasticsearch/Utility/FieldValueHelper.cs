@@ -18,7 +18,7 @@ public static class FieldValueHelper
             byte b8 => FieldValue.Long(b8),
             sbyte sb => FieldValue.Long(sb),
             uint ui => FieldValue.Long(ui),
-            ulong ul => FieldValue.Long((long)ul),
+            ulong ul => ul <= (ulong)long.MaxValue ? FieldValue.Long((long)ul) : FieldValue.Double((double)ul),
             ushort us => FieldValue.Long(us),
             double d => FieldValue.Double(d),
             float f => FieldValue.Double(f),
