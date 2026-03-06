@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -86,16 +86,69 @@ public static class AggregationsExtensions
 
     private static IEnumerable<KeyedBucket<TKey>> GetKeyedBuckets<TKey>(IEnumerable<IBucket> items)
     {
-        var buckets = items.Cast<KeyedBucket<object>>();
-
-        foreach (var bucket in buckets)
+        foreach (var item in items)
         {
+            object key = null;
+            string keyAsString = null;
+            IReadOnlyDictionary<string, IAggregate> aggregations = null;
+            long? total = null;
+            IReadOnlyDictionary<string, object> data = null;
+
+            switch (item)
+            {
+                case KeyedBucket<string> stringBucket:
+                    key = stringBucket.Key;
+                    keyAsString = stringBucket.KeyAsString;
+                    aggregations = stringBucket.Aggregations;
+                    total = stringBucket.Total;
+                    data = stringBucket.Data;
+                    break;
+                case KeyedBucket<double> doubleBucket:
+                    key = doubleBucket.Key;
+                    keyAsString = doubleBucket.KeyAsString;
+                    aggregations = doubleBucket.Aggregations;
+                    total = doubleBucket.Total;
+                    data = doubleBucket.Data;
+                    break;
+                case KeyedBucket<int> intBucket:
+                    key = intBucket.Key;
+                    keyAsString = intBucket.KeyAsString;
+                    aggregations = intBucket.Aggregations;
+                    total = intBucket.Total;
+                    data = intBucket.Data;
+                    break;
+                case KeyedBucket<long> longBucket:
+                    key = longBucket.Key;
+                    keyAsString = longBucket.KeyAsString;
+                    aggregations = longBucket.Aggregations;
+                    total = longBucket.Total;
+                    data = longBucket.Data;
+                    break;
+                case KeyedBucket<bool> boolBucket:
+                    key = boolBucket.Key;
+                    keyAsString = boolBucket.KeyAsString;
+                    aggregations = boolBucket.Aggregations;
+                    total = boolBucket.Total;
+                    data = boolBucket.Data;
+                    break;
+                case KeyedBucket<object> objectBucket:
+                    key = objectBucket.Key;
+                    keyAsString = objectBucket.KeyAsString;
+                    aggregations = objectBucket.Aggregations;
+                    total = objectBucket.Total;
+                    data = objectBucket.Data;
+                    break;
+                default:
+                    throw new NotSupportedException($"Unsupported bucket type: {item.GetType().FullName}");
+            }
+
             yield return new KeyedBucket<TKey>
             {
-                Key = (TKey)Convert.ChangeType(bucket.Key, typeof(TKey)),
-                KeyAsString = bucket.KeyAsString,
-                Aggregations = bucket.Aggregations,
-                Total = bucket.Total
+                Key = (TKey)Convert.ChangeType(key, typeof(TKey)),
+                KeyAsString = keyAsString,
+                Aggregations = aggregations,
+                Total = total,
+                Data = data
             };
         }
     }

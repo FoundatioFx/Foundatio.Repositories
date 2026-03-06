@@ -200,12 +200,12 @@ public class Index : IIndex
 
         var response = await Configuration.Client.Indices.CreateAsync(name, descriptor).AnyContext();
         _logger.LogRequest(response);
-        _isEnsured = true;
 
         // check for valid response or that the index already exists
         if (response.IsValid || response.ServerError?.Status == 400 &&
             response.ServerError.Error.Type is "index_already_exists_exception" or "resource_already_exists_exception")
         {
+            _isEnsured = true;
             return;
         }
 
