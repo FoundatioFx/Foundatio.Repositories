@@ -373,13 +373,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             if (!response.IsValid && response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
                 throw new AsyncQueryNotFoundException(queryId);
 
-            result = response.ToFindResults(options);
+            result = response.ToFindResults(options, _logger);
         }
         else if (options.HasSnapshotScrollId())
         {
             var response = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), options.GetSnapshotScrollId()).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
-            result = response.ToFindResults(options);
+            result = response.ToFindResults(options, _logger);
         }
         else
         {
@@ -399,13 +399,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
                 var response = await _client.AsyncSearch.SubmitAsync<TResult>(asyncSearchDescriptor).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
-                result = response.ToFindResults(options);
+                result = response.ToFindResults(options, _logger);
             }
             else
             {
                 var response = await _client.SearchAsync<TResult>(searchDescriptor).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
-                result = response.ToFindResults(options);
+                result = response.ToFindResults(options, _logger);
             }
         }
 
@@ -444,7 +444,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             var scrollResponse = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), scrollId).AnyContext();
             _logger.LogRequest(scrollResponse, options.GetQueryLogLevel());
 
-            var results = scrollResponse.ToFindResults(options);
+            var results = scrollResponse.ToFindResults(options, _logger);
             ((IFindResults<T>)results).Page = previousResults.Page + 1;
 
             // clear the scroll
@@ -547,7 +547,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
                 await RemoveQueryAsync(queryId);
 
-            result = response.ToCountResult(options);
+            result = response.ToCountResult(options, _logger);
         }
         else if (options.ShouldUseAsyncQuery())
         {
@@ -558,13 +558,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
             var response = await _client.AsyncSearch.SubmitAsync<T>(asyncSearchDescriptor).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
-            result = response.ToCountResult(options);
+            result = response.ToCountResult(options, _logger);
         }
         else
         {
             var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
-            result = response.ToCountResult(options);
+            result = response.ToCountResult(options, _logger);
         }
 
         if (IsCacheEnabled && options.ShouldUseCache() && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())

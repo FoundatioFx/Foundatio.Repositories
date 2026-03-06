@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -10,6 +10,7 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Utility;
+using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
@@ -58,7 +59,7 @@ public static class ElasticIndexExtensions
         return asyncSearchDescriptor;
     }
 
-    public static FindResults<T> ToFindResults<T>(this Nest.ISearchResponse<T> response, ICommandOptions options) where T : class, new()
+    public static FindResults<T> ToFindResults<T>(this Nest.ISearchResponse<T> response, ICommandOptions options, ILogger logger = null) where T : class, new()
     {
         if (!response.IsValid)
         {
@@ -75,7 +76,7 @@ public static class ElasticIndexExtensions
         if (response.ScrollId != null)
             data.Add(ElasticDataKeys.ScrollId, response.ScrollId);
 
-        var results = new FindResults<T>(docs, response.Total, response.ToAggregations(), null, data);
+        var results = new FindResults<T>(docs, response.Total, response.ToAggregations(logger), null, data);
         var protectedResults = (IFindResults<T>)results;
         if (options.ShouldUseSnapshotPaging())
             protectedResults.HasMore = response.Hits.Count >= limit;
@@ -106,7 +107,7 @@ public static class ElasticIndexExtensions
         return results;
     }
 
-    public static FindResults<T> ToFindResults<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options) where T : class, new()
+    public static FindResults<T> ToFindResults<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options, ILogger logger = null) where T : class, new()
     {
         if (!response.IsValid)
         {
@@ -129,7 +130,7 @@ public static class ElasticIndexExtensions
         if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
             data.Remove(AsyncQueryDataKeys.AsyncQueryId);
 
-        var results = new FindResults<T>(docs, response.Response.Total, response.ToAggregations(), null, data);
+        var results = new FindResults<T>(docs, response.Response.Total, response.ToAggregations(logger), null, data);
         var protectedResults = (IFindResults<T>)results;
         if (options.ShouldUseSnapshotPaging())
             protectedResults.HasMore = response.Response.Hits.Count >= limit;
@@ -165,7 +166,7 @@ public static class ElasticIndexExtensions
         return hits.Select(h => h.ToFindHit());
     }
 
-    public static CountResult ToCountResult<T>(this Nest.ISearchResponse<T> response, ICommandOptions options) where T : class, new()
+    public static CountResult ToCountResult<T>(this Nest.ISearchResponse<T> response, ICommandOptions options, ILogger logger = null) where T : class, new()
     {
         if (!response.IsValid)
         {
@@ -179,10 +180,10 @@ public static class ElasticIndexExtensions
         if (response.ScrollId != null)
             data.Add(ElasticDataKeys.ScrollId, response.ScrollId);
 
-        return new CountResult(response.Total, response.ToAggregations(), data);
+        return new CountResult(response.Total, response.ToAggregations(logger), data);
     }
 
-    public static CountResult ToCountResult<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options) where T : class, new()
+    public static CountResult ToCountResult<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options, ILogger logger = null) where T : class, new()
     {
         if (!response.IsValid)
         {
@@ -202,7 +203,7 @@ public static class ElasticIndexExtensions
         if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
             data.Remove(AsyncQueryDataKeys.AsyncQueryId);
 
-        return new CountResult(response.Response.Total, response.ToAggregations(), data);
+        return new CountResult(response.Response.Total, response.ToAggregations(logger), data);
     }
 
     public static FindHit<T> ToFindHit<T>(this Nest.GetResponse<T> hit) where T : class
@@ -312,7 +313,7 @@ public static class ElasticIndexExtensions
             return agg => hitsField?.GetValue(agg) as IList<Nest.LazyDocument>;
         });
 
-    public static IAggregate ToAggregate(this Nest.IAggregate aggregate)
+    public static IAggregate ToAggregate(this Nest.IAggregate aggregate, string name = null, ILogger logger = null)
     {
         if (aggregate is Nest.ValueAggregate valueAggregate)
         {
@@ -389,7 +390,7 @@ public static class ElasticIndexExtensions
             };
 
         if (aggregate is Nest.SingleBucketAggregate singleBucketAggregate)
-            return new SingleBucketAggregate(singleBucketAggregate.ToAggregations())
+            return new SingleBucketAggregate(singleBucketAggregate.ToAggregations(logger))
             {
                 Data = singleBucketAggregate.Meta.ToReadOnlyData<SingleBucketAggregate>(),
                 Total = singleBucketAggregate.DocCount
@@ -399,13 +400,16 @@ public static class ElasticIndexExtensions
         {
             var data = new Dictionary<string, object>((IDictionary<string, object>)bucketAggregation.Meta ?? new Dictionary<string, object>());
             if (bucketAggregation.DocCountErrorUpperBound.GetValueOrDefault() > 0)
+            {
+                logger?.LogWarning("Terms aggregation {AggregationName} has doc_count_error_upper_bound of {DocCountErrorUpperBound}. Results may be inaccurate. Consider increasing shard_size.", name, bucketAggregation.DocCountErrorUpperBound);
                 data.Add(nameof(bucketAggregation.DocCountErrorUpperBound), bucketAggregation.DocCountErrorUpperBound);
+            }
             if (bucketAggregation.SumOtherDocCount.GetValueOrDefault() > 0)
                 data.Add(nameof(bucketAggregation.SumOtherDocCount), bucketAggregation.SumOtherDocCount);
 
             return new BucketAggregate
             {
-                Items = bucketAggregation.Items.Select(i => i.ToBucket(data)).ToList(),
+                Items = bucketAggregation.Items.Select(i => i.ToBucket(data, logger)).ToList(),
                 Data = new ReadOnlyDictionary<string, object>(data).ToReadOnlyData<BucketAggregate>(),
                 Total = bucketAggregation.DocCount
             };
@@ -442,7 +446,7 @@ public static class ElasticIndexExtensions
         return new DateTime(ticks, kind);
     }
 
-    public static IBucket ToBucket(this Nest.IBucket bucket, IDictionary<string, object> parentData = null)
+    public static IBucket ToBucket(this Nest.IBucket bucket, IDictionary<string, object> parentData = null, ILogger logger = null)
     {
         if (bucket is Nest.DateHistogramBucket dateHistogramBucket)
         {
@@ -455,7 +459,7 @@ public static class ElasticIndexExtensions
             if (hasTimezone)
                 data.Add("@timezone", parentData["@timezone"]);
 
-            return new DateHistogramBucket(date, dateHistogramBucket.ToAggregations())
+            return new DateHistogramBucket(date, dateHistogramBucket.ToAggregations(logger))
             {
                 Total = dateHistogramBucket.DocCount,
                 Key = dateHistogramBucket.Key,
@@ -465,7 +469,7 @@ public static class ElasticIndexExtensions
         }
 
         if (bucket is Nest.RangeBucket rangeBucket)
-            return new RangeBucket(rangeBucket.ToAggregations())
+            return new RangeBucket(rangeBucket.ToAggregations(logger))
             {
                 Total = rangeBucket.DocCount,
                 Key = rangeBucket.Key,
@@ -477,7 +481,7 @@ public static class ElasticIndexExtensions
             };
 
         if (bucket is Nest.KeyedBucket<string> stringKeyedBucket)
-            return new KeyedBucket<string>(stringKeyedBucket.ToAggregations())
+            return new KeyedBucket<string>(stringKeyedBucket.ToAggregations(logger))
             {
                 Total = stringKeyedBucket.DocCount,
                 Key = stringKeyedBucket.Key,
@@ -486,7 +490,7 @@ public static class ElasticIndexExtensions
             };
 
         if (bucket is Nest.KeyedBucket<double> doubleKeyedBucket)
-            return new KeyedBucket<double>(doubleKeyedBucket.ToAggregations())
+            return new KeyedBucket<double>(doubleKeyedBucket.ToAggregations(logger))
             {
                 Total = doubleKeyedBucket.DocCount,
                 Key = doubleKeyedBucket.Key,
@@ -495,7 +499,7 @@ public static class ElasticIndexExtensions
             };
 
         if (bucket is Nest.KeyedBucket<object> objectKeyedBucket)
-            return new KeyedBucket<object>(objectKeyedBucket.ToAggregations())
+            return new KeyedBucket<object>(objectKeyedBucket.ToAggregations(logger))
             {
                 Total = objectKeyedBucket.DocCount,
                 Key = objectKeyedBucket.Key,
@@ -506,19 +510,19 @@ public static class ElasticIndexExtensions
         return null;
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this IReadOnlyDictionary<string, Nest.IAggregate> aggregations)
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this IReadOnlyDictionary<string, Nest.IAggregate> aggregations, ILogger logger = null)
     {
-        return aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate());
+        return aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, logger));
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this Nest.ISearchResponse<T> res) where T : class
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this Nest.ISearchResponse<T> res, ILogger logger = null) where T : class
     {
-        return res.Aggregations.ToAggregations();
+        return res.Aggregations.ToAggregations(logger);
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this Nest.IAsyncSearchResponse<T> res) where T : class
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this Nest.IAsyncSearchResponse<T> res, ILogger logger = null) where T : class
     {
-        return res.Response.Aggregations.ToAggregations();
+        return res.Response.Aggregations.ToAggregations(logger);
     }
 
     public static Nest.PropertiesDescriptor<T> SetupDefaults<T>(this Nest.PropertiesDescriptor<T> pd) where T : class
