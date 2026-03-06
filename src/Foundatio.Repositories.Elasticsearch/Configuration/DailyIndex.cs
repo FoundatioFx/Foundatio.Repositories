@@ -247,6 +247,7 @@ public class DailyIndex : VersionedIndex
                 OldIndex = index.Index,
                 NewIndex = GetVersionedIndex(GetIndexDate(index.Index), Version),
                 Alias = Name,
+                Script = GetReindexScripts(index.CurrentVersion),
                 TimestampField = GetTimeStampField()
             };
 
