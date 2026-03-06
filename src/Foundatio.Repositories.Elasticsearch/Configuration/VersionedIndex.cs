@@ -139,7 +139,7 @@ public class VersionedIndex : Index, IVersionedIndex
         return reindexWorkItem;
     }
 
-    private string GetReindexScripts(int currentVersion)
+    protected string GetReindexScripts(int currentVersion)
     {
         var scripts = ReindexScripts.Where(s => s.Version > currentVersion && Version >= s.Version).OrderBy(s => s.Version).ToList();
         if (scripts.Count == 0)

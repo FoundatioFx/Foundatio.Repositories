@@ -210,6 +210,39 @@ public sealed class DailyEmployeeIndexWithWrongEmployeeType : DailyIndex<Employe
     public DailyEmployeeIndexWithWrongEmployeeType(IElasticConfiguration configuration, int version) : base(configuration, "daily-employees", version) { }
 }
 
+public sealed class DailyEmployeeIndexWithReindexScript : DailyIndex<Employee>
+{
+    public DailyEmployeeIndexWithReindexScript(IElasticConfiguration configuration, int version) : base(configuration, "daily-employees", version)
+    {
+        AddAlias($"{Name}-today", TimeSpan.FromDays(1));
+        AddAlias($"{Name}-last7days", TimeSpan.FromDays(7));
+        AddAlias($"{Name}-last30days", TimeSpan.FromDays(30));
+        AddReindexScript(2, "ctx._source.companyName = 'daily-reindex-script';");
+    }
+
+    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    {
+        return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+    }
+
+    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
+    {
+        return base.ConfigureIndexMapping(map
+            .Dynamic(false)
+            .Properties(p => p
+                .SetupDefaults()
+                .Keyword(f => f.Name(e => e.Id))
+                .Keyword(f => f.Name(e => e.CompanyId))
+                .Keyword(f => f.Name(e => e.CompanyName))
+                .Text(f => f.Name(e => e.Name).AddKeywordField())
+                .Scalar(f => f.Age, f => f.Name(e => e.Age))
+                .Date(f => f.Name(e => e.LastReview))
+                .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
+                .FieldAlias(a => a.Name("next").Path(f2 => f2.NextReview))
+            ));
+    }
+}
+
 public sealed class MonthlyEmployeeIndex : MonthlyIndex<Employee>
 {
     public MonthlyEmployeeIndex(IElasticConfiguration configuration, int version) : base(configuration, "monthly-employees", version)
