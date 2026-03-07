@@ -1,10 +1,13 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Text;
 using System.Threading.Tasks;
+using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
+using Foundatio.Parsers.LuceneQueries.Visitors;
+using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Options;
 using Nest;
 
@@ -194,13 +197,13 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 {
     public class FieldConditionsQueryBuilder : IElasticQueryBuilder
     {
-        public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
+        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
             var resolver = ctx.GetMappingResolver();
 
             var fieldConditions = ctx.Source.SafeGetCollection<FieldCondition>(FieldConditionQueryExtensions.FieldConditionsKey);
             if (fieldConditions == null || fieldConditions.Count <= 0)
-                return Task.CompletedTask;
+                return;
 
             foreach (var fieldValue in fieldConditions)
             {
@@ -210,6 +213,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 else if (fieldValue.Value == null && fieldValue.Operator == ComparisonOperator.NotEquals)
                     fieldValue.Operator = ComparisonOperator.HasValue;
 
+                bool nonAnalyzed = fieldValue.Operator is ComparisonOperator.Equals or ComparisonOperator.NotEquals;
+                string resolvedField = await ResolveFieldAsync(ctx, resolver, fieldValue.Field, nonAnalyzed).AnyContext();
+
                 switch (fieldValue.Operator)
                 {
                     case ComparisonOperator.Equals:
@@ -218,10 +224,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                             var values = new List<object>();
                             foreach (var value in (IEnumerable)fieldValue.Value)
                                 values.Add(value);
-                            query = new TermsQuery { Field = resolver.GetNonAnalyzedFieldName(fieldValue.Field), Terms = values };
+                            query = new TermsQuery { Field = resolvedField, Terms = values };
                         }
                         else
-                            query = new TermQuery { Field = resolver.GetNonAnalyzedFieldName(fieldValue.Field), Value = fieldValue.Value };
+                            query = new TermQuery { Field = resolvedField, Value = fieldValue.Value };
                         ctx.Filter &= query;
 
                         break;
@@ -231,57 +237,69 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                             var values = new List<object>();
                             foreach (var value in (IEnumerable)fieldValue.Value)
                                 values.Add(value);
-                            query = new TermsQuery { Field = resolver.GetNonAnalyzedFieldName(fieldValue.Field), Terms = values };
+                            query = new TermsQuery { Field = resolvedField, Terms = values };
                         }
                         else
-                            query = new TermQuery { Field = resolver.GetNonAnalyzedFieldName(fieldValue.Field), Value = fieldValue.Value };
+                            query = new TermQuery { Field = resolvedField, Value = fieldValue.Value };
 
                         ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { query } };
                         break;
                     case ComparisonOperator.Contains:
-                        var fieldContains = resolver.GetResolvedField(fieldValue.Field);
-                        if (!resolver.IsPropertyAnalyzed(fieldContains))
-                            throw new InvalidOperationException($"Contains operator can't be used on non-analyzed field {fieldContains}");
+                        if (!resolver.IsPropertyAnalyzed(resolvedField))
+                            throw new InvalidOperationException($"Contains operator can't be used on non-analyzed field {resolvedField}");
 
                         if (fieldValue.Value is IEnumerable && fieldValue.Value is not string)
                         {
                             var sb = new StringBuilder();
                             foreach (var value in (IEnumerable)fieldValue.Value)
                                 sb.Append(value.ToString()).Append(" ");
-                            query = new MatchQuery { Field = fieldContains, Query = sb.ToString() };
+                            query = new MatchQuery { Field = resolvedField, Query = sb.ToString() };
                         }
                         else
-                            query = new MatchQuery { Field = fieldContains, Query = fieldValue.Value.ToString() };
+                            query = new MatchQuery { Field = resolvedField, Query = fieldValue.Value.ToString() };
                         ctx.Filter &= query;
 
                         break;
                     case ComparisonOperator.NotContains:
-                        var fieldNotContains = resolver.GetResolvedField(fieldValue.Field);
-                        if (!resolver.IsPropertyAnalyzed(fieldNotContains))
-                            throw new InvalidOperationException($"NotContains operator can't be used on non-analyzed field {fieldNotContains}");
+                        if (!resolver.IsPropertyAnalyzed(resolvedField))
+                            throw new InvalidOperationException($"NotContains operator can't be used on non-analyzed field {resolvedField}");
 
                         if (fieldValue.Value is IEnumerable && fieldValue.Value is not string)
                         {
                             var sb = new StringBuilder();
                             foreach (var value in (IEnumerable)fieldValue.Value)
                                 sb.Append(value.ToString()).Append(" ");
-                            query = new MatchQuery { Field = fieldNotContains, Query = sb.ToString() };
+                            query = new MatchQuery { Field = resolvedField, Query = sb.ToString() };
                         }
                         else
-                            query = new MatchQuery { Field = fieldNotContains, Query = fieldValue.Value.ToString() };
+                            query = new MatchQuery { Field = resolvedField, Query = fieldValue.Value.ToString() };
 
                         ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { query } };
                         break;
                     case ComparisonOperator.IsEmpty:
-                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { new ExistsQuery { Field = resolver.GetResolvedField(fieldValue.Field) } } };
+                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { new ExistsQuery { Field = resolvedField } } };
                         break;
                     case ComparisonOperator.HasValue:
-                        ctx.Filter &= new ExistsQuery { Field = resolver.GetResolvedField(fieldValue.Field) };
+                        ctx.Filter &= new ExistsQuery { Field = resolvedField };
                         break;
                 }
             }
+        }
 
-            return Task.CompletedTask;
+        private static async Task<string> ResolveFieldAsync<T>(QueryBuilderContext<T> ctx, ElasticMappingResolver resolver, Field field, bool nonAnalyzed) where T : class, new()
+        {
+            string resolved = nonAnalyzed
+                ? resolver.GetNonAnalyzedFieldName(field)
+                : resolver.GetResolvedField(field);
+
+            if (ctx is IQueryVisitorContextWithFieldResolver { FieldResolver: not null } fieldResolverCtx)
+            {
+                string customResolved = await fieldResolverCtx.FieldResolver(resolved, ctx).AnyContext();
+                if (!String.IsNullOrWhiteSpace(customResolved))
+                    return customResolved;
+            }
+
+            return resolved;
         }
     }
 }
