@@ -1,8 +1,8 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
-using System.Text;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.QueryDsl;
@@ -209,10 +209,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
             foreach (var fieldValue in fieldConditions)
             {
-                Query query;
-                if (fieldValue.Value == null && fieldValue.Operator == ComparisonOperator.Equals)
+                if (fieldValue.Value is null && fieldValue.Operator is ComparisonOperator.Equals or ComparisonOperator.Contains)
                     fieldValue.Operator = ComparisonOperator.IsEmpty;
-                else if (fieldValue.Value == null && fieldValue.Operator == ComparisonOperator.NotEquals)
+                else if (fieldValue.Value is null && fieldValue.Operator is ComparisonOperator.NotEquals or ComparisonOperator.NotContains)
                     fieldValue.Operator = ComparisonOperator.HasValue;
 
                 bool nonAnalyzed = fieldValue.Operator is ComparisonOperator.Equals or ComparisonOperator.NotEquals;
@@ -221,62 +220,52 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 switch (fieldValue.Operator)
                 {
                     case ComparisonOperator.Equals:
-                        if (fieldValue.Value is IEnumerable && fieldValue.Value is not string)
+                        Query eqQuery;
+                        if (fieldValue.Value is IEnumerable and not string)
                         {
                             var values = new List<FieldValue>();
                             foreach (var value in (IEnumerable)fieldValue.Value)
                                 values.Add(ToFieldValue(value));
-                            query = new TermsQuery { Field = resolvedField, Terms = new TermsQueryField(values) };
+                            eqQuery = new TermsQuery { Field = resolvedField, Terms = new TermsQueryField(values) };
                         }
                         else
-                            query = new TermQuery { Field = resolvedField, Value = ToFieldValue(fieldValue.Value) };
-                        ctx.Filter &= query;
+                            eqQuery = new TermQuery { Field = resolvedField, Value = ToFieldValue(fieldValue.Value) };
+                        ctx.Filter &= eqQuery;
 
                         break;
                     case ComparisonOperator.NotEquals:
-                        if (fieldValue.Value is IEnumerable && fieldValue.Value is not string)
+                        Query neQuery;
+                        if (fieldValue.Value is IEnumerable and not string)
                         {
                             var values = new List<FieldValue>();
                             foreach (var value in (IEnumerable)fieldValue.Value)
                                 values.Add(ToFieldValue(value));
-                            query = new TermsQuery { Field = resolvedField, Terms = new TermsQueryField(values) };
+                            neQuery = new TermsQuery { Field = resolvedField, Terms = new TermsQueryField(values) };
                         }
                         else
-                            query = new TermQuery { Field = resolvedField, Value = ToFieldValue(fieldValue.Value) };
+                            neQuery = new TermQuery { Field = resolvedField, Value = ToFieldValue(fieldValue.Value) };
 
-                        ctx.Filter &= new BoolQuery { MustNot = new Query[] { query } };
+                        ctx.Filter &= new BoolQuery { MustNot = new Query[] { neQuery } };
                         break;
                     case ComparisonOperator.Contains:
                         if (!resolver.IsPropertyAnalyzed(resolvedField))
                             throw new InvalidOperationException($"Contains operator can't be used on non-analyzed field {resolvedField}");
 
-                        if (fieldValue.Value is IEnumerable && fieldValue.Value is not string)
-                        {
-                            var sb = new StringBuilder();
-                            foreach (var value in (IEnumerable)fieldValue.Value)
-                                sb.Append(value.ToString()).Append(" ");
-                            query = new MatchQuery { Field = resolvedField, Query = sb.ToString() };
-                        }
-                        else
-                            query = new MatchQuery { Field = resolvedField, Query = fieldValue.Value.ToString() };
-                        ctx.Filter &= query;
+                        string containsText = fieldValue.Value is IEnumerable and not string
+                            ? String.Join(" ", ((IEnumerable)fieldValue.Value).Cast<object>())
+                            : fieldValue.Value?.ToString() ?? String.Empty;
+                        ctx.Filter &= new MatchQuery { Field = resolvedField, Query = containsText, Operator = Operator.And };
 
                         break;
                     case ComparisonOperator.NotContains:
                         if (!resolver.IsPropertyAnalyzed(resolvedField))
                             throw new InvalidOperationException($"NotContains operator can't be used on non-analyzed field {resolvedField}");
 
-                        if (fieldValue.Value is IEnumerable && fieldValue.Value is not string)
-                        {
-                            var sb = new StringBuilder();
-                            foreach (var value in (IEnumerable)fieldValue.Value)
-                                sb.Append(value.ToString()).Append(" ");
-                            query = new MatchQuery { Field = resolvedField, Query = sb.ToString() };
-                        }
-                        else
-                            query = new MatchQuery { Field = resolvedField, Query = fieldValue.Value.ToString() };
+                        string notContainsText = fieldValue.Value is IEnumerable and not string
+                            ? String.Join(" ", ((IEnumerable)fieldValue.Value).Cast<object>())
+                            : fieldValue.Value?.ToString() ?? String.Empty;
+                        ctx.Filter &= new BoolQuery { MustNot = new Query[] { new MatchQuery { Field = resolvedField, Query = notContainsText, Operator = Operator.And } } };
 
-                        ctx.Filter &= new BoolQuery { MustNot = new Query[] { query } };
                         break;
                     case ComparisonOperator.IsEmpty:
                         ctx.Filter &= new BoolQuery { MustNot = new Query[] { new ExistsQuery { Field = resolvedField } } };
@@ -290,17 +279,17 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
         private static async Task<string> ResolveFieldAsync<T>(QueryBuilderContext<T> ctx, ElasticMappingResolver resolver, Field field, bool nonAnalyzed) where T : class, new()
         {
-            string resolved = nonAnalyzed
-                ? resolver.GetNonAnalyzedFieldName(field)
-                : resolver.GetResolvedField(field);
+            string resolved = resolver.GetResolvedField(field);
 
-            var fieldResolver = ((IQueryVisitorContextWithFieldResolver)ctx).FieldResolver;
-            if (fieldResolver != null)
+            if (ctx is IQueryVisitorContextWithFieldResolver { FieldResolver: not null } fieldResolverCtx)
             {
-                string customResolved = await fieldResolver(resolved, ctx).AnyContext();
-                if (!String.IsNullOrEmpty(customResolved))
-                    return customResolved;
+                string customResolved = await fieldResolverCtx.FieldResolver(resolved, ctx).AnyContext();
+                if (!String.IsNullOrWhiteSpace(customResolved))
+                    resolved = customResolved;
             }
+
+            if (nonAnalyzed)
+                resolved = resolver.GetNonAnalyzedFieldName(resolved);
 
             return resolved;
         }
