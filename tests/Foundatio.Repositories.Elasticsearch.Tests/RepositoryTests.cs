@@ -1198,19 +1198,19 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false));
         string employeeId = employee.Id;
-        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (i, ct) =>
+        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (iteration, ct) =>
         {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
             resetEvent.Set();
-            e.CompanyName = "Company " + i;
+            e.CompanyName = $"Company {iteration}";
             try
             {
                 await _employeeRepository.SaveAsync(e, o => o.Cache(false));
-                _logger.LogInformation("Set company {Iteration}", i);
+                _logger.LogInformation("Set company {Iteration}", iteration);
             }
             catch (VersionConflictDocumentException)
             {
-                _logger.LogInformation("Got version conflict {Iteration}", i);
+                _logger.LogInformation("Got version conflict {Iteration}", iteration);
             }
         });
 
@@ -1253,19 +1253,19 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false));
         string employeeId = employee.Id;
-        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (i, ct) =>
+        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (iteration, ct) =>
         {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
             resetEvent.Set();
-            e.CompanyName = "Company " + i;
+            e.CompanyName = $"Company {iteration}";
             try
             {
                 await _employeeRepository.SaveAsync(e, o => o.Cache(false));
-                _logger.LogInformation("Set company {Iteration}", i);
+                _logger.LogInformation("Set company {Iteration}", iteration);
             }
             catch (VersionConflictDocumentException)
             {
-                _logger.LogInformation("Got version conflict {Iteration}", i);
+                _logger.LogInformation("Got version conflict {Iteration}", iteration);
             }
         });
 
@@ -1312,6 +1312,28 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         Assert.Equal("1:1", employee.Version);
     }
 
+    /// <summary>
+    /// Documents known limitation: PartialPatch cannot set fields to null because the ES client's
+    /// SourceSerializer uses JsonIgnoreCondition.WhenWritingNull (elastic/elasticsearch-net#8763).
+    /// Use ScriptPatch or JsonPatch to set fields to null instead.
+    /// </summary>
+    [Fact]
+    public async Task PartialPatchAsync_WithNullField_RetainsOriginalValue()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyName: "OriginalCompany"));
+        Assert.Equal("OriginalCompany", employee.CompanyName);
+
+        // Act
+        await _employeeRepository.PatchAsync(employee.Id, new PartialPatch(new { companyName = (string)null }));
+
+        // Assert
+        employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        // TODO: This should be null once elastic/elasticsearch-net#8763 is fixed.
+        // Currently the null value is silently dropped, so the field retains its original value.
+        Assert.Equal("OriginalCompany", employee.CompanyName);
+    }
+
     [Fact]
     public async Task ScriptPatchAsync()
     {
@@ -1332,19 +1354,19 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false));
         string employeeId = employee.Id;
-        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (i, ct) =>
+        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (iteration, ct) =>
         {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
             resetEvent.Set();
-            e.CompanyName = "Company " + i;
+            e.CompanyName = $"Company {iteration}";
             try
             {
                 await _employeeRepository.SaveAsync(e, o => o.Cache(false));
-                _logger.LogInformation("Set company {Iteration}", i);
+                _logger.LogInformation("Set company {Iteration}", iteration);
             }
             catch (VersionConflictDocumentException)
             {
-                _logger.LogInformation("Got version conflict {Iteration}", i);
+                _logger.LogInformation("Got version conflict {Iteration}", iteration);
             }
         });
 
@@ -1409,19 +1431,19 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.Cache(false));
         string employeeId = employee.Id;
-        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (i, ct) =>
+        _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (iteration, ct) =>
         {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
             resetEvent.Set();
-            e.CompanyName = "Company " + i;
+            e.CompanyName = $"Company {iteration}";
             try
             {
                 await _employeeRepository.SaveAsync(e, o => o.Cache(false));
-                _logger.LogInformation("Set company {Iteration}", i);
+                _logger.LogInformation("Set company {Iteration}", iteration);
             }
             catch (VersionConflictDocumentException)
             {
-                _logger.LogInformation("Got version conflict {Iteration}", i);
+                _logger.LogInformation("Got version conflict {Iteration}", iteration);
             }
         });
 
@@ -1538,7 +1560,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(BATCH_SIZE));
             added += BATCH_SIZE;
         } while (added < COUNT);
-        await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name, ct: TestCancellationToken);
+        await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name, cancellationToken: TestCancellationToken);
         Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Trace);
 
         Assert.Equal(COUNT, await _dailyRepository.IncrementValueAsync(Array.Empty<string>()));
@@ -1556,7 +1578,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             await _dailyRepository.AddAsync(LogEventGenerator.GenerateLogs(BATCH_SIZE));
             added += BATCH_SIZE;
         } while (added < COUNT);
-        await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name, ct: TestCancellationToken);
+        await _client.Indices.RefreshAsync(_configuration.DailyLogEvents.Name, cancellationToken: TestCancellationToken);
         Log.SetLogLevel<DailyLogEventRepository>(LogLevel.Trace);
 
         var tasks = Enumerable.Range(1, 6).Select(async i =>
@@ -1619,11 +1641,12 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(0, await _dailyRepository.CountAsync());
     }
 
-    [Fact(Skip = "We need to look into how we want to handle this.")]
+    [Fact]
     public async Task RemoveWithOutOfSyncIndexAsync()
     {
         var utcNow = DateTime.UtcNow;
-        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
+        var yesterday = utcNow.AddDays(-1);
+        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(yesterday).ToString(), createdUtc: yesterday), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog);
         Assert.NotNull(yesterdayLog.Id);
 
@@ -1631,7 +1654,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         await _dailyRepository.RemoveAsync(yesterdayLog, o => o.ImmediateConsistency());
 
-        Assert.Equal(1, await _dailyRepository.CountAsync());
+        Assert.Equal(0, await _dailyRepository.CountAsync());
     }
 
     [Fact]
@@ -1739,11 +1762,12 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(0, await _identityRepository.CountAsync());
     }
 
-    [Fact(Skip = "We need to look into how we want to handle this.")]
+    [Fact]
     public async Task RemoveCollectionWithOutOfSyncIndexAsync()
     {
         var utcNow = DateTime.UtcNow;
-        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId().ToString(), createdUtc: utcNow.AddDays(-1)), o => o.ImmediateConsistency());
+        var yesterday = utcNow.AddDays(-1);
+        var yesterdayLog = await _dailyRepository.AddAsync(LogEventGenerator.Generate(ObjectId.GenerateNewId(yesterday).ToString(), createdUtc: yesterday), o => o.ImmediateConsistency());
         Assert.NotNull(yesterdayLog);
         Assert.NotNull(yesterdayLog.Id);
 
@@ -1751,7 +1775,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         await _dailyRepository.RemoveAsync(new List<LogEvent> { yesterdayLog }, o => o.ImmediateConsistency());
 
-        Assert.Equal(1, await _dailyRepository.CountAsync());
+        Assert.Equal(0, await _dailyRepository.CountAsync());
     }
 
     [Fact]

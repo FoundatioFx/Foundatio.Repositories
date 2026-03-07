@@ -4,11 +4,12 @@ using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories
 {
@@ -110,9 +111,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             {
                 var rangeQuery = new DateRangeQuery { Field = resolver.ResolveFieldName(dateRange.Field) };
                 if (dateRange.UseStartDate)
-                    rangeQuery.GreaterThanOrEqualTo = dateRange.GetStartDate();
+                    rangeQuery.Gte = dateRange.GetStartDate();
                 if (dateRange.UseEndDate)
-                    rangeQuery.LessThanOrEqualTo = dateRange.GetEndDate();
+                    rangeQuery.Lte = dateRange.GetEndDate();
                 if (!String.IsNullOrEmpty(dateRange.TimeZone))
                     rangeQuery.TimeZone = dateRange.TimeZone;
 

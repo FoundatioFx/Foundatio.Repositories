@@ -1,10 +1,11 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Jobs;
 using Foundatio.Lock;
+using Foundatio.Serializer;
 using Microsoft.Extensions.Logging;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs;
 
@@ -13,9 +14,10 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
     private readonly ElasticReindexer _reindexer;
     private readonly ILockProvider _lockProvider;
 
-    public ReindexWorkItemHandler(IElasticClient client, ILockProvider lockProvider, ILoggerFactory loggerFactory = null) : base(loggerFactory)
+    public ReindexWorkItemHandler(ElasticsearchClient client, ITextSerializer serializer, ILockProvider lockProvider, ILoggerFactory loggerFactory = null)
+        : base(loggerFactory)
     {
-        _reindexer = new ElasticReindexer(client, loggerFactory?.CreateLogger<ReindexWorkItemHandler>());
+        _reindexer = new ElasticReindexer(client, serializer, loggerFactory?.CreateLogger<ReindexWorkItemHandler>());
         _lockProvider = lockProvider;
         AutoRenewLockOnProgress = true;
     }

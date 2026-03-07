@@ -1,7 +1,8 @@
 ﻿using System;
+using System.Text.Json.Serialization;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 
@@ -9,7 +10,10 @@ public class Child : IParentChildDocument, IHaveDates, ISupportSoftDeletes
 {
     public string Id { get; set; }
     public string ParentId { get; set; }
-    JoinField IParentChildDocument.Discriminator { get; set; }
+
+    [JsonPropertyName("discriminator")]
+    public JoinField Discriminator { get; set; }
+
     public string ChildProperty { get; set; }
     public DateTime CreatedUtc { get; set; }
     public DateTime UpdatedUtc { get; set; }

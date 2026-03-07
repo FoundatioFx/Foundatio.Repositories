@@ -1,5 +1,5 @@
 ﻿using System;
-using Elasticsearch.Net;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Configuration;

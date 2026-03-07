@@ -1,43 +1,53 @@
 using System;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace Foundatio.Repositories.Utility;
 
-public class PatchDocumentConverter : JsonConverter
+/// <summary>
+/// JSON converter for PatchDocument using System.Text.Json.
+/// Converted from Newtonsoft.Json to align with Elastic.Clients.Elasticsearch
+/// which exclusively uses System.Text.Json for serialization.
+/// </summary>
+public class PatchDocumentConverter : JsonConverter<PatchDocument>
 {
-    public override bool CanConvert(Type objectType)
+    public override PatchDocument Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        return true;
-    }
+        if (typeToConvert != typeof(PatchDocument))
+            throw new ArgumentException("Object must be of type PatchDocument", nameof(typeToConvert));
 
-    public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
-    {
-        if (objectType != typeof(PatchDocument))
-            throw new ArgumentException("Object must be of type PatchDocument", nameof(objectType));
+        if (reader.TokenType == JsonTokenType.Null)
+            return null;
 
         try
         {
-            if (reader.TokenType == JsonToken.Null)
-                return null;
+            var node = JsonNode.Parse(ref reader);
+            if (node is not JsonArray array)
+                throw new JsonException("Invalid patch document: expected JSON array");
 
-            var patch = JArray.Load(reader);
-            return PatchDocument.Parse(patch.ToString());
+            return PatchDocument.Load(array);
+        }
+        catch (JsonException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            throw new ArgumentException("Invalid patch document: " + ex.Message, ex);
+            throw new JsonException("Invalid patch document: " + ex.Message, ex);
         }
     }
 
-    public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+    public override void Write(Utf8JsonWriter writer, PatchDocument value, JsonSerializerOptions options)
     {
-        if (!(value is PatchDocument))
+        if (value == null)
+        {
+            writer.WriteNullValue();
             return;
+        }
 
-        var jsonPatchDoc = (PatchDocument)value;
         writer.WriteStartArray();
-        foreach (var op in jsonPatchDoc.Operations)
+        foreach (var op in value.Operations)
             op.Write(writer);
         writer.WriteEndArray();
     }

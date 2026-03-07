@@ -267,7 +267,7 @@ public class MigrationManager
             catch (ReflectionTypeLoadException ex)
             {
                 string loaderMessages = String.Join(", ", ex.LoaderExceptions.ToList().Select(le => le.Message));
-                _logger.LogInformation("Unable to search types from assembly {Assembly} for plugins of type {PluginType}: {LoaderMessages}", assembly.FullName, typeof(TAction).Name, loaderMessages);
+                _logger.LogInformation(ex, "Unable to search types from assembly \"{Assembly}\" for plugins of type \"{PluginType}\": {LoaderMessages}", assembly.FullName, typeof(TAction).Name, loaderMessages);
             }
         }
 

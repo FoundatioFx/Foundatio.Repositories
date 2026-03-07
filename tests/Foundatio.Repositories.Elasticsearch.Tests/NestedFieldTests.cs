@@ -89,8 +89,7 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         Assert.Equal(3, result.Total);
         Assert.Single(result.Aggregations);
 
-        var nestedPeerReviewsAgg = result.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
-        Assert.NotNull(nestedPeerReviewsAgg);
+        var nestedPeerReviewsAgg = Assert.IsType<SingleBucketAggregate>(result.Aggregations["nested_peerReviews"]);
         Assert.NotEmpty(nestedPeerReviewsAgg.Aggregations);
     }
 
@@ -145,39 +144,38 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
 
         // Act
-        var nestedAggQuery = _client.Search<Employee>(d => d.Index("employees").Aggregations(a => a
-           .Nested("nested_reviewRating", h => h.Path("peerReviews")
-               .Aggregations(a1 => a1.Terms("terms_rating", t => t.Field("peerReviews.rating").Meta(m => m.Add("@field_type", "integer")))))
-            ));
+        var nestedAggQuery = await _client.SearchAsync<Employee>(d => d.Indices("employees").Aggregations(a => a
+           .Add("nested_reviewRating", agg => agg
+               .Nested(h => h.Path("peerReviews"))
+               .Aggregations(a1 => a1.Add("terms_rating", t => t.Terms(t1 => t1.Field("peerReviews.rating")).Meta(m => m.Add("@field_type", "integer")))))
+            ), cancellationToken: TestCancellationToken);
 
         // Assert
-        var result = nestedAggQuery.Aggregations.ToAggregations();
+        var result = nestedAggQuery.Aggregations.ToAggregations(_serializer);
         Assert.Single(result);
 
-        var nestedReviewRatingAgg = result["nested_reviewRating"] as SingleBucketAggregate;
-        Assert.NotNull(nestedReviewRatingAgg);
+        var nestedReviewRatingAgg = Assert.IsType<SingleBucketAggregate>(result["nested_reviewRating"]);
 
-        var termsRatingAgg = nestedReviewRatingAgg.Aggregations["terms_rating"] as BucketAggregate;
-        Assert.NotNull(termsRatingAgg);
+        var termsRatingAgg = Assert.IsType<BucketAggregate>(nestedReviewRatingAgg.Aggregations["terms_rating"]);
         Assert.Equal(2, termsRatingAgg.Items.Count);
 
         // Act - Test nested aggregation with filter
-        var nestedAggQueryWithFilter = _client.Search<Employee>(d => d.Index("employees").Aggregations(a => a
-           .Nested("nested_reviewRating", h => h.Path("peerReviews")
+        var nestedAggQueryWithFilter = await _client.SearchAsync<Employee>(d => d.Indices("employees").Aggregations(a => a
+           .Add("nested_reviewRating", agg => agg
+               .Nested(h => h.Path("peerReviews"))
                 .Aggregations(a1 => a1
-                    .Filter("user_" + employees[0].Id, f => f.Filter(q => q.Term(t => t.Field("peerReviews.reviewerEmployeeId").Value(employees[0].Id)))
-                        .Aggregations(a2 => a2.Terms("terms_rating", t => t.Field("peerReviews.rating").Meta(m => m.Add("@field_type", "integer")))))
-            ))));
+                    .Add($"user_{employees[0].Id}", f => f
+                        .Filter(q => q.Term(t => t.Field("peerReviews.reviewerEmployeeId").Value(employees[0].Id)))
+                        .Aggregations(a2 => a2.Add("terms_rating", t => t.Terms(t1 => t1.Field("peerReviews.rating")).Meta(m => m.Add("@field_type", "integer")))))
+            ))), cancellationToken: TestCancellationToken);
 
         // Assert - Verify filtered aggregation
-        result = nestedAggQueryWithFilter.Aggregations.ToAggregations();
+        result = nestedAggQueryWithFilter.Aggregations.ToAggregations(_serializer);
         Assert.Single(result);
 
-        var nestedReviewRatingFilteredAgg = result["nested_reviewRating"] as SingleBucketAggregate;
-        Assert.NotNull(nestedReviewRatingFilteredAgg);
+        var nestedReviewRatingFilteredAgg = Assert.IsType<SingleBucketAggregate>(result["nested_reviewRating"]);
 
-        var userFilteredAgg = nestedReviewRatingFilteredAgg.Aggregations["user_" + employees[0].Id] as SingleBucketAggregate;
-        Assert.NotNull(userFilteredAgg);
+        var userFilteredAgg = Assert.IsType<SingleBucketAggregate>(nestedReviewRatingFilteredAgg.Aggregations[$"user_{employees[0].Id}"]);
         Assert.Single(userFilteredAgg.Aggregations.Terms("terms_rating").Buckets);
         Assert.Equal("5", userFilteredAgg.Aggregations.Terms("terms_rating").Buckets.First().Key);
         Assert.Equal(1, userFilteredAgg.Aggregations.Terms("terms_rating").Buckets.First().Total);
@@ -217,8 +215,7 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         Assert.Equal(3, result.Total);
         Assert.Single(result.Aggregations);
 
-        var nestedPeerReviewsAgg = result.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
-        Assert.NotNull(nestedPeerReviewsAgg);
+        var nestedPeerReviewsAgg = Assert.IsType<SingleBucketAggregate>(result.Aggregations["nested_peerReviews"]);
 
         var reviewerTermsAgg = nestedPeerReviewsAgg.Aggregations.Terms<string>("terms_peerReviews.reviewerEmployeeId");
         Assert.Equal(3, reviewerTermsAgg.Buckets.Count);
@@ -265,8 +262,7 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         Assert.Equal(3, resultWithInclude.Total);
         Assert.Single(resultWithInclude.Aggregations);
 
-        var nestedPeerReviewsAggWithInclude = resultWithInclude.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
-        Assert.NotNull(nestedPeerReviewsAggWithInclude);
+        var nestedPeerReviewsAggWithInclude = Assert.IsType<SingleBucketAggregate>(resultWithInclude.Aggregations["nested_peerReviews"]);
 
         var reviewerTermsAggWithInclude = nestedPeerReviewsAggWithInclude.Aggregations.Terms<string>("terms_peerReviews.reviewerEmployeeId");
         Assert.Equal(2, reviewerTermsAggWithInclude.Buckets.Count); // Only employee1 and employee2 should be included
@@ -315,8 +311,7 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         Assert.Equal(3, resultWithExclude.Total);
         Assert.Single(resultWithExclude.Aggregations);
 
-        var nestedPeerReviewsAggWithExclude = resultWithExclude.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
-        Assert.NotNull(nestedPeerReviewsAggWithExclude);
+        var nestedPeerReviewsAggWithExclude = Assert.IsType<SingleBucketAggregate>(resultWithExclude.Aggregations["nested_peerReviews"]);
 
         var reviewerTermsAggWithExclude = nestedPeerReviewsAggWithExclude.Aggregations.Terms<string>("terms_peerReviews.reviewerEmployeeId");
         Assert.Equal(2, reviewerTermsAggWithExclude.Buckets.Count); // employee3 should be excluded
@@ -363,8 +358,7 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         Assert.Equal(3, result.Total);
         Assert.Single(result.Aggregations);
 
-        var nestedPeerReviewsAgg = result.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
-        Assert.NotNull(nestedPeerReviewsAgg);
+        var nestedPeerReviewsAgg = Assert.IsType<SingleBucketAggregate>(result.Aggregations["nested_peerReviews"]);
 
         var ratingTermsAgg = nestedPeerReviewsAgg.Aggregations.Terms<int>("terms_peerReviews.rating");
         Assert.Equal(4, ratingTermsAgg.Buckets.Count);
@@ -377,8 +371,7 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         Assert.Equal(3, roundTripped.Total);
         Assert.Single(roundTripped.Aggregations);
 
-        var roundTrippedNestedAgg = roundTripped.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
-        Assert.NotNull(roundTrippedNestedAgg);
+        var roundTrippedNestedAgg = Assert.IsType<SingleBucketAggregate>(roundTripped.Aggregations["nested_peerReviews"]);
 
         var roundTrippedRatingTermsAgg = roundTrippedNestedAgg.Aggregations.Terms<int>("terms_peerReviews.rating");
         Assert.NotNull(roundTrippedRatingTermsAgg);
@@ -388,13 +381,15 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
 
         // Test System.Text.Json serialization
         string systemTextJson = System.Text.Json.JsonSerializer.Serialize(result);
-        Assert.Equal(json, systemTextJson);
+        Assert.True(System.Text.Json.Nodes.JsonNode.DeepEquals(
+            System.Text.Json.Nodes.JsonNode.Parse(json),
+            System.Text.Json.Nodes.JsonNode.Parse(systemTextJson)),
+            "Newtonsoft and System.Text.Json serialization should produce semantically equivalent JSON");
         roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(systemTextJson);
         Assert.Equal(3, roundTripped.Total);
         Assert.Single(roundTripped.Aggregations);
 
-        roundTrippedNestedAgg = roundTripped.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
-        Assert.NotNull(roundTrippedNestedAgg);
+        roundTrippedNestedAgg = Assert.IsType<SingleBucketAggregate>(roundTripped.Aggregations["nested_peerReviews"]);
 
         roundTrippedRatingTermsAgg = roundTrippedNestedAgg.Aggregations.Terms<int>("terms_peerReviews.rating");
         Assert.Equal(4, roundTrippedRatingTermsAgg.Buckets.Count);

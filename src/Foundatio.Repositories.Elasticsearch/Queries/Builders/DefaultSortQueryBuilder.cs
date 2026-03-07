@@ -1,9 +1,9 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Models;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders;
 
@@ -13,18 +13,33 @@ public class DefaultSortQueryBuilder : IElasticQueryBuilder
 
     public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
     {
-        if (ctx.Search is not ISearchRequest searchRequest)
-            return Task.CompletedTask;
+        // Get existing sorts from context data (set by SortQueryBuilder or ExpressionQueryBuilder)
+        List<SortOptions> sortFields = null;
+        if (ctx.Data.TryGetValue(SortQueryBuilder.SortFieldsKey, out var sortsObj) && sortsObj is List<SortOptions> sorts)
+        {
+            sortFields = sorts;
+        }
+
+        sortFields ??= new List<SortOptions>();
 
         var resolver = ctx.GetMappingResolver();
         string idField = resolver.GetResolvedField(Id) ?? "_id";
 
-        searchRequest.Sort ??= new List<ISort>();
-        var sortFields = searchRequest.Sort;
-
         // ensure id field is always present as a sort (default or tiebreaker)
-        if (!sortFields.Any(s => idField.Equals(resolver.GetResolvedField(s.SortKey))))
+        bool hasIdField = sortFields.Any(s =>
+        {
+            if (s?.Field?.Field == null)
+                return false;
+            string fieldName = resolver.GetSortFieldName(s.Field.Field);
+            return fieldName?.Equals(idField) == true;
+        });
+
+        if (!hasIdField)
+        {
             sortFields.Add(new FieldSort { Field = idField });
+        }
+
+        ctx.Data[SortQueryBuilder.SortFieldsKey] = sortFields;
 
         return Task.CompletedTask;
     }

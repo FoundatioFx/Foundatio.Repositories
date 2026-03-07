@@ -4,8 +4,12 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
-using Elasticsearch.Net;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Core.Bulk;
+using Elastic.Transport.Extensions;
 using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Parsers.LuceneQueries.Visitors;
@@ -22,8 +26,7 @@ using Foundatio.Repositories.Utility;
 using Foundatio.Resilience;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
-using Nest;
-using Newtonsoft.Json.Linq;
+using Tasks = Elastic.Clients.Elasticsearch.Tasks;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
@@ -178,52 +181,149 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         if (operation is ScriptPatch scriptOperation)
         {
-            // TODO: Figure out how to specify a pipeline here.
-            var request = new UpdateRequest<T, T>(ElasticIndex.GetIndex(id), id.Value)
+            if (!String.IsNullOrEmpty(DefaultPipeline))
             {
-                Script = new InlineScript(scriptOperation.Script) { Params = scriptOperation.Params },
-                RetryOnConflict = options.GetRetryCount(),
-                Refresh = options.GetRefreshMode(DefaultConsistency)
-            };
-            if (id.Routing != null)
-                request.Routing = id.Routing;
+                var request = new UpdateByQueryRequest(ElasticIndex.GetIndex(id))
+                {
+                    Query = new Elastic.Clients.Elasticsearch.QueryDsl.IdsQuery
+                    {
+                        Values = new Elastic.Clients.Elasticsearch.Ids(new[] { new Elastic.Clients.Elasticsearch.Id(id.Value) })
+                    },
+                    Conflicts = Conflicts.Proceed,
+                    Script = new Script { Source = scriptOperation.Script, Params = scriptOperation.Params },
+                    Pipeline = DefaultPipeline,
+                    Refresh = options.GetRefreshMode(DefaultConsistency) != Refresh.False,
+                    WaitForCompletion = true
+                };
+                if (id.Routing != null)
+                    request.Routing = new Elastic.Clients.Elasticsearch.Routing(id.Routing);
 
-            var response = await _client.UpdateAsync(request).AnyContext();
-            _logger.LogRequest(response, options.GetQueryLogLevel());
+                var response = await _client.UpdateByQueryAsync(request).AnyContext();
+                _logger.LogRequest(response, options.GetQueryLogLevel());
 
-            if (!response.IsValid)
+                if (!response.IsValidResponse)
+                {
+                    if (response.ApiCallDetails is { HttpStatusCode: 404 })
+                        throw new DocumentNotFoundException(id);
+
+                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
+                }
+            }
+            else
             {
-                if (response.ApiCall is { HttpStatusCode: 404 })
-                    throw new DocumentNotFoundException(id);
+                var request = new UpdateRequest<T, T>(ElasticIndex.GetIndex(id), id.Value)
+                {
+                    Script = new Script { Source = scriptOperation.Script, Params = scriptOperation.Params },
+                    RetryOnConflict = options.GetRetryCount(),
+                    Refresh = options.GetRefreshMode(DefaultConsistency)
+                };
+                if (id.Routing != null)
+                    request.Routing = id.Routing;
 
-                throw new DocumentException(
-                    response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"),
-                    response.OriginalException);
+                var response = await _client.UpdateAsync(request).AnyContext();
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+
+                if (!response.IsValidResponse)
+                {
+                    if (response.ApiCallDetails is { HttpStatusCode: 404 })
+                        throw new DocumentNotFoundException(id);
+
+                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
+                }
             }
         }
         else if (operation is PartialPatch partialOperation)
         {
-            // TODO: Figure out how to specify a pipeline here.
-            var request = new UpdateRequest<T, object>(ElasticIndex.GetIndex(id), id.Value)
+            if (!String.IsNullOrEmpty(DefaultPipeline))
             {
-                Doc = partialOperation.Document,
-                RetryOnConflict = options.GetRetryCount()
-            };
-            if (id.Routing != null)
-                request.Routing = id.Routing;
-            request.Refresh = options.GetRefreshMode(DefaultConsistency);
+                var policy = _resiliencePolicy;
+                if (options.HasRetryCount())
+                {
+                    if (policy is ResiliencePolicy resiliencePolicy)
+                        policy = resiliencePolicy.Clone(options.GetRetryCount());
+                    else
+                        _logger.LogWarning("Unable to override resilience policy max attempts");
+                }
 
-            var response = await _client.UpdateAsync(request).AnyContext();
-            _logger.LogRequest(response, options.GetQueryLogLevel());
+                await policy.ExecuteAsync(async ct =>
+                {
+                    var getRequest = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
+                    if (id.Routing != null)
+                        getRequest.Routing = id.Routing;
 
-            if (!response.IsValid)
+                    var response = await _client.GetAsync<T>(getRequest, ct).AnyContext();
+                    _logger.LogRequest(response, options.GetQueryLogLevel());
+                    if (!response.IsValidResponse)
+                    {
+                        if (!response.Found)
+                            throw new DocumentNotFoundException(id);
+
+                        throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
+                    }
+
+                    var sourceJson = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(response.Source);
+                    var sourceNode = JsonNode.Parse(sourceJson);
+                    var partialJson = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(partialOperation.Document);
+                    var partialNode = JsonNode.Parse(partialJson);
+
+                    if (sourceNode is JsonObject sourceObj && partialNode is JsonObject partialObj)
+                    {
+                        foreach (var prop in partialObj)
+                            sourceObj[prop.Key] = prop.Value?.DeepClone();
+                    }
+
+                    using var mergedStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(sourceNode.ToJsonString()));
+                    var mergedDocument = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(mergedStream);
+
+                    var indexRequest = new IndexRequest<T>(mergedDocument, ElasticIndex.GetIndex(id), id.Value)
+                    {
+                        Pipeline = DefaultPipeline,
+                        Refresh = options.GetRefreshMode(DefaultConsistency)
+                    };
+                    if (id.Routing != null)
+                        indexRequest.Routing = id.Routing;
+
+                    if (HasVersion && !options.ShouldSkipVersionCheck())
+                    {
+                        indexRequest.IfSeqNo = response.SeqNo;
+                        indexRequest.IfPrimaryTerm = response.PrimaryTerm;
+                    }
+
+                    var indexResponse = await _client.IndexAsync(indexRequest, ct).AnyContext();
+                    _logger.LogRequest(indexResponse, options.GetQueryLogLevel());
+
+                    if (!indexResponse.IsValidResponse)
+                    {
+                        if (indexResponse.ElasticsearchServerError?.Status == 409)
+                            throw new VersionConflictDocumentException(indexResponse.GetErrorMessage("Error saving document"), indexResponse.OriginalException());
+
+                        throw new DocumentException(indexResponse.GetErrorMessage("Error saving document"), indexResponse.OriginalException());
+                    }
+                }).AnyContext();
+            }
+            else
             {
-                if (response.ApiCall is { HttpStatusCode: 404 })
-                    throw new DocumentNotFoundException(id);
+                var request = new UpdateRequest<T, object>(ElasticIndex.GetIndex(id), id.Value)
+                {
+                    // TODO: Null-valued properties are silently dropped by the ES client's SourceSerializer
+                    // (elastic/elasticsearch-net#8763). Consumers must use ScriptPatch or JsonPatch to set fields to null.
+                    Doc = partialOperation.Document,
+                    RetryOnConflict = options.GetRetryCount()
+                };
+                if (id.Routing != null)
+                    request.Routing = id.Routing;
+                request.Refresh = options.GetRefreshMode(DefaultConsistency);
 
-                throw new DocumentException(
-                    response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"),
-                    response.OriginalException);
+                var response = await _client.UpdateAsync(request).AnyContext();
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+
+                if (!response.IsValidResponse)
+                {
+                    if (response.ApiCallDetails is { HttpStatusCode: 404 })
+                        throw new DocumentNotFoundException(id);
+
+                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
+                }
             }
         }
         else if (operation is JsonPatch jsonOperation)
@@ -246,49 +346,52 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 if (id.Routing != null)
                     request.Routing = id.Routing;
 
-                var response = await _client.LowLevel.GetAsync<GetResponse<IDictionary<string, object>>>(ElasticIndex.GetIndex(id), id.Value, ctx: ct).AnyContext();
+                var response = await _client.GetAsync<T>(request, ct).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
-                if (!response.IsValid)
+                if (!response.IsValidResponse)
                 {
                     if (!response.Found)
                         throw new DocumentNotFoundException(id);
 
-                    throw new DocumentException(
-                        response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"),
-                        response.OriginalException);
+                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
                 }
 
-                var jObject = JObject.FromObject(response.Source);
-                var target = (JToken)jObject;
+                // Serialize to JSON string, apply patch, deserialize back
+                // Using System.Text.Json.Nodes.JsonNode since Elastic.Clients.Elasticsearch uses System.Text.Json exclusively
+                var json = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(response.Source);
+                var target = JsonNode.Parse(json);
                 new JsonPatcher().Patch(ref target, jsonOperation.Patch);
 
                 ApplyDateTracking(target);
 
-                var indexParameters = new IndexRequestParameters
+                using var patchStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToJsonString()));
+                var patchedDocument = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(patchStream);
+
+                var indexRequest = new IndexRequest<T>(patchedDocument, ElasticIndex.GetIndex(id), id.Value)
                 {
                     Pipeline = DefaultPipeline,
                     Refresh = options.GetRefreshMode(DefaultConsistency)
                 };
                 if (id.Routing != null)
-                    indexParameters.Routing = id.Routing;
+                    indexRequest.Routing = id.Routing;
 
                 if (HasVersion && !options.ShouldSkipVersionCheck())
                 {
-                    indexParameters.IfSequenceNumber = response.SequenceNumber;
-                    indexParameters.IfPrimaryTerm = response.PrimaryTerm;
+                    indexRequest.IfSeqNo = response.SeqNo;
+                    indexRequest.IfPrimaryTerm = response.PrimaryTerm;
                 }
 
-                var updateResponse = await _client.LowLevel.IndexAsync<VoidResponse>(ElasticIndex.GetIndex(id), id.Value, PostData.String(target.ToString()), indexParameters, ct).AnyContext();
+                var updateResponse = await _client.IndexAsync(indexRequest, ct).AnyContext();
                 _logger.LogRequest(updateResponse, options.GetQueryLogLevel());
 
-                if (!updateResponse.Success)
+                if (!updateResponse.IsValidResponse)
                 {
-                    if (response.ServerError?.Status == 409)
-                        throw new VersionConflictDocumentException(response.GetErrorMessage("Error saving document"), response.OriginalException);
+                    if (updateResponse.ElasticsearchServerError?.Status == 409)
+                        throw new VersionConflictDocumentException(updateResponse.GetErrorMessage("Error saving document"), updateResponse.OriginalException());
 
-                    throw new DocumentException(response.GetErrorMessage("Error saving document"), response.OriginalException);
+                    throw new DocumentException(updateResponse.GetErrorMessage("Error saving document"), updateResponse.OriginalException());
                 }
-            });
+            }).AnyContext();
         }
         else if (operation is ActionPatch<T> actionPatch)
         {
@@ -312,14 +415,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 var response = await _client.GetAsync<T>(request, ct).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
 
-                if (!response.IsValid)
+                if (!response.IsValidResponse)
                 {
                     if (!response.Found)
                         throw new DocumentNotFoundException(id);
 
-                    throw new DocumentException(
-                        response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"),
-                        response.OriginalException);
+                    throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
                 }
 
                 if (response.Source is IVersioned versionedDoc && response.PrimaryTerm.HasValue)
@@ -331,8 +432,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 if (HasDateTracking)
                     SetDocumentDates(response.Source, ElasticIndex.Configuration.TimeProvider);
 
-                await IndexDocumentsAsync([response.Source], false, options);
-            });
+                await IndexDocumentsAsync([response.Source], false, options).AnyContext();
+            }).AnyContext();
         }
         else
         {
@@ -388,13 +489,18 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (scriptOperation == null && partialOperation == null)
             throw new ArgumentException("Unknown operation type", nameof(operation));
 
+        if (!String.IsNullOrEmpty(DefaultPipeline))
+        {
+            foreach (var id in ids)
+                await PatchAsync(id, operation, options).AnyContext();
+            return;
+        }
+
         var bulkResponse = await _client.BulkAsync(b =>
         {
             b.Refresh(options.GetRefreshMode(DefaultConsistency));
             foreach (var id in ids)
             {
-                b.Pipeline(DefaultPipeline);
-
                 if (scriptOperation != null)
                     b.Update<T>(u =>
                     {
@@ -405,32 +511,28 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                         if (id.Routing != null)
                             u.Routing(id.Routing);
-
-                        return u;
                     });
                 else if (partialOperation != null)
                     b.Update<T, object>(u =>
                     {
                         u.Id(id.Value)
                             .Index(ElasticIndex.GetIndex(id))
+                            // TODO: Null-valued properties are silently dropped by the ES client's SourceSerializer
+                            // (elastic/elasticsearch-net#8763). Consumers must use ScriptPatch or JsonPatch to set fields to null.
                             .Doc(partialOperation.Document)
                             .RetriesOnConflict(options.GetRetryCount());
 
                         if (id.Routing != null)
                             u.Routing(id.Routing);
-
-                        return u;
                     });
             }
-
-            return b;
         }).AnyContext();
         _logger.LogRequest(bulkResponse, options.GetQueryLogLevel());
 
         // TODO: Is there a better way to handle failures?
-        if (!bulkResponse.IsValid)
+        if (!bulkResponse.IsValidResponse)
         {
-            throw new DocumentException(bulkResponse.GetErrorMessage("Error bulk patching documents"), bulkResponse.OriginalException);
+            throw new DocumentException(bulkResponse.GetErrorMessage("Error bulk patching documents"), bulkResponse.OriginalException());
         }
 
         // TODO: Find a good way to invalidate cache and send changed notification
@@ -541,9 +643,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             var response = await _client.DeleteAsync(request).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
-            if (!response.IsValid && response.ApiCall.HttpStatusCode != 404)
+            if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode != 404)
             {
-                throw new DocumentException(response.GetErrorMessage($"Error removing document {ElasticIndex.GetIndex(document)}/{document.Id}"), response.OriginalException);
+                throw new DocumentException(response.GetErrorMessage($"Error removing document {ElasticIndex.GetIndex(document)}/{document.Id}"), response.OriginalException());
             }
         }
         else
@@ -558,17 +660,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                         if (GetParentIdFunc != null)
                             d.Routing(GetParentIdFunc(doc));
-
-                        return d;
                     });
-
-                return bulk;
             }).AnyContext();
 
             _logger.LogRequest(response, options.GetQueryLogLevel());
-            if (!response.IsValid)
+            if (!response.IsValidResponse)
             {
-                throw new DocumentException(response.GetErrorMessage("Error bulk removing documents"), response.OriginalException);
+                throw new DocumentException(response.GetErrorMessage("Error bulk removing documents"), response.OriginalException());
             }
         }
 
@@ -582,10 +680,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     public virtual async Task<long> RemoveAllAsync(ICommandOptions options = null)
     {
-        long count = await RemoveAllAsync(NewQuery(), options);
+        long count = await RemoveAllAsync(NewQuery(), options).AnyContext();
 
         if (IsCacheEnabled && count > 0)
-            await Cache.RemoveAllAsync();
+            await Cache.RemoveAllAsync().AnyContext();
 
         return count;
     }
@@ -601,7 +699,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     /// <summary>
     /// Script patches will not invalidate the cache or send notifications.
-    /// Partial patches will not
     /// </summary>
     public virtual async Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null)
     {
@@ -632,20 +729,21 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     b.Refresh(options.GetRefreshMode(DefaultConsistency));
                     foreach (var h in results.Hits)
                     {
-                        string json = _client.ConnectionSettings.SourceSerializer.SerializeToString(h.Document);
-                        var target = JToken.Parse(json);
+                        // Using System.Text.Json.Nodes.JsonNode since Elastic.Clients.Elasticsearch uses System.Text.Json exclusively
+                        var json = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(h.Document);
+                        var target = JsonNode.Parse(json);
                         patcher.Patch(ref target, jsonOperation.Patch);
-                        var doc = _client.ConnectionSettings.SourceSerializer.Deserialize<T>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToString())));
+                        using var docStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToJsonString()));
+                        var doc = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(docStream);
 
                         if (HasDateTracking)
                             SetDocumentDates(doc, ElasticIndex.Configuration.TimeProvider);
 
                         var elasticVersion = h.GetElasticVersion();
 
-                        b.Index<T>(i =>
+                        b.Index(doc, i =>
                         {
-                            i.Document(doc)
-                             .Id(h.Id)
+                            i.Id(h.Id)
                              .Routing(h.Routing)
                              .Index(h.GetIndex())
                              .Pipeline(DefaultPipeline);
@@ -655,15 +753,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                                 i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
                                 i.IfSequenceNumber(elasticVersion.SequenceNumber);
                             }
-
-                            return i;
                         });
                     }
-
-                    return b;
                 }).AnyContext();
 
-                if (bulkResult.IsValid)
+                if (bulkResult.IsValidResponse)
                 {
                     _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
                 }
@@ -674,7 +768,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
 
                         string[] ids = bulkResult.ItemsWithErrors.Where(i => i.Status == 409).Select(i => i.Id).ToArray();
-                        await PatchAsync(ids, operation, options);
+                        await PatchAsync(ids, operation, options).AnyContext();
                     }
                     else
                     {
@@ -719,10 +813,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                         var elasticVersion = h.GetElasticVersion();
 
-                        b.Index<T>(i =>
+                        b.Index(h.Document, i =>
                         {
-                            i.Document(h.Document)
-                                .Id(h.Id)
+                            i.Id(h.Id)
                                 .Routing(h.Routing)
                                 .Index(h.GetIndex())
                                 .Pipeline(DefaultPipeline);
@@ -732,15 +825,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                                 i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
                                 i.IfSequenceNumber(elasticVersion.SequenceNumber);
                             }
-
-                            return i;
                         });
                     }
-
-                    return b;
                 }).AnyContext();
 
-                if (bulkResult.IsValid)
+                if (bulkResult.IsValidResponse)
                 {
                     _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
                 }
@@ -751,7 +840,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
 
                         string[] ids = bulkResult.ItemsWithErrors.Where(i => i.Status == 409).Select(i => i.Id).ToArray();
-                        await PatchAsync(ids, operation, options);
+                        await PatchAsync(ids, operation, options).AnyContext();
                     }
                     else
                     {
@@ -789,9 +878,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             {
                 var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", ElasticIndex.GetIndexesByQuery(query))))
                 {
-                    Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext(),
+                    Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchRequestDescriptor<T>()).AnyContext(),
                     Conflicts = Conflicts.Proceed,
-                    Script = new InlineScript(scriptOperation.Script) { Params = scriptOperation.Params },
+                    Script = new Script { Source = scriptOperation.Script, Params = scriptOperation.Params },
                     Pipeline = DefaultPipeline,
                     Version = HasVersion,
                     Refresh = options.GetRefreshMode(DefaultConsistency) != Refresh.False,
@@ -801,28 +890,29 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 var response = await _client.UpdateByQueryAsync(request).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
-                if (!response.IsValid)
+                if (!response.IsValidResponse)
                 {
-                    throw new DocumentException(response.GetErrorMessage("Error occurred while patching by query"), response.OriginalException);
+                    throw new DocumentException(response.GetErrorMessage("Error occurred while patching by query"), response.OriginalException());
                 }
 
-                var taskId = response.Task;
+                var taskId = response.Task.ToString();
                 int attempts = 0;
                 do
                 {
                     attempts++;
-                    var taskStatus = await _client.Tasks.GetTaskAsync(taskId, t => t.WaitForCompletion(false)).AnyContext();
+                    var taskRequest = new Tasks.GetTasksRequest(taskId) { WaitForCompletion = false };
+                    var taskStatus = await _client.Tasks.GetAsync(taskRequest).AnyContext();
                     _logger.LogRequest(taskStatus, options.GetQueryLogLevel());
 
-                    if (!taskStatus.IsValid)
+                    if (!taskStatus.IsValidResponse)
                     {
-                        if (taskStatus.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+                        if (taskStatus.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                         {
                             _logger.LogWarning("Task {TaskId} not found (404), treating as completed", taskId);
                             break;
                         }
 
-                        _logger.LogError("Error getting task status for {TaskId}: {Error}", taskId, taskStatus.ServerError);
+                        _logger.LogError("Error getting task status for {TaskId}: {Error}", taskId, taskStatus.ElasticsearchServerError);
                         if (attempts >= 20)
                             throw new DocumentException($"Failed to get task status for {taskId} after {attempts} attempts");
 
@@ -831,16 +921,37 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         continue;
                     }
 
-                    var status = taskStatus.Task.Status;
+                    // Extract status values from the raw JSON. The Status property is object? and may be
+                    // deserialized as JsonElement or IDictionary<string, object> depending on serializer config.
+                    long? created = null, updated = null, deleted = null, versionConflicts = null, total = null;
+                    if (taskStatus.Task.Status is JsonElement jsonElement)
+                    {
+                        total = jsonElement.TryGetProperty("total", out var totalProp) ? totalProp.GetInt64() : 0;
+                        created = jsonElement.TryGetProperty("created", out var createdProp) ? createdProp.GetInt64() : 0;
+                        updated = jsonElement.TryGetProperty("updated", out var updatedProp) ? updatedProp.GetInt64() : 0;
+                        deleted = jsonElement.TryGetProperty("deleted", out var deletedProp) ? deletedProp.GetInt64() : 0;
+                        versionConflicts = jsonElement.TryGetProperty("version_conflicts", out var conflictsProp) ? conflictsProp.GetInt64() : 0;
+                    }
+                    else if (taskStatus.Task.Status is IDictionary<string, object> dict)
+                    {
+                        total = dict.TryGetValue("total", out var totalVal) ? Convert.ToInt64(totalVal) : 0;
+                        created = dict.TryGetValue("created", out var createdVal) ? Convert.ToInt64(createdVal) : 0;
+                        updated = dict.TryGetValue("updated", out var updatedVal) ? Convert.ToInt64(updatedVal) : 0;
+                        deleted = dict.TryGetValue("deleted", out var deletedVal) ? Convert.ToInt64(deletedVal) : 0;
+                        versionConflicts = dict.TryGetValue("version_conflicts", out var conflictsVal) ? Convert.ToInt64(conflictsVal) : 0;
+                    }
+
                     if (taskStatus.Completed)
                     {
-                        // TODO: need to check to see if the task failed or completed successfully. Throw if it failed.
-                        _logger.LogInformation("Script operation task ({TaskId}) completed: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, status.Created, status.Updated, status.Deleted, status.VersionConflicts, status.Total);
-                        affectedRecords += status.Created + status.Updated + status.Deleted;
+                        if (taskStatus.Error != null)
+                            throw new DocumentException($"Script operation task ({taskId}) failed: {taskStatus.Error.Type} - {taskStatus.Error.Reason}", taskStatus.OriginalException());
+
+                        _logger.LogInformation("Script operation task ({TaskId}) completed: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, created, updated, deleted, versionConflicts, total);
+                        affectedRecords += (created ?? 0) + (updated ?? 0) + (deleted ?? 0);
                         break;
                     }
 
-                    _logger.LogDebug("Checking script operation task ({TaskId}) status: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, status.Created, status.Updated, status.Deleted, status.VersionConflicts, status.Total);
+                    _logger.LogDebug("Checking script operation task ({TaskId}) status: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, created, updated, deleted, versionConflicts, total);
                     var delay = TimeSpan.FromSeconds(attempts <= 5 ? 1 : 5);
                     await ElasticIndex.Configuration.TimeProvider.Delay(delay).AnyContext();
                 } while (true);
@@ -859,7 +970,38 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                         foreach (var h in results.Hits)
                         {
-                            if (scriptOperation != null)
+                            if (partialOperation != null && !String.IsNullOrEmpty(DefaultPipeline))
+                            {
+                                var sourceJson = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(h.Document);
+                                var sourceNode = JsonNode.Parse(sourceJson);
+                                var partialJson = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(partialOperation.Document);
+                                var partialNode = JsonNode.Parse(partialJson);
+
+                                if (sourceNode is JsonObject sourceObj && partialNode is JsonObject partialObj)
+                                {
+                                    foreach (var prop in partialObj)
+                                        sourceObj[prop.Key] = prop.Value?.DeepClone();
+                                }
+
+                                using var mergedStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(sourceNode.ToJsonString()));
+                                var mergedDoc = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(mergedStream);
+                                var elasticVersion = h.GetElasticVersion();
+
+                                b.Index(mergedDoc, i =>
+                                {
+                                    i.Id(h.Id)
+                                        .Routing(h.Routing)
+                                        .Index(h.GetIndex())
+                                        .Pipeline(DefaultPipeline);
+
+                                    if (HasVersion)
+                                    {
+                                        i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
+                                        i.IfSequenceNumber(elasticVersion.SequenceNumber);
+                                    }
+                                });
+                            }
+                            else if (scriptOperation != null)
                                 b.Update<T>(u => u
                                     .Id(h.Id)
                                     .Routing(h.Routing)
@@ -867,16 +1009,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                                     .Script(s => s.Source(scriptOperation.Script).Params(scriptOperation.Params))
                                     .RetriesOnConflict(options.GetRetryCount()));
                             else if (partialOperation != null)
+                                // TODO: Null-valued properties are silently dropped by the ES client's SourceSerializer
+                                // (elastic/elasticsearch-net#8763). Consumers must use ScriptPatch or JsonPatch to set fields to null.
                                 b.Update<T, object>(u => u.Id(h.Id)
                                     .Routing(h.Routing)
                                     .Index(h.GetIndex())
                                     .Doc(partialOperation.Document));
                         }
-
-                        return b;
                     }).AnyContext();
 
-                    if (bulkResult.IsValid)
+                    if (bulkResult.IsValidResponse)
                     {
                         _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
                     }
@@ -889,7 +1031,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     var updatedIds = results.Hits.Select(h => h.Id).ToList();
                     if (IsCacheEnabled)
                     {
-                        // TODO: Add cache invalidation for documents.
                         await InvalidateCacheAsync(updatedIds).AnyContext();
                     }
 
@@ -910,7 +1051,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (affectedRecords > 0)
         {
             if (IsCacheEnabled)
-                await InvalidateCacheByQueryAsync(query.As<T>());
+                await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
 
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
             await SendQueryNotificationsAsync(ChangeType.Saved, query, options).AnyContext();
@@ -953,26 +1094,26 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         {
             Refresh = options.GetRefreshMode(DefaultConsistency) != Refresh.False,
             Conflicts = Conflicts.Proceed,
-            Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchDescriptor<T>()).AnyContext()
+            Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchRequestDescriptor<T>()).AnyContext()
         }).AnyContext();
         _logger.LogRequest(response, options.GetQueryLogLevel());
 
-        if (!response.IsValid)
+        if (!response.IsValidResponse)
         {
-            throw new DocumentException(response.GetErrorMessage("Error removing documents"), response.OriginalException);
+            throw new DocumentException(response.GetErrorMessage("Error removing documents"), response.OriginalException());
         }
 
-        if (response.Deleted > 0)
+        if (response.Deleted.HasValue && response.Deleted > 0)
         {
             if (IsCacheEnabled)
-                await InvalidateCacheByQueryAsync(query.As<T>());
+                await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
 
             await OnDocumentsRemovedAsync(EmptyList, options).AnyContext();
             await SendQueryNotificationsAsync(ChangeType.Removed, query, options).AnyContext();
         }
 
         Debug.Assert(response.Total == response.Deleted, "All records were not removed");
-        return response.Deleted;
+        return response.Deleted ?? 0;
     }
 
     public Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<FindResults<T>, Task<bool>> processFunc, CommandOptionsDescriptor<T> options = null)
@@ -1065,7 +1206,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (String.IsNullOrEmpty(tenantKey))
             return;
 
-        var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenantKey);
+        var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenantKey).AnyContext();
         var mapping = fieldMapping.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.GetIdxName(), StringComparer.OrdinalIgnoreCase);
 
         args.Options.QueryFieldResolver(mapping.ToHierarchicalFieldResolver("idx."));
@@ -1077,7 +1218,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         foreach (var tenant in tenantGroups)
         {
-            var fieldDefinitions = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenant.Key);
+            var fieldDefinitions = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenant.Key).AnyContext();
 
             foreach (var doc in tenant)
             {
@@ -1095,7 +1236,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 {
                     if (!fieldDefinitions.TryGetValue(customField.Key, out var fieldDefinition))
                     {
-                        fieldDefinition = await HandleUnmappedCustomField(doc, customField.Key, customField.Value, fieldDefinitions);
+                        fieldDefinition = await HandleUnmappedCustomField(doc, customField.Key, customField.Value, fieldDefinitions).AnyContext();
                         if (fieldDefinition == null)
                             continue;
 
@@ -1108,12 +1249,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         continue;
                     }
 
-                    var result = await fieldType.ProcessValueAsync(doc, customField.Value, fieldDefinition);
+                    var result = await fieldType.ProcessValueAsync(doc, customField.Value, fieldDefinition).AnyContext();
                     SetDocumentCustomField(doc, customField.Key, result.Value);
                     idx[fieldDefinition.GetIdxName()] = result.Idx ?? result.Value;
 
                     if (result.IsCustomFieldDefinitionModified)
-                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(fieldDefinition);
+                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(fieldDefinition).AnyContext();
                 }
 
                 foreach (var alwaysProcessField in fieldDefinitions.Values.Where(f => f.ProcessMode == CustomFieldProcessMode.AlwaysProcess))
@@ -1125,12 +1266,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     }
 
                     var value = GetDocumentCustomField(doc, alwaysProcessField.Name);
-                    var result = await fieldType.ProcessValueAsync(doc, value, alwaysProcessField);
+                    var result = await fieldType.ProcessValueAsync(doc, value, alwaysProcessField).AnyContext();
                     SetDocumentCustomField(doc, alwaysProcessField.Name, result.Value);
                     idx[alwaysProcessField.GetIdxName()] = result.Idx ?? result.Value;
 
                     if (result.IsCustomFieldDefinitionModified)
-                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(alwaysProcessField);
+                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(alwaysProcessField).AnyContext();
                 }
             }
         }
@@ -1145,7 +1286,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (String.IsNullOrEmpty(tenantKey))
             return null;
 
-        return await ElasticIndex.Configuration.CustomFieldDefinitionRepository.AddFieldAsync(EntityTypeName, GetDocumentTenantKey(document), name, StringFieldType.IndexType);
+        return await ElasticIndex.Configuration.CustomFieldDefinitionRepository.AddFieldAsync(EntityTypeName, GetDocumentTenantKey(document), name, StringFieldType.IndexType).AnyContext();
     }
 
     protected string GetDocumentTenantKey(T document)
@@ -1369,7 +1510,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return originals.AsReadOnly();
     }
 
-    private async Task IndexDocumentsAsync(IReadOnlyCollection<T> documents, bool isCreateOperation, ICommandOptions options)
+    private async Task IndexDocumentsAsync(IReadOnlyCollection<T> documents, bool isCreateOperation, ICommandOptions options, int retryAttempt = 0)
     {
         if (ElasticIndex.HasMultipleIndexes)
         {
@@ -1392,7 +1533,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 if (GetParentIdFunc != null)
                     i.Routing(GetParentIdFunc(document));
-                //i.Routing(GetParentIdFunc != null ? GetParentIdFunc(document) : document.Id);
 
                 i.Index(ElasticIndex.GetIndex(document));
 
@@ -1400,22 +1540,20 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 {
                     var elasticVersion = ((IVersioned)document).GetElasticVersion();
                     i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
-                    i.IfSequenceNumber(elasticVersion.SequenceNumber);
+                    i.IfSeqNo(elasticVersion.SequenceNumber);
                 }
-
-                return i;
             }).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
-            if (!response.IsValid)
+            if (!response.IsValidResponse)
             {
                 string message = $"Error {(isCreateOperation ? "adding" : "saving")} document";
-                if (isCreateOperation && response.ServerError?.Status == 409)
-                    throw new DuplicateDocumentException(response.GetErrorMessage(message), response.OriginalException);
-                else if (!isCreateOperation && response.ServerError?.Status == 409)
-                    throw new VersionConflictDocumentException(response.GetErrorMessage(message), response.OriginalException);
+                if (isCreateOperation && response.ElasticsearchServerError?.Status == 409)
+                    throw new DuplicateDocumentException(response.GetErrorMessage(message), response.OriginalException());
+                else if (!isCreateOperation && response.ElasticsearchServerError?.Status == 409)
+                    throw new VersionConflictDocumentException(response.GetErrorMessage(message), response.OriginalException());
 
-                throw new DocumentException(response.GetErrorMessage(message), response.OriginalException);
+                throw new DocumentException(response.GetErrorMessage(message), response.OriginalException());
             }
 
             if (HasVersion)
@@ -1430,28 +1568,31 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             var bulkRequest = new BulkRequest();
             var list = documents.Select(d =>
             {
-                IBulkOperation baseOperation;
+                var routing = GetParentIdFunc?.Invoke(d);
+                var index = ElasticIndex.GetIndex(d);
+
                 if (isCreateOperation)
                 {
-                    baseOperation = new BulkCreateOperation<T>(d) { Pipeline = DefaultPipeline };
+                    var createOperation = new BulkCreateOperation<T>(d) { Pipeline = DefaultPipeline };
+                    if (routing != null)
+                        createOperation.Routing = routing;
+                    createOperation.Index = index;
+                    return (IBulkOperation)createOperation;
                 }
                 else
                 {
                     var indexOperation = new BulkIndexOperation<T>(d) { Pipeline = DefaultPipeline };
+                    if (routing != null)
+                        indexOperation.Routing = routing;
+                    indexOperation.Index = index;
                     if (HasVersion && !options.ShouldSkipVersionCheck())
                     {
                         var elasticVersion = ((IVersioned)d).GetElasticVersion();
                         indexOperation.IfSequenceNumber = elasticVersion.SequenceNumber;
                         indexOperation.IfPrimaryTerm = elasticVersion.PrimaryTerm;
                     }
-                    baseOperation = indexOperation;
+                    return (IBulkOperation)indexOperation;
                 }
-
-                if (GetParentIdFunc != null)
-                    baseOperation.Routing = GetParentIdFunc(d);
-                baseOperation.Index = ElasticIndex.GetIndex(d);
-
-                return baseOperation;
             }).ToList();
             bulkRequest.Operations = list;
             bulkRequest.Refresh = options.GetRefreshMode(DefaultConsistency);
@@ -1482,10 +1623,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             if (allErrors.Count > 0)
             {
                 var retryableIds = allErrors.Where(e => e.Status == 429 || e.Status == 503).Select(e => e.Id).ToList();
-                if (retryableIds.Count > 0)
+                if (retryableIds.Count > 0 && retryAttempt < 3)
                 {
                     var docs = documents.Where(d => retryableIds.Contains(d.Id)).ToList();
-                    await IndexDocumentsAsync(docs, isCreateOperation, options).AnyContext();
+                    await IndexDocumentsAsync(docs, isCreateOperation, options, retryAttempt + 1).AnyContext();
 
                     // return as all recoverable items were retried.
                     if (allErrors.Count == retryableIds.Count)
@@ -1493,17 +1634,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
             }
 
-            if (!response.IsValid)
+            if (!response.IsValidResponse)
             {
                 if (isCreateOperation && allErrors.Any(e => e.Status == 409))
-                    throw new DuplicateDocumentException(response.GetErrorMessage("Error adding duplicate documents"), response.OriginalException);
+                    throw new DuplicateDocumentException(response.GetErrorMessage("Error adding duplicate documents"), response.OriginalException());
                 else if (allErrors.Any(e => e.Status == 409))
-                    throw new VersionConflictDocumentException(response.GetErrorMessage("Error saving documents"), response.OriginalException);
+                    throw new VersionConflictDocumentException(response.GetErrorMessage("Error saving documents"), response.OriginalException());
 
-                throw new DocumentException(response.GetErrorMessage($"Error {(isCreateOperation ? "adding" : "saving")} documents"), response.OriginalException);
+                throw new DocumentException(response.GetErrorMessage($"Error {(isCreateOperation ? "adding" : "saving")} documents"), response.OriginalException());
             }
         }
-        // 429 // 503
     }
 
     /// <summary>
@@ -1764,37 +1904,37 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return patch;
 
         var fieldPath = GetUpdatedUtcFieldPath();
-        var serialized = _client.ConnectionSettings.SourceSerializer.SerializeToString(patch.Document);
-        var partialDoc = JToken.Parse(serialized);
+        var serialized = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(patch.Document);
+        var partialDoc = JsonNode.Parse(serialized);
 
-        if (partialDoc is not JObject partialObject)
+        if (partialDoc is not JsonObject partialObject)
             return patch;
 
-        if (GetNestedJToken(partialObject, fieldPath) is not null)
+        if (GetNestedJsonNode(partialObject, fieldPath) is not null)
         {
             _logger.LogDebug("Skipping automatic {FieldPath} injection; caller already provided it", fieldPath);
             return patch;
         }
 
-        SetNestedJTokenValue(partialObject, fieldPath,
-            JToken.FromObject(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime));
+        SetNestedJsonNodeValue(partialObject, fieldPath,
+            JsonValue.Create(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime));
 
         return new PartialPatch(ToDictionary(partialObject));
     }
 
     /// <summary>
-    /// Sets the updated timestamp on a <see cref="JToken"/> document (used by single-doc JsonPatch).
+    /// Sets the updated timestamp on a <see cref="JsonNode"/> document (used by single-doc JsonPatch).
     /// Supports nested dot-path fields.
     /// </summary>
-    protected virtual void ApplyDateTracking(JToken target)
+    protected virtual void ApplyDateTracking(JsonNode target)
     {
         if (!HasDateTracking)
             return;
 
         var fieldPath = GetUpdatedUtcFieldPath();
 
-        SetNestedJTokenValue(target, fieldPath,
-            JToken.FromObject(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime));
+        SetNestedJsonNodeValue(target, fieldPath,
+            JsonValue.Create(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime));
     }
 
     private static string BuildNestedAssignmentScript(string fieldPath, string paramKey)
@@ -1826,7 +1966,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return sb.ToString();
     }
 
-    private static JToken GetNestedJToken(JToken token, string dotPath)
+    private static JsonNode GetNestedJsonNode(JsonNode node, string dotPath)
     {
         var remaining = dotPath.AsSpan();
 
@@ -1835,20 +1975,20 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             var dotIndex = remaining.IndexOf('.');
             var segment = dotIndex >= 0 ? remaining[..dotIndex] : remaining;
 
-            if (token is not JObject obj)
+            if (node is not JsonObject obj)
                 return null;
 
-            token = obj[segment.ToString()];
-            if (token is null)
+            node = obj[segment.ToString()];
+            if (node is null)
                 return null;
 
             remaining = dotIndex >= 0 ? remaining[(dotIndex + 1)..] : ReadOnlySpan<char>.Empty;
         }
 
-        return token;
+        return node;
     }
 
-    private static void SetNestedJTokenValue(JToken token, string dotPath, JToken value)
+    private static void SetNestedJsonNodeValue(JsonNode node, string dotPath, JsonNode value)
     {
         var remaining = dotPath.AsSpan();
 
@@ -1858,7 +1998,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             if (dotIndex < 0)
             {
-                if (token is JObject leaf)
+                if (node is JsonObject leaf)
                     leaf[remaining.ToString()] = value;
 
                 return;
@@ -1866,40 +2006,41 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             var segment = remaining[..dotIndex].ToString();
 
-            if (token is not JObject current)
+            if (node is not JsonObject current)
                 return;
 
             var next = current[segment];
 
-            if (next is not JObject)
+            if (next is not JsonObject)
             {
-                next = new JObject();
+                next = new JsonObject();
                 current[segment] = next;
             }
 
-            token = next;
+            node = next;
             remaining = remaining[(dotIndex + 1)..];
         }
     }
 
-    private static Dictionary<string, object> ToDictionary(JObject obj)
+    private static Dictionary<string, object> ToDictionary(JsonObject obj)
     {
         var dict = new Dictionary<string, object>(obj.Count);
 
-        foreach (var property in obj.Properties())
-            dict[property.Name] = ToValue(property.Value);
+        foreach (var property in obj)
+            dict[property.Key] = ToValue(property.Value);
 
         return dict;
     }
 
-    private static object ToValue(JToken token)
+    private static object ToValue(JsonNode node)
     {
-        return token switch
+        return node switch
         {
-            JObject nested => ToDictionary(nested),
-            JArray array => array.Select(ToValue).ToList(),
-            JValue value => value.Value,
-            _ => token.ToObject<object>()
+            JsonObject nested => ToDictionary(nested),
+            JsonArray array => array.Select(ToValue).ToList(),
+            JsonValue val => val.Deserialize<object>(),
+            null => null,
+            _ => node.Deserialize<object>()
         };
     }
 }

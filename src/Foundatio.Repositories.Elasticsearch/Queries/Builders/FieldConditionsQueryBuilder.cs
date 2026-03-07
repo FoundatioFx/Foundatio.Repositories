@@ -4,12 +4,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Parsers.LuceneQueries.Visitors;
+using Foundatio.Repositories.Elasticsearch.Utility;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories
 {
@@ -218,32 +220,32 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 switch (fieldValue.Operator)
                 {
                     case ComparisonOperator.Equals:
-                        QueryBase eqQuery;
+                        Query eqQuery;
                         if (fieldValue.Value is IEnumerable and not string)
                         {
-                            var values = new List<object>();
+                            var values = new List<FieldValue>();
                             foreach (var value in (IEnumerable)fieldValue.Value)
-                                values.Add(value);
-                            eqQuery = new TermsQuery { Field = resolvedField, Terms = values };
+                                values.Add(ToFieldValue(value));
+                            eqQuery = new TermsQuery { Field = resolvedField, Terms = new TermsQueryField(values) };
                         }
                         else
-                            eqQuery = new TermQuery { Field = resolvedField, Value = fieldValue.Value };
+                            eqQuery = new TermQuery { Field = resolvedField, Value = ToFieldValue(fieldValue.Value) };
                         ctx.Filter &= eqQuery;
 
                         break;
                     case ComparisonOperator.NotEquals:
-                        QueryBase neQuery;
+                        Query neQuery;
                         if (fieldValue.Value is IEnumerable and not string)
                         {
-                            var values = new List<object>();
+                            var values = new List<FieldValue>();
                             foreach (var value in (IEnumerable)fieldValue.Value)
-                                values.Add(value);
-                            neQuery = new TermsQuery { Field = resolvedField, Terms = values };
+                                values.Add(ToFieldValue(value));
+                            neQuery = new TermsQuery { Field = resolvedField, Terms = new TermsQueryField(values) };
                         }
                         else
-                            neQuery = new TermQuery { Field = resolvedField, Value = fieldValue.Value };
+                            neQuery = new TermQuery { Field = resolvedField, Value = ToFieldValue(fieldValue.Value) };
 
-                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { neQuery } };
+                        ctx.Filter &= new BoolQuery { MustNot = new Query[] { neQuery } };
                         break;
                     case ComparisonOperator.Contains:
                         if (!resolver.IsPropertyAnalyzed(resolvedField))
@@ -262,11 +264,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                         string notContainsText = fieldValue.Value is IEnumerable and not string
                             ? String.Join(" ", ((IEnumerable)fieldValue.Value).Cast<object>())
                             : fieldValue.Value?.ToString() ?? String.Empty;
-                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { new MatchQuery { Field = resolvedField, Query = notContainsText, Operator = Operator.And } } };
+                        ctx.Filter &= new BoolQuery { MustNot = new Query[] { new MatchQuery { Field = resolvedField, Query = notContainsText, Operator = Operator.And } } };
 
                         break;
                     case ComparisonOperator.IsEmpty:
-                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { new ExistsQuery { Field = resolvedField } } };
+                        ctx.Filter &= new BoolQuery { MustNot = new Query[] { new ExistsQuery { Field = resolvedField } } };
                         break;
                     case ComparisonOperator.HasValue:
                         ctx.Filter &= new ExistsQuery { Field = resolvedField };
@@ -291,5 +293,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
             return resolved;
         }
+
+        private static FieldValue ToFieldValue(object value) => FieldValueHelper.ToFieldValue(value);
     }
 }
