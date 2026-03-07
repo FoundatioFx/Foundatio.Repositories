@@ -534,17 +534,22 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
         other.Data["MyField1"] = "other";
         await _employeeRepository.AddAsync([single, multi, other], o => o.ImmediateConsistency());
 
-        // Act — "hello" analyzed match hits both "hello" and "hello world"
+        // Act — "hello" single-token match hits both "hello" and "hello world"
         var results = await _employeeRepository.FindAsync(q => q.Company("1").FieldCondition("myfield1", ComparisonOperator.Contains, "hello"));
         Assert.Equal(2, results.Documents.Count);
         Assert.DoesNotContain(results.Documents, d => d.Age == 30);
 
-        // Act — "hello world" analyzed match hits both (both tokens present in "hello world", and individually)
+        // Act — "hello world" requires BOTH tokens, matches only "hello world" (not "hello" alone)
         results = await _employeeRepository.FindAsync(q => q.Company("1").FieldCondition("myfield1", ComparisonOperator.Contains, "hello world"));
-        Assert.Equal(2, results.Documents.Count);
-        Assert.DoesNotContain(results.Documents, d => d.Age == 30);
+        Assert.Single(results.Documents);
+        Assert.Equal(25, results.Documents.First().Age);
 
-        // Act — "other" analyzed match hits only "other"
+        // Act — "world hello" reversed token order still matches "hello world" (AND is order-independent)
+        results = await _employeeRepository.FindAsync(q => q.Company("1").FieldCondition("myfield1", ComparisonOperator.Contains, "world hello"));
+        Assert.Single(results.Documents);
+        Assert.Equal(25, results.Documents.First().Age);
+
+        // Act — "other" single-token match hits only "other"
         results = await _employeeRepository.FindAsync(q => q.Company("1").FieldCondition("myfield1", ComparisonOperator.Contains, "other"));
         Assert.Single(results.Documents);
         Assert.Equal(30, results.Documents.First().Age);
@@ -577,6 +582,16 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
         var results = await _employeeRepository.FindAsync(q => q.Company("1").FieldCondition("myfield1", ComparisonOperator.NotContains, "hello"));
         Assert.Single(results.Documents);
         Assert.Equal(30, results.Documents.First().Age);
+
+        // Act — NOT "hello world" excludes only "hello world" (requires both tokens), leaves "hello" and "other"
+        results = await _employeeRepository.FindAsync(q => q.Company("1").FieldCondition("myfield1", ComparisonOperator.NotContains, "hello world"));
+        Assert.Equal(2, results.Documents.Count);
+        Assert.DoesNotContain(results.Documents, d => d.Age == 25);
+
+        // Act — NOT "world hello" reversed order — same as NOT "hello world"
+        results = await _employeeRepository.FindAsync(q => q.Company("1").FieldCondition("myfield1", ComparisonOperator.NotContains, "world hello"));
+        Assert.Equal(2, results.Documents.Count);
+        Assert.DoesNotContain(results.Documents, d => d.Age == 25);
 
         // Act — NOT "other" excludes only "other", leaves both hello docs
         results = await _employeeRepository.FindAsync(q => q.Company("1").FieldCondition("myfield1", ComparisonOperator.NotContains, "other"));

@@ -252,7 +252,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                         string containsText = fieldValue.Value is IEnumerable and not string
                             ? String.Join(" ", ((IEnumerable)fieldValue.Value).Cast<object>())
                             : fieldValue.Value?.ToString() ?? String.Empty;
-                        ctx.Filter &= new MatchQuery { Field = resolvedField, Query = containsText };
+                        ctx.Filter &= new MatchQuery { Field = resolvedField, Query = containsText, Operator = Operator.And };
 
                         break;
                     case ComparisonOperator.NotContains:
@@ -262,7 +262,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                         string notContainsText = fieldValue.Value is IEnumerable and not string
                             ? String.Join(" ", ((IEnumerable)fieldValue.Value).Cast<object>())
                             : fieldValue.Value?.ToString() ?? String.Empty;
-                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { new MatchQuery { Field = resolvedField, Query = notContainsText } } };
+                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { new MatchQuery { Field = resolvedField, Query = notContainsText, Operator = Operator.And } } };
 
                         break;
                     case ComparisonOperator.IsEmpty:
