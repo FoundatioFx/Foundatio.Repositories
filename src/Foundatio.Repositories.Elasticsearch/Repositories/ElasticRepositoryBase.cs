@@ -1698,7 +1698,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return _updatedUtcField.Value;
 
         throw new RepositoryException(
-            $"{GetType().Name} has HasDateTracking=true but GetUpdatedUtcFieldPath() returned no field path. " +
+            $"{GetType().Name} has HasDateTracking=true but does not implement IHaveDates. " +
             "Override GetUpdatedUtcFieldPath() to return the Elasticsearch field path for your updated timestamp.");
     }
 
@@ -1746,7 +1746,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return script;
         }
 
-        return new ScriptPatch($"{script.Script} ctx._source.{fieldPath} = params.{paramKey};")
+        var scriptSuffix = BuildNestedAssignmentScript(fieldPath, paramKey);
+
+        return new ScriptPatch($"{script.Script} {scriptSuffix}")
         {
             Params = new Dictionary<string, object>(script.Params ?? [])
             {
@@ -1793,6 +1795,32 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         SetNestedJTokenValue(target, fieldPath,
             JToken.FromObject(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime));
+    }
+
+    private static string BuildNestedAssignmentScript(string fieldPath, string paramKey)
+    {
+        var dotIndex = fieldPath.IndexOf('.');
+        if (dotIndex < 0)
+            return $"ctx._source.{fieldPath} = params.{paramKey};";
+
+        var sb = new System.Text.StringBuilder();
+        var prefix = "ctx._source";
+        var remaining = fieldPath.AsSpan();
+
+        while (true)
+        {
+            dotIndex = remaining.IndexOf('.');
+            if (dotIndex < 0)
+                break;
+
+            var segment = remaining[..dotIndex];
+            sb.Append($"if ({prefix}.{segment} == null) {{ {prefix}.{segment} = [:]; }} ");
+            prefix = $"{prefix}.{segment}";
+            remaining = remaining[(dotIndex + 1)..];
+        }
+
+        sb.Append($"{prefix}.{remaining} = params.{paramKey};");
+        return sb.ToString();
     }
 
     private static JToken GetNestedJToken(JToken token, string dotPath)
