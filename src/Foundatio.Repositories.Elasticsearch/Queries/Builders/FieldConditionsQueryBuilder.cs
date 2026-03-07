@@ -6,7 +6,6 @@ using System.Text;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
-using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Options;
@@ -293,11 +292,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 ? resolver.GetNonAnalyzedFieldName(field)
                 : resolver.GetResolvedField(field);
 
-            var fieldResolver = ((IQueryVisitorContextWithFieldResolver)ctx).FieldResolver;
-            if (fieldResolver != null)
+            if (ctx is IQueryVisitorContextWithFieldResolver { FieldResolver: not null } fieldResolverCtx)
             {
-                string customResolved = await fieldResolver(resolved, ctx).AnyContext();
-                if (!String.IsNullOrEmpty(customResolved))
+                string customResolved = await fieldResolverCtx.FieldResolver(resolved, ctx).AnyContext();
+                if (!String.IsNullOrWhiteSpace(customResolved))
                     return customResolved;
             }
 
