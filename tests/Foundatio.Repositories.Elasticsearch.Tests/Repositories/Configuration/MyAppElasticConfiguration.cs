@@ -30,6 +30,7 @@ public class MyAppElasticConfiguration : ElasticConfiguration
         AddIndex(ParentChild = new ParentChildIndex(this));
         AddIndex(DailyFileAccessHistory = new DailyFileAccessHistoryIndex(this));
         AddIndex(MonthlyFileAccessHistory = new MonthlyFileAccessHistoryIndex(this));
+        AddIndex(EmployeesWithDateMetaData = new EmployeeWithDateMetaDataIndex(this));
         CustomFields = AddCustomFieldIndex(replicas: 0);
     }
 
@@ -99,5 +100,6 @@ public class MyAppElasticConfiguration : ElasticConfiguration
     public ParentChildIndex ParentChild { get; }
     public DailyFileAccessHistoryIndex DailyFileAccessHistory { get; }
     public MonthlyFileAccessHistoryIndex MonthlyFileAccessHistory { get; }
+    public EmployeeWithDateMetaDataIndex EmployeesWithDateMetaData { get; }
     public CustomFieldDefinitionIndex CustomFields { get; }
 }

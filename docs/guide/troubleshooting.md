@@ -464,6 +464,23 @@ curl http://localhost:9200/employees/_stats
 | `circuit_breaking_exception` | Memory limit | Reduce batch size |
 | `cluster_block_exception` | Cluster read-only | Check disk space |
 
+## Aggregation Warnings
+
+### doc_count_error_upper_bound Warning
+
+**Symptoms:**
+- Warning-level log message about `doc_count_error_upper_bound` in terms aggregation results
+
+**Explanation:**
+
+When running terms aggregations across multiple shards, Elasticsearch returns an approximate count. The `doc_count_error_upper_bound` field indicates the maximum potential error in document counts for each term bucket. A non-zero value means shard-level approximations may have affected the results.
+
+**Solutions:**
+
+1. **Increase `shard_size`** if accuracy matters for your use case — this makes Elasticsearch consider more terms per shard before combining results
+2. **Use a single shard** for small indexes where exact counts are important
+3. **Ignore the warning** if approximate counts are acceptable for your use case (this is common for analytics and dashboards)
+
 ## Getting Help
 
 1. **Check logs** - Enable debug logging

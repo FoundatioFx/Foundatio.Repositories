@@ -10,6 +10,68 @@ Patch operations allow you to:
 - Apply bulk updates efficiently
 - Reduce network traffic and conflicts
 
+## Automatic Date Tracking
+
+For models implementing `IHaveDates`, all patch operations automatically set `UpdatedUtc` to the current time. This is consistent with how `AddAsync` and `SaveAsync` handle date tracking.
+
+- **`UpdatedUtc`** is set automatically on every patch operation — no manual intervention needed
+- **`CreatedUtc`** is not overwritten by patch operations under normal circumstances; it may be corrected if missing or invalid (for example, `DateTime.MinValue` or a future value), consistent with `SetDates` behavior
+- Works across all patch types: `PartialPatch`, `ScriptPatch`, `JsonPatch`, and `ActionPatch`
+
+### Caller-provided UpdatedUtc
+
+For `ScriptPatch` and `PartialPatch`, if you explicitly provide `updatedUtc` in your script parameters or partial document, the repository respects your value and skips auto-injection. This is logged at `Debug` level.
+
+For `JsonPatch` and `ActionPatch`, `UpdatedUtc` is always set by the framework after applying your changes — matching `SaveAsync` semantics. If you need explicit control over the timestamp, use `ScriptPatch` or `PartialPatch`.
+
+::: warning Stale timestamps on server-side retries
+For `ScriptPatch` and `PartialPatch`, the `UpdatedUtc` timestamp is captured once when the request is built and is fixed for any server-side retries (`RetryOnConflict`). If a version conflict causes Elasticsearch to retry the update, the retried write carries the **original timestamp**, not a fresh one. This means a document updated after several retries will have an `UpdatedUtc` that is slightly older than the actual commit time. For `JsonPatch` and `ActionPatch`, the timestamp is refreshed on each client-side retry since the entire operation (fetch + mutate + index) re-executes.
+
+This matches `SaveAsync` behavior, where `SetDates` is called once before the Elasticsearch request. In most scenarios the retry window is milliseconds, but callers relying on `UpdatedUtc` for strict ordering or audit trails should be aware of this.
+:::
+
+### Custom Date Fields
+
+If your model uses custom date fields instead of `IHaveDates` (e.g., a nested `MetaData.DateUpdatedUtc` property), you can opt into automatic date tracking by overriding three virtual hooks on your repository:
+
+```csharp
+public class MyRepository : ElasticRepositoryBase<MyEntity>
+{
+    protected override bool HasDateTracking => true;
+
+    protected override string GetUpdatedUtcFieldPath()
+    {
+        return InferField(d => ((IHaveDateMetaData)d).MetaData.DateUpdatedUtc);
+    }
+
+    protected override void SetDocumentDates(MyEntity document, TimeProvider timeProvider)
+    {
+        base.SetDocumentDates(document, timeProvider);
+
+        if (document is IHaveDateMetaData metaDoc)
+        {
+            var utcNow = timeProvider.GetUtcNow().UtcDateTime;
+            metaDoc.MetaData ??= new DateMetaData();
+
+            if (metaDoc.MetaData.DateCreatedUtc is null
+                || metaDoc.MetaData.DateCreatedUtc == DateTime.MinValue
+                || metaDoc.MetaData.DateCreatedUtc > utcNow)
+                metaDoc.MetaData.DateCreatedUtc = utcNow;
+
+            metaDoc.MetaData.DateUpdatedUtc = utcNow;
+        }
+    }
+}
+```
+
+| Hook | Purpose | Default Behavior |
+|------|---------|-----------------|
+| `HasDateTracking` | Gate for all date tracking logic | `true` when `T` implements `IHaveDates` |
+| `GetUpdatedUtcFieldPath()` | Returns the Elasticsearch field path for the updated timestamp | Returns the inferred `UpdatedUtc` field name. Throws `RepositoryException` if `HasDateTracking` is `true` but no field path is available |
+| `SetDocumentDates(T, TimeProvider)` | Sets date properties on the C# object (used by Add, Save, ActionPatch, JsonPatch bulk) | Sets `CreatedUtc` and `UpdatedUtc` on `IHaveDates` models |
+
+The `ApplyDateTracking` overloads for `ScriptPatch`, `PartialPatch`, and `JToken` are also virtual and can be overridden for full control over how dates are injected into each patch type. For nested fields, the script parameter key uses the last segment of the field path (e.g., `dateUpdatedUtc` for `metaData.dateUpdatedUtc`).
+
 ## Patch Types
 
 ### PartialPatch
@@ -277,24 +339,13 @@ await repository.PatchAsync(id, new ScriptPatch(@"
 
 ### Timestamp Updates
 
+`UpdatedUtc` is set automatically for models implementing `IHaveDates` (see [Automatic Date Tracking](#automatic-date-tracking) above). For custom timestamp fields that are not part of `IHaveDates`, you can set them manually:
+
 ```csharp
-// Update timestamp
+// Update a custom timestamp field
 await repository.PatchAsync(id, new ScriptPatch("ctx._source.lastAccessedAt = params.now")
 {
     Params = new Dictionary<string, object> { ["now"] = DateTime.UtcNow }
-});
-
-// Update multiple timestamps
-await repository.PatchAsync(id, new ScriptPatch(@"
-    ctx._source.updatedAt = params.now;
-    ctx._source.updatedBy = params.userId;
-")
-{
-    Params = new Dictionary<string, object>
-    {
-        ["now"] = DateTime.UtcNow,
-        ["userId"] = currentUserId
-    }
 });
 ```
 
