@@ -398,7 +398,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField1",
-            IndexType = "string"
+            IndexType = StringFieldType.IndexType
         });
 
         var withField = EmployeeWithCustomFieldsGenerator.Generate(age: 19);
@@ -425,7 +425,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField1",
-            IndexType = "string"
+            IndexType = StringFieldType.IndexType
         });
 
         var withField = EmployeeWithCustomFieldsGenerator.Generate(age: 19);
@@ -453,7 +453,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField1",
-            IndexType = "string"
+            IndexType = StringFieldType.IndexType
         });
 
         var withField = EmployeeWithCustomFieldsGenerator.Generate(age: 19);
@@ -481,7 +481,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
             EntityType = nameof(EmployeeWithCustomFields),
             TenantKey = "1",
             Name = "MyField1",
-            IndexType = "string"
+            IndexType = StringFieldType.IndexType
         });
 
         var withField = EmployeeWithCustomFieldsGenerator.Generate(age: 19);
