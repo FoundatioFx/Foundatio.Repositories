@@ -1898,22 +1898,22 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// Injects the updated timestamp into a <see cref="PartialPatch"/> by adding the field to the
     /// serialized document. Skips injection if the caller already provided the field (logged at Debug level).
     /// </summary>
-    protected virtual PartialPatch ApplyDateTracking(PartialPatch partial)
+    protected virtual PartialPatch ApplyDateTracking(PartialPatch patch)
     {
         if (!HasDateTracking)
-            return partial;
+            return patch;
 
         var fieldPath = GetUpdatedUtcFieldPath();
-        var serialized = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(partial.Document);
+        var serialized = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(patch.Document);
         var partialDoc = JsonNode.Parse(serialized);
 
         if (partialDoc is not JsonObject partialObject)
-            return partial;
+            return patch;
 
         if (GetNestedJsonNode(partialObject, fieldPath) is not null)
         {
             _logger.LogDebug("Skipping automatic {FieldPath} injection; caller already provided it", fieldPath);
-            return partial;
+            return patch;
         }
 
         SetNestedJsonNodeValue(partialObject, fieldPath,
