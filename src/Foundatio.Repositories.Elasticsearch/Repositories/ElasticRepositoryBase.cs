@@ -1746,14 +1746,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
 
         var scriptSuffix = BuildNestedAssignmentScript(fieldPath, paramKey);
+        var patchParams = script.Params is { } existing
+            ? new Dictionary<string, object>(existing)
+            : new Dictionary<string, object>();
+        patchParams[paramKey] = ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime;
 
-        return new ScriptPatch($"{script.Script} {scriptSuffix}")
-        {
-            Params = new Dictionary<string, object>(script.Params ?? [])
-            {
-                [paramKey] = ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime
-            }
-        };
+        return new ScriptPatch($"{script.Script} {scriptSuffix}") { Params = patchParams };
     }
 
     /// <summary>
