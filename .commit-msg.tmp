@@ -1,9 +1,0 @@
-Add XML docs, remove noisy debug logs, fix doc accuracy
-
-- Add XML doc comments to all new protected virtual members
-  (HasDateTracking, GetUpdatedUtcFieldPath, SetDocumentDates,
-  ApplyDateTracking overloads)
-- Remove "Auto-injecting" debug logs per Copilot review; only
-  collision/skip case is now logged at Debug level
-- Fix CreatedUtc docs: clarify it may be corrected if missing/invalid
-- Fix troubleshooting.md: log level is Warning not Debug
