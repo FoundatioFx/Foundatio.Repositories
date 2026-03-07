@@ -267,6 +267,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(default, companyLog.Date);
         Assert.Null(companyLog.Message);
         Assert.Null(companyLog.CompanyId);
+        Assert.Null(companyLog.Meta);
     }
 
     [Fact]
@@ -282,6 +283,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(default, companyLog.Date);
         Assert.Null(companyLog.Message);
         Assert.Null(companyLog.CompanyId);
+        Assert.Null(companyLog.Meta);
     }
 
     [Fact]
@@ -303,6 +305,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(default, companyLog.Date);
         Assert.Null(companyLog.Message);
         Assert.Null(companyLog.CompanyId);
+        Assert.Null(companyLog.Meta);
 
         Assert.Equal(2, _cache.Misses);
         Assert.Equal(0, _cache.Hits);
@@ -316,6 +319,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(default, companyLog.Date);
         Assert.Null(companyLog.Message);
         Assert.Null(companyLog.CompanyId);
+        Assert.Null(companyLog.Meta);
 
         Assert.Equal(2, _cache.Misses);
         Assert.Equal(1, _cache.Hits);
@@ -338,6 +342,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(default, companyLog.Date);
         Assert.Null(companyLog.Message);
         Assert.Null(companyLog.CompanyId);
+        Assert.Null(companyLog.Meta);
     }
 
     [Fact]
@@ -361,6 +366,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(default, companyLog.Date);
         Assert.Null(companyLog.Message);
         Assert.Null(companyLog.CompanyId);
+        Assert.Null(companyLog.Meta);
 
         Assert.Equal(2, _cache.Misses);
         Assert.Equal(0, _cache.Hits);
@@ -376,6 +382,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(default, companyLog.Date);
         Assert.Null(companyLog.Message);
         Assert.Null(companyLog.CompanyId);
+        Assert.Null(companyLog.Meta);
 
         Assert.Equal(2, _cache.Misses);
         Assert.Equal(1, _cache.Hits);
