@@ -1,8 +1,0 @@
-Improve exception clarity and add null-safe Painless scripts for nested paths
-
-- GetUpdatedUtcFieldPath exception now explicitly states the model
-  doesn't implement IHaveDates and the method must be overridden
-- BuildNestedAssignmentScript emits null-initialization preambles for
-  intermediate segments (e.g., `if (ctx._source.metaData == null) { ctx._source.metaData = [:]; }`)
-  before assigning the leaf field, preventing Painless NPE at runtime
-- Simple (non-nested) paths short-circuit with no overhead
