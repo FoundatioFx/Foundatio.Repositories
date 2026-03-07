@@ -1816,12 +1816,15 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 break;
 
             var segment = remaining[..dotIndex];
-            sb.AppendFormat("if ({0}.{1} == null) {{ {0}.{1} = [:]; }} ", prefix, segment.ToString());
+            sb.Append("if (").Append(prefix).Append('.').Append(segment)
+              .Append(" == null) { ").Append(prefix).Append('.').Append(segment)
+              .Append(" = [:]; } ");
             prefix = $"{prefix}.{segment}";
             remaining = remaining[(dotIndex + 1)..];
         }
 
-        sb.AppendFormat("{0}.{1} = params.{2};", prefix, remaining.ToString(), paramKey);
+        sb.Append(prefix).Append('.').Append(remaining)
+          .Append(" = params.").Append(paramKey).Append(';');
         return sb.ToString();
     }
 
