@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -7,6 +8,8 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.
 
 public sealed class EmployeeWithDateMetaDataIndex : Index<EmployeeWithDateMetaData>
 {
+    private static string CamelCase(string name) => JsonNamingPolicy.CamelCase.ConvertName(name);
+
     public EmployeeWithDateMetaDataIndex(IElasticConfiguration configuration) : base(configuration, "employees-metadata") { }
 
     public override void ConfigureIndex(Elastic.Clients.Elasticsearch.IndexManagement.CreateIndexRequestDescriptor idx)
@@ -26,8 +29,8 @@ public sealed class EmployeeWithDateMetaDataIndex : Index<EmployeeWithDateMetaDa
                 .Keyword(e => e.CompanyId)
                 .Object(e => e.MetaData, mp => mp
                     .Properties(p2 => p2
-                        .Date("dateCreatedUtc")
-                        .Date("dateUpdatedUtc")
+                        .Date(CamelCase(nameof(DateMetaData.DateCreatedUtc)))
+                        .Date(CamelCase(nameof(DateMetaData.DateUpdatedUtc)))
                     ))
             );
     }
