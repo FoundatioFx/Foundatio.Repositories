@@ -250,7 +250,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                             throw new InvalidOperationException($"Contains operator can't be used on non-analyzed field {resolvedField}");
 
                         string containsText;
-                        if (fieldValue.Value is IEnumerable && fieldValue.Value is not string)
+                        if (fieldValue.Value is IEnumerable and not string)
                         {
                             containsText = String.Join(" ", ((IEnumerable)fieldValue.Value).Cast<object>());
                         }
@@ -264,7 +264,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                             throw new InvalidOperationException($"NotContains operator can't be used on non-analyzed field {resolvedField}");
 
                         string notContainsText;
-                        if (fieldValue.Value is IEnumerable && fieldValue.Value is not string)
+                        if (fieldValue.Value is IEnumerable and not string)
                         {
                             notContainsText = String.Join(" ", ((IEnumerable)fieldValue.Value).Cast<object>());
                         }
