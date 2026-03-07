@@ -208,9 +208,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             foreach (var fieldValue in fieldConditions)
             {
                 QueryBase query;
-                if (fieldValue.Value == null && fieldValue.Operator == ComparisonOperator.Equals)
+                if (fieldValue.Value == null && fieldValue.Operator is ComparisonOperator.Equals or ComparisonOperator.Contains)
                     fieldValue.Operator = ComparisonOperator.IsEmpty;
-                else if (fieldValue.Value == null && fieldValue.Operator == ComparisonOperator.NotEquals)
+                else if (fieldValue.Value == null && fieldValue.Operator is ComparisonOperator.NotEquals or ComparisonOperator.NotContains)
                     fieldValue.Operator = ComparisonOperator.HasValue;
 
                 bool nonAnalyzed = fieldValue.Operator is ComparisonOperator.Equals or ComparisonOperator.NotEquals;
