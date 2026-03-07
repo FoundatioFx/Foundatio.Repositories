@@ -25,21 +25,27 @@ public static class EnumerableExtensions
         }
     }
 
-    public static void SetDates<T>(this IEnumerable<T> values, TimeProvider timeProvider = null) where T : class, IHaveDates
+    public static void SetDates(this IHaveDates value, TimeProvider timeProvider = null)
     {
-        if (values == null)
+        if (value is null)
             return;
 
         timeProvider ??= TimeProvider.System;
+        var utcNow = timeProvider.GetUtcNow().UtcDateTime;
+
+        if (value.CreatedUtc == DateTime.MinValue || value.CreatedUtc > utcNow)
+            value.CreatedUtc = utcNow;
+
+        value.UpdatedUtc = utcNow;
+    }
+
+    public static void SetDates<T>(this IEnumerable<T> values, TimeProvider timeProvider = null) where T : class, IHaveDates
+    {
+        if (values is null)
+            return;
 
         foreach (var value in values)
-        {
-            var utcNow = timeProvider.GetUtcNow().UtcDateTime;
-            if (value.CreatedUtc == DateTime.MinValue || value.CreatedUtc > utcNow)
-                value.CreatedUtc = utcNow;
-
-            value.UpdatedUtc = utcNow;
-        }
+            value.SetDates(timeProvider);
     }
 
     public static void SetCreatedDates<T>(this IEnumerable<T> values, TimeProvider timeProvider = null) where T : class, IHaveCreatedDate

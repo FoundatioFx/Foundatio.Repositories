@@ -767,6 +767,164 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task JsonPatchAsync_WithNameChange_SetsUpdatedUtcAndPreservesCreatedUtc()
+    {
+        // Arrange
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        _configuration.TimeProvider = timeProvider;
+
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var originalCreatedUtc = employee.CreatedUtc;
+        var originalUpdatedUtc = employee.UpdatedUtc;
+
+        timeProvider.Advance(TimeSpan.FromSeconds(5));
+        var expectedUpdatedUtc = timeProvider.GetUtcNow().UtcDateTime;
+
+        // Act
+        var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
+        await _employeeRepository.PatchAsync(employee.Id, new JsonPatch(patch));
+
+        // Assert
+        employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.Equal("Patched", employee.Name);
+        Assert.Equal(originalCreatedUtc, employee.CreatedUtc);
+        Assert.Equal(expectedUpdatedUtc, employee.UpdatedUtc);
+        Assert.True(employee.UpdatedUtc > originalUpdatedUtc, $"UpdatedUtc should have advanced: original={originalUpdatedUtc} current={employee.UpdatedUtc}");
+    }
+
+    [Fact]
+    public async Task JsonPatchAllAsync_WithNameChange_SetsUpdatedUtcAndPreservesCreatedUtc()
+    {
+        // Arrange
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        _configuration.TimeProvider = timeProvider;
+
+        var employees = EmployeeGenerator.GenerateEmployees(10);
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        var originalCreatedDates = employees.ToDictionary(e => e.Id, e => e.CreatedUtc);
+
+        timeProvider.Advance(TimeSpan.FromSeconds(5));
+        var expectedUpdatedUtc = timeProvider.GetUtcNow().UtcDateTime;
+
+        // Act
+        var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Patched" });
+        await _employeeRepository.PatchAllAsync(q => q, new JsonPatch(patch));
+
+        // Assert
+        var results = await _employeeRepository.GetAllAsync(o => o.PageLimit(100).ImmediateConsistency());
+        Assert.Equal(10, results.Documents.Count);
+        foreach (var doc in results.Documents)
+        {
+            Assert.Equal("Patched", doc.Name);
+            Assert.Equal(originalCreatedDates[doc.Id], doc.CreatedUtc);
+            Assert.Equal(expectedUpdatedUtc, doc.UpdatedUtc);
+        }
+    }
+
+    [Fact]
+    public async Task ActionPatchAsync_WithNameChange_SetsUpdatedUtcAndPreservesCreatedUtc()
+    {
+        // Arrange
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        _configuration.TimeProvider = timeProvider;
+
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var originalCreatedUtc = employee.CreatedUtc;
+        var originalUpdatedUtc = employee.UpdatedUtc;
+
+        timeProvider.Advance(TimeSpan.FromSeconds(5));
+        var expectedUpdatedUtc = timeProvider.GetUtcNow().UtcDateTime;
+
+        // Act
+        await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => e.Name = "Patched"));
+
+        // Assert
+        employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.Equal("Patched", employee.Name);
+        Assert.Equal(originalCreatedUtc, employee.CreatedUtc);
+        Assert.Equal(expectedUpdatedUtc, employee.UpdatedUtc);
+        Assert.True(employee.UpdatedUtc > originalUpdatedUtc, $"UpdatedUtc should have advanced: original={originalUpdatedUtc} current={employee.UpdatedUtc}");
+    }
+
+    [Fact]
+    public async Task ActionPatchAllAsync_WithNameChange_SetsUpdatedUtcAndPreservesCreatedUtc()
+    {
+        // Arrange
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        _configuration.TimeProvider = timeProvider;
+
+        var employees = EmployeeGenerator.GenerateEmployees(10);
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        var originalCreatedDates = employees.ToDictionary(e => e.Id, e => e.CreatedUtc);
+
+        timeProvider.Advance(TimeSpan.FromSeconds(5));
+        var expectedUpdatedUtc = timeProvider.GetUtcNow().UtcDateTime;
+
+        // Act
+        await _employeeRepository.PatchAllAsync(q => q, new ActionPatch<Employee>(e => e.Name = "Patched"));
+
+        // Assert
+        var results = await _employeeRepository.GetAllAsync(o => o.PageLimit(100).ImmediateConsistency());
+        Assert.Equal(10, results.Documents.Count);
+        foreach (var doc in results.Documents)
+        {
+            Assert.Equal("Patched", doc.Name);
+            Assert.Equal(originalCreatedDates[doc.Id], doc.CreatedUtc);
+            Assert.Equal(expectedUpdatedUtc, doc.UpdatedUtc);
+        }
+    }
+
+    [Fact]
+    public async Task ScriptPatchAsync_WithNameChange_SetsUpdatedUtcAndPreservesCreatedUtc()
+    {
+        // Arrange
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        _configuration.TimeProvider = timeProvider;
+
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var originalCreatedUtc = employee.CreatedUtc;
+        var originalUpdatedUtc = employee.UpdatedUtc;
+
+        timeProvider.Advance(TimeSpan.FromSeconds(5));
+        var expectedUpdatedUtc = timeProvider.GetUtcNow().UtcDateTime;
+
+        // Act — only change name, do NOT include updatedUtc in script
+        await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'Patched';"));
+
+        // Assert
+        employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.Equal("Patched", employee.Name);
+        Assert.Equal(originalCreatedUtc, employee.CreatedUtc);
+        Assert.Equal(expectedUpdatedUtc, employee.UpdatedUtc);
+        Assert.True(employee.UpdatedUtc > originalUpdatedUtc, $"UpdatedUtc should have advanced: original={originalUpdatedUtc} current={employee.UpdatedUtc}");
+    }
+
+    [Fact]
+    public async Task PartialPatchAsync_WithNameChange_SetsUpdatedUtcAndPreservesCreatedUtc()
+    {
+        // Arrange
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        _configuration.TimeProvider = timeProvider;
+
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var originalCreatedUtc = employee.CreatedUtc;
+        var originalUpdatedUtc = employee.UpdatedUtc;
+
+        timeProvider.Advance(TimeSpan.FromSeconds(5));
+        var expectedUpdatedUtc = timeProvider.GetUtcNow().UtcDateTime;
+
+        // Act — only provide name, do NOT include updatedUtc in partial
+        await _employeeRepository.PatchAsync(employee.Id, new PartialPatch(new { name = "Patched" }));
+
+        // Assert
+        employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.Equal("Patched", employee.Name);
+        Assert.Equal(originalCreatedUtc, employee.CreatedUtc);
+        Assert.Equal(expectedUpdatedUtc, employee.UpdatedUtc);
+        Assert.True(employee.UpdatedUtc > originalUpdatedUtc, $"UpdatedUtc should have advanced: original={originalUpdatedUtc} current={employee.UpdatedUtc}");
+    }
+
+    [Fact]
     public async Task JsonPatchAsync()
     {
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);

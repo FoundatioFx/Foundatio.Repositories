@@ -10,6 +10,20 @@ Patch operations allow you to:
 - Apply bulk updates efficiently
 - Reduce network traffic and conflicts
 
+## Automatic Date Tracking
+
+For models implementing `IHaveDates`, all patch operations automatically set `UpdatedUtc` to the current time. This is consistent with how `AddAsync` and `SaveAsync` handle date tracking.
+
+- **`UpdatedUtc`** is set automatically on every patch operation — no manual intervention needed
+- **`CreatedUtc`** is never modified by patch operations (existing values are preserved)
+- Works across all patch types: `PartialPatch`, `ScriptPatch`, `JsonPatch`, and `ActionPatch`
+
+For `ScriptPatch` and `PartialPatch`, if you explicitly provide `updatedUtc` in your script parameters or partial document, the repository respects your value and skips auto-injection. This is logged at `Debug` level.
+
+::: tip Retry behavior
+For `JsonPatch` and `ActionPatch`, the `UpdatedUtc` timestamp is refreshed on each client-side retry since the entire operation re-executes. For `ScriptPatch` and `PartialPatch`, the timestamp is set at request creation time and is fixed for any server-side retries (`RetryOnConflict`). In practice, the difference is negligible (server-side retries occur within milliseconds) and matches the behavior of `SaveAsync`.
+:::
+
 ## Patch Types
 
 ### PartialPatch
@@ -277,24 +291,13 @@ await repository.PatchAsync(id, new ScriptPatch(@"
 
 ### Timestamp Updates
 
+`UpdatedUtc` is set automatically for models implementing `IHaveDates` (see [Automatic Date Tracking](#automatic-date-tracking) above). For custom timestamp fields that are not part of `IHaveDates`, you can set them manually:
+
 ```csharp
-// Update timestamp
+// Update a custom timestamp field
 await repository.PatchAsync(id, new ScriptPatch("ctx._source.lastAccessedAt = params.now")
 {
     Params = new Dictionary<string, object> { ["now"] = DateTime.UtcNow }
-});
-
-// Update multiple timestamps
-await repository.PatchAsync(id, new ScriptPatch(@"
-    ctx._source.updatedAt = params.now;
-    ctx._source.updatedBy = params.userId;
-")
-{
-    Params = new Dictionary<string, object>
-    {
-        ["now"] = DateTime.UtcNow,
-        ["userId"] = currentUserId
-    }
 });
 ```
 

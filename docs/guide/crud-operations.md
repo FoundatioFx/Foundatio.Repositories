@@ -132,6 +132,10 @@ The repository automatically:
 - Invalidates cache
 - Publishes `EntityChanged` notification
 
+::: tip Consistent Date Tracking
+All write operations — `AddAsync`, `SaveAsync`, and all patch types (`PatchAsync`, `PatchAllAsync`) — automatically set `UpdatedUtc` for models implementing `IHaveDates`. `CreatedUtc` is only set on initial creation and is never overwritten by subsequent operations.
+:::
+
 ### Save Multiple Documents
 
 ```csharp

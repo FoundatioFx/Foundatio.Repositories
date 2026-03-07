@@ -164,6 +164,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         options = ConfigureOptions(options.As<T>());
 
+        if (operation is ScriptPatch scriptPatchOp)
+            operation = InjectUpdatedUtcIntoScript(scriptPatchOp);
+        else if (operation is PartialPatch partialPatchOp)
+            operation = InjectUpdatedUtcIntoPartial(partialPatchOp);
+
         if (operation is ScriptPatch scriptOperation)
         {
             // TODO: Figure out how to specify a pipeline here.
@@ -250,6 +255,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 var target = (JToken)jObject;
                 new JsonPatcher().Patch(ref target, jsonOperation.Patch);
 
+                if (HasDates)
+                    target[_updatedUtcField.Value] = JToken.FromObject(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime);
+
                 var indexParameters = new IndexRequestParameters
                 {
                     Pipeline = DefaultPipeline,
@@ -314,6 +322,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 foreach (var action in actionPatch.Actions)
                     action?.Invoke(response.Source);
 
+                if (response.Source is IHaveDates datesDoc)
+                    datesDoc.SetDates(ElasticIndex.Configuration.TimeProvider);
+
                 await IndexDocumentsAsync([response.Source], false, options);
             });
         }
@@ -348,6 +359,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return;
 
         options = ConfigureOptions(options.As<T>());
+
+        if (operation is ScriptPatch scriptPatchOp)
+            operation = InjectUpdatedUtcIntoScript(scriptPatchOp);
+        else if (operation is PartialPatch partialPatchOp)
+            operation = InjectUpdatedUtcIntoPartial(partialPatchOp);
+
         if (ids.Count == 1)
         {
             await PatchAsync(ids[0], operation, options).AnyContext();
@@ -590,6 +607,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         options = ConfigureOptions(options.As<T>());
 
+        if (operation is ScriptPatch scriptPatchOp)
+            operation = InjectUpdatedUtcIntoScript(scriptPatchOp);
+        else if (operation is PartialPatch partialPatchOp)
+            operation = InjectUpdatedUtcIntoPartial(partialPatchOp);
+
         long affectedRecords = 0;
         if (operation is JsonPatch jsonOperation)
         {
@@ -608,6 +630,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         var target = JToken.Parse(json);
                         patcher.Patch(ref target, jsonOperation.Patch);
                         var doc = _client.ConnectionSettings.SourceSerializer.Deserialize<T>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToString())));
+
+                        if (doc is IHaveDates datesDoc)
+                            datesDoc.SetDates(ElasticIndex.Configuration.TimeProvider);
+
                         var elasticVersion = h.GetElasticVersion();
 
                         b.Index<T>(i =>
@@ -681,6 +707,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     {
                         foreach (var action in actionOperation.Actions)
                             action?.Invoke(h.Document);
+
+                        if (h.Document is IHaveDates datesDoc)
+                            datesDoc.SetDates(ElasticIndex.Configuration.TimeProvider);
 
                         var elasticVersion = h.GetElasticVersion();
 
@@ -1636,4 +1665,43 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     }
 
     public AsyncEvent<BeforePublishEntityChangedEventArgs<T>> BeforePublishEntityChanged { get; } = new AsyncEvent<BeforePublishEntityChangedEventArgs<T>>();
+
+    private ScriptPatch InjectUpdatedUtcIntoScript(ScriptPatch script)
+    {
+        if (!HasDates)
+            return script;
+
+        var fieldName = _updatedUtcField.Value;
+        if (script.Params is { } p && p.ContainsKey(fieldName))
+        {
+            _logger.LogDebug("Skipping automatic {FieldName} injection; caller already provided it", fieldName);
+            return script;
+        }
+
+        return new ScriptPatch(script.Script + $" ctx._source.{fieldName} = params.{fieldName};")
+        {
+            Params = new Dictionary<string, object>(script.Params ?? [])
+            {
+                [fieldName] = ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime
+            }
+        };
+    }
+
+    private PartialPatch InjectUpdatedUtcIntoPartial(PartialPatch partial)
+    {
+        if (!HasDates)
+            return partial;
+
+        var fieldName = _updatedUtcField.Value;
+        string serialized = _client.ConnectionSettings.SourceSerializer.SerializeToString(partial.Document);
+        var json = JObject.Parse(serialized);
+        if (json.ContainsKey(fieldName))
+        {
+            _logger.LogDebug("Skipping automatic {FieldName} injection; caller already provided it", fieldName);
+            return partial;
+        }
+
+        json[fieldName] = JToken.FromObject(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime);
+        return new PartialPatch(json.ToObject<Dictionary<string, object>>());
+    }
 }
