@@ -49,6 +49,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
     }
 
+    protected virtual bool HasDateTracking => HasDates;
     protected string DefaultPipeline { get; set; } = null;
     protected bool AutoCreateCustomFields { get; set; } = false;
 
@@ -165,9 +166,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         options = ConfigureOptions(options.As<T>());
 
         if (operation is ScriptPatch scriptPatchOp)
-            operation = InjectUpdatedUtcIntoScript(scriptPatchOp);
+            operation = ApplyDateTracking(scriptPatchOp);
         else if (operation is PartialPatch partialPatchOp)
-            operation = InjectUpdatedUtcIntoPartial(partialPatchOp);
+            operation = ApplyDateTracking(partialPatchOp);
 
         if (operation is ScriptPatch scriptOperation)
         {
@@ -255,8 +256,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 var target = (JToken)jObject;
                 new JsonPatcher().Patch(ref target, jsonOperation.Patch);
 
-                if (HasDates)
-                    target[_updatedUtcField.Value] = JToken.FromObject(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime);
+                ApplyDateTracking(target);
 
                 var indexParameters = new IndexRequestParameters
                 {
@@ -322,8 +322,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 foreach (var action in actionPatch.Actions)
                     action?.Invoke(response.Source);
 
-                if (response.Source is IHaveDates datesDoc)
-                    datesDoc.SetDates(ElasticIndex.Configuration.TimeProvider);
+                if (HasDateTracking)
+                    SetDocumentDates(response.Source, ElasticIndex.Configuration.TimeProvider);
 
                 await IndexDocumentsAsync([response.Source], false, options);
             });
@@ -367,9 +367,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
 
         if (operation is ScriptPatch scriptPatchOp)
-            operation = InjectUpdatedUtcIntoScript(scriptPatchOp);
+            operation = ApplyDateTracking(scriptPatchOp);
         else if (operation is PartialPatch partialPatchOp)
-            operation = InjectUpdatedUtcIntoPartial(partialPatchOp);
+            operation = ApplyDateTracking(partialPatchOp);
 
         if (operation is JsonPatch)
         {
@@ -608,9 +608,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         options = ConfigureOptions(options.As<T>());
 
         if (operation is ScriptPatch scriptPatchOp)
-            operation = InjectUpdatedUtcIntoScript(scriptPatchOp);
+            operation = ApplyDateTracking(scriptPatchOp);
         else if (operation is PartialPatch partialPatchOp)
-            operation = InjectUpdatedUtcIntoPartial(partialPatchOp);
+            operation = ApplyDateTracking(partialPatchOp);
 
         long affectedRecords = 0;
         if (operation is JsonPatch jsonOperation)
@@ -631,8 +631,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         patcher.Patch(ref target, jsonOperation.Patch);
                         var doc = _client.ConnectionSettings.SourceSerializer.Deserialize<T>(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToString())));
 
-                        if (doc is IHaveDates datesDoc)
-                            datesDoc.SetDates(ElasticIndex.Configuration.TimeProvider);
+                        if (HasDateTracking)
+                            SetDocumentDates(doc, ElasticIndex.Configuration.TimeProvider);
 
                         var elasticVersion = h.GetElasticVersion();
 
@@ -708,8 +708,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         foreach (var action in actionOperation.Actions)
                             action?.Invoke(h.Document);
 
-                        if (h.Document is IHaveDates datesDoc)
-                            datesDoc.SetDates(ElasticIndex.Configuration.TimeProvider);
+                        if (HasDateTracking)
+                            SetDocumentDates(h.Document, ElasticIndex.Configuration.TimeProvider);
 
                         var elasticVersion = h.GetElasticVersion();
 
@@ -1206,10 +1206,17 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     private async Task OnDocumentsAddingAsync(IReadOnlyCollection<T> documents, ICommandOptions options)
     {
-        if (HasDates)
-            documents.OfType<IHaveDates>().SetDates(ElasticIndex.Configuration.TimeProvider);
+        if (HasDateTracking)
+        {
+            var timeProvider = ElasticIndex.Configuration.TimeProvider;
+
+            foreach (var document in documents)
+                SetDocumentDates(document, timeProvider);
+        }
         else if (HasCreatedDate)
+        {
             documents.OfType<IHaveCreatedDate>().SetCreatedDates(ElasticIndex.Configuration.TimeProvider);
+        }
 
         if (DocumentsAdding is { HasHandlers: true })
             await DocumentsAdding.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
@@ -1238,8 +1245,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (documents.Count == 0)
             return;
 
-        if (HasDates)
-            documents.Cast<IHaveDates>().SetDates(ElasticIndex.Configuration.TimeProvider);
+        if (HasDateTracking)
+        {
+            var timeProvider = ElasticIndex.Configuration.TimeProvider;
+
+            foreach (var document in documents)
+                SetDocumentDates(document, timeProvider);
+        }
 
         documents.EnsureIds(ElasticIndex.CreateDocumentId, ElasticIndex.Configuration.TimeProvider);
 
@@ -1666,44 +1678,161 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     public AsyncEvent<BeforePublishEntityChangedEventArgs<T>> BeforePublishEntityChanged { get; } = new AsyncEvent<BeforePublishEntityChangedEventArgs<T>>();
 
-    private ScriptPatch InjectUpdatedUtcIntoScript(ScriptPatch script)
+    protected virtual string GetUpdatedUtcFieldPath()
     {
-        if (!HasDates)
+        if (HasDates)
+            return _updatedUtcField.Value;
+
+        throw new RepositoryException(
+            $"{GetType().Name} has HasDateTracking=true but GetUpdatedUtcFieldPath() returned no field path. " +
+            "Override GetUpdatedUtcFieldPath() to return the Elasticsearch field path for your updated timestamp.");
+    }
+
+    protected virtual void SetDocumentDates(T document, TimeProvider timeProvider)
+    {
+        if (document is IHaveDates datesDoc)
+        {
+            var utcNow = timeProvider.GetUtcNow().UtcDateTime;
+
+            if (datesDoc.CreatedUtc == DateTime.MinValue || datesDoc.CreatedUtc > utcNow)
+                datesDoc.CreatedUtc = utcNow;
+
+            datesDoc.UpdatedUtc = utcNow;
+        }
+        else if (document is IHaveCreatedDate createdDoc)
+        {
+            var utcNow = timeProvider.GetUtcNow().UtcDateTime;
+
+            if (createdDoc.CreatedUtc == DateTime.MinValue || createdDoc.CreatedUtc > utcNow)
+                createdDoc.CreatedUtc = utcNow;
+        }
+    }
+
+    protected virtual ScriptPatch ApplyDateTracking(ScriptPatch script)
+    {
+        if (!HasDateTracking)
             return script;
 
-        var fieldName = _updatedUtcField.Value;
-        if (script.Params is { } p && p.ContainsKey(fieldName))
+        var fieldPath = GetUpdatedUtcFieldPath();
+        var lastDotIndex = fieldPath.LastIndexOf('.');
+        var paramKey = lastDotIndex >= 0 ? fieldPath[(lastDotIndex + 1)..] : fieldPath;
+
+        if (script.Params is { } existingParams && existingParams.ContainsKey(paramKey))
         {
-            _logger.LogDebug("Skipping automatic {FieldName} injection into ScriptPatch; caller already provided it", fieldName);
+            _logger.LogDebug("Skipping automatic {FieldPath} injection; caller provided {ParamKey}", fieldPath, paramKey);
             return script;
         }
 
-        _logger.LogDebug("Auto-injecting {FieldName} into ScriptPatch", fieldName);
-        return new ScriptPatch($"{script.Script} ctx._source.{fieldName} = params.{fieldName};")
+        _logger.LogDebug("Auto-injecting {FieldPath} into ScriptPatch as param {ParamKey}", fieldPath, paramKey);
+
+        return new ScriptPatch($"{script.Script} ctx._source.{fieldPath} = params.{paramKey};")
         {
             Params = new Dictionary<string, object>(script.Params ?? [])
             {
-                [fieldName] = ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime
+                [paramKey] = ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime
             }
         };
     }
 
-    private PartialPatch InjectUpdatedUtcIntoPartial(PartialPatch partial)
+    protected virtual PartialPatch ApplyDateTracking(PartialPatch partial)
     {
-        if (!HasDates)
+        if (!HasDateTracking)
             return partial;
 
-        var fieldName = _updatedUtcField.Value;
+        var fieldPath = GetUpdatedUtcFieldPath();
         string serialized = _client.ConnectionSettings.SourceSerializer.SerializeToString(partial.Document);
         var json = JObject.Parse(serialized);
-        if (json.ContainsKey(fieldName))
+
+        if (GetNestedJToken(json, fieldPath) is not null)
         {
-            _logger.LogDebug("Skipping automatic {FieldName} injection into PartialPatch; caller already provided it", fieldName);
+            _logger.LogDebug("Skipping automatic {FieldPath} injection; caller already provided it", fieldPath);
             return partial;
         }
 
-        _logger.LogDebug("Auto-injecting {FieldName} into PartialPatch", fieldName);
-        json[fieldName] = JToken.FromObject(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime);
-        return new PartialPatch(json.ToObject<Dictionary<string, object>>());
+        _logger.LogDebug("Auto-injecting {FieldPath} into PartialPatch", fieldPath);
+
+        SetNestedJTokenValue(json, fieldPath,
+            JToken.FromObject(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime));
+
+        return new PartialPatch(ToDictionary(json));
+    }
+
+    protected virtual void ApplyDateTracking(JToken target)
+    {
+        if (!HasDateTracking)
+            return;
+
+        var fieldPath = GetUpdatedUtcFieldPath();
+
+        SetNestedJTokenValue(target, fieldPath,
+            JToken.FromObject(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime));
+    }
+
+    private static JToken GetNestedJToken(JToken token, string dotPath)
+    {
+        var remaining = dotPath.AsSpan();
+
+        while (remaining.Length > 0)
+        {
+            var dotIndex = remaining.IndexOf('.');
+            var segment = dotIndex >= 0 ? remaining[..dotIndex] : remaining;
+
+            token = token?[segment.ToString()];
+            if (token is null)
+                return null;
+
+            remaining = dotIndex >= 0 ? remaining[(dotIndex + 1)..] : ReadOnlySpan<char>.Empty;
+        }
+
+        return token;
+    }
+
+    private static void SetNestedJTokenValue(JToken token, string dotPath, JToken value)
+    {
+        var remaining = dotPath.AsSpan();
+
+        while (true)
+        {
+            var dotIndex = remaining.IndexOf('.');
+
+            if (dotIndex < 0)
+            {
+                token[remaining.ToString()] = value;
+                return;
+            }
+
+            var segment = remaining[..dotIndex].ToString();
+            var next = token[segment];
+
+            if (next is null)
+            {
+                next = new JObject();
+                token[segment] = next;
+            }
+
+            token = next;
+            remaining = remaining[(dotIndex + 1)..];
+        }
+    }
+
+    private static Dictionary<string, object> ToDictionary(JObject obj)
+    {
+        var dict = new Dictionary<string, object>(obj.Count);
+
+        foreach (var property in obj.Properties())
+            dict[property.Name] = ToValue(property.Value);
+
+        return dict;
+    }
+
+    private static object ToValue(JToken token)
+    {
+        return token switch
+        {
+            JObject nested => ToDictionary(nested),
+            JArray array => array.Select(ToValue).ToList(),
+            JValue value => value.Value,
+            _ => token.ToObject<object>()
+        };
     }
 }

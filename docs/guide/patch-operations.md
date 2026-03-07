@@ -30,6 +30,48 @@ For `ScriptPatch` and `PartialPatch`, the `UpdatedUtc` timestamp is captured onc
 This matches `SaveAsync` behavior, where `SetDates` is called once before the Elasticsearch request. In most scenarios the retry window is milliseconds, but callers relying on `UpdatedUtc` for strict ordering or audit trails should be aware of this.
 :::
 
+### Custom Date Fields
+
+If your model uses custom date fields instead of `IHaveDates` (e.g., a nested `MetaData.DateUpdatedUtc` property), you can opt into automatic date tracking by overriding three virtual hooks on your repository:
+
+```csharp
+public class MyRepository : ElasticRepositoryBase<MyEntity>
+{
+    protected override bool HasDateTracking => true;
+
+    protected override string GetUpdatedUtcFieldPath()
+    {
+        return InferField(d => ((IHaveDateMetaData)d).MetaData.DateUpdatedUtc);
+    }
+
+    protected override void SetDocumentDates(MyEntity document, TimeProvider timeProvider)
+    {
+        base.SetDocumentDates(document, timeProvider);
+
+        if (document is IHaveDateMetaData metaDoc)
+        {
+            var utcNow = timeProvider.GetUtcNow().UtcDateTime;
+            metaDoc.MetaData ??= new DateMetaData();
+
+            if (metaDoc.MetaData.DateCreatedUtc is null
+                || metaDoc.MetaData.DateCreatedUtc == DateTime.MinValue
+                || metaDoc.MetaData.DateCreatedUtc > utcNow)
+                metaDoc.MetaData.DateCreatedUtc = utcNow;
+
+            metaDoc.MetaData.DateUpdatedUtc = utcNow;
+        }
+    }
+}
+```
+
+| Hook | Purpose | Default Behavior |
+|------|---------|-----------------|
+| `HasDateTracking` | Gate for all date tracking logic | `true` when `T` implements `IHaveDates` |
+| `GetUpdatedUtcFieldPath()` | Returns the Elasticsearch field path for the updated timestamp | Returns the inferred `UpdatedUtc` field name. Throws `RepositoryException` if `HasDateTracking` is `true` but no field path is available |
+| `SetDocumentDates(T, TimeProvider)` | Sets date properties on the C# object (used by Add, Save, ActionPatch, JsonPatch bulk) | Sets `CreatedUtc` and `UpdatedUtc` on `IHaveDates` models |
+
+The `ApplyDateTracking` overloads for `ScriptPatch`, `PartialPatch`, and `JToken` are also virtual and can be overridden for full control over how dates are injected into each patch type. For nested fields, the script parameter key uses the last segment of the field path (e.g., `dateUpdatedUtc` for `metaData.dateUpdatedUtc`).
+
 ## Patch Types
 
 ### PartialPatch
