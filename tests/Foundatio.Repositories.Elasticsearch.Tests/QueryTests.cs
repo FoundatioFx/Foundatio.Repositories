@@ -123,6 +123,36 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task FieldConditionContainsNull_WithNullValue_BehavesAsIsEmpty()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, name: "Eric J. Smith"), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldCondition(e => e.Name, ComparisonOperator.Contains, (object)null));
+
+        // Assert — null Contains rewrites to IsEmpty, so finds the employee without a name
+        Assert.Single(result.Documents);
+        Assert.Null(result.Documents.Single().Name);
+    }
+
+    [Fact]
+    public async Task FieldConditionNotContainsNull_WithNullValue_BehavesAsHasValue()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, name: "Eric J. Smith"), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldCondition(e => e.Name, ComparisonOperator.NotContains, (object)null));
+
+        // Assert — null NotContains rewrites to HasValue, so finds the employee with a name
+        Assert.Single(result.Documents);
+        Assert.NotNull(result.Documents.Single().Name);
+    }
+
+    [Fact]
     public async Task GetByMissingFieldAsync()
     {
         var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyId: EmployeeGenerator.DefaultCompanyId), o => o.ImmediateConsistency());
