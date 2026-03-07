@@ -688,12 +688,20 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     private static readonly ScopedCacheClient _nullScopedCacheClient = new(new NullCacheClient(), null);
     protected ScopedCacheClient Cache => _scopedCacheClient ?? _nullScopedCacheClient;
 
-    private void SetCacheClient(ICacheClient cache)
+    /// <summary>
+    /// Sets the cache client used by this repository, replacing any previously configured cache.
+    /// This is useful for injecting a specific cache client (e.g., a keyed DI service) in derived repositories.
+    /// </summary>
+    /// <param name="cache">The cache client to use, or <c>null</c> to disable caching.</param>
+    protected void SetCacheClient(ICacheClient cache)
     {
         IsCacheEnabled = cache != null && cache is not NullCacheClient;
         _scopedCacheClient = new ScopedCacheClient(cache ?? new NullCacheClient(), EntityTypeName);
     }
 
+    /// <summary>
+    /// Disables caching for this repository by replacing the cache client with a <see cref="NullCacheClient"/>.
+    /// </summary>
     protected void DisableCache()
     {
         IsCacheEnabled = false;
