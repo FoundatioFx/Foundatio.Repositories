@@ -1698,8 +1698,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return _updatedUtcField.Value;
 
         throw new RepositoryException(
-            $"{GetType().Name} has HasDateTracking=true but does not implement IHaveDates. " +
-            "Override GetUpdatedUtcFieldPath() to return the Elasticsearch field path for your updated timestamp.");
+            $"{GetType().Name} has HasDateTracking=true but does not implement IHaveDates. Override GetUpdatedUtcFieldPath() to return the Elasticsearch field path for your updated timestamp.");
     }
 
     /// <summary>
@@ -1767,19 +1766,22 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return partial;
 
         var fieldPath = GetUpdatedUtcFieldPath();
-        string serialized = _client.ConnectionSettings.SourceSerializer.SerializeToString(partial.Document);
-        var json = JObject.Parse(serialized);
+        var serialized = _client.ConnectionSettings.SourceSerializer.SerializeToString(partial.Document);
+        var partialDoc = JToken.Parse(serialized);
 
-        if (GetNestedJToken(json, fieldPath) is not null)
+        if (partialDoc is not JObject partialObject)
+            return partial;
+
+        if (GetNestedJToken(partialObject, fieldPath) is not null)
         {
             _logger.LogDebug("Skipping automatic {FieldPath} injection; caller already provided it", fieldPath);
             return partial;
         }
 
-        SetNestedJTokenValue(json, fieldPath,
+        SetNestedJTokenValue(partialObject, fieldPath,
             JToken.FromObject(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime));
 
-        return new PartialPatch(ToDictionary(json));
+        return new PartialPatch(ToDictionary(partialObject));
     }
 
     /// <summary>
@@ -1814,12 +1816,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 break;
 
             var segment = remaining[..dotIndex];
-            sb.Append($"if ({prefix}.{segment} == null) {{ {prefix}.{segment} = [:]; }} ");
+            sb.AppendFormat("if ({0}.{1} == null) {{ {0}.{1} = [:]; }} ", prefix, segment.ToString());
             prefix = $"{prefix}.{segment}";
             remaining = remaining[(dotIndex + 1)..];
         }
 
-        sb.Append($"{prefix}.{remaining} = params.{paramKey};");
+        sb.AppendFormat("{0}.{1} = params.{2};", prefix, remaining.ToString(), paramKey);
         return sb.ToString();
     }
 
@@ -1832,7 +1834,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             var dotIndex = remaining.IndexOf('.');
             var segment = dotIndex >= 0 ? remaining[..dotIndex] : remaining;
 
-            token = token?[segment.ToString()];
+            if (token is not JObject obj)
+                return null;
+
+            token = obj[segment.ToString()];
             if (token is null)
                 return null;
 
@@ -1852,17 +1857,23 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             if (dotIndex < 0)
             {
-                token[remaining.ToString()] = value;
+                if (token is JObject leaf)
+                    leaf[remaining.ToString()] = value;
+
                 return;
             }
 
             var segment = remaining[..dotIndex].ToString();
-            var next = token[segment];
 
-            if (next is null)
+            if (token is not JObject current)
+                return;
+
+            var next = current[segment];
+
+            if (next is not JObject)
             {
                 next = new JObject();
-                token[segment] = next;
+                current[segment] = next;
             }
 
             token = next;
