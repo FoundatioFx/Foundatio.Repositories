@@ -52,6 +52,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
     }
 
+    /// <summary>
+    /// Gets whether this repository supports automatic date tracking for patch operations.
+    /// When <c>true</c>, <see cref="SetDocumentDates"/>, <see cref="GetUpdatedUtcFieldPath"/>, and
+    /// the <see cref="ApplyDateTracking(ScriptPatch)"/> overloads are active.
+    /// Override to <c>true</c> for custom date field scenarios (e.g., nested metadata dates).
+    /// </summary>
+    protected virtual bool HasDateTracking => HasDates;
     protected string DefaultPipeline { get; set; } = null;
     protected bool AutoCreateCustomFields { get; set; } = false;
 
@@ -166,6 +173,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         await ElasticIndex.EnsureIndexAsync(id).AnyContext();
 
         options = ConfigureOptions(options.As<T>());
+
+        if (operation is ScriptPatch scriptPatchOp)
+            operation = ApplyDateTracking(scriptPatchOp);
+        else if (operation is PartialPatch partialPatchOp)
+            operation = ApplyDateTracking(partialPatchOp);
 
         if (operation is ScriptPatch scriptOperation)
         {
@@ -350,6 +362,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 var target = JsonNode.Parse(json);
                 new JsonPatcher().Patch(ref target, jsonOperation.Patch);
 
+                ApplyDateTracking(target);
+
                 using var patchStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToJsonString()));
                 var patchedDocument = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(patchStream);
 
@@ -415,6 +429,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 foreach (var action in actionPatch.Actions)
                     action?.Invoke(response.Source);
 
+                if (HasDateTracking)
+                    SetDocumentDates(response.Source, ElasticIndex.Configuration.TimeProvider);
+
                 await IndexDocumentsAsync([response.Source], false, options).AnyContext();
             }).AnyContext();
         }
@@ -449,11 +466,17 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return;
 
         options = ConfigureOptions(options.As<T>());
+
         if (ids.Count == 1)
         {
             await PatchAsync(ids[0], operation, options).AnyContext();
             return;
         }
+
+        if (operation is ScriptPatch scriptPatchOp)
+            operation = ApplyDateTracking(scriptPatchOp);
+        else if (operation is PartialPatch partialPatchOp)
+            operation = ApplyDateTracking(partialPatchOp);
 
         if (operation is JsonPatch)
         {
@@ -687,6 +710,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         options = ConfigureOptions(options.As<T>());
 
+        if (operation is ScriptPatch scriptPatchOp)
+            operation = ApplyDateTracking(scriptPatchOp);
+        else if (operation is PartialPatch partialPatchOp)
+            operation = ApplyDateTracking(partialPatchOp);
+
         long affectedRecords = 0;
         if (operation is JsonPatch jsonOperation)
         {
@@ -707,6 +735,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         patcher.Patch(ref target, jsonOperation.Patch);
                         using var docStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToJsonString()));
                         var doc = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(docStream);
+
+                        if (HasDateTracking)
+                            SetDocumentDates(doc, ElasticIndex.Configuration.TimeProvider);
+
                         var elasticVersion = h.GetElasticVersion();
 
                         b.Index(doc, i =>
@@ -775,6 +807,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     {
                         foreach (var action in actionOperation.Actions)
                             action?.Invoke(h.Document);
+
+                        if (HasDateTracking)
+                            SetDocumentDates(h.Document, ElasticIndex.Configuration.TimeProvider);
 
                         var elasticVersion = h.GetElasticVersion();
 
@@ -1318,10 +1353,17 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     private async Task OnDocumentsAddingAsync(IReadOnlyCollection<T> documents, ICommandOptions options)
     {
-        if (HasDates)
-            documents.OfType<IHaveDates>().SetDates(ElasticIndex.Configuration.TimeProvider);
+        if (HasDateTracking)
+        {
+            var timeProvider = ElasticIndex.Configuration.TimeProvider;
+
+            foreach (var document in documents)
+                SetDocumentDates(document, timeProvider);
+        }
         else if (HasCreatedDate)
+        {
             documents.OfType<IHaveCreatedDate>().SetCreatedDates(ElasticIndex.Configuration.TimeProvider);
+        }
 
         if (DocumentsAdding is { HasHandlers: true })
             await DocumentsAdding.InvokeAsync(this, new DocumentsEventArgs<T>(documents, this, options)).AnyContext();
@@ -1350,8 +1392,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (documents.Count == 0)
             return;
 
-        if (HasDates)
-            documents.Cast<IHaveDates>().SetDates(ElasticIndex.Configuration.TimeProvider);
+        if (HasDateTracking)
+        {
+            var timeProvider = ElasticIndex.Configuration.TimeProvider;
+
+            foreach (var document in documents)
+                SetDocumentDates(document, timeProvider);
+        }
 
         documents.EnsureIds(ElasticIndex.CreateDocumentId, ElasticIndex.Configuration.TimeProvider);
 
@@ -1776,4 +1823,224 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     }
 
     public AsyncEvent<BeforePublishEntityChangedEventArgs<T>> BeforePublishEntityChanged { get; } = new AsyncEvent<BeforePublishEntityChangedEventArgs<T>>();
+
+    /// <summary>
+    /// Returns the Elasticsearch dot-path for the updated timestamp field (e.g., <c>"updatedUtc"</c>
+    /// or <c>"metaData.dateUpdatedUtc"</c>). Called only when <see cref="HasDateTracking"/> is <c>true</c>.
+    /// </summary>
+    /// <exception cref="RepositoryException">
+    /// Thrown when <see cref="HasDateTracking"/> is <c>true</c> but no field path is available.
+    /// Override this method when using custom date fields.
+    /// </exception>
+    protected virtual string GetUpdatedUtcFieldPath()
+    {
+        if (HasDates)
+            return _updatedUtcField.Value;
+
+        throw new RepositoryException(
+            $"{GetType().Name} has HasDateTracking=true but does not implement IHaveDates. Override GetUpdatedUtcFieldPath() to return the Elasticsearch field path for your updated timestamp.");
+    }
+
+    /// <summary>
+    /// Sets date properties on the document for Add, Save, and ActionPatch/JsonPatch-bulk operations.
+    /// Override to handle custom date fields (e.g., <c>IHaveDateMetaData.MetaData.DateUpdatedUtc</c>).
+    /// </summary>
+    protected virtual void SetDocumentDates(T document, TimeProvider timeProvider)
+    {
+        if (document is IHaveDates datesDoc)
+        {
+            var utcNow = timeProvider.GetUtcNow().UtcDateTime;
+
+            if (datesDoc.CreatedUtc == DateTime.MinValue || datesDoc.CreatedUtc > utcNow)
+                datesDoc.CreatedUtc = utcNow;
+
+            datesDoc.UpdatedUtc = utcNow;
+        }
+        else if (document is IHaveCreatedDate createdDoc)
+        {
+            var utcNow = timeProvider.GetUtcNow().UtcDateTime;
+
+            if (createdDoc.CreatedUtc == DateTime.MinValue || createdDoc.CreatedUtc > utcNow)
+                createdDoc.CreatedUtc = utcNow;
+        }
+    }
+
+    /// <summary>
+    /// Injects the updated timestamp into a <see cref="ScriptPatch"/> by appending a Painless assignment
+    /// and adding the timestamp as a script parameter. Skips injection if the caller already provided
+    /// the parameter (logged at Debug level).
+    /// </summary>
+    protected virtual ScriptPatch ApplyDateTracking(ScriptPatch script)
+    {
+        if (!HasDateTracking)
+            return script;
+
+        var fieldPath = GetUpdatedUtcFieldPath();
+        var lastDotIndex = fieldPath.LastIndexOf('.');
+        var paramKey = lastDotIndex >= 0 ? fieldPath[(lastDotIndex + 1)..] : fieldPath;
+
+        if (script.Params is { } existingParams && existingParams.ContainsKey(paramKey))
+        {
+            _logger.LogDebug("Skipping automatic {FieldPath} injection; caller provided {ParamKey}", fieldPath, paramKey);
+            return script;
+        }
+
+        var scriptSuffix = BuildNestedAssignmentScript(fieldPath, paramKey);
+        var patchParams = script.Params is { } existing
+            ? new Dictionary<string, object>(existing)
+            : new Dictionary<string, object>();
+        patchParams[paramKey] = ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime;
+
+        return new ScriptPatch($"{script.Script} {scriptSuffix}") { Params = patchParams };
+    }
+
+    /// <summary>
+    /// Injects the updated timestamp into a <see cref="PartialPatch"/> by adding the field to the
+    /// serialized document. Skips injection if the caller already provided the field (logged at Debug level).
+    /// </summary>
+    protected virtual PartialPatch ApplyDateTracking(PartialPatch partial)
+    {
+        if (!HasDateTracking)
+            return partial;
+
+        var fieldPath = GetUpdatedUtcFieldPath();
+        var serialized = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(partial.Document);
+        var partialDoc = JsonNode.Parse(serialized);
+
+        if (partialDoc is not JsonObject partialObject)
+            return partial;
+
+        if (GetNestedJsonNode(partialObject, fieldPath) is not null)
+        {
+            _logger.LogDebug("Skipping automatic {FieldPath} injection; caller already provided it", fieldPath);
+            return partial;
+        }
+
+        SetNestedJsonNodeValue(partialObject, fieldPath,
+            JsonValue.Create(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime));
+
+        return new PartialPatch(ToDictionary(partialObject));
+    }
+
+    /// <summary>
+    /// Sets the updated timestamp on a <see cref="JsonNode"/> document (used by single-doc JsonPatch).
+    /// Supports nested dot-path fields.
+    /// </summary>
+    protected virtual void ApplyDateTracking(JsonNode target)
+    {
+        if (!HasDateTracking)
+            return;
+
+        var fieldPath = GetUpdatedUtcFieldPath();
+
+        SetNestedJsonNodeValue(target, fieldPath,
+            JsonValue.Create(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime));
+    }
+
+    private static string BuildNestedAssignmentScript(string fieldPath, string paramKey)
+    {
+        var dotIndex = fieldPath.IndexOf('.');
+        if (dotIndex < 0)
+            return $"ctx._source.{fieldPath} = params.{paramKey};";
+
+        var sb = new System.Text.StringBuilder();
+        var prefix = "ctx._source";
+        var remaining = fieldPath.AsSpan();
+
+        while (true)
+        {
+            dotIndex = remaining.IndexOf('.');
+            if (dotIndex < 0)
+                break;
+
+            var segment = remaining[..dotIndex];
+            sb.Append("if (").Append(prefix).Append('.').Append(segment)
+              .Append(" == null) { ").Append(prefix).Append('.').Append(segment)
+              .Append(" = [:]; } ");
+            prefix = $"{prefix}.{segment}";
+            remaining = remaining[(dotIndex + 1)..];
+        }
+
+        sb.Append(prefix).Append('.').Append(remaining)
+          .Append(" = params.").Append(paramKey).Append(';');
+        return sb.ToString();
+    }
+
+    private static JsonNode GetNestedJsonNode(JsonNode node, string dotPath)
+    {
+        var remaining = dotPath.AsSpan();
+
+        while (remaining.Length > 0)
+        {
+            var dotIndex = remaining.IndexOf('.');
+            var segment = dotIndex >= 0 ? remaining[..dotIndex] : remaining;
+
+            if (node is not JsonObject obj)
+                return null;
+
+            node = obj[segment.ToString()];
+            if (node is null)
+                return null;
+
+            remaining = dotIndex >= 0 ? remaining[(dotIndex + 1)..] : ReadOnlySpan<char>.Empty;
+        }
+
+        return node;
+    }
+
+    private static void SetNestedJsonNodeValue(JsonNode node, string dotPath, JsonNode value)
+    {
+        var remaining = dotPath.AsSpan();
+
+        while (true)
+        {
+            var dotIndex = remaining.IndexOf('.');
+
+            if (dotIndex < 0)
+            {
+                if (node is JsonObject leaf)
+                    leaf[remaining.ToString()] = value;
+
+                return;
+            }
+
+            var segment = remaining[..dotIndex].ToString();
+
+            if (node is not JsonObject current)
+                return;
+
+            var next = current[segment];
+
+            if (next is not JsonObject)
+            {
+                next = new JsonObject();
+                current[segment] = next;
+            }
+
+            node = next;
+            remaining = remaining[(dotIndex + 1)..];
+        }
+    }
+
+    private static Dictionary<string, object> ToDictionary(JsonObject obj)
+    {
+        var dict = new Dictionary<string, object>(obj.Count);
+
+        foreach (var property in obj)
+            dict[property.Key] = ToValue(property.Value);
+
+        return dict;
+    }
+
+    private static object ToValue(JsonNode node)
+    {
+        return node switch
+        {
+            JsonObject nested => ToDictionary(nested),
+            JsonArray array => array.Select(ToValue).ToList(),
+            JsonValue val => val.Deserialize<object>(),
+            null => null,
+            _ => node.Deserialize<object>()
+        };
+    }
 }

@@ -39,6 +39,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected static readonly IReadOnlyCollection<T> EmptyList = new List<T>(0).AsReadOnly();
     private readonly List<Lazy<Field>> _defaultExcludes = new();
     protected readonly Lazy<string> _idField;
+    protected readonly Lazy<string> _updatedUtcField;
 
     protected readonly ILogger _logger;
     protected readonly Lazy<ElasticsearchClient> _lazyClient;
@@ -53,6 +54,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         ElasticIndex = index;
         if (HasIdentity)
             _idField = new Lazy<string>(() => InferField(d => ((IIdentity)d).Id) ?? "id");
+        if (HasDates)
+            _updatedUtcField = new Lazy<string>(() => InferField(d => ((IHaveDates)d).UpdatedUtc));
         _lazyClient = new Lazy<ElasticsearchClient>(() => index.Configuration.Client);
 
         SetCacheClient(index.Configuration.Cache);
