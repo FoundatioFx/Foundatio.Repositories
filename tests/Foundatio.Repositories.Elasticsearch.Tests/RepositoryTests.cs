@@ -925,6 +925,55 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task ScriptPatchAsync_WithCallerProvidedUpdatedUtc_UsesCallerValue()
+    {
+        // Arrange
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        _configuration.TimeProvider = timeProvider;
+
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var originalCreatedUtc = employee.CreatedUtc;
+
+        timeProvider.Advance(TimeSpan.FromSeconds(5));
+        var callerProvidedTime = new DateTime(2020, 6, 15, 12, 0, 0, DateTimeKind.Utc);
+
+        // Act — caller explicitly includes updatedUtc in params; auto-injection should be skipped
+        await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'Patched'; ctx._source.updatedUtc = params.updatedUtc;")
+        {
+            Params = new Dictionary<string, object> { ["updatedUtc"] = callerProvidedTime }
+        });
+
+        // Assert
+        employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.Equal("Patched", employee.Name);
+        Assert.Equal(originalCreatedUtc, employee.CreatedUtc);
+        Assert.Equal(callerProvidedTime, employee.UpdatedUtc);
+    }
+
+    [Fact]
+    public async Task PartialPatchAsync_WithCallerProvidedUpdatedUtc_UsesCallerValue()
+    {
+        // Arrange
+        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        _configuration.TimeProvider = timeProvider;
+
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var originalCreatedUtc = employee.CreatedUtc;
+
+        timeProvider.Advance(TimeSpan.FromSeconds(5));
+        var callerProvidedTime = new DateTime(2020, 6, 15, 12, 0, 0, DateTimeKind.Utc);
+
+        // Act — caller explicitly includes updatedUtc in partial; auto-injection should be skipped
+        await _employeeRepository.PatchAsync(employee.Id, new PartialPatch(new { name = "Patched", updatedUtc = callerProvidedTime }));
+
+        // Assert
+        employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.Equal("Patched", employee.Name);
+        Assert.Equal(originalCreatedUtc, employee.CreatedUtc);
+        Assert.Equal(callerProvidedTime, employee.UpdatedUtc);
+    }
+
+    [Fact]
     public async Task JsonPatchAsync()
     {
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);

@@ -360,16 +360,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         options = ConfigureOptions(options.As<T>());
 
-        if (operation is ScriptPatch scriptPatchOp)
-            operation = InjectUpdatedUtcIntoScript(scriptPatchOp);
-        else if (operation is PartialPatch partialPatchOp)
-            operation = InjectUpdatedUtcIntoPartial(partialPatchOp);
-
         if (ids.Count == 1)
         {
             await PatchAsync(ids[0], operation, options).AnyContext();
             return;
         }
+
+        if (operation is ScriptPatch scriptPatchOp)
+            operation = InjectUpdatedUtcIntoScript(scriptPatchOp);
+        else if (operation is PartialPatch partialPatchOp)
+            operation = InjectUpdatedUtcIntoPartial(partialPatchOp);
 
         if (operation is JsonPatch)
         {
@@ -1674,10 +1674,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         var fieldName = _updatedUtcField.Value;
         if (script.Params is { } p && p.ContainsKey(fieldName))
         {
-            _logger.LogDebug("Skipping automatic {FieldName} injection; caller already provided it", fieldName);
+            _logger.LogDebug("Skipping automatic {FieldName} injection into ScriptPatch; caller already provided it", fieldName);
             return script;
         }
 
+        _logger.LogDebug("Auto-injecting {FieldName} into ScriptPatch", fieldName);
         return new ScriptPatch(script.Script + $" ctx._source.{fieldName} = params.{fieldName};")
         {
             Params = new Dictionary<string, object>(script.Params ?? [])
@@ -1697,10 +1698,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         var json = JObject.Parse(serialized);
         if (json.ContainsKey(fieldName))
         {
-            _logger.LogDebug("Skipping automatic {FieldName} injection; caller already provided it", fieldName);
+            _logger.LogDebug("Skipping automatic {FieldName} injection into PartialPatch; caller already provided it", fieldName);
             return partial;
         }
 
+        _logger.LogDebug("Auto-injecting {FieldName} into PartialPatch", fieldName);
         json[fieldName] = JToken.FromObject(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime);
         return new PartialPatch(json.ToObject<Dictionary<string, object>>());
     }
