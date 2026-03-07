@@ -428,20 +428,26 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
             IndexType = StringFieldType.IndexType
         });
 
-        var withField = EmployeeWithCustomFieldsGenerator.Generate(age: 19);
-        withField.CompanyId = "1";
-        withField.Data["MyField1"] = "hello world";
-        var withOther = EmployeeWithCustomFieldsGenerator.Generate(age: 30);
-        withOther.CompanyId = "1";
-        withOther.Data["MyField1"] = "other value";
-        await _employeeRepository.AddAsync([withField, withOther], o => o.ImmediateConsistency());
+        var single = EmployeeWithCustomFieldsGenerator.Generate(age: 19);
+        single.CompanyId = "1";
+        single.Data["MyField1"] = "hello";
+        var multi = EmployeeWithCustomFieldsGenerator.Generate(age: 25);
+        multi.CompanyId = "1";
+        multi.Data["MyField1"] = "hello world";
+        var other = EmployeeWithCustomFieldsGenerator.Generate(age: 30);
+        other.CompanyId = "1";
+        other.Data["MyField1"] = "other";
+        await _employeeRepository.AddAsync([single, multi, other], o => o.ImmediateConsistency());
 
-        // Act
-        var results = await _employeeRepository.FindAsync(q => q.Company("1").FieldEquals("myfield1", "hello world"));
-
-        // Assert
+        // Act — single-word exact match must NOT match "hello world"
+        var results = await _employeeRepository.FindAsync(q => q.Company("1").FieldEquals("myfield1", "hello"));
         Assert.Single(results.Documents);
         Assert.Equal(19, results.Documents.First().Age);
+
+        // Act — multi-word exact match must NOT match "hello"
+        results = await _employeeRepository.FindAsync(q => q.Company("1").FieldEquals("myfield1", "hello world"));
+        Assert.Single(results.Documents);
+        Assert.Equal(25, results.Documents.First().Age);
     }
 
     [Fact]
@@ -456,20 +462,26 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
             IndexType = StringFieldType.IndexType
         });
 
-        var withField = EmployeeWithCustomFieldsGenerator.Generate(age: 19);
-        withField.CompanyId = "1";
-        withField.Data["MyField1"] = "hello world";
-        var withOther = EmployeeWithCustomFieldsGenerator.Generate(age: 30);
-        withOther.CompanyId = "1";
-        withOther.Data["MyField1"] = "other value";
-        await _employeeRepository.AddAsync([withField, withOther], o => o.ImmediateConsistency());
+        var single = EmployeeWithCustomFieldsGenerator.Generate(age: 19);
+        single.CompanyId = "1";
+        single.Data["MyField1"] = "hello";
+        var multi = EmployeeWithCustomFieldsGenerator.Generate(age: 25);
+        multi.CompanyId = "1";
+        multi.Data["MyField1"] = "hello world";
+        var other = EmployeeWithCustomFieldsGenerator.Generate(age: 30);
+        other.CompanyId = "1";
+        other.Data["MyField1"] = "other";
+        await _employeeRepository.AddAsync([single, multi, other], o => o.ImmediateConsistency());
 
-        // Act
-        var results = await _employeeRepository.FindAsync(q => q.Company("1").FieldNotEquals("myfield1", "hello world"));
+        // Act — excluding "hello" must return both "hello world" and "other"
+        var results = await _employeeRepository.FindAsync(q => q.Company("1").FieldNotEquals("myfield1", "hello"));
+        Assert.Equal(2, results.Documents.Count);
+        Assert.DoesNotContain(results.Documents, d => d.Age == 19);
 
-        // Assert
-        Assert.Single(results.Documents);
-        Assert.Equal(30, results.Documents.First().Age);
+        // Act — excluding "hello world" must return both "hello" and "other"
+        results = await _employeeRepository.FindAsync(q => q.Company("1").FieldNotEquals("myfield1", "hello world"));
+        Assert.Equal(2, results.Documents.Count);
+        Assert.DoesNotContain(results.Documents, d => d.Age == 25);
     }
 
     [Fact]
@@ -497,6 +509,79 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
         // Assert
         Assert.Single(results.Documents);
         Assert.Equal(25, results.Documents.First().Age);
+    }
+
+    [Fact]
+    public async Task FieldContains_WithCustomFieldName_ResolvesToIndexSlot()
+    {
+        // Arrange
+        await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
+            EntityType = nameof(EmployeeWithCustomFields),
+            TenantKey = "1",
+            Name = "MyField1",
+            IndexType = StringFieldType.IndexType
+        });
+
+        var single = EmployeeWithCustomFieldsGenerator.Generate(age: 19);
+        single.CompanyId = "1";
+        single.Data["MyField1"] = "hello";
+        var multi = EmployeeWithCustomFieldsGenerator.Generate(age: 25);
+        multi.CompanyId = "1";
+        multi.Data["MyField1"] = "hello world";
+        var other = EmployeeWithCustomFieldsGenerator.Generate(age: 30);
+        other.CompanyId = "1";
+        other.Data["MyField1"] = "other";
+        await _employeeRepository.AddAsync([single, multi, other], o => o.ImmediateConsistency());
+
+        // Act — "hello" analyzed match hits both "hello" and "hello world"
+        var results = await _employeeRepository.FindAsync(q => q.Company("1").FieldCondition("myfield1", ComparisonOperator.Contains, "hello"));
+        Assert.Equal(2, results.Documents.Count);
+        Assert.DoesNotContain(results.Documents, d => d.Age == 30);
+
+        // Act — "hello world" analyzed match hits both (both tokens present in "hello world", and individually)
+        results = await _employeeRepository.FindAsync(q => q.Company("1").FieldCondition("myfield1", ComparisonOperator.Contains, "hello world"));
+        Assert.Equal(2, results.Documents.Count);
+        Assert.DoesNotContain(results.Documents, d => d.Age == 30);
+
+        // Act — "other" analyzed match hits only "other"
+        results = await _employeeRepository.FindAsync(q => q.Company("1").FieldCondition("myfield1", ComparisonOperator.Contains, "other"));
+        Assert.Single(results.Documents);
+        Assert.Equal(30, results.Documents.First().Age);
+    }
+
+    [Fact]
+    public async Task FieldNotContains_WithCustomFieldName_ResolvesToIndexSlot()
+    {
+        // Arrange
+        await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
+            EntityType = nameof(EmployeeWithCustomFields),
+            TenantKey = "1",
+            Name = "MyField1",
+            IndexType = StringFieldType.IndexType
+        });
+
+        var single = EmployeeWithCustomFieldsGenerator.Generate(age: 19);
+        single.CompanyId = "1";
+        single.Data["MyField1"] = "hello";
+        var multi = EmployeeWithCustomFieldsGenerator.Generate(age: 25);
+        multi.CompanyId = "1";
+        multi.Data["MyField1"] = "hello world";
+        var other = EmployeeWithCustomFieldsGenerator.Generate(age: 30);
+        other.CompanyId = "1";
+        other.Data["MyField1"] = "other";
+        await _employeeRepository.AddAsync([single, multi, other], o => o.ImmediateConsistency());
+
+        // Act — NOT "hello" excludes both "hello" and "hello world", leaves "other"
+        var results = await _employeeRepository.FindAsync(q => q.Company("1").FieldCondition("myfield1", ComparisonOperator.NotContains, "hello"));
+        Assert.Single(results.Documents);
+        Assert.Equal(30, results.Documents.First().Age);
+
+        // Act — NOT "other" excludes only "other", leaves both hello docs
+        results = await _employeeRepository.FindAsync(q => q.Company("1").FieldCondition("myfield1", ComparisonOperator.NotContains, "other"));
+        Assert.Equal(2, results.Documents.Count);
+        Assert.DoesNotContain(results.Documents, d => d.Age == 30);
     }
 
     [Fact]
