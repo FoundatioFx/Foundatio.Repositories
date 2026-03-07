@@ -133,7 +133,7 @@ The repository automatically:
 - Publishes `EntityChanged` notification
 
 ::: tip Consistent Date Tracking
-All write operations — `AddAsync`, `SaveAsync`, and all patch types (`PatchAsync`, `PatchAllAsync`) — automatically set `UpdatedUtc` for models implementing `IHaveDates`. `CreatedUtc` is only set on initial creation and is never overwritten by subsequent operations.
+All write operations — `AddAsync`, `SaveAsync`, and all patch types (`PatchAsync`, `PatchAllAsync`) — automatically set `UpdatedUtc` for models implementing `IHaveDates`. `CreatedUtc` is only set on initial creation and is never overwritten by subsequent operations. For `ScriptPatch` and `PartialPatch`, if you explicitly provide the `updatedUtc` field, the framework respects your value. `JsonPatch` and `ActionPatch` always overwrite `UpdatedUtc`, matching `SaveAsync` semantics.
 :::
 
 ### Save Multiple Documents

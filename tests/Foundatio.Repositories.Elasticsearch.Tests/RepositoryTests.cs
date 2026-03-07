@@ -661,7 +661,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task AddAsync_WithMockedTimeProvider_ShouldSetExactTimes()
     {
-        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        var timeProvider = new FakeTimeProvider(new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
         _configuration.TimeProvider = timeProvider;
 
         var expectedTime = timeProvider.GetUtcNow().UtcDateTime;
@@ -770,7 +770,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task JsonPatchAsync_WithNameChange_SetsUpdatedUtcAndPreservesCreatedUtc()
     {
         // Arrange
-        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        var timeProvider = new FakeTimeProvider(new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
@@ -796,7 +796,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task JsonPatchAllAsync_WithNameChange_SetsUpdatedUtcAndPreservesCreatedUtc()
     {
         // Arrange
-        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        var timeProvider = new FakeTimeProvider(new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
         _configuration.TimeProvider = timeProvider;
 
         var employees = EmployeeGenerator.GenerateEmployees(10);
@@ -825,7 +825,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task ActionPatchAsync_WithNameChange_SetsUpdatedUtcAndPreservesCreatedUtc()
     {
         // Arrange
-        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        var timeProvider = new FakeTimeProvider(new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
@@ -850,7 +850,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task ActionPatchAllAsync_WithNameChange_SetsUpdatedUtcAndPreservesCreatedUtc()
     {
         // Arrange
-        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        var timeProvider = new FakeTimeProvider(new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
         _configuration.TimeProvider = timeProvider;
 
         var employees = EmployeeGenerator.GenerateEmployees(10);
@@ -878,7 +878,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task ScriptPatchAsync_WithNameChange_SetsUpdatedUtcAndPreservesCreatedUtc()
     {
         // Arrange
-        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        var timeProvider = new FakeTimeProvider(new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
@@ -903,7 +903,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PartialPatchAsync_WithNameChange_SetsUpdatedUtcAndPreservesCreatedUtc()
     {
         // Arrange
-        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        var timeProvider = new FakeTimeProvider(new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
@@ -928,7 +928,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task ScriptPatchAsync_WithCallerProvidedUpdatedUtc_UsesCallerValue()
     {
         // Arrange
-        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        var timeProvider = new FakeTimeProvider(new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
@@ -954,7 +954,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PartialPatchAsync_WithCallerProvidedUpdatedUtc_UsesCallerValue()
     {
         // Arrange
-        var timeProvider = new FakeTimeProvider(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMilliseconds(100)));
+        var timeProvider = new FakeTimeProvider(new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);

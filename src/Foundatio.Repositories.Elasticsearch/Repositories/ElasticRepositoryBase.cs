@@ -1679,7 +1679,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
 
         _logger.LogDebug("Auto-injecting {FieldName} into ScriptPatch", fieldName);
-        return new ScriptPatch(script.Script + $" ctx._source.{fieldName} = params.{fieldName};")
+        return new ScriptPatch($"{script.Script} ctx._source.{fieldName} = params.{fieldName};")
         {
             Params = new Dictionary<string, object>(script.Params ?? [])
             {

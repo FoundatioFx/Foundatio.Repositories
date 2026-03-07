@@ -18,10 +18,16 @@ For models implementing `IHaveDates`, all patch operations automatically set `Up
 - **`CreatedUtc`** is never modified by patch operations (existing values are preserved)
 - Works across all patch types: `PartialPatch`, `ScriptPatch`, `JsonPatch`, and `ActionPatch`
 
+### Caller-provided UpdatedUtc
+
 For `ScriptPatch` and `PartialPatch`, if you explicitly provide `updatedUtc` in your script parameters or partial document, the repository respects your value and skips auto-injection. This is logged at `Debug` level.
 
-::: tip Retry behavior
-For `JsonPatch` and `ActionPatch`, the `UpdatedUtc` timestamp is refreshed on each client-side retry since the entire operation re-executes. For `ScriptPatch` and `PartialPatch`, the timestamp is set at request creation time and is fixed for any server-side retries (`RetryOnConflict`). In practice, the difference is negligible (server-side retries occur within milliseconds) and matches the behavior of `SaveAsync`.
+For `JsonPatch` and `ActionPatch`, `UpdatedUtc` is always set by the framework after applying your changes — matching `SaveAsync` semantics. If you need explicit control over the timestamp, use `ScriptPatch` or `PartialPatch`.
+
+::: warning Stale timestamps on server-side retries
+For `ScriptPatch` and `PartialPatch`, the `UpdatedUtc` timestamp is captured once when the request is built and is fixed for any server-side retries (`RetryOnConflict`). If a version conflict causes Elasticsearch to retry the update, the retried write carries the **original timestamp**, not a fresh one. This means a document updated after several retries will have an `UpdatedUtc` that is slightly older than the actual commit time. For `JsonPatch` and `ActionPatch`, the timestamp is refreshed on each client-side retry since the entire operation (fetch + mutate + index) re-executes.
+
+This matches `SaveAsync` behavior, where `SetDates` is called once before the Elasticsearch request. In most scenarios the retry window is milliseconds, but callers relying on `UpdatedUtc` for strict ordering or audit trails should be aware of this.
 :::
 
 ## Patch Types
