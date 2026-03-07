@@ -59,6 +59,36 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>
 }
 ```
 
+### Override Cache Client Per Repository
+
+You can override the cache client for a specific repository by calling `SetCacheClient` in the constructor. This is useful when you need a different cache implementation (e.g., a hybrid cache) for a particular repository:
+
+```csharp
+public class MyRepository : ElasticRepositoryBase<MyDocument>
+{
+    public MyRepository(
+        MyElasticConfiguration elasticConfig, 
+        [FromKeyedServices("hybrid")] ICacheClient cacheClient
+    ) : base(elasticConfig.MyIndex)
+    {
+        SetCacheClient(cacheClient);
+    }
+}
+```
+
+You can also disable caching entirely for a repository:
+
+```csharp
+public class UncachedRepository : ElasticRepositoryBase<MyDocument>
+{
+    public UncachedRepository(MyElasticConfiguration elasticConfig) 
+        : base(elasticConfig.MyIndex)
+    {
+        DisableCache();
+    }
+}
+```
+
 ## Using the Cache
 
 ### Cache on Read
