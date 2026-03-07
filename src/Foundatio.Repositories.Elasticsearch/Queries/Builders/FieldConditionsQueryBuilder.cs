@@ -249,13 +249,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                         if (!resolver.IsPropertyAnalyzed(resolvedField))
                             throw new InvalidOperationException($"Contains operator can't be used on non-analyzed field {resolvedField}");
 
-                        string containsText;
-                        if (fieldValue.Value is IEnumerable and not string)
-                        {
-                            containsText = String.Join(" ", ((IEnumerable)fieldValue.Value).Cast<object>());
-                        }
-                        else
-                            containsText = fieldValue.Value?.ToString() ?? String.Empty;
+                        string containsText = fieldValue.Value is IEnumerable and not string
+                            ? String.Join(" ", ((IEnumerable)fieldValue.Value).Cast<object>())
+                            : fieldValue.Value?.ToString() ?? String.Empty;
                         ctx.Filter &= new MatchQuery { Field = resolvedField, Query = containsText };
 
                         break;
@@ -263,13 +259,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                         if (!resolver.IsPropertyAnalyzed(resolvedField))
                             throw new InvalidOperationException($"NotContains operator can't be used on non-analyzed field {resolvedField}");
 
-                        string notContainsText;
-                        if (fieldValue.Value is IEnumerable and not string)
-                        {
-                            notContainsText = String.Join(" ", ((IEnumerable)fieldValue.Value).Cast<object>());
-                        }
-                        else
-                            notContainsText = fieldValue.Value?.ToString() ?? String.Empty;
+                        string notContainsText = fieldValue.Value is IEnumerable and not string
+                            ? String.Join(" ", ((IEnumerable)fieldValue.Value).Cast<object>())
+                            : fieldValue.Value?.ToString() ?? String.Empty;
                         ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { new MatchQuery { Field = resolvedField, Query = notContainsText } } };
 
                         break;
@@ -285,16 +277,17 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
         private static async Task<string> ResolveFieldAsync<T>(QueryBuilderContext<T> ctx, ElasticMappingResolver resolver, Field field, bool nonAnalyzed) where T : class, new()
         {
-            string resolved = nonAnalyzed
-                ? resolver.GetNonAnalyzedFieldName(field)
-                : resolver.GetResolvedField(field);
+            string resolved = resolver.GetResolvedField(field);
 
             if (ctx is IQueryVisitorContextWithFieldResolver { FieldResolver: not null } fieldResolverCtx)
             {
                 string customResolved = await fieldResolverCtx.FieldResolver(resolved, ctx).AnyContext();
                 if (!String.IsNullOrWhiteSpace(customResolved))
-                    return customResolved;
+                    resolved = customResolved;
             }
+
+            if (nonAnalyzed)
+                resolved = resolver.GetNonAnalyzedFieldName(resolved);
 
             return resolved;
         }

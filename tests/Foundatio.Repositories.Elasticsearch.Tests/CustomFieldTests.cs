@@ -430,14 +430,14 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
 
         var withField = EmployeeWithCustomFieldsGenerator.Generate(age: 19);
         withField.CompanyId = "1";
-        withField.Data["MyField1"] = "hey";
+        withField.Data["MyField1"] = "hello world";
         var withOther = EmployeeWithCustomFieldsGenerator.Generate(age: 30);
         withOther.CompanyId = "1";
-        withOther.Data["MyField1"] = "other";
+        withOther.Data["MyField1"] = "other value";
         await _employeeRepository.AddAsync([withField, withOther], o => o.ImmediateConsistency());
 
         // Act
-        var results = await _employeeRepository.FindAsync(q => q.Company("1").FieldEquals("myfield1", "hey"));
+        var results = await _employeeRepository.FindAsync(q => q.Company("1").FieldEquals("myfield1", "hello world"));
 
         // Assert
         Assert.Single(results.Documents);
@@ -458,14 +458,14 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
 
         var withField = EmployeeWithCustomFieldsGenerator.Generate(age: 19);
         withField.CompanyId = "1";
-        withField.Data["MyField1"] = "hey";
+        withField.Data["MyField1"] = "hello world";
         var withOther = EmployeeWithCustomFieldsGenerator.Generate(age: 30);
         withOther.CompanyId = "1";
-        withOther.Data["MyField1"] = "other";
+        withOther.Data["MyField1"] = "other value";
         await _employeeRepository.AddAsync([withField, withOther], o => o.ImmediateConsistency());
 
         // Act
-        var results = await _employeeRepository.FindAsync(q => q.Company("1").FieldNotEquals("myfield1", "hey"));
+        var results = await _employeeRepository.FindAsync(q => q.Company("1").FieldNotEquals("myfield1", "hello world"));
 
         // Assert
         Assert.Single(results.Documents);
