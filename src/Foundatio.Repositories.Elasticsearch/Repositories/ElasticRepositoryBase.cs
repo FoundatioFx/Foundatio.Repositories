@@ -49,6 +49,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
     }
 
+    /// <summary>
+    /// Gets whether this repository supports automatic date tracking for patch operations.
+    /// When <c>true</c>, <see cref="SetDocumentDates"/>, <see cref="GetUpdatedUtcFieldPath"/>, and
+    /// the <see cref="ApplyDateTracking(ScriptPatch)"/> overloads are active.
+    /// Override to <c>true</c> for custom date field scenarios (e.g., nested metadata dates).
+    /// </summary>
     protected virtual bool HasDateTracking => HasDates;
     protected string DefaultPipeline { get; set; } = null;
     protected bool AutoCreateCustomFields { get; set; } = false;
@@ -1678,6 +1684,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     public AsyncEvent<BeforePublishEntityChangedEventArgs<T>> BeforePublishEntityChanged { get; } = new AsyncEvent<BeforePublishEntityChangedEventArgs<T>>();
 
+    /// <summary>
+    /// Returns the Elasticsearch dot-path for the updated timestamp field (e.g., <c>"updatedUtc"</c>
+    /// or <c>"metaData.dateUpdatedUtc"</c>). Called only when <see cref="HasDateTracking"/> is <c>true</c>.
+    /// </summary>
+    /// <exception cref="RepositoryException">
+    /// Thrown when <see cref="HasDateTracking"/> is <c>true</c> but no field path is available.
+    /// Override this method when using custom date fields.
+    /// </exception>
     protected virtual string GetUpdatedUtcFieldPath()
     {
         if (HasDates)
@@ -1688,6 +1702,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             "Override GetUpdatedUtcFieldPath() to return the Elasticsearch field path for your updated timestamp.");
     }
 
+    /// <summary>
+    /// Sets date properties on the document for Add, Save, and ActionPatch/JsonPatch-bulk operations.
+    /// Override to handle custom date fields (e.g., <c>IHaveDateMetaData.MetaData.DateUpdatedUtc</c>).
+    /// </summary>
     protected virtual void SetDocumentDates(T document, TimeProvider timeProvider)
     {
         if (document is IHaveDates datesDoc)
@@ -1708,6 +1726,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
     }
 
+    /// <summary>
+    /// Injects the updated timestamp into a <see cref="ScriptPatch"/> by appending a Painless assignment
+    /// and adding the timestamp as a script parameter. Skips injection if the caller already provided
+    /// the parameter (logged at Debug level).
+    /// </summary>
     protected virtual ScriptPatch ApplyDateTracking(ScriptPatch script)
     {
         if (!HasDateTracking)
@@ -1723,8 +1746,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return script;
         }
 
-        _logger.LogDebug("Auto-injecting {FieldPath} into ScriptPatch as param {ParamKey}", fieldPath, paramKey);
-
         return new ScriptPatch($"{script.Script} ctx._source.{fieldPath} = params.{paramKey};")
         {
             Params = new Dictionary<string, object>(script.Params ?? [])
@@ -1734,6 +1755,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         };
     }
 
+    /// <summary>
+    /// Injects the updated timestamp into a <see cref="PartialPatch"/> by adding the field to the
+    /// serialized document. Skips injection if the caller already provided the field (logged at Debug level).
+    /// </summary>
     protected virtual PartialPatch ApplyDateTracking(PartialPatch partial)
     {
         if (!HasDateTracking)
@@ -1749,14 +1774,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return partial;
         }
 
-        _logger.LogDebug("Auto-injecting {FieldPath} into PartialPatch", fieldPath);
-
         SetNestedJTokenValue(json, fieldPath,
             JToken.FromObject(ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime));
 
         return new PartialPatch(ToDictionary(json));
     }
 
+    /// <summary>
+    /// Sets the updated timestamp on a <see cref="JToken"/> document (used by single-doc JsonPatch).
+    /// Supports nested dot-path fields.
+    /// </summary>
     protected virtual void ApplyDateTracking(JToken target)
     {
         if (!HasDateTracking)

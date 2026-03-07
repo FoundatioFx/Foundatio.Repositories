@@ -15,7 +15,7 @@ Patch operations allow you to:
 For models implementing `IHaveDates`, all patch operations automatically set `UpdatedUtc` to the current time. This is consistent with how `AddAsync` and `SaveAsync` handle date tracking.
 
 - **`UpdatedUtc`** is set automatically on every patch operation — no manual intervention needed
-- **`CreatedUtc`** is never modified by patch operations (existing values are preserved)
+- **`CreatedUtc`** is not overwritten by patch operations under normal circumstances; it may be corrected if missing or invalid (for example, `DateTime.MinValue` or a future value), consistent with `SetDates` behavior
 - Works across all patch types: `PartialPatch`, `ScriptPatch`, `JsonPatch`, and `ActionPatch`
 
 ### Caller-provided UpdatedUtc

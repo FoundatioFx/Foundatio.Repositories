@@ -469,7 +469,7 @@ curl http://localhost:9200/employees/_stats
 ### doc_count_error_upper_bound Warning
 
 **Symptoms:**
-- Debug-level log warning about `doc_count_error_upper_bound` in terms aggregation results
+- Warning-level log message about `doc_count_error_upper_bound` in terms aggregation results
 
 **Explanation:**
 
