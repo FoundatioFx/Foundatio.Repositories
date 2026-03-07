@@ -390,6 +390,48 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task CanSearchByCustomFieldWithFieldConditions()
+    {
+        var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
+        {
+            EntityType = nameof(EmployeeWithCustomFields),
+            TenantKey = "1",
+            Name = "MyField1",
+            IndexType = "string"
+        });
+        Assert.Equal(1, customField.IndexSlot);
+
+        var employee = EmployeeWithCustomFieldsGenerator.Generate(age: 19);
+        employee.CompanyId = "1";
+        employee.Data["MyField1"] = "hey";
+        await _employeeRepository.AddAsync(employee, o => o.ImmediateConsistency());
+
+        var employee2 = EmployeeWithCustomFieldsGenerator.Generate(age: 25);
+        employee2.CompanyId = "1";
+        await _employeeRepository.AddAsync(employee2, o => o.ImmediateConsistency());
+
+        // FieldHasValue should resolve "myfield1" -> "idx.string-1" via QueryFieldResolver
+        var results = await _employeeRepository.FindAsync(q => q.Company("1").FieldHasValue("myfield1"), o => o.QueryLogLevel(LogLevel.Information));
+        Assert.Single(results.Documents);
+        Assert.Equal(19, results.Documents.First().Age);
+
+        // FieldEquals should resolve the custom field name
+        results = await _employeeRepository.FindAsync(q => q.Company("1").FieldEquals("myfield1", "hey"), o => o.QueryLogLevel(LogLevel.Information));
+        Assert.Single(results.Documents);
+        Assert.Equal(19, results.Documents.First().Age);
+
+        // FieldNotEquals should resolve the custom field name
+        results = await _employeeRepository.FindAsync(q => q.Company("1").FieldNotEquals("myfield1", "hey"), o => o.QueryLogLevel(LogLevel.Information));
+        Assert.Single(results.Documents);
+        Assert.Equal(25, results.Documents.First().Age);
+
+        // FieldEmpty (IsEmpty) should resolve the custom field name
+        results = await _employeeRepository.FindAsync(q => q.Company("1").FieldEmpty("myfield1"), o => o.QueryLogLevel(LogLevel.Information));
+        Assert.Single(results.Documents);
+        Assert.Equal(25, results.Documents.First().Age);
+    }
+
+    [Fact]
     public async Task CanHandleWrongFieldValueType()
     {
         var customField = await _customFieldDefinitionRepository.AddAsync(new CustomFieldDefinition
