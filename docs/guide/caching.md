@@ -161,6 +161,38 @@ await repository.SaveAsync(employee);
 // 4. EntityChanged notification is published
 ```
 
+## Cache Behavior on Partial Failure
+
+When a bulk write operation partially fails (some documents succeed, others fail), the cache is updated as follows:
+
+**`AddAsync` (duplicates):**
+
+| Document Status | Cache Action |
+|-----------------|--------------|
+| Succeeded | Added to cache (freshest data available) |
+| Duplicate (409) | Existing cache entry **preserved** (nothing was mutated) |
+
+**`SaveAsync` / `RemoveAsync` (conflicts or errors):**
+
+| Document Status | Cache Action |
+|-----------------|--------------|
+| Succeeded | Added to cache (freshest data available) |
+| Failed | Cache entry **invalidated** (stale data removed) |
+
+This ensures that successful documents are immediately available from cache. For `AddAsync`, duplicates preserve existing cache entries since no mutation occurred. For `SaveAsync`, failed documents force a fresh read from Elasticsearch on the next access.
+
+```csharp
+try
+{
+    await repository.AddAsync(documents, o => o.Cache());
+}
+catch (DuplicateDocumentException)
+{
+    // Successful docs: cached with latest data
+    // Duplicate docs: existing cache entries preserved (nothing was mutated)
+}
+```
+
 ## Cache Invalidation Gaps
 
 ::: warning Important

@@ -25,6 +25,8 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// <param name="document">The document to add.</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
     /// <returns>The added document with any generated fields populated (e.g., Id).</returns>
+    /// <exception cref="Exceptions.DuplicateDocumentException">Thrown when a document with the same ID already exists.</exception>
+    /// <exception cref="Exceptions.DocumentException">Thrown when the Elasticsearch request fails.</exception>
     Task<T> AddAsync(T document, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="AddAsync(T, CommandOptionsDescriptor{T})"/>
@@ -35,6 +37,8 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// </summary>
     /// <param name="documents">The documents to add.</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
+    /// <exception cref="Exceptions.DuplicateDocumentException">Thrown when any document ID already exists. Successfully added documents are still cached and notified.</exception>
+    /// <exception cref="Exceptions.DocumentException">Thrown when the Elasticsearch request fails.</exception>
     Task AddAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="AddAsync(IEnumerable{T}, CommandOptionsDescriptor{T})"/>
@@ -46,6 +50,8 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// <param name="document">The document to save.</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
     /// <returns>The saved document.</returns>
+    /// <exception cref="Exceptions.VersionConflictDocumentException">Thrown when the document version conflicts with the stored version (optimistic concurrency).</exception>
+    /// <exception cref="Exceptions.DocumentException">Thrown when the Elasticsearch request fails.</exception>
     Task<T> SaveAsync(T document, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="SaveAsync(T, CommandOptionsDescriptor{T})"/>
@@ -56,6 +62,8 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// </summary>
     /// <param name="documents">The documents to save.</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
+    /// <exception cref="Exceptions.VersionConflictDocumentException">Thrown when any document has a version conflict. Successfully saved documents are still cached and notified.</exception>
+    /// <exception cref="Exceptions.DocumentException">Thrown when the Elasticsearch request fails.</exception>
     Task SaveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="SaveAsync(IEnumerable{T}, CommandOptionsDescriptor{T})"/>
@@ -67,6 +75,9 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// <param name="id">The identifier of the document to patch.</param>
     /// <param name="operation">The patch operation to apply (e.g., <see cref="PartialPatch"/>, <see cref="JsonPatch"/>, <see cref="ScriptPatch"/>).</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
+    /// <exception cref="Exceptions.DocumentNotFoundException">Thrown when the document does not exist.</exception>
+    /// <exception cref="Exceptions.VersionConflictDocumentException">Thrown when the document version conflicts (HTTP 409).</exception>
+    /// <exception cref="Exceptions.DocumentException">Thrown when the Elasticsearch request fails.</exception>
     Task PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="PatchAsync(Id, IPatchOperation, CommandOptionsDescriptor{T})"/>

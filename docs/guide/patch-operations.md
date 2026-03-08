@@ -438,6 +438,25 @@ catch (VersionConflictDocumentException ex)
 }
 ```
 
+### Exception Types by Patch Type
+
+All patch types can throw `DocumentNotFoundException` (HTTP 404) or `VersionConflictDocumentException` (HTTP 409). Other Elasticsearch errors produce a `DocumentException`.
+
+| Patch Type | 404 (Not Found) | 409 (Version Conflict) | Notes |
+|------------|-----------------|------------------------|-------|
+| `PartialPatch` | `DocumentNotFoundException` | `VersionConflictDocumentException` | Uses Elasticsearch Update API |
+| `ScriptPatch` | `DocumentNotFoundException` | `VersionConflictDocumentException` | Use `RetryOnConflict` for server-side retry |
+| `JsonPatch` | `DocumentNotFoundException` | `VersionConflictDocumentException` | Fetches document, applies patch, then indexes |
+| `ActionPatch` | `DocumentNotFoundException` | `VersionConflictDocumentException` | Fetches document, applies lambda, then indexes |
+
+::: tip
+`ScriptPatch` and `PartialPatch` execute on the Elasticsearch node via the Update API, so you can set `RetryOnConflict` for server-side retries without a round trip. `JsonPatch` and `ActionPatch` perform a client-side fetch-mutate-index cycle, so version conflicts require the caller to retry the full operation.
+:::
+
+### Automatic Retry Behavior
+
+Transient errors (HTTP 429/503) are automatically retried with exponential backoff (up to 3 retries). Version conflicts (409) are **not** retried by the resilience policy — they indicate a genuine concurrency issue the caller should handle.
+
 ## Performance Considerations
 
 ### Use ScriptPatch for Atomic Operations

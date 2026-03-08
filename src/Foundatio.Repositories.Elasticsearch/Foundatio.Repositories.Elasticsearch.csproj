@@ -1,6 +1,7 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <Compile Include="..\Foundatio.Repositories\Extensions\TaskExtensions.cs" Link="Extensions\TaskExtensions.cs" />
+    <Compile Include="..\Foundatio.Repositories\Extensions\TimeProviderExtensions.cs" Link="Extensions\TimeProviderExtensions.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="7.18.0-beta4" Condition="'$(ReferenceFoundatioRepositoriesSource)' == '' OR '$(ReferenceFoundatioRepositoriesSource)' == 'false'" />

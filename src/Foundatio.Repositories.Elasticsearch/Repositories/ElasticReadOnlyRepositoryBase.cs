@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Elasticsearch.Net;
 using Foundatio.Caching;
@@ -23,7 +24,7 @@ using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
-public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepository<T> where T : class, new()
+public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepository<T>, IDisposable where T : class, new()
 {
     protected static readonly bool HasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
     protected static readonly bool HasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
@@ -44,6 +45,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected readonly IResiliencePolicy _resiliencePolicy;
 
     private ScopedCacheClient _scopedCacheClient;
+    private readonly CancellationTokenSource _disposedCancellationTokenSource = new();
+    protected CancellationToken DisposedCancellationToken => _disposedCancellationTokenSource.Token;
 
     protected ElasticReadOnlyRepositoryBase(IIndex index)
     {
@@ -58,7 +61,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         _logger = index.Configuration.LoggerFactory.CreateLogger(GetType());
 
         _resiliencePolicyProvider = index.Configuration.ResiliencePolicyProvider;
-        _resiliencePolicy = _resiliencePolicyProvider.GetPolicy([GetType()], fallback => fallback.WithUnhandledException<DocumentNotFoundException>(), _logger, ElasticIndex.Configuration.TimeProvider);
+        _resiliencePolicy = _resiliencePolicyProvider.GetPolicy([GetType()], fallback => fallback.WithUnhandledException<DocumentNotFoundException>().WithUnhandledException<DuplicateDocumentException>(), _logger, ElasticIndex.Configuration.TimeProvider);
     }
 
     protected IIndex ElasticIndex { get; private set; }
@@ -1038,6 +1041,12 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected Task AddDocumentsToCacheWithKeyAsync(string cacheKey, FindHit<T> findHit, TimeSpan expiresIn)
     {
         return Cache.SetAsync<ICollection<FindHit<T>>>(cacheKey, new[] { findHit }, expiresIn);
+    }
+
+    public virtual void Dispose()
+    {
+        _disposedCancellationTokenSource.Cancel();
+        _disposedCancellationTokenSource.Dispose();
     }
 }
 
