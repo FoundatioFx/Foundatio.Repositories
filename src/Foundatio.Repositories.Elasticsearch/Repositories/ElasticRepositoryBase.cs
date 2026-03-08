@@ -1586,16 +1586,17 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (result.HasTransportError)
             throw new DocumentException(result.TransportError, result.TransportException);
 
+        string label = operationLabel ?? (isCreateOperation ? "adding" : "saving");
         int totalErrors = result.ConflictIds.Count + result.RetryableIds.Count + result.FatalIds.Count;
 
         if (result.HasConflicts)
         {
             if (isCreateOperation)
-                throw new DuplicateDocumentException($"Error adding documents: {result.ConflictIds.Count} duplicates ({totalErrors} total errors)");
-            throw new VersionConflictDocumentException($"Error saving documents: {result.ConflictIds.Count} conflicts ({totalErrors} total errors)");
+                throw new DuplicateDocumentException($"Error {label} documents: {result.ConflictIds.Count} duplicates ({totalErrors} total errors)");
+            throw new VersionConflictDocumentException($"Error {label} documents: {result.ConflictIds.Count} conflicts ({totalErrors} total errors)");
         }
 
-        throw new DocumentException($"Error {operationLabel ?? "processing"} documents: {totalErrors} failures");
+        throw new DocumentException($"Error {label} documents: {totalErrors} failures");
     }
 
     /// <summary>
