@@ -161,6 +161,29 @@ await repository.SaveAsync(employee);
 // 4. EntityChanged notification is published
 ```
 
+## Cache Behavior on Partial Failure
+
+When a bulk write operation partially fails (some documents succeed, others fail), the cache is updated only for successful documents:
+
+| Document Status | Cache Action |
+|-----------------|--------------|
+| Succeeded | Added to cache (freshest data available) |
+| Failed (any error) | Cache entry **unchanged** (failed writes don't mutate Elasticsearch) |
+
+Failed writes (409 conflicts, 429/503 rate limits, or other errors) do not mutate the document in Elasticsearch, so the existing cache entry (if any) remains valid. Cache consistency for concurrent writes is handled by the message bus `EntityChanged` notifications — the writer that successfully mutated the document is responsible for updating or invalidating the cache.
+
+```csharp
+try
+{
+    await repository.SaveAsync(documents, o => o.Cache());
+}
+catch (VersionConflictDocumentException)
+{
+    // Successful docs: cached with latest data
+    // Conflicting docs: cache unchanged (the successful concurrent writer handles its own cache update)
+}
+```
+
 ## Cache Invalidation Gaps
 
 ::: warning Important

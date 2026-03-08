@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
@@ -100,11 +99,18 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             foreach (var doc in docs)
                 await ValidateAndThrowAsync(doc).AnyContext();
 
-        await IndexDocumentsAsync(docs, true, options).AnyContext();
+        var result = await IndexDocumentsAsync(docs, true, options).AnyContext();
 
-        await OnDocumentsAddedAsync(docs, options).AnyContext();
-        if (IsCacheEnabled && options.ShouldUseCache())
-            await AddDocumentsToCacheAsync(docs, options, false).AnyContext();
+        var successDocs = result.IsSuccess ? docs : docs.Where(d => result.SuccessfulIds.Contains(d.Id)).ToList();
+        if (successDocs.Count > 0)
+        {
+            await OnDocumentsAddedAsync(successDocs, options).AnyContext();
+            if (IsCacheEnabled && options.ShouldUseCache())
+                await AddDocumentsToCacheAsync(successDocs, options, false).AnyContext();
+        }
+
+        if (result.HasErrors)
+            ThrowForBulkErrors(result, isCreateOperation: true);
     }
 
     protected virtual Task ValidateAndThrowAsync(T document) { return Task.CompletedTask; }
@@ -150,11 +156,21 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             foreach (var doc in docs)
                 await ValidateAndThrowAsync(doc).AnyContext();
 
-        await IndexDocumentsAsync(docs, false, options).AnyContext();
+        var result = await IndexDocumentsAsync(docs, false, options).AnyContext();
 
-        await OnDocumentsSavedAsync(docs, originalDocuments, options).AnyContext();
-        if (IsCacheEnabled && options.ShouldUseCache())
-            await AddDocumentsToCacheAsync(docs, options, false).AnyContext();
+        var successDocs = result.IsSuccess ? docs : docs.Where(d => result.SuccessfulIds.Contains(d.Id)).ToList();
+        if (successDocs.Count > 0)
+        {
+            var successOriginals = result.IsSuccess
+                ? originalDocuments
+                : originalDocuments.Where(o => result.SuccessfulIds.Contains(o.Id)).ToList();
+            await OnDocumentsSavedAsync(successDocs, successOriginals, options).AnyContext();
+            if (IsCacheEnabled && options.ShouldUseCache())
+                await AddDocumentsToCacheAsync(successDocs, options, false).AnyContext();
+        }
+
+        if (result.HasErrors)
+            ThrowForBulkErrors(result, isCreateOperation: false);
     }
 
     public Task PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options)
@@ -227,6 +243,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 {
                     if (response.ApiCallDetails is { HttpStatusCode: 404 })
                         throw new DocumentNotFoundException(id);
+
+                    if (response.ApiCallDetails is { HttpStatusCode: 409 })
+                        throw new VersionConflictDocumentException(
+                            response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"),
+                            response.OriginalException());
 
                     throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
                 }
@@ -322,6 +343,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     if (response.ApiCallDetails is { HttpStatusCode: 404 })
                         throw new DocumentNotFoundException(id);
 
+                    if (response.ApiCallDetails is { HttpStatusCode: 409 })
+                        throw new VersionConflictDocumentException(
+                            response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"),
+                            response.OriginalException());
+
                     throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
                 }
             }
@@ -386,7 +412,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 if (!updateResponse.IsValidResponse)
                 {
-                    if (updateResponse.ElasticsearchServerError?.Status == 409)
+                    if (updateResponse.ElasticsearchServerError?.Status is 409)
                         throw new VersionConflictDocumentException(updateResponse.GetErrorMessage("Error saving document"), updateResponse.OriginalException());
 
                     throw new DocumentException(updateResponse.GetErrorMessage("Error saving document"), updateResponse.OriginalException());
@@ -484,9 +510,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return;
         }
 
-        var scriptOperation = operation as ScriptPatch;
-        var partialOperation = operation as PartialPatch;
-        if (scriptOperation == null && partialOperation == null)
+        if (operation is ActionPatch<T>)
+        {
+            await PatchAllAsync(NewQuery().Id(ids), operation, options).AnyContext();
+            return;
+        }
+
+        if (operation is not ScriptPatch and not PartialPatch)
             throw new ArgumentException("Unknown operation type", nameof(operation));
 
         if (!String.IsNullOrEmpty(DefaultPipeline))
@@ -501,7 +531,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             b.Refresh(options.GetRefreshMode(DefaultConsistency));
             foreach (var id in ids)
             {
-                if (scriptOperation != null)
+                if (operation is ScriptPatch scriptOperation)
                     b.Update<T>(u =>
                     {
                         u.Id(id.Value)
@@ -512,7 +542,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         if (id.Routing != null)
                             u.Routing(id.Routing);
                     });
-                else if (partialOperation != null)
+                else if (operation is PartialPatch partialOperation)
                     b.Update<T, object>(u =>
                     {
                         u.Id(id.Value)
@@ -529,25 +559,27 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }).AnyContext();
         _logger.LogRequest(bulkResponse, options.GetQueryLogLevel());
 
-        // TODO: Is there a better way to handle failures?
-        if (!bulkResponse.IsValidResponse)
+        var result = BulkResult.From(bulkResponse);
+
+        var successIds = result.IsSuccess ? ids : ids.Where(id => result.SuccessfulIds.Contains(id.Value)).ToList();
+        if (successIds.Count > 0)
         {
-            throw new DocumentException(bulkResponse.GetErrorMessage("Error bulk patching documents"), bulkResponse.OriginalException());
+            await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
+            if (IsCacheEnabled)
+                await InvalidateCacheAsync(successIds.Select(id => id.Value)).AnyContext();
+
+            if (options.ShouldNotify())
+            {
+                var tasks = new List<Task>(successIds.Count);
+                foreach (var id in successIds)
+                    tasks.Add(PublishChangeTypeMessageAsync(ChangeType.Saved, id));
+
+                await Task.WhenAll(tasks).AnyContext();
+            }
         }
 
-        // TODO: Find a good way to invalidate cache and send changed notification
-        await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
-        if (IsCacheEnabled)
-            await InvalidateCacheAsync(ids.Select(id => id.Value)).AnyContext();
-
-        if (options.ShouldNotify())
-        {
-            var tasks = new List<Task>(ids.Count);
-            foreach (var id in ids)
-                tasks.Add(PublishChangeTypeMessageAsync(ChangeType.Saved, id));
-
-            await Task.WhenAll(tasks).AnyContext();
-        }
+        if (result.HasErrors)
+            ThrowForBulkErrors(result, operationLabel: "patching");
     }
 
     public Task RemoveAsync(Id id, CommandOptionsDescriptor<T> options)
@@ -637,7 +669,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 Refresh = options.GetRefreshMode(DefaultConsistency)
             };
 
-            if (GetParentIdFunc != null)
+            if (GetParentIdFunc is not null)
                 request.Routing = GetParentIdFunc(document);
 
             var response = await _client.DeleteAsync(request).AnyContext();
@@ -658,16 +690,23 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     {
                         d.Id(doc.Id).Index(ElasticIndex.GetIndex(doc));
 
-                        if (GetParentIdFunc != null)
+                        if (GetParentIdFunc is not null)
                             d.Routing(GetParentIdFunc(doc));
                     });
             }).AnyContext();
 
             _logger.LogRequest(response, options.GetQueryLogLevel());
-            if (!response.IsValidResponse)
-            {
-                throw new DocumentException(response.GetErrorMessage("Error bulk removing documents"), response.OriginalException());
-            }
+
+            var result = BulkResult.From(response);
+
+            var successDocs = result.IsSuccess ? docs : docs.Where(d => result.SuccessfulIds.Contains(d.Id)).ToList();
+            if (successDocs.Count > 0)
+                await OnDocumentsRemovedAsync(successDocs, options).AnyContext();
+
+            if (result.HasErrors)
+                ThrowForBulkErrors(result, operationLabel: "removing");
+
+            return;
         }
 
         await OnDocumentsRemovedAsync(docs, options).AnyContext();
@@ -698,7 +737,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     }
 
     /// <summary>
-    /// Script patches will not invalidate the cache or send notifications.
+    /// Patches all documents matching the query. Script and partial patches use Elasticsearch's
+    /// update-by-query when caching is disabled; otherwise they fall back to batch processing.
+    /// JsonPatch and ActionPatch always use batch processing with conflict retry.
     /// </summary>
     public virtual async Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null)
     {
@@ -761,20 +802,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 {
                     _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
                 }
-                else
+                else if (!await HandleBulkPatchErrorsAsync(bulkResult, results, "JsonPatch", operation, options).AnyContext())
                 {
-                    if (bulkResult.ItemsWithErrors.All(i => i.Status == 409))
-                    {
-                        _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
-
-                        string[] ids = bulkResult.ItemsWithErrors.Where(i => i.Status == 409).Select(i => i.Id).ToArray();
-                        await PatchAsync(ids, operation, options).AnyContext();
-                    }
-                    else
-                    {
-                        _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
-                        return false;
-                    }
+                    return false;
                 }
 
                 var updatedIds = results.Hits.Select(h => h.Id).ToList();
@@ -833,20 +863,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 {
                     _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
                 }
-                else
+                else if (!await HandleBulkPatchErrorsAsync(bulkResult, results, "ActionPatch", operation, options).AnyContext())
                 {
-                    if (bulkResult.ItemsWithErrors.All(i => i.Status == 409))
-                    {
-                        _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
-
-                        string[] ids = bulkResult.ItemsWithErrors.Where(i => i.Status == 409).Select(i => i.Id).ToArray();
-                        await PatchAsync(ids, operation, options).AnyContext();
-                    }
-                    else
-                    {
-                        _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
-                        return false;
-                    }
+                    return false;
                 }
 
                 var updatedIds = results.Hits.Select(h => h.Id).ToList();
@@ -869,12 +888,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
         else
         {
-            var scriptOperation = operation as ScriptPatch;
-            var partialOperation = operation as PartialPatch;
-            if (scriptOperation == null && partialOperation == null)
+            if (operation is not ScriptPatch and not PartialPatch)
                 throw new ArgumentException("Unknown operation type", nameof(operation));
 
-            if (!IsCacheEnabled && scriptOperation != null)
+            if (!IsCacheEnabled && operation is ScriptPatch scriptOperation)
             {
                 var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", ElasticIndex.GetIndexesByQuery(query))))
                 {
@@ -917,7 +934,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                             throw new DocumentException($"Failed to get task status for {taskId} after {attempts} attempts");
 
                         var retryDelay = TimeSpan.FromSeconds(attempts <= 5 ? 1 : 5);
-                        await ElasticIndex.Configuration.TimeProvider.Delay(retryDelay).AnyContext();
+                        await ElasticIndex.Configuration.TimeProvider.SafeDelay(retryDelay, DisposedCancellationToken).AnyContext();
                         continue;
                     }
 
@@ -943,18 +960,22 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     if (taskStatus.Completed)
                     {
-                        if (taskStatus.Error != null)
+                        if (taskStatus.Error is not null)
                             throw new DocumentException($"Script operation task ({taskId}) failed: {taskStatus.Error.Type} - {taskStatus.Error.Reason}", taskStatus.OriginalException());
 
-                        _logger.LogInformation("Script operation task ({TaskId}) completed: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, created, updated, deleted, versionConflicts, total);
+                        if (versionConflicts > 0)
+                            _logger.LogWarning("Script operation task ({TaskId}) completed with {Conflicts} version conflicts", taskId, versionConflicts);
+                        else
+                            _logger.LogInformation("Script operation task ({TaskId}) completed: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, created, updated, deleted, versionConflicts, total);
+
                         affectedRecords += (created ?? 0) + (updated ?? 0) + (deleted ?? 0);
                         break;
                     }
 
                     _logger.LogDebug("Checking script operation task ({TaskId}) status: Created: {Created} Updated: {Updated} Deleted: {Deleted} Conflicts: {Conflicts} Total: {Total}", taskId, created, updated, deleted, versionConflicts, total);
                     var delay = TimeSpan.FromSeconds(attempts <= 5 ? 1 : 5);
-                    await ElasticIndex.Configuration.TimeProvider.Delay(delay).AnyContext();
-                } while (true);
+                    await ElasticIndex.Configuration.TimeProvider.SafeDelay(delay, DisposedCancellationToken).AnyContext();
+                } while (!DisposedCancellationToken.IsCancellationRequested);
             }
             else
             {
@@ -970,11 +991,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                         foreach (var h in results.Hits)
                         {
-                            if (partialOperation != null && !String.IsNullOrEmpty(DefaultPipeline))
+                            if (operation is PartialPatch partialOp && !String.IsNullOrEmpty(DefaultPipeline))
                             {
                                 var sourceJson = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(h.Document);
                                 var sourceNode = JsonNode.Parse(sourceJson);
-                                var partialJson = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(partialOperation.Document);
+                                var partialJson = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(partialOp.Document);
                                 var partialNode = JsonNode.Parse(partialJson);
 
                                 if (sourceNode is JsonObject sourceObj && partialNode is JsonObject partialObj)
@@ -1001,20 +1022,21 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                                     }
                                 });
                             }
-                            else if (scriptOperation != null)
+                            else if (operation is ScriptPatch sp)
                                 b.Update<T>(u => u
                                     .Id(h.Id)
                                     .Routing(h.Routing)
                                     .Index(h.GetIndex())
-                                    .Script(s => s.Source(scriptOperation.Script).Params(scriptOperation.Params))
+                                    .Script(s => s.Source(sp.Script).Params(sp.Params))
                                     .RetriesOnConflict(options.GetRetryCount()));
-                            else if (partialOperation != null)
+                            else if (operation is PartialPatch pp)
                                 // TODO: Null-valued properties are silently dropped by the ES client's SourceSerializer
                                 // (elastic/elasticsearch-net#8763). Consumers must use ScriptPatch or JsonPatch to set fields to null.
                                 b.Update<T, object>(u => u.Id(h.Id)
                                     .Routing(h.Routing)
                                     .Index(h.GetIndex())
-                                    .Doc(partialOperation.Document));
+                                    .Doc(pp.Document)
+                                    .RetriesOnConflict(options.GetRetryCount()));
                         }
                     }).AnyContext();
 
@@ -1112,7 +1134,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             await SendQueryNotificationsAsync(ChangeType.Removed, query, options).AnyContext();
         }
 
-        Debug.Assert(response.Total == response.Deleted, "All records were not removed");
+        if (response.Total != response.Deleted)
+            _logger.LogWarning("RemoveAll: {Deleted} of {Total} records were removed ({Conflicts} version conflicts)", response.Deleted, response.Total, response.VersionConflicts);
+
         return response.Deleted ?? 0;
     }
 
@@ -1510,7 +1534,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return originals.AsReadOnly();
     }
 
-    private async Task IndexDocumentsAsync(IReadOnlyCollection<T> documents, bool isCreateOperation, ICommandOptions options, int retryAttempt = 0)
+    private async Task<BulkResult> IndexDocumentsAsync(IReadOnlyCollection<T> documents, bool isCreateOperation, ICommandOptions options)
     {
         if (ElasticIndex.HasMultipleIndexes)
         {
@@ -1523,50 +1547,68 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
 
         if (documents.Count == 1)
+            return await IndexSingleDocumentAsync(documents.Single(), isCreateOperation, options).AnyContext();
+
+        return await IndexDocumentsBulkAsync(documents, isCreateOperation, options).AnyContext();
+    }
+
+    private async Task<BulkResult> IndexSingleDocumentAsync(T document, bool isCreateOperation, ICommandOptions options)
+    {
+        var response = await _client.IndexAsync(document, i =>
         {
-            var document = documents.Single();
-            var response = await _client.IndexAsync(document, i =>
+            i.OpType(isCreateOperation ? OpType.Create : OpType.Index);
+            i.Pipeline(DefaultPipeline);
+            i.Refresh(options.GetRefreshMode(DefaultConsistency));
+
+            if (GetParentIdFunc is not null)
+                i.Routing(GetParentIdFunc(document));
+
+            i.Index(ElasticIndex.GetIndex(document));
+
+            if (HasVersion && !isCreateOperation && !options.ShouldSkipVersionCheck())
             {
-                i.OpType(isCreateOperation ? OpType.Create : OpType.Index);
-                i.Pipeline(DefaultPipeline);
-                i.Refresh(options.GetRefreshMode(DefaultConsistency));
-
-                if (GetParentIdFunc != null)
-                    i.Routing(GetParentIdFunc(document));
-
-                i.Index(ElasticIndex.GetIndex(document));
-
-                if (HasVersion && !isCreateOperation && !options.ShouldSkipVersionCheck())
-                {
-                    var elasticVersion = ((IVersioned)document).GetElasticVersion();
-                    i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
-                    i.IfSeqNo(elasticVersion.SequenceNumber);
-                }
-            }).AnyContext();
-            _logger.LogRequest(response, options.GetQueryLogLevel());
-
-            if (!response.IsValidResponse)
-            {
-                string message = $"Error {(isCreateOperation ? "adding" : "saving")} document";
-                if (isCreateOperation && response.ElasticsearchServerError?.Status == 409)
-                    throw new DuplicateDocumentException(response.GetErrorMessage(message), response.OriginalException());
-                else if (!isCreateOperation && response.ElasticsearchServerError?.Status == 409)
-                    throw new VersionConflictDocumentException(response.GetErrorMessage(message), response.OriginalException());
-
-                throw new DocumentException(response.GetErrorMessage(message), response.OriginalException());
+                var elasticVersion = ((IVersioned)document).GetElasticVersion();
+                i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
+                i.IfSeqNo(elasticVersion.SequenceNumber);
             }
 
-            if (HasVersion)
-            {
-                var versionDoc = (IVersioned)document;
-                var elasticVersion = response.GetElasticVersion();
-                versionDoc.Version = elasticVersion;
-            }
+            return i;
+        }).AnyContext();
+        _logger.LogRequest(response, options.GetQueryLogLevel());
+
+        if (!response.IsValidResponse)
+        {
+            string message = $"Error {(isCreateOperation ? "adding" : "saving")} document";
+            if (response.ElasticsearchServerError?.Status is 409)
+                throw isCreateOperation
+                    ? new DuplicateDocumentException(response.GetErrorMessage(message), response.OriginalException())
+                    : new VersionConflictDocumentException(response.GetErrorMessage(message), response.OriginalException());
+
+            throw new DocumentException(response.GetErrorMessage(message), response.OriginalException());
         }
-        else
+
+        if (HasVersion)
+        {
+            var versionDoc = (IVersioned)document;
+            var elasticVersion = response.GetElasticVersion();
+            versionDoc.Version = elasticVersion;
+        }
+
+        return BulkResult.Empty;
+    }
+
+    private async Task<BulkResult> IndexDocumentsBulkAsync(IReadOnlyCollection<T> documents, bool isCreateOperation, ICommandOptions options)
+    {
+        IReadOnlyCollection<T> docsToIndex = documents;
+        var allSuccessfulIds = new HashSet<string>();
+        var allConflictIds = new HashSet<string>();
+        var allFatalIds = new HashSet<string>();
+        BulkResult result = BulkResult.Empty;
+
+        for (int attempt = 0; attempt < 4; attempt++)
         {
             var bulkRequest = new BulkRequest();
-            var list = documents.Select(d =>
+            var list = docsToIndex.Select(d =>
             {
                 var routing = GetParentIdFunc?.Invoke(d);
                 var index = ElasticIndex.GetIndex(d);
@@ -1600,10 +1642,24 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             var response = await _client.BulkAsync(bulkRequest).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
+            result = BulkResult.From(response);
+
+            if (result.HasTransportError)
+            {
+                return new BulkResult
+                {
+                    SuccessfulIds = allSuccessfulIds,
+                    ConflictIds = allConflictIds,
+                    FatalIds = allFatalIds,
+                    TransportError = result.TransportError,
+                    TransportException = result.TransportException
+                };
+            }
+
             if (HasVersion)
             {
                 var documentsById = new Dictionary<string, T>();
-                foreach (var d in documents.Where(d => !String.IsNullOrEmpty(d.Id)))
+                foreach (var d in docsToIndex.Where(d => !String.IsNullOrEmpty(d.Id)))
                     documentsById.TryAdd(d.Id, d);
                 foreach (var hit in response.Items)
                 {
@@ -1619,31 +1675,71 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
             }
 
-            var allErrors = response.ItemsWithErrors.ToList();
-            if (allErrors.Count > 0)
-            {
-                var retryableIds = allErrors.Where(e => e.Status == 429 || e.Status == 503).Select(e => e.Id).ToList();
-                if (retryableIds.Count > 0 && retryAttempt < 3)
-                {
-                    var docs = documents.Where(d => retryableIds.Contains(d.Id)).ToList();
-                    await IndexDocumentsAsync(docs, isCreateOperation, options, retryAttempt + 1).AnyContext();
+            allSuccessfulIds.UnionWith(result.SuccessfulIds);
+            allConflictIds.UnionWith(result.ConflictIds);
+            allFatalIds.UnionWith(result.FatalIds);
 
-                    // return as all recoverable items were retried.
-                    if (allErrors.Count == retryableIds.Count)
-                        return;
-                }
-            }
+            if (!result.HasRetryableErrors || attempt >= 3)
+                break;
 
-            if (!response.IsValidResponse)
-            {
-                if (isCreateOperation && allErrors.Any(e => e.Status == 409))
-                    throw new DuplicateDocumentException(response.GetErrorMessage("Error adding duplicate documents"), response.OriginalException());
-                else if (allErrors.Any(e => e.Status == 409))
-                    throw new VersionConflictDocumentException(response.GetErrorMessage("Error saving documents"), response.OriginalException());
+            docsToIndex = docsToIndex.Where(d => result.RetryableIds.Contains(d.Id)).ToList();
+            var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt));
+            await ElasticIndex.Configuration.TimeProvider.SafeDelay(delay, DisposedCancellationToken).AnyContext();
 
-                throw new DocumentException(response.GetErrorMessage($"Error {(isCreateOperation ? "adding" : "saving")} documents"), response.OriginalException());
-            }
+            if (DisposedCancellationToken.IsCancellationRequested)
+                break;
         }
+
+        return new BulkResult
+        {
+            SuccessfulIds = allSuccessfulIds,
+            ConflictIds = allConflictIds,
+            RetryableIds = result.RetryableIds,
+            FatalIds = allFatalIds
+        };
+    }
+
+    private async Task<bool> HandleBulkPatchErrorsAsync(BulkResponse bulkResponse, FindResults<T> results, string patchType, IPatchOperation operation, ICommandOptions options)
+    {
+        var result = BulkResult.From(bulkResponse);
+        if (result.HasTransportError || result.FatalIds.Count > 0 || result.RetryableIds.Count > 0)
+        {
+            _logger.LogErrorRequest(bulkResponse, "Error occurred while bulk updating");
+            return false;
+        }
+
+        if (result.HasConflicts)
+        {
+            _logger.LogRequest(bulkResponse, options.GetQueryLogLevel());
+            _logger.LogInformation("Bulk {PatchType} had {ConflictCount} version conflicts, re-fetching and retrying", patchType, result.ConflictIds.Count);
+
+            var conflictHits = results.Hits.Where(h => result.ConflictIds.Contains(h.Id)).ToList();
+            foreach (var hit in conflictHits)
+                await PatchAsync(new Id(hit.Id, hit.Routing), operation, options).AnyContext();
+        }
+
+        return true;
+    }
+
+    private static void ThrowForBulkErrors(BulkResult result, bool isCreateOperation = false, string operationLabel = null)
+    {
+        if (result.IsSuccess)
+            return;
+
+        if (result.HasTransportError)
+            throw new DocumentException(result.TransportError, result.TransportException);
+
+        string label = operationLabel ?? (isCreateOperation ? "adding" : "saving");
+        int totalErrors = result.ConflictIds.Count + result.RetryableIds.Count + result.FatalIds.Count;
+
+        if (result.HasConflicts)
+        {
+            if (isCreateOperation)
+                throw new DuplicateDocumentException($"Error {label} documents: {result.ConflictIds.Count} duplicates ({totalErrors} total errors)");
+            throw new VersionConflictDocumentException($"Error {label} documents: {result.ConflictIds.Count} conflicts ({totalErrors} total errors)");
+        }
+
+        throw new DocumentException($"Error {label} documents: {totalErrors} failures");
     }
 
     /// <summary>

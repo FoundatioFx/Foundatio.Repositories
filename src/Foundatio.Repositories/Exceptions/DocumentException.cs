@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 
 namespace Foundatio.Repositories.Exceptions;
 
+/// <summary>Base exception thrown by repository operations when an Elasticsearch request fails.</summary>
 public class DocumentException : RepositoryException
 {
     public DocumentException() : base() { }

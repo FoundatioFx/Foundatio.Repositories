@@ -331,6 +331,31 @@ var (success, employee) = await ConditionalUpdateAsync<Employee>(
     emp => emp.Status = "approved");
 ```
 
+## Bulk Operations and Partial Failures
+
+When saving multiple versioned documents in a single call, some may succeed while others hit version conflicts. The repository handles this as a **partial failure**:
+
+1. **Successful documents** are fully processed — versions updated, events fired, cache populated.
+2. **Conflicting documents** have their cache entries left unchanged — the concurrent writer that caused the conflict handles its own cache update.
+3. A `VersionConflictDocumentException` is thrown after processing all successes.
+
+```csharp
+try
+{
+    await repository.SaveAsync(employees);
+}
+catch (VersionConflictDocumentException ex)
+{
+    // Successful documents were saved and notified.
+    // Conflicting documents need to be re-fetched and retried.
+    _logger.LogWarning(ex, "Some documents had version conflicts");
+}
+```
+
+::: warning
+Version conflicts (HTTP 409) on `AddAsync`/`SaveAsync` are **not** automatically retried by the resilience policy. Transient errors (HTTP 429/503) are retried with exponential backoff, but conflict resolution is the caller's responsibility.
+:::
+
 ## Best Practices
 
 ### 1. Always Handle Version Conflicts

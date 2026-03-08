@@ -1,5 +1,6 @@
-﻿namespace Foundatio.Repositories.Exceptions;
+namespace Foundatio.Repositories.Exceptions;
 
+/// <summary>Thrown when an asynchronous query result is no longer available.</summary>
 public class AsyncQueryNotFoundException : RepositoryException
 {
     public AsyncQueryNotFoundException() { }

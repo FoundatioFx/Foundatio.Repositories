@@ -4,6 +4,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\Foundatio.Repositories\Extensions\TaskExtensions.cs" Link="Extensions\TaskExtensions.cs" />
+    <Compile Include="..\Foundatio.Repositories\Extensions\TimeProviderExtensions.cs" Link="Extensions\TimeProviderExtensions.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Foundatio.Parsers.ElasticQueries" Version="8.0.0-preview.elastic-client.0.18" Condition="'$(ReferenceFoundatioRepositoriesSource)' == '' OR '$(ReferenceFoundatioRepositoriesSource)' == 'false'" />

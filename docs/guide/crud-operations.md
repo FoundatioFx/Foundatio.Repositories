@@ -436,6 +436,54 @@ while (retries > 0)
 }
 ```
 
+## Partial Failure Behavior
+
+When adding or saving multiple documents in a single call, some documents may succeed while others fail. The repository processes successes before throwing an exception for failures.
+
+### How It Works
+
+1. **Successful documents are fully processed** — events are fired, cache is populated, and change notifications are sent.
+2. **Failed documents leave cache unchanged** — failed writes don't mutate Elasticsearch, so existing cache entries remain valid. Cache consistency for concurrent writes is handled by message bus notifications.
+3. **A typed exception is thrown** after all successes are processed.
+
+### Exception Types by Operation
+
+| Operation | Failure Cause | Exception |
+|-----------|---------------|-----------|
+| `AddAsync` | Document ID already exists | `DuplicateDocumentException` |
+| `SaveAsync` | Version conflict | `VersionConflictDocumentException` |
+| `PatchAsync` | Version conflict | `VersionConflictDocumentException` |
+| `PatchAsync` | Document not found | `DocumentNotFoundException` |
+| Any | Other Elasticsearch error | `DocumentException` |
+
+### Example
+
+```csharp
+try
+{
+    await repository.AddAsync(employees);
+}
+catch (DuplicateDocumentException ex)
+{
+    // Some documents were added successfully (events fired, cached, notified).
+    // Duplicate documents preserve their existing cache entries (nothing was mutated).
+    // ex.Message contains details about which documents failed.
+    _logger.LogWarning(ex, "Some documents already existed");
+}
+```
+
+### Automatic Retry Behavior
+
+The repository includes a resilience policy for transient Elasticsearch errors:
+
+- **HTTP 429 (Too Many Requests)** and **503 (Service Unavailable)** are automatically retried with exponential backoff (up to 3 retries).
+- **Version conflicts (409)** on `AddAsync`/`SaveAsync` are **not** retried — the caller should handle these.
+- `DuplicateDocumentException` is **not** retried by the resilience policy.
+
+::: tip
+For operations where version conflicts are expected (e.g., high-contention counters), use `ScriptPatch` with `RetryOnConflict` instead of `SaveAsync`. Script patches are executed atomically on the Elasticsearch node and can be retried server-side.
+:::
+
 ## Next Steps
 
 - [Querying](/guide/querying) - Build dynamic queries
