@@ -1524,11 +1524,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             if (result.HasTransportError)
             {
-                return result with
+                return new BulkResult
                 {
                     SuccessfulIds = allSuccessfulIds,
                     ConflictIds = allConflictIds,
-                    FatalIds = allFatalIds
+                    FatalIds = allFatalIds,
+                    TransportError = result.TransportError,
+                    TransportException = result.TransportException
                 };
             }
 

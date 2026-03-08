@@ -8,14 +8,14 @@ namespace Foundatio.Repositories.Elasticsearch;
 
 internal sealed record BulkResult
 {
-    private static readonly IReadOnlySet<string> s_emptySet = new HashSet<string>();
+    private static readonly IReadOnlySet<string> _emptySet = new HashSet<string>();
 
     public static readonly BulkResult Empty = new();
 
-    public IReadOnlySet<string> SuccessfulIds { get; init; } = s_emptySet;
-    public IReadOnlySet<string> ConflictIds { get; init; } = s_emptySet;
-    public IReadOnlySet<string> RetryableIds { get; init; } = s_emptySet;
-    public IReadOnlySet<string> FatalIds { get; init; } = s_emptySet;
+    public IReadOnlySet<string> SuccessfulIds { get; init; } = _emptySet;
+    public IReadOnlySet<string> ConflictIds { get; init; } = _emptySet;
+    public IReadOnlySet<string> RetryableIds { get; init; } = _emptySet;
+    public IReadOnlySet<string> FatalIds { get; init; } = _emptySet;
 
     public string TransportError { get; init; }
     public Exception TransportException { get; init; }
