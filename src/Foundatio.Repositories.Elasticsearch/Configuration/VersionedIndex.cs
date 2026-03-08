@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Text;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
@@ -51,7 +52,15 @@ public class VersionedIndex : Index, IVersionedIndex
 
     protected void RenameFieldScript(int versionNumber, string originalName, string currentName, bool removeOriginal = true)
     {
-        string script = $"if (ctx._source.containsKey(\'{originalName}\')) {{ ctx._source[\'{currentName}\'] = ctx._source.{originalName}; }}";
+        ArgumentException.ThrowIfNullOrEmpty(originalName);
+        ArgumentException.ThrowIfNullOrEmpty(currentName);
+        ValidateFieldPath(originalName);
+        ValidateFieldPath(currentName);
+
+        string guard = BuildContainsKeyGuard(originalName);
+        string accessor = BuildFieldAccessor(originalName);
+        string assignment = BuildFieldAssignment(currentName, accessor);
+        string script = $"if ({guard}) {{ {assignment} }}";
         ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script });
 
         if (removeOriginal)
@@ -60,8 +69,81 @@ public class VersionedIndex : Index, IVersionedIndex
 
     protected void RemoveFieldScript(int versionNumber, string fieldName)
     {
-        string script = $"if (ctx._source.containsKey(\'{fieldName}\')) {{ ctx._source.remove(\'{fieldName}\'); }}";
+        ArgumentException.ThrowIfNullOrEmpty(fieldName);
+        ValidateFieldPath(fieldName);
+
+        string guard = BuildContainsKeyGuard(fieldName);
+        string removal = BuildFieldRemoval(fieldName);
+        string script = $"if ({guard}) {{ {removal} }}";
         ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script });
+    }
+
+    private static void ValidateFieldPath(string fieldPath)
+    {
+        if (fieldPath.StartsWith('.') || fieldPath.EndsWith('.') || fieldPath.Contains(".."))
+            throw new ArgumentException($"Field path '{fieldPath}' contains invalid dot notation.", nameof(fieldPath));
+
+        if (fieldPath.Contains('\'') || fieldPath.Contains('\\'))
+            throw new ArgumentException($"Field path '{fieldPath}' contains invalid characters.", nameof(fieldPath));
+    }
+
+    internal static string BuildContainsKeyGuard(string fieldPath)
+    {
+        int dotIndex = fieldPath.LastIndexOf('.');
+        if (dotIndex < 0)
+            return $"ctx._source.containsKey('{fieldPath}')";
+
+        string leaf = fieldPath[(dotIndex + 1)..];
+        var segments = fieldPath[..dotIndex].Split('.');
+        var sb = new StringBuilder();
+        var prefix = "ctx._source";
+        foreach (string segment in segments)
+        {
+            if (sb.Length > 0)
+                sb.Append(" && ");
+            sb.Append(prefix).Append('.').Append(segment).Append(" != null");
+            prefix = $"{prefix}.{segment}";
+        }
+
+        sb.Append(" && ").Append(prefix).Append(".containsKey('").Append(leaf).Append("')");
+        return sb.ToString();
+    }
+
+    internal static string BuildFieldAccessor(string fieldPath)
+    {
+        return $"ctx._source.{fieldPath}";
+    }
+
+    internal static string BuildFieldAssignment(string targetPath, string valueExpression)
+    {
+        int dotIndex = targetPath.LastIndexOf('.');
+        if (dotIndex < 0)
+            return $"ctx._source.{targetPath} = {valueExpression};";
+
+        var segments = targetPath[..dotIndex].Split('.');
+        var sb = new StringBuilder();
+        var prefix = "ctx._source";
+        foreach (string segment in segments)
+        {
+            sb.Append("if (").Append(prefix).Append('.').Append(segment)
+              .Append(" == null) { ").Append(prefix).Append('.').Append(segment)
+              .Append(" = [:]; } ");
+            prefix = $"{prefix}.{segment}";
+        }
+
+        string leaf = targetPath[(dotIndex + 1)..];
+        sb.Append(prefix).Append('.').Append(leaf).Append(" = ").Append(valueExpression).Append(';');
+        return sb.ToString();
+    }
+
+    internal static string BuildFieldRemoval(string fieldPath)
+    {
+        int dotIndex = fieldPath.LastIndexOf('.');
+        if (dotIndex < 0)
+            return $"ctx._source.remove('{fieldPath}');";
+
+        string leaf = fieldPath[(dotIndex + 1)..];
+        return $"ctx._source.{fieldPath[..dotIndex]}.remove('{leaf}');";
     }
 
     public override async Task ConfigureAsync()
@@ -148,16 +230,16 @@ public class VersionedIndex : Index, IVersionedIndex
         if (scripts.Count == 1)
             return scripts[0].Script;
 
-        string fullScriptWithFunctions = String.Empty;
-        string functionCalls = String.Empty;
+        var sb = new StringBuilder();
+        var calls = new StringBuilder();
         for (int i = 0; i < scripts.Count; i++)
         {
-            var script = scripts[i];
-            fullScriptWithFunctions += $"void f{i:000}(def ctx) {{ {script.Script} }}\r\n";
-            functionCalls += $"f{i:000}(ctx); ";
+            sb.Append("void f").Append(i.ToString("000")).Append("(def ctx) { ").Append(scripts[i].Script).Append(" }\r\n");
+            calls.Append('f').Append(i.ToString("000")).Append("(ctx); ");
         }
 
-        return fullScriptWithFunctions + functionCalls;
+        sb.Append(calls);
+        return sb.ToString();
     }
 
     public override async Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null)

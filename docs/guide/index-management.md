@@ -318,10 +318,36 @@ public EmployeeIndex(IElasticConfiguration configuration)
 The generated Painless script:
 ```javascript
 if (ctx._source.containsKey('dept')) { 
-    ctx._source['department'] = ctx._source.dept; 
+    ctx._source.department = ctx._source.dept; 
 }
 if (ctx._source.containsKey('dept')) { 
     ctx._source.remove('dept'); 
+}
+```
+
+#### Rename a Nested Field
+
+`RenameFieldScript` supports dotted paths for nested properties:
+
+```csharp
+public EmployeeIndex(IElasticConfiguration configuration) 
+    : base(configuration, "employees", version: 2)
+{
+    RenameFieldScript(2, "data.oldField", "data.newField");
+    
+    // Deeply nested paths are also supported:
+    RenameFieldScript(2, "metadata.author.name", "metadata.author.displayName");
+}
+```
+
+The generated Painless script for nested paths includes null-safety guards:
+```javascript
+if (ctx._source.data != null && ctx._source.data.containsKey('oldField')) { 
+    if (ctx._source.data == null) { ctx._source.data = [:]; } 
+    ctx._source.data.newField = ctx._source.data.oldField; 
+}
+if (ctx._source.data != null && ctx._source.data.containsKey('oldField')) { 
+    ctx._source.data.remove('oldField'); 
 }
 ```
 
@@ -333,8 +359,19 @@ Use `RemoveFieldScript` to remove a field:
 public EmployeeIndex(IElasticConfiguration configuration) 
     : base(configuration, "employees", version: 3)
 {
-    // Remove deprecated field in version 3
     RemoveFieldScript(3, "deprecatedField");
+}
+```
+
+#### Remove a Nested Field
+
+`RemoveFieldScript` also supports dotted paths:
+
+```csharp
+public EmployeeIndex(IElasticConfiguration configuration) 
+    : base(configuration, "employees", version: 3)
+{
+    RemoveFieldScript(3, "data.legacyField");
 }
 ```
 

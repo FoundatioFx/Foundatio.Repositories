@@ -281,3 +281,59 @@ public sealed class MonthlyEmployeeIndex : MonthlyIndex<Employee>
         builder.Register<CompanyQueryBuilder>();
     }
 }
+
+public sealed class VersionedEmployeeIndexWithFieldRename : VersionedIndex<Employee>
+{
+    public VersionedEmployeeIndexWithFieldRename(IElasticConfiguration configuration, int version)
+        : base(configuration, "employees", version)
+    {
+        RenameFieldScript(2, "companyName", "companyNameRenamed");
+    }
+
+    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    {
+        return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+    }
+}
+
+public sealed class VersionedEmployeeIndexWithNestedFieldRename : VersionedIndex<Employee>
+{
+    public VersionedEmployeeIndexWithNestedFieldRename(IElasticConfiguration configuration, int version)
+        : base(configuration, "employees", version)
+    {
+        RenameFieldScript(2, "data.oldField", "data.newField");
+    }
+
+    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    {
+        return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+    }
+}
+
+public sealed class VersionedEmployeeIndexWithFieldRemove : VersionedIndex<Employee>
+{
+    public VersionedEmployeeIndexWithFieldRemove(IElasticConfiguration configuration, int version)
+        : base(configuration, "employees", version)
+    {
+        RemoveFieldScript(2, "companyName");
+    }
+
+    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    {
+        return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+    }
+}
+
+public sealed class VersionedEmployeeIndexWithNestedFieldRemove : VersionedIndex<Employee>
+{
+    public VersionedEmployeeIndexWithNestedFieldRemove(IElasticConfiguration configuration, int version)
+        : base(configuration, "employees", version)
+    {
+        RemoveFieldScript(2, "data.oldField");
+    }
+
+    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    {
+        return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+    }
+}

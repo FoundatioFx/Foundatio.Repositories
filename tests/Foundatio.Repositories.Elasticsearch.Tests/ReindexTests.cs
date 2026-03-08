@@ -813,6 +813,147 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Equal("daily-reindex-script", result.CompanyName);
     }
 
+    [Fact]
+    public async Task RenameFieldScript_WithTopLevelField_RenamesFieldDuringReindex()
+    {
+        // Arrange
+        var version1Index = new VersionedEmployeeIndexWithFieldRename(_configuration, 1);
+        await version1Index.DeleteAsync();
+
+        var version2Index = new VersionedEmployeeIndexWithFieldRename(_configuration, 2) { DiscardIndexesOnReindex = false };
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository version1Repository = new EmployeeRepository(version1Index);
+
+        var employee = await version1Repository.AddAsync(
+            EmployeeGenerator.Generate(companyName: "TestCompany", createdUtc: DateTime.UtcNow),
+            o => o.ImmediateConsistency());
+        Assert.NotNull(employee?.Id);
+
+        // Act
+        await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
+        await version2Index.ConfigureAsync();
+        await version2Index.ReindexAsync();
+
+        // Assert
+        var response = await _client.GetAsync<Dictionary<string, object>>(
+            new DocumentPath<Dictionary<string, object>>(employee.Id).Index(version2Index.VersionedName),
+            ct: TestCancellationToken);
+        Assert.True(response.IsValid);
+        Assert.True(response.Source.ContainsKey("companyNameRenamed"));
+        Assert.Equal("TestCompany", response.Source["companyNameRenamed"]?.ToString());
+        Assert.False(response.Source.ContainsKey("companyName"));
+    }
+
+    [Fact]
+    public async Task RenameFieldScript_WithNestedField_RenamesNestedFieldDuringReindex()
+    {
+        // Arrange
+        var version1Index = new VersionedEmployeeIndexWithNestedFieldRename(_configuration, 1);
+        await version1Index.DeleteAsync();
+
+        var version2Index = new VersionedEmployeeIndexWithNestedFieldRename(_configuration, 2) { DiscardIndexesOnReindex = false };
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository version1Repository = new EmployeeRepository(version1Index);
+
+        var employee = EmployeeGenerator.Generate(createdUtc: DateTime.UtcNow);
+        employee.Data["oldField"] = "nestedValue";
+        employee = await version1Repository.AddAsync(employee, o => o.ImmediateConsistency());
+        Assert.NotNull(employee?.Id);
+
+        // Act
+        await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
+        await version2Index.ConfigureAsync();
+        await version2Index.ReindexAsync();
+
+        // Assert
+        var response = await _client.GetAsync<Dictionary<string, object>>(
+            new DocumentPath<Dictionary<string, object>>(employee.Id).Index(version2Index.VersionedName),
+            ct: TestCancellationToken);
+        Assert.True(response.IsValid);
+        Assert.True(response.Source.ContainsKey("data"));
+
+        string json = _client.SourceSerializer.SerializeToString(response.Source["data"]);
+        Assert.Contains("newField", json);
+        Assert.Contains("nestedValue", json);
+        Assert.DoesNotContain("oldField", json);
+    }
+
+    [Fact]
+    public async Task RemoveFieldScript_WithTopLevelField_RemovesFieldDuringReindex()
+    {
+        // Arrange
+        var version1Index = new VersionedEmployeeIndexWithFieldRemove(_configuration, 1);
+        await version1Index.DeleteAsync();
+
+        var version2Index = new VersionedEmployeeIndexWithFieldRemove(_configuration, 2) { DiscardIndexesOnReindex = false };
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository version1Repository = new EmployeeRepository(version1Index);
+
+        var employee = await version1Repository.AddAsync(
+            EmployeeGenerator.Generate(companyName: "TestCompany", createdUtc: DateTime.UtcNow),
+            o => o.ImmediateConsistency());
+        Assert.NotNull(employee?.Id);
+
+        // Act
+        await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
+        await version2Index.ConfigureAsync();
+        await version2Index.ReindexAsync();
+
+        // Assert
+        var response = await _client.GetAsync<Dictionary<string, object>>(
+            new DocumentPath<Dictionary<string, object>>(employee.Id).Index(version2Index.VersionedName),
+            ct: TestCancellationToken);
+        Assert.True(response.IsValid);
+        Assert.False(response.Source.ContainsKey("companyName"));
+    }
+
+    [Fact]
+    public async Task RemoveFieldScript_WithNestedField_RemovesNestedFieldDuringReindex()
+    {
+        // Arrange
+        var version1Index = new VersionedEmployeeIndexWithNestedFieldRemove(_configuration, 1);
+        await version1Index.DeleteAsync();
+
+        var version2Index = new VersionedEmployeeIndexWithNestedFieldRemove(_configuration, 2) { DiscardIndexesOnReindex = false };
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository version1Repository = new EmployeeRepository(version1Index);
+
+        var employee = EmployeeGenerator.Generate(createdUtc: DateTime.UtcNow);
+        employee.Data["oldField"] = "nestedValue";
+        employee.Data["keepField"] = "keepValue";
+        employee = await version1Repository.AddAsync(employee, o => o.ImmediateConsistency());
+        Assert.NotNull(employee?.Id);
+
+        // Act
+        await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
+        await version2Index.ConfigureAsync();
+        await version2Index.ReindexAsync();
+
+        // Assert
+        var response = await _client.GetAsync<Dictionary<string, object>>(
+            new DocumentPath<Dictionary<string, object>>(employee.Id).Index(version2Index.VersionedName),
+            ct: TestCancellationToken);
+        Assert.True(response.IsValid);
+        Assert.True(response.Source.ContainsKey("data"));
+
+        string json = _client.SourceSerializer.SerializeToString(response.Source["data"]);
+        Assert.DoesNotContain("oldField", json);
+        Assert.Contains("keepField", json);
+        Assert.Contains("keepValue", json);
+    }
+
     private static string GetExpectedEmployeeDailyAliases(IIndex index, DateTime utcNow, DateTime indexDateUtc)
     {
         double totalDays = utcNow.Date.Subtract(indexDateUtc.Date).TotalDays;
