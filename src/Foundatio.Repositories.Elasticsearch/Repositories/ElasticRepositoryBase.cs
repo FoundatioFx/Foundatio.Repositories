@@ -358,7 +358,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 if (HasDateTracking)
                     SetDocumentDates(response.Source, ElasticIndex.Configuration.TimeProvider);
 
-                await IndexDocumentsAsync([response.Source], false, options);
+                await IndexDocumentsAsync([response.Source], false, options).AnyContext();
             });
         }
         else
@@ -636,7 +636,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         long count = await RemoveAllAsync(NewQuery(), options);
 
         if (IsCacheEnabled && count > 0)
-            await Cache.RemoveAllAsync();
+            await Cache.RemoveAllAsync().AnyContext();
 
         return count;
     }
@@ -973,7 +973,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (affectedRecords > 0)
         {
             if (IsCacheEnabled)
-                await InvalidateCacheByQueryAsync(query.As<T>());
+                await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
 
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
             await SendQueryNotificationsAsync(ChangeType.Saved, query, options).AnyContext();
@@ -1028,7 +1028,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (response.Deleted > 0)
         {
             if (IsCacheEnabled)
-                await InvalidateCacheByQueryAsync(query.As<T>());
+                await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
 
             await OnDocumentsRemovedAsync(EmptyList, options).AnyContext();
             await SendQueryNotificationsAsync(ChangeType.Removed, query, options).AnyContext();
@@ -1178,7 +1178,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     idx[fieldDefinition.GetIdxName()] = result.Idx ?? result.Value;
 
                     if (result.IsCustomFieldDefinitionModified)
-                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(fieldDefinition);
+                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(fieldDefinition).AnyContext();
                 }
 
                 foreach (var alwaysProcessField in fieldDefinitions.Values.Where(f => f.ProcessMode == CustomFieldProcessMode.AlwaysProcess))
@@ -1195,7 +1195,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     idx[alwaysProcessField.GetIdxName()] = result.Idx ?? result.Value;
 
                     if (result.IsCustomFieldDefinitionModified)
-                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(alwaysProcessField);
+                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(alwaysProcessField).AnyContext();
                 }
             }
         }
