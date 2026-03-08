@@ -277,10 +277,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             await policy.ExecuteAsync(async ct =>
             {
-                var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
-                if (id.Routing != null)
-                    request.Routing = id.Routing;
-
                 var response = await _client.LowLevel.GetAsync<GetResponse<IDictionary<string, object>>>(ElasticIndex.GetIndex(id), id.Value, new GetRequestParameters { Routing = id.Routing }, ct).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
                 if (!response.IsValid)
@@ -1590,14 +1586,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (result.IsSuccess)
             return;
 
+        int totalErrors = result.ConflictIds.Count + result.RetryableIds.Count + result.FatalIds.Count;
+
         if (result.HasConflicts)
         {
             if (isCreateOperation)
-                throw new DuplicateDocumentException($"Error adding documents: {result.ConflictIds.Count} duplicates");
-            throw new VersionConflictDocumentException($"Error saving documents: {result.ConflictIds.Count} conflicts");
+                throw new DuplicateDocumentException($"Error adding documents: {result.ConflictIds.Count} duplicates ({totalErrors} total errors)");
+            throw new VersionConflictDocumentException($"Error saving documents: {result.ConflictIds.Count} conflicts ({totalErrors} total errors)");
         }
 
-        throw new DocumentException($"Error {operationLabel ?? "processing"} documents: {result.FatalIds.Count} failures");
+        throw new DocumentException($"Error {operationLabel ?? "processing"} documents: {totalErrors} failures");
     }
 
     /// <summary>
