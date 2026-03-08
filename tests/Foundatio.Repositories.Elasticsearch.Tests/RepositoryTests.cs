@@ -1903,4 +1903,82 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         await _dailyRepository.RemoveAllAsync(o => o.ImmediateConsistency());
         Assert.Equal(0, await _dailyRepository.CountAsync());
     }
+
+    [Fact]
+    public async Task PatchAsync_MultipleIdsWithActionPatch_PatchesAllDocuments()
+    {
+        var employees = EmployeeGenerator.GenerateEmployees(3);
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        string[] ids = employees.Select(e => e.Id).ToArray();
+        await _employeeRepository.PatchAsync(ids, new ActionPatch<Employee>(e => e.CompanyName = "ActionPatched"), o => o.ImmediateConsistency());
+
+        foreach (var id in ids)
+        {
+            var emp = await _employeeRepository.GetByIdAsync(id);
+            Assert.Equal("ActionPatched", emp.CompanyName);
+        }
+    }
+
+    [Fact]
+    public async Task PatchAsync_MultipleIdsWithSomeNotFound_ReportsPartialFailure()
+    {
+        var emp1 = EmployeeGenerator.Generate();
+        var emp2 = EmployeeGenerator.Generate();
+        await _employeeRepository.AddAsync(new List<Employee> { emp1, emp2 }, o => o.ImmediateConsistency());
+
+        string[] ids = { emp1.Id, emp2.Id, "nonexistent-id-12345" };
+        await Assert.ThrowsAnyAsync<DocumentException>(async () =>
+            await _employeeRepository.PatchAsync(ids, new ScriptPatch("ctx._source.yearsEmployed += 1;"), o => o.ImmediateConsistency()));
+    }
+
+    [Fact]
+    public async Task AddAsync_DuplicateInCollection_CachesSuccessAndPreservesExistingCache()
+    {
+        var emp1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.Cache().ImmediateConsistency());
+        Assert.NotNull(emp1.Id);
+        Assert.Equal(1, _cache.Count);
+
+        var identities = new List<Identity>
+        {
+            IdentityGenerator.Default,
+            IdentityGenerator.Generate()
+        };
+
+        await Assert.ThrowsAsync<DuplicateDocumentException>(async () =>
+            await _identityRepository.AddAsync(identities, o => o.Cache().ImmediateConsistency()));
+
+        Assert.Equal(2, await _identityRepository.CountAsync());
+
+        var cached = await _identityRepository.GetByIdAsync(emp1.Id, o => o.Cache());
+        Assert.NotNull(cached);
+        Assert.Equal(emp1.Id, cached.Id);
+    }
+
+    [Fact]
+    public async Task AddAsync_DuplicateDocument_DoesNotRetryBeforeThrowing()
+    {
+        await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());
+
+        var sw = Stopwatch.StartNew();
+        await Assert.ThrowsAsync<DuplicateDocumentException>(async () =>
+            await _identityRepository.AddAsync(IdentityGenerator.Default));
+        sw.Stop();
+
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(5), $"Duplicate add took {sw.Elapsed}, suggesting it was retried");
+    }
+
+    [Fact]
+    public async Task RemoveAsync_WithSomeNonExistentIds_HandlesGracefully()
+    {
+        var emp1 = EmployeeGenerator.Generate();
+        var emp2 = EmployeeGenerator.Generate();
+        await _employeeRepository.AddAsync(new List<Employee> { emp1, emp2 }, o => o.ImmediateConsistency());
+
+        await _employeeRepository.RemoveAsync(emp1, o => o.ImmediateConsistency());
+        Assert.Equal(1, await _employeeRepository.CountAsync());
+
+        await _employeeRepository.RemoveAsync(new Ids(emp1.Id, emp2.Id), o => o.ImmediateConsistency());
+        Assert.Equal(0, await _employeeRepository.CountAsync());
+    }
 }

@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.AsyncEx;
 
@@ -41,5 +42,16 @@ internal static class TaskHelper
     public static ConfiguredValueTaskAwaitable<TResult> AnyContext<TResult>(this ValueTask<TResult> task)
     {
         return task.ConfigureAwait(continueOnCapturedContext: false);
+    }
+
+    public static async Task SafeDelay(this TimeProvider timeProvider, TimeSpan delay, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await timeProvider.Delay(delay, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 }

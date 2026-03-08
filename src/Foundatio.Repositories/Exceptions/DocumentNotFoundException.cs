@@ -1,5 +1,6 @@
-﻿namespace Foundatio.Repositories.Exceptions;
+namespace Foundatio.Repositories.Exceptions;
 
+/// <summary>Thrown when a requested document does not exist in the repository.</summary>
 public class DocumentNotFoundException : DocumentException
 {
     public DocumentNotFoundException() { }

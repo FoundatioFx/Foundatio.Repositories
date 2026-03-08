@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 
 namespace Foundatio.Repositories.Exceptions;
 
+/// <summary>Base exception for repository configuration and operational errors.</summary>
 public class RepositoryException : Exception
 {
     public RepositoryException() : base() { }
