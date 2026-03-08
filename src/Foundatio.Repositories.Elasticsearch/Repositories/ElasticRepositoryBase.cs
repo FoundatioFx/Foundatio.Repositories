@@ -167,12 +167,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
 
         if (result.HasErrors)
-        {
-            if (IsCacheEnabled)
-                await InvalidateCacheAsync(result.ConflictIds.Concat(result.FatalIds).Concat(result.RetryableIds)).AnyContext();
-
             ThrowForBulkErrors(result, isCreateOperation: false);
-        }
     }
 
     public Task PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options)
@@ -480,12 +475,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
 
         if (result.HasErrors)
-        {
-            if (IsCacheEnabled)
-                await InvalidateCacheAsync(result.ConflictIds.Concat(result.FatalIds).Concat(result.RetryableIds)).AnyContext();
-
             ThrowForBulkErrors(result, operationLabel: "patching");
-        }
     }
 
     public Task RemoveAsync(Id id, CommandOptionsDescriptor<T> options)
@@ -613,12 +603,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 await OnDocumentsRemovedAsync(successDocs, options).AnyContext();
 
             if (result.HasErrors)
-            {
-                if (IsCacheEnabled)
-                    await InvalidateCacheAsync(result.ConflictIds.Concat(result.FatalIds).Concat(result.RetryableIds)).AnyContext();
-
                 ThrowForBulkErrors(result, operationLabel: "removing");
-            }
 
             return;
         }

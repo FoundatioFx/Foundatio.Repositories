@@ -443,7 +443,7 @@ When adding or saving multiple documents in a single call, some documents may su
 ### How It Works
 
 1. **Successful documents are fully processed** — events are fired, cache is populated, and change notifications are sent.
-2. **Failed documents have their cache entries invalidated** — stale data is removed so subsequent reads go to Elasticsearch.
+2. **Failed documents leave cache unchanged** — failed writes don't mutate Elasticsearch, so existing cache entries remain valid. Cache consistency for concurrent writes is handled by message bus notifications.
 3. **A typed exception is thrown** after all successes are processed.
 
 ### Exception Types by Operation

@@ -521,7 +521,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task SaveAsync_CollectionWithPartialConflict_CachesSuccessfulDocsAndInvalidatesFailed()
+    public async Task SaveAsync_CollectionWithPartialConflict_CachesSuccessAndLeavesFailedUnchanged()
     {
         var emp1 = EmployeeGenerator.Generate(companyId: "1");
         var emp2 = EmployeeGenerator.Generate(companyId: "1");
@@ -542,6 +542,9 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         var emp2FromEs = await _employeeRepository.GetByIdAsync(emp2.Id, o => o.Cache(false));
         Assert.Equal("FreshUpdate", emp2FromEs.CompanyName);
+
+        var emp1Cached = await _employeeRepository.GetByIdAsync(emp1.Id, o => o.Cache());
+        Assert.Equal("BumpedEmp1", emp1Cached.CompanyName);
     }
 
     [Fact]

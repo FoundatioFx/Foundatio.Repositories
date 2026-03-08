@@ -481,7 +481,7 @@ Foundatio.Repositories uses typed exceptions so callers can handle specific fail
 When `AddAsync` or `SaveAsync` is called with multiple documents, some may succeed and others may fail. The repository:
 
 1. **Processes all successes first** — fires events, populates cache, sends notifications.
-2. **Handles failed documents** — for `SaveAsync`/`RemoveAsync`, cache entries are invalidated to prevent stale reads. For `AddAsync`, existing cache entries are preserved since no mutation occurred.
+2. **Leaves failed documents' cache unchanged** — failed writes don't mutate Elasticsearch, so existing cache entries remain valid. The writer that caused a conflict handles its own cache update via message bus notifications.
 3. **Throws a typed exception** — `DuplicateDocumentException` for add, `VersionConflictDocumentException` for save.
 
 ```csharp

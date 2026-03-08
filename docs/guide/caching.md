@@ -163,33 +163,24 @@ await repository.SaveAsync(employee);
 
 ## Cache Behavior on Partial Failure
 
-When a bulk write operation partially fails (some documents succeed, others fail), the cache is updated as follows:
-
-**`AddAsync` (duplicates):**
+When a bulk write operation partially fails (some documents succeed, others fail), the cache is updated only for successful documents:
 
 | Document Status | Cache Action |
 |-----------------|--------------|
 | Succeeded | Added to cache (freshest data available) |
-| Duplicate (409) | Existing cache entry **preserved** (nothing was mutated) |
+| Failed (any error) | Cache entry **unchanged** (failed writes don't mutate Elasticsearch) |
 
-**`SaveAsync` / `RemoveAsync` (conflicts or errors):**
-
-| Document Status | Cache Action |
-|-----------------|--------------|
-| Succeeded | Added to cache (freshest data available) |
-| Failed | Cache entry **invalidated** (stale data removed) |
-
-This ensures that successful documents are immediately available from cache. For `AddAsync`, duplicates preserve existing cache entries since no mutation occurred. For `SaveAsync`, failed documents force a fresh read from Elasticsearch on the next access.
+Failed writes (409 conflicts, 429/503 rate limits, or other errors) do not mutate the document in Elasticsearch, so the existing cache entry (if any) remains valid. Cache consistency for concurrent writes is handled by the message bus `EntityChanged` notifications — the writer that successfully mutated the document is responsible for updating or invalidating the cache.
 
 ```csharp
 try
 {
-    await repository.AddAsync(documents, o => o.Cache());
+    await repository.SaveAsync(documents, o => o.Cache());
 }
-catch (DuplicateDocumentException)
+catch (VersionConflictDocumentException)
 {
     // Successful docs: cached with latest data
-    // Duplicate docs: existing cache entries preserved (nothing was mutated)
+    // Conflicting docs: cache unchanged (the successful concurrent writer handles its own cache update)
 }
 ```
 
