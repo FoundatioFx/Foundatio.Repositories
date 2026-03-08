@@ -704,19 +704,19 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
                 else
                 {
-                    var classifiedResult = BulkResult.From(bulkResult);
-                    if (classifiedResult.HasTransportError || classifiedResult.FatalIds.Count > 0 || classifiedResult.RetryableIds.Count > 0)
+                    var result = BulkResult.From(bulkResult);
+                    if (result.HasTransportError || result.FatalIds.Count > 0 || result.RetryableIds.Count > 0)
                     {
                         _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
                         return false;
                     }
 
-                    if (classifiedResult.HasConflicts)
+                    if (result.HasConflicts)
                     {
                         _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
-                        _logger.LogInformation("Bulk JsonPatch had {ConflictCount} version conflicts, re-fetching and retrying", classifiedResult.ConflictIds.Count);
+                        _logger.LogInformation("Bulk JsonPatch had {ConflictCount} version conflicts, re-fetching and retrying", result.ConflictIds.Count);
 
-                        var conflictHits = results.Hits.Where(h => classifiedResult.ConflictIds.Contains(h.Id)).ToList();
+                        var conflictHits = results.Hits.Where(h => result.ConflictIds.Contains(h.Id)).ToList();
                         foreach (var hit in conflictHits)
                             await PatchAsync(new Id(hit.Id, hit.Routing), operation, options).AnyContext();
                     }
@@ -785,19 +785,19 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
                 else
                 {
-                    var classifiedResult = BulkResult.From(bulkResult);
-                    if (classifiedResult.HasTransportError || classifiedResult.FatalIds.Count > 0 || classifiedResult.RetryableIds.Count > 0)
+                    var result = BulkResult.From(bulkResult);
+                    if (result.HasTransportError || result.FatalIds.Count > 0 || result.RetryableIds.Count > 0)
                     {
                         _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
                         return false;
                     }
 
-                    if (classifiedResult.HasConflicts)
+                    if (result.HasConflicts)
                     {
                         _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
-                        _logger.LogInformation("Bulk ActionPatch had {ConflictCount} version conflicts, re-fetching and retrying", classifiedResult.ConflictIds.Count);
+                        _logger.LogInformation("Bulk ActionPatch had {ConflictCount} version conflicts, re-fetching and retrying", result.ConflictIds.Count);
 
-                        var conflictHits = results.Hits.Where(h => classifiedResult.ConflictIds.Contains(h.Id)).ToList();
+                        var conflictHits = results.Hits.Where(h => result.ConflictIds.Contains(h.Id)).ToList();
                         foreach (var hit in conflictHits)
                             await PatchAsync(new Id(hit.Id, hit.Routing), operation, options).AnyContext();
                     }
@@ -1520,6 +1520,18 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             var response = await _client.BulkAsync(bulkRequest).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
+            var result = BulkResult.From(response);
+
+            if (result.HasTransportError)
+            {
+                return result with
+                {
+                    SuccessfulIds = allSuccessfulIds,
+                    ConflictIds = allConflictIds,
+                    FatalIds = allFatalIds
+                };
+            }
+
             if (HasVersion)
             {
                 var documentsById = new Dictionary<string, T>();
@@ -1537,18 +1549,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     var elasticVersion = hit.GetElasticVersion();
                     versionDoc.Version = elasticVersion;
                 }
-            }
-
-            var result = BulkResult.From(response);
-
-            if (result.HasTransportError)
-            {
-                return result with
-                {
-                    SuccessfulIds = allSuccessfulIds,
-                    ConflictIds = allConflictIds,
-                    FatalIds = allFatalIds
-                };
             }
 
             allSuccessfulIds.UnionWith(result.SuccessfulIds);
