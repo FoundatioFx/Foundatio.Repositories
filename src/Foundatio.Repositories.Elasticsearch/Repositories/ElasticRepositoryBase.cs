@@ -453,9 +453,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }).AnyContext();
         _logger.LogRequest(bulkResponse, options.GetQueryLogLevel());
 
-        if (!bulkResponse.IsValid && !bulkResponse.ItemsWithErrors.Any())
-            throw new DocumentException(bulkResponse.GetErrorMessage("Error bulk patching documents"), bulkResponse.OriginalException);
-
         var result = BulkResult.From(bulkResponse);
 
         var successIds = result.IsSuccess ? ids : ids.Where(id => result.SuccessfulIds.Contains(id.Value)).ToList();
@@ -597,9 +594,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             }).AnyContext();
 
             _logger.LogRequest(response, options.GetQueryLogLevel());
-
-            if (!response.IsValid && !response.ItemsWithErrors.Any())
-                throw new DocumentException(response.GetErrorMessage("Error bulk removing documents"), response.OriginalException);
 
             var result = BulkResult.From(response);
 
@@ -1448,7 +1442,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             i.Pipeline(DefaultPipeline);
             i.Refresh(options.GetRefreshMode(DefaultConsistency));
 
-            if (GetParentIdFunc != null)
+            if (GetParentIdFunc is not null)
                 i.Routing(GetParentIdFunc(document));
 
             i.Index(ElasticIndex.GetIndex(document));
@@ -1514,7 +1508,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     baseOperation = indexOperation;
                 }
 
-                if (GetParentIdFunc != null)
+                if (GetParentIdFunc is not null)
                     baseOperation.Routing = GetParentIdFunc(d);
                 baseOperation.Index = ElasticIndex.GetIndex(d);
 
@@ -1525,9 +1519,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             var response = await _client.BulkAsync(bulkRequest).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
-
-            if (!response.IsValid && !response.ItemsWithErrors.Any())
-                throw new DocumentException(response.GetErrorMessage($"Error {(isCreateOperation ? "adding" : "saving")} documents"), response.OriginalException);
 
             if (HasVersion)
             {
@@ -1560,12 +1551,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     SuccessfulIds = allSuccessfulIds,
                     ConflictIds = allConflictIds,
                     RetryableIds = result.RetryableIds,
-                    FatalIds = allFatalIds.ToList()
+                    FatalIds = allFatalIds
                 };
             }
 
-            var retryIds = result.RetryableIds.ToHashSet();
-            docsToIndex = docsToIndex.Where(d => retryIds.Contains(d.Id)).ToList();
+            docsToIndex = docsToIndex.Where(d => result.RetryableIds.Contains(d.Id)).ToList();
             var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt));
             await ElasticIndex.Configuration.TimeProvider.SafeDelay(delay, DisposedCancellationToken).AnyContext();
 
@@ -1576,7 +1566,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     SuccessfulIds = allSuccessfulIds,
                     ConflictIds = allConflictIds,
                     RetryableIds = result.RetryableIds,
-                    FatalIds = allFatalIds.ToList()
+                    FatalIds = allFatalIds
                 };
             }
         }
