@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Foundatio.Parsers.ElasticQueries.Extensions;
-using Foundatio.Repositories.Exceptions;
 using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch;
@@ -16,7 +15,13 @@ internal sealed record BulkResult
     public IReadOnlySet<string> RetryableIds { get; init; } = new HashSet<string>();
     public IReadOnlySet<string> FatalIds { get; init; } = new HashSet<string>();
 
-    public bool IsSuccess => ConflictIds.Count is 0
+    public string TransportError { get; init; }
+    public Exception TransportException { get; init; }
+
+    public bool HasTransportError => TransportError is not null;
+
+    public bool IsSuccess => !HasTransportError
+        && ConflictIds.Count is 0
         && RetryableIds.Count is 0
         && FatalIds.Count is 0;
 
@@ -27,7 +32,13 @@ internal sealed record BulkResult
     internal static BulkResult From(BulkResponse response)
     {
         if (!response.IsValid && !response.ItemsWithErrors.Any())
-            throw new DocumentException(response.GetErrorMessage("Error processing bulk operation"), response.OriginalException);
+        {
+            return new BulkResult
+            {
+                TransportError = response.GetErrorMessage("Error processing bulk operation"),
+                TransportException = response.OriginalException
+            };
+        }
 
         var errors = response.ItemsWithErrors.ToList();
         return new BulkResult

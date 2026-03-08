@@ -705,6 +705,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 else
                 {
                     var classifiedResult = BulkResult.From(bulkResult);
+                    if (classifiedResult.HasTransportError || classifiedResult.FatalIds.Count > 0 || classifiedResult.RetryableIds.Count > 0)
+                    {
+                        _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
+                        return false;
+                    }
+
                     if (classifiedResult.HasConflicts)
                     {
                         _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
@@ -713,12 +719,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         var conflictHits = results.Hits.Where(h => classifiedResult.ConflictIds.Contains(h.Id)).ToList();
                         foreach (var hit in conflictHits)
                             await PatchAsync(new Id(hit.Id, hit.Routing), operation, options).AnyContext();
-                    }
-
-                    if (classifiedResult.FatalIds.Count > 0 || classifiedResult.RetryableIds.Count > 0)
-                    {
-                        _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
-                        return false;
                     }
                 }
 
@@ -786,6 +786,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 else
                 {
                     var classifiedResult = BulkResult.From(bulkResult);
+                    if (classifiedResult.HasTransportError || classifiedResult.FatalIds.Count > 0 || classifiedResult.RetryableIds.Count > 0)
+                    {
+                        _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
+                        return false;
+                    }
+
                     if (classifiedResult.HasConflicts)
                     {
                         _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
@@ -794,12 +800,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         var conflictHits = results.Hits.Where(h => classifiedResult.ConflictIds.Contains(h.Id)).ToList();
                         foreach (var hit in conflictHits)
                             await PatchAsync(new Id(hit.Id, hit.Routing), operation, options).AnyContext();
-                    }
-
-                    if (classifiedResult.FatalIds.Count > 0 || classifiedResult.RetryableIds.Count > 0)
-                    {
-                        _logger.LogErrorRequest(bulkResult, "Error occurred while bulk updating");
-                        return false;
                     }
                 }
 
@@ -1540,6 +1540,17 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             }
 
             var result = BulkResult.From(response);
+
+            if (result.HasTransportError)
+            {
+                return result with
+                {
+                    SuccessfulIds = allSuccessfulIds,
+                    ConflictIds = allConflictIds,
+                    FatalIds = allFatalIds
+                };
+            }
+
             allSuccessfulIds.UnionWith(result.SuccessfulIds);
             allConflictIds.UnionWith(result.ConflictIds);
             allFatalIds.UnionWith(result.FatalIds);
@@ -1578,6 +1589,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     {
         if (result.IsSuccess)
             return;
+
+        if (result.HasTransportError)
+            throw new DocumentException(result.TransportError, result.TransportException);
 
         int totalErrors = result.ConflictIds.Count + result.RetryableIds.Count + result.FatalIds.Count;
 
