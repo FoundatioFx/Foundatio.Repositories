@@ -466,7 +466,7 @@ curl http://localhost:9200/employees/_stats
 
 ## Repository Exception Types
 
-Foundatio.Repositories uses typed exceptions so callers can handle specific failure modes. All repository exceptions inherit from `DocumentException`.
+Foundatio.Repositories uses typed exceptions so callers can handle specific failure modes. The exceptions listed below inherit from `DocumentException`.
 
 | Exception | When Thrown | Retryable? |
 |-----------|------------|------------|
@@ -481,7 +481,7 @@ Foundatio.Repositories uses typed exceptions so callers can handle specific fail
 When `AddAsync` or `SaveAsync` is called with multiple documents, some may succeed and others may fail. The repository:
 
 1. **Processes all successes first** — fires events, populates cache, sends notifications.
-2. **Invalidates cache for failed documents** — prevents stale reads.
+2. **Handles failed documents** — for `SaveAsync`/`RemoveAsync`, cache entries are invalidated to prevent stale reads. For `AddAsync`, existing cache entries are preserved since no mutation occurred.
 3. **Throws a typed exception** — `DuplicateDocumentException` for add, `VersionConflictDocumentException` for save.
 
 ```csharp
@@ -492,7 +492,7 @@ try
 catch (DuplicateDocumentException ex)
 {
     // Successful documents were fully processed.
-    // Failed documents had cache invalidated.
+    // Duplicate documents: existing cache entries preserved (nothing was mutated).
     _logger.LogWarning(ex, "Partial failure: some documents already existed");
 }
 catch (VersionConflictDocumentException ex)
@@ -505,8 +505,8 @@ catch (VersionConflictDocumentException ex)
 
 The repository automatically retries transient Elasticsearch errors:
 
-- **HTTP 429** (Too Many Requests) — retried with exponential backoff, up to 3 attempts
-- **HTTP 503** (Service Unavailable) — retried with exponential backoff, up to 3 attempts
+- **HTTP 429** (Too Many Requests) — retried with exponential backoff, up to 3 retries (4 total attempts)
+- **HTTP 503** (Service Unavailable) — retried with exponential backoff, up to 3 retries (4 total attempts)
 - **HTTP 409** (Version Conflict) — **not** retried; the caller must handle conflict resolution
 - `DuplicateDocumentException` — **not** retried by the resilience policy
 

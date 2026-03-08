@@ -465,26 +465,30 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         _logger.LogRequest(bulkResponse, options.GetQueryLogLevel());
 
         var result = BulkResult.From(bulkResponse);
+
+        var successIds = result.IsSuccess ? ids : ids.Where(id => result.SuccessfulIds.Contains(id.Value)).ToList();
+        if (successIds.Count > 0)
+        {
+            await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
+            if (IsCacheEnabled)
+                await InvalidateCacheAsync(successIds.Select(id => id.Value)).AnyContext();
+
+            if (options.ShouldNotify())
+            {
+                var tasks = new List<Task>(successIds.Count);
+                foreach (var id in successIds)
+                    tasks.Add(PublishChangeTypeMessageAsync(ChangeType.Saved, id));
+
+                await Task.WhenAll(tasks).AnyContext();
+            }
+        }
+
         if (result.HasErrors)
         {
             if (IsCacheEnabled)
                 await InvalidateCacheAsync(result.ConflictIds.Concat(result.FatalIds)).AnyContext();
 
             ThrowForBulkErrors(result, operationLabel: "patching");
-        }
-
-        // TODO: Find a good way to invalidate cache and send changed notification
-        await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
-        if (IsCacheEnabled)
-            await InvalidateCacheAsync(ids.Select(id => id.Value)).AnyContext();
-
-        if (options.ShouldNotify())
-        {
-            var tasks = new List<Task>(ids.Count);
-            foreach (var id in ids)
-                tasks.Add(PublishChangeTypeMessageAsync(ChangeType.Saved, id));
-
-            await Task.WhenAll(tasks).AnyContext();
         }
     }
 
@@ -893,12 +897,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     var status = taskStatus.Task.Status;
                     if (taskStatus.Completed)
                     {
-                        if (!taskStatus.IsValid && taskStatus.ServerError != null)
-                        {
-                            _logger.LogError("Script operation task ({TaskId}) failed: {Error}", taskId, taskStatus.ServerError.Error?.Reason ?? "Unknown error");
-                            throw new DocumentException($"Script operation task {taskId} failed: {taskStatus.ServerError.Error?.Reason}");
-                        }
-
                         if (status.VersionConflicts > 0)
                             _logger.LogWarning("Script operation task ({TaskId}) completed with {Conflicts} version conflicts", taskId, status.VersionConflicts);
                         else
@@ -1507,6 +1505,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     {
         IReadOnlyCollection<T> docsToIndex = documents;
         var allSuccessfulIds = new HashSet<string>();
+        var allConflictIds = new HashSet<string>();
+        var allFatalIds = new HashSet<string>();
 
         for (int attempt = 0; attempt < 4; attempt++)
         {
@@ -1563,10 +1563,18 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
             var result = BulkResult.From(response);
             allSuccessfulIds.UnionWith(result.SuccessfulIds);
+            allConflictIds.UnionWith(result.ConflictIds);
+            allFatalIds.UnionWith(result.FatalIds);
 
             if (!result.HasRetryableErrors || attempt >= 3)
             {
-                return result with { SuccessfulIds = allSuccessfulIds.ToList() };
+                return new BulkResult
+                {
+                    SuccessfulIds = allSuccessfulIds.ToList(),
+                    ConflictIds = allConflictIds.ToList(),
+                    RetryableIds = result.RetryableIds,
+                    FatalIds = allFatalIds.ToList()
+                };
             }
 
             var retryIds = result.RetryableIds.ToHashSet();
@@ -1575,7 +1583,15 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             await ElasticIndex.Configuration.TimeProvider.SafeDelay(delay, DisposedCancellationToken).AnyContext();
 
             if (DisposedCancellationToken.IsCancellationRequested)
-                return result with { SuccessfulIds = allSuccessfulIds.ToList() };
+            {
+                return new BulkResult
+                {
+                    SuccessfulIds = allSuccessfulIds.ToList(),
+                    ConflictIds = allConflictIds.ToList(),
+                    RetryableIds = result.RetryableIds,
+                    FatalIds = allFatalIds.ToList()
+                };
+            }
         }
 
         return BulkResult.Empty;

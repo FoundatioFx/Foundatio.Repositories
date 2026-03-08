@@ -1913,11 +1913,11 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         string[] ids = employees.Select(e => e.Id).ToArray();
         await _employeeRepository.PatchAsync(ids, new ActionPatch<Employee>(e => e.CompanyName = "ActionPatched"), o => o.ImmediateConsistency());
 
-        foreach (var id in ids)
+        await Task.WhenAll(ids.Select(async id =>
         {
             var emp = await _employeeRepository.GetByIdAsync(id);
             Assert.Equal("ActionPatched", emp.CompanyName);
-        }
+        }));
     }
 
     [Fact]

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Elasticsearch.Net;
@@ -482,7 +481,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         await _employeeRepository.SaveAsync(emp1, o => o.ImmediateConsistency());
 
         var patch = new PatchDocument(new ReplaceOperation { Path = "companyName", Value = "PatchedAll" });
-        var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(30));
         var task = _employeeRepository.PatchAllAsync(q => q.Company("1"), new JsonPatch(patch), o => o.ImmediateConsistency());
 
         var completedTask = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(30), cts.Token));
@@ -500,7 +499,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         emp1.CompanyName = "Bumped";
         await _employeeRepository.SaveAsync(emp1, o => o.ImmediateConsistency());
 
-        var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(30));
         var task = _employeeRepository.PatchAllAsync(q => q.Company("1"), new ActionPatch<Employee>(e => e.CompanyName = "PatchedAll"), o => o.ImmediateConsistency());
 
         var completedTask = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(30), cts.Token));
@@ -569,6 +568,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         }
         catch (VersionConflictDocumentException)
         {
+            // Expected: stale emp1 causes a conflict; we only care that notifications were still sent for emp2
         }
 
         Assert.True(_employeeRepository.DocumentsChangedCount > countBefore);

@@ -14,6 +14,7 @@ internal static class TimeProviderExtensions
         }
         catch (OperationCanceledException)
         {
+            // Intentionally swallowed: callers use SafeDelay to avoid surfacing cancellation as an error
         }
     }
 }
