@@ -1461,10 +1461,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (!response.IsValid)
         {
             string message = $"Error {(isCreateOperation ? "adding" : "saving")} document";
-            if (isCreateOperation && response.ServerError?.Status is 409)
-                throw new DuplicateDocumentException(response.GetErrorMessage(message), response.OriginalException);
-            if (!isCreateOperation && response.ServerError?.Status is 409)
-                throw new VersionConflictDocumentException(response.GetErrorMessage(message), response.OriginalException);
+            if (response.ServerError?.Status is 409)
+                throw isCreateOperation
+                    ? new DuplicateDocumentException(response.GetErrorMessage(message), response.OriginalException)
+                    : new VersionConflictDocumentException(response.GetErrorMessage(message), response.OriginalException);
 
             throw new DocumentException(response.GetErrorMessage(message), response.OriginalException);
         }
@@ -1485,6 +1485,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         var allSuccessfulIds = new HashSet<string>();
         var allConflictIds = new HashSet<string>();
         var allFatalIds = new HashSet<string>();
+        BulkResult result = BulkResult.Empty;
 
         for (int attempt = 0; attempt < 4; attempt++)
         {
@@ -1520,7 +1521,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             var response = await _client.BulkAsync(bulkRequest).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
-            var result = BulkResult.From(response);
+            result = BulkResult.From(response);
 
             if (result.HasTransportError)
             {
@@ -1558,33 +1559,23 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             allFatalIds.UnionWith(result.FatalIds);
 
             if (!result.HasRetryableErrors || attempt >= 3)
-            {
-                return new BulkResult
-                {
-                    SuccessfulIds = allSuccessfulIds,
-                    ConflictIds = allConflictIds,
-                    RetryableIds = result.RetryableIds,
-                    FatalIds = allFatalIds
-                };
-            }
+                break;
 
             docsToIndex = docsToIndex.Where(d => result.RetryableIds.Contains(d.Id)).ToList();
             var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt));
             await ElasticIndex.Configuration.TimeProvider.SafeDelay(delay, DisposedCancellationToken).AnyContext();
 
             if (DisposedCancellationToken.IsCancellationRequested)
-            {
-                return new BulkResult
-                {
-                    SuccessfulIds = allSuccessfulIds,
-                    ConflictIds = allConflictIds,
-                    RetryableIds = result.RetryableIds,
-                    FatalIds = allFatalIds
-                };
-            }
+                break;
         }
 
-        throw new RepositoryException("Unreachable: bulk operation completed without returning a result.");
+        return new BulkResult
+        {
+            SuccessfulIds = allSuccessfulIds,
+            ConflictIds = allConflictIds,
+            RetryableIds = result.RetryableIds,
+            FatalIds = allFatalIds
+        };
     }
 
     private static void ThrowForBulkErrors(BulkResult result, bool isCreateOperation = false, string operationLabel = null)

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Elasticsearch.Net;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -488,7 +489,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         // Act
         var patch = new PatchDocument(new ReplaceOperation { Path = "companyName", Value = "PatchedAll" });
-        using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var task = _employeeRepository.PatchAllAsync(q => q.Company("1"), new JsonPatch(patch), o => o.ImmediateConsistency());
 
         // Assert
@@ -509,7 +510,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         await _employeeRepository.SaveAsync(emp1, o => o.ImmediateConsistency());
 
         // Act
-        using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var task = _employeeRepository.PatchAllAsync(q => q.Company("1"), new ActionPatch<Employee>(e => e.CompanyName = "PatchedAll"), o => o.ImmediateConsistency());
 
         // Assert
