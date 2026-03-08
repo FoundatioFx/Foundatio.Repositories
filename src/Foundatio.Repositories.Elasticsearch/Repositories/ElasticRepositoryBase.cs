@@ -305,7 +305,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 if (!updateResponse.Success)
                 {
-                    if (updateResponse.HttpStatusCode == 409)
+                    if (updateResponse.HttpStatusCode is 409)
                         throw new VersionConflictDocumentException(updateResponse.GetErrorMessage("Error saving document"), updateResponse.OriginalException);
 
                     throw new DocumentException(updateResponse.GetErrorMessage("Error saving document"), updateResponse.OriginalException);
@@ -411,9 +411,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return;
         }
 
-        var scriptOperation = operation as ScriptPatch;
-        var partialOperation = operation as PartialPatch;
-        if (scriptOperation == null && partialOperation == null)
+        if (operation is not ScriptPatch and not PartialPatch)
             throw new ArgumentException("Unknown operation type", nameof(operation));
 
         var bulkResponse = await _client.BulkAsync(b =>
@@ -423,7 +421,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             {
                 b.Pipeline(DefaultPipeline);
 
-                if (scriptOperation != null)
+                if (operation is ScriptPatch scriptOperation)
                     b.Update<T>(u =>
                     {
                         u.Id(id.Value)
@@ -436,7 +434,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                         return u;
                     });
-                else if (partialOperation != null)
+                else if (operation is PartialPatch partialOperation)
                     b.Update<T, object>(u =>
                     {
                         u.Id(id.Value)
@@ -454,6 +452,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return b;
         }).AnyContext();
         _logger.LogRequest(bulkResponse, options.GetQueryLogLevel());
+
+        if (!bulkResponse.IsValid && !bulkResponse.ItemsWithErrors.Any())
+            throw new DocumentException(bulkResponse.GetErrorMessage("Error bulk patching documents"), bulkResponse.OriginalException);
 
         var result = BulkResult.From(bulkResponse);
 
@@ -596,6 +597,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             }).AnyContext();
 
             _logger.LogRequest(response, options.GetQueryLogLevel());
+
+            if (!response.IsValid && !response.ItemsWithErrors.Any())
+                throw new DocumentException(response.GetErrorMessage("Error bulk removing documents"), response.OriginalException);
+
             var result = BulkResult.From(response);
 
             var successDocs = result.IsSuccess ? docs : docs.Where(d => result.SuccessfulIds.Contains(d.Id)).ToList();
@@ -709,11 +714,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     if (classifiedResult.HasConflicts)
                     {
                         _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
-                        _logger.LogWarning("Bulk JsonPatch had {ConflictCount} version conflicts, re-fetching and retrying", classifiedResult.ConflictIds.Count);
+                        _logger.LogInformation("Bulk JsonPatch had {ConflictCount} version conflicts, re-fetching and retrying", classifiedResult.ConflictIds.Count);
 
                         var conflictHits = results.Hits.Where(h => classifiedResult.ConflictIds.Contains(h.Id)).ToList();
-                        foreach (var h in conflictHits)
-                            await PatchAsync(new Id(h.Id, h.Routing), operation, options).AnyContext();
+                        foreach (var hit in conflictHits)
+                            await PatchAsync(new Id(hit.Id, hit.Routing), operation, options).AnyContext();
                     }
 
                     if (classifiedResult.FatalIds.Count > 0 || classifiedResult.RetryableIds.Count > 0)
@@ -790,11 +795,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     if (classifiedResult.HasConflicts)
                     {
                         _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
-                        _logger.LogWarning("Bulk ActionPatch had {ConflictCount} version conflicts, re-fetching and retrying", classifiedResult.ConflictIds.Count);
+                        _logger.LogInformation("Bulk ActionPatch had {ConflictCount} version conflicts, re-fetching and retrying", classifiedResult.ConflictIds.Count);
 
                         var conflictHits = results.Hits.Where(h => classifiedResult.ConflictIds.Contains(h.Id)).ToList();
-                        foreach (var h in conflictHits)
-                            await PatchAsync(new Id(h.Id, h.Routing), operation, options).AnyContext();
+                        foreach (var hit in conflictHits)
+                            await PatchAsync(new Id(hit.Id, hit.Routing), operation, options).AnyContext();
                     }
 
                     if (classifiedResult.FatalIds.Count > 0 || classifiedResult.RetryableIds.Count > 0)
@@ -824,12 +829,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
         else
         {
-            var scriptOperation = operation as ScriptPatch;
-            var partialOperation = operation as PartialPatch;
-            if (scriptOperation == null && partialOperation == null)
+            if (operation is not ScriptPatch and not PartialPatch)
                 throw new ArgumentException("Unknown operation type", nameof(operation));
 
-            if (!IsCacheEnabled && scriptOperation != null)
+            if (!IsCacheEnabled && operation is ScriptPatch scriptOperation)
             {
                 var request = new UpdateByQueryRequest(Indices.Index(String.Join(",", ElasticIndex.GetIndexesByQuery(query))))
                 {
@@ -906,18 +909,18 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                         foreach (var h in results.Hits)
                         {
-                            if (scriptOperation != null)
+                            if (operation is ScriptPatch sp)
                                 b.Update<T>(u => u
                                     .Id(h.Id)
                                     .Routing(h.Routing)
                                     .Index(h.GetIndex())
-                                    .Script(s => s.Source(scriptOperation.Script).Params(scriptOperation.Params))
+                                    .Script(s => s.Source(sp.Script).Params(sp.Params))
                                     .RetriesOnConflict(options.GetRetryCount()));
-                            else if (partialOperation != null)
+                            else if (operation is PartialPatch pp)
                                 b.Update<T, object>(u => u.Id(h.Id)
                                     .Routing(h.Routing)
                                     .Index(h.GetIndex())
-                                    .Doc(partialOperation.Document)
+                                    .Doc(pp.Document)
                                     .RetriesOnConflict(options.GetRetryCount()));
                         }
 
@@ -1174,7 +1177,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         continue;
                     }
 
-                    var value = GetDocumentCustomField(doc, alwaysProcessField.Name);
+                    object value = GetDocumentCustomField(doc, alwaysProcessField.Name);
                     var result = await fieldType.ProcessValueAsync(doc, value, alwaysProcessField);
                     SetDocumentCustomField(doc, alwaysProcessField.Name, result.Value);
                     idx[alwaysProcessField.GetIdxName()] = result.Idx ?? result.Value;
@@ -1464,9 +1467,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (!response.IsValid)
         {
             string message = $"Error {(isCreateOperation ? "adding" : "saving")} document";
-            if (isCreateOperation && response.ServerError?.Status == 409)
+            if (isCreateOperation && response.ServerError?.Status is 409)
                 throw new DuplicateDocumentException(response.GetErrorMessage(message), response.OriginalException);
-            else if (!isCreateOperation && response.ServerError?.Status == 409)
+            if (!isCreateOperation && response.ServerError?.Status is 409)
                 throw new VersionConflictDocumentException(response.GetErrorMessage(message), response.OriginalException);
 
             throw new DocumentException(response.GetErrorMessage(message), response.OriginalException);
@@ -1523,6 +1526,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             var response = await _client.BulkAsync(bulkRequest).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
 
+            if (!response.IsValid && !response.ItemsWithErrors.Any())
+                throw new DocumentException(response.GetErrorMessage($"Error {(isCreateOperation ? "adding" : "saving")} documents"), response.OriginalException);
+
             if (HasVersion)
             {
                 var documentsById = new Dictionary<string, T>();
@@ -1551,8 +1557,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             {
                 return new BulkResult
                 {
-                    SuccessfulIds = allSuccessfulIds.ToList(),
-                    ConflictIds = allConflictIds.ToList(),
+                    SuccessfulIds = allSuccessfulIds,
+                    ConflictIds = allConflictIds,
                     RetryableIds = result.RetryableIds,
                     FatalIds = allFatalIds.ToList()
                 };
@@ -1567,15 +1573,15 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             {
                 return new BulkResult
                 {
-                    SuccessfulIds = allSuccessfulIds.ToList(),
-                    ConflictIds = allConflictIds.ToList(),
+                    SuccessfulIds = allSuccessfulIds,
+                    ConflictIds = allConflictIds,
                     RetryableIds = result.RetryableIds,
                     FatalIds = allFatalIds.ToList()
                 };
             }
         }
 
-        throw new InvalidOperationException("Unreachable: bulk operation completed without returning a result.");
+        throw new RepositoryException("Unreachable: bulk operation completed without returning a result.");
     }
 
     private static void ThrowForBulkErrors(BulkResult result, bool isCreateOperation = false, string operationLabel = null)

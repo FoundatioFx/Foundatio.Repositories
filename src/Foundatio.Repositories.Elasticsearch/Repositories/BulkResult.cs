@@ -8,8 +8,8 @@ internal sealed record BulkResult
 {
     public static readonly BulkResult Empty = new();
 
-    public IReadOnlyList<string> SuccessfulIds { get; init; } = [];
-    public IReadOnlyList<string> ConflictIds { get; init; } = [];
+    public IReadOnlySet<string> SuccessfulIds { get; init; } = new HashSet<string>();
+    public IReadOnlySet<string> ConflictIds { get; init; } = new HashSet<string>();
     public IReadOnlyList<string> RetryableIds { get; init; } = [];
     public IReadOnlyList<string> FatalIds { get; init; } = [];
 
@@ -26,8 +26,8 @@ internal sealed record BulkResult
         var errors = response.ItemsWithErrors.ToList();
         return new BulkResult
         {
-            SuccessfulIds = response.Items.Where(i => i.IsValid).Select(i => i.Id).ToList(),
-            ConflictIds = errors.Where(e => e.Status == 409).Select(e => e.Id).ToList(),
+            SuccessfulIds = response.Items.Where(i => i.IsValid).Select(i => i.Id).ToHashSet(),
+            ConflictIds = errors.Where(e => e.Status is 409).Select(e => e.Id).ToHashSet(),
             RetryableIds = errors.Where(e => e.Status is 429 or 503).Select(e => e.Id).ToList(),
             FatalIds = errors.Where(e => e.Status is not 409 and not 429 and not 503).Select(e => e.Id).ToList()
         };
