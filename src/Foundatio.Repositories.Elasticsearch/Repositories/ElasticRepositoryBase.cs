@@ -1035,7 +1035,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
 
         if (response.Total != response.Deleted)
-            _logger.LogWarning("RemoveAll: {Deleted} of {Total} records were removed ({Conflicts} conflicts)", response.Deleted, response.Total, response.Total - response.Deleted);
+            _logger.LogWarning("RemoveAll: {Deleted} of {Total} records were removed ({Conflicts} version conflicts)", response.Deleted, response.Total, response.VersionConflicts);
 
         return response.Deleted;
     }
@@ -1590,7 +1590,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             }
         }
 
-        return BulkResult.Empty;
+        throw new InvalidOperationException("Unreachable: bulk operation completed without returning a result.");
     }
 
     private static void ThrowForBulkErrors(BulkResult result, bool isCreateOperation = false, string operationLabel = null)
