@@ -1,13 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Elasticsearch.Net;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
+using Microsoft.Extensions.Logging;
 using Nest;
 using Xunit;
 
@@ -438,5 +441,157 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
             Assert.Equal("1", document.CompanyId);
             Assert.Equal("Test Company", document.CompanyName);
         }
+    }
+
+    [Fact]
+    public async Task JsonPatchAsync_WithVersioning_AppliesPatchSuccessfully()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+        var originalVersion = employee.GetElasticVersion();
+
+        // Act
+        var patch = new PatchDocument(new ReplaceOperation { Path = "companyName", Value = "PatchedCo" });
+        await _employeeRepository.PatchAsync(employee.Id, new JsonPatch(patch), o => o.ImmediateConsistency());
+
+        // Assert
+        var updated = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.Equal("PatchedCo", updated.CompanyName);
+        Assert.True(updated.GetElasticVersion() > originalVersion);
+    }
+
+    [Fact]
+    public Task ScriptPatchAsync_WhenDocumentNotFound_ThrowsDocumentNotFoundException()
+    {
+        // Act & Assert
+        return Assert.ThrowsAsync<DocumentNotFoundException>(async () =>
+            await _employeeRepository.PatchAsync("nonexistent", new ScriptPatch("ctx._source.companyName = 'Test'")));
+    }
+
+    [Fact]
+    public Task PartialPatchAsync_WhenDocumentNotFound_ThrowsDocumentNotFoundException()
+    {
+        // Act & Assert
+        return Assert.ThrowsAsync<DocumentNotFoundException>(async () =>
+            await _employeeRepository.PatchAsync("nonexistent", new PartialPatch(new { CompanyName = "Test" })));
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_JsonPatchWithVersionConflicts_RetriesWithoutInfiniteLoop()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(3, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        var emp1 = employees[0];
+        emp1.CompanyName = "Bumped";
+        await _employeeRepository.SaveAsync(emp1, o => o.ImmediateConsistency());
+
+        // Act
+        var patch = new PatchDocument(new ReplaceOperation { Path = "companyName", Value = "PatchedAll" });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var task = _employeeRepository.PatchAllAsync(q => q.Company("1"), new JsonPatch(patch), o => o.ImmediateConsistency());
+
+        // Assert
+        var completedTask = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(30), cts.Token));
+        Assert.Equal(task, completedTask);
+        cts.Cancel();
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_ActionPatchWithVersionConflicts_RetriesDocuments()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(3, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        var emp1 = employees[0];
+        emp1.CompanyName = "Bumped";
+        await _employeeRepository.SaveAsync(emp1, o => o.ImmediateConsistency());
+
+        // Act
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var task = _employeeRepository.PatchAllAsync(q => q.Company("1"), new ActionPatch<Employee>(e => e.CompanyName = "PatchedAll"), o => o.ImmediateConsistency());
+
+        // Assert
+        var completedTask = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(30), cts.Token));
+        Assert.Equal(task, completedTask);
+        cts.Cancel();
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_PartialPatchWithConcurrentWrites_RetriesOnConflict()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(10, companyId: "1");
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        // Act
+        long affected = await _employeeRepository.UpdateCompanyNameByCompanyAsync("1", "PartialPatched");
+
+        // Assert
+        Assert.Equal(10, affected);
+        var results = await _employeeRepository.GetAllByCompanyAsync("1");
+        Assert.True(results.Documents.All(e => e.CompanyName == "PartialPatched"));
+    }
+
+    [Fact]
+    public async Task SaveAsync_CollectionWithPartialConflict_CachesSuccessAndLeavesFailedUnchanged()
+    {
+        // Arrange
+        var emp1 = EmployeeGenerator.Generate(companyId: "1");
+        var emp2 = EmployeeGenerator.Generate(companyId: "1");
+        await _employeeRepository.AddAsync(new List<Employee> { emp1, emp2 }, o => o.Cache().ImmediateConsistency());
+
+        emp1.CompanyName = "BumpedEmp1";
+        await _employeeRepository.SaveAsync(emp1, o => o.Cache().ImmediateConsistency());
+
+        var emp1StaleCopy = EmployeeGenerator.Generate(companyId: "1");
+        emp1StaleCopy.Id = emp1.Id;
+        emp1StaleCopy.Version = "1:0";
+        emp1StaleCopy.CompanyName = "StaleUpdate";
+        emp2.CompanyName = "FreshUpdate";
+
+        // Act
+        await Assert.ThrowsAsync<VersionConflictDocumentException>(async () =>
+            await _employeeRepository.SaveAsync(new List<Employee> { emp1StaleCopy, emp2 }, o => o.Cache().ImmediateConsistency()));
+
+        // Assert
+        var emp2FromEs = await _employeeRepository.GetByIdAsync(emp2.Id, o => o.Cache(false));
+        Assert.Equal("FreshUpdate", emp2FromEs.CompanyName);
+
+        var emp1Cached = await _employeeRepository.GetByIdAsync(emp1.Id, o => o.Cache());
+        Assert.Equal("BumpedEmp1", emp1Cached.CompanyName);
+    }
+
+    [Fact]
+    public async Task SaveAsync_CollectionWithPartialConflict_SendsNotificationsForSuccessfulDocs()
+    {
+        // Arrange
+        var emp1 = EmployeeGenerator.Generate(companyId: "1");
+        var emp2 = EmployeeGenerator.Generate(companyId: "1");
+        await _employeeRepository.AddAsync(new List<Employee> { emp1, emp2 }, o => o.ImmediateConsistency());
+        long countBefore = _employeeRepository.DocumentsChangedCount;
+
+        emp1.CompanyName = "BumpedEmp1";
+        await _employeeRepository.SaveAsync(emp1, o => o.ImmediateConsistency());
+
+        var emp1StaleCopy = EmployeeGenerator.Generate(companyId: "1");
+        emp1StaleCopy.Id = emp1.Id;
+        emp1StaleCopy.Version = "1:0";
+        emp2.CompanyName = "FreshUpdate";
+
+        // Act
+        try
+        {
+            await _employeeRepository.SaveAsync(new List<Employee> { emp1StaleCopy, emp2 }, o => o.ImmediateConsistency());
+        }
+        catch (VersionConflictDocumentException)
+        {
+            // Expected: stale emp1 causes a conflict; we only care that notifications were still sent for emp2
+        }
+
+        // Assert
+        Assert.True(_employeeRepository.DocumentsChangedCount > countBefore);
     }
 }

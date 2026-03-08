@@ -464,6 +464,52 @@ curl http://localhost:9200/employees/_stats
 | `circuit_breaking_exception` | Memory limit | Reduce batch size |
 | `cluster_block_exception` | Cluster read-only | Check disk space |
 
+## Repository Exception Types
+
+Foundatio.Repositories uses typed exceptions so callers can handle specific failure modes. The exceptions listed below inherit from `DocumentException`.
+
+| Exception | When Thrown | Retryable? |
+|-----------|------------|------------|
+| `DuplicateDocumentException` | `AddAsync` when a document with the same ID already exists | No — remove the existing document or use `SaveAsync` |
+| `VersionConflictDocumentException` | `SaveAsync` / `PatchAsync` when the document version doesn't match (HTTP 409) | Yes — re-fetch the document and retry |
+| `DocumentNotFoundException` | `PatchAsync` when the target document doesn't exist (HTTP 404) | No — verify the document ID |
+| `DocumentValidationException` | Any write operation when document validation fails | No — fix the document data |
+| `DocumentException` | Other Elasticsearch errors not covered above | Depends on the underlying cause |
+
+### Partial Failures on Bulk Operations
+
+When `AddAsync` or `SaveAsync` is called with multiple documents, some may succeed and others may fail. The repository:
+
+1. **Processes all successes first** — fires events, populates cache, sends notifications.
+2. **Leaves failed documents' cache unchanged** — failed writes don't mutate Elasticsearch, so existing cache entries remain valid. The writer that caused a conflict handles its own cache update via message bus notifications.
+3. **Throws a typed exception** — `DuplicateDocumentException` for add, `VersionConflictDocumentException` for save.
+
+```csharp
+try
+{
+    await repository.AddAsync(documents);
+}
+catch (DuplicateDocumentException ex)
+{
+    // Successful documents were fully processed.
+    // Duplicate documents: existing cache entries preserved (nothing was mutated).
+    _logger.LogWarning(ex, "Partial failure: some documents already existed");
+}
+catch (VersionConflictDocumentException ex)
+{
+    _logger.LogWarning(ex, "Partial failure: some documents had version conflicts");
+}
+```
+
+### Transient Error Retries
+
+The repository automatically retries transient Elasticsearch errors:
+
+- **HTTP 429** (Too Many Requests) — retried with exponential backoff, up to 3 retries (4 total attempts)
+- **HTTP 503** (Service Unavailable) — retried with exponential backoff, up to 3 retries (4 total attempts)
+- **HTTP 409** (Version Conflict) — **not** retried; the caller must handle conflict resolution
+- `DuplicateDocumentException` — **not** retried by the resilience policy
+
 ## Aggregation Warnings
 
 ### doc_count_error_upper_bound Warning
