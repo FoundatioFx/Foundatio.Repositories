@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Threading;
 using System.Threading.Tasks;
 using Elasticsearch.Net;
 using Foundatio.Messaging;
@@ -31,9 +30,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 {
     protected readonly IMessagePublisher _messagePublisher;
     private readonly List<Lazy<Field>> _propertiesRequiredForRemove = new();
-
-    private CancellationToken DisposedCancellationToken =>
-        ElasticIndex is Configuration.Index concreteIndex ? concreteIndex.DisposedCancellationToken : CancellationToken.None;
 
     protected ElasticRepositoryBase(IIndex index) : base(index)
     {

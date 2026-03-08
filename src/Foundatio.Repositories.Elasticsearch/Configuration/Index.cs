@@ -378,8 +378,6 @@ public class Index : IIndex
         _disposedCancellationTokenSource.Cancel();
         _disposedCancellationTokenSource.Dispose();
     }
-
-    internal CancellationToken DisposedCancellationToken => _disposedCancellationTokenSource.Token;
 }
 
 public class Index<T> : Index, IIndex<T> where T : class
