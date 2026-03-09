@@ -384,11 +384,88 @@ public sealed class ReindexScriptTests
     [InlineData("field\\name")]
     public void RenameFieldScript_WithScriptInjectionInCurrentName_ThrowsArgumentException(string currentName)
     {
-        // Arrange
         var index = new TestableVersionedIndex(2);
 
-        // Act / Assert
         Assert.Throws<ArgumentException>(() => index.TestRenameFieldScript(2, "validField", currentName));
+    }
+
+    [Fact]
+    public void RenameFieldScript_WithSameSourceAndTarget_ThrowsArgumentException()
+    {
+        var index = new TestableVersionedIndex(2);
+
+        Assert.Throws<ArgumentException>(() => index.TestRenameFieldScript(2, "fieldName", "fieldName"));
+    }
+
+    [Fact]
+    public void RenameFieldScript_WithSameNestedSourceAndTarget_ThrowsArgumentException()
+    {
+        var index = new TestableVersionedIndex(2);
+
+        Assert.Throws<ArgumentException>(() => index.TestRenameFieldScript(2, "data.field", "data.field"));
+    }
+
+    [Fact]
+    public void RenameFieldScript_WithSingleCharacterFields_ProducesCorrectScript()
+    {
+        var index = new TestableVersionedIndex(5);
+        index.TestRenameFieldScript(2, "a", "b");
+
+        string result = index.TestGetReindexScripts(1);
+
+        Assert.Contains("containsKey('a')", result);
+        Assert.Contains("ctx._source.b = ctx._source.a;", result);
+        Assert.Contains("remove('a')", result);
+    }
+
+    [Fact]
+    public void RenameFieldScript_WithDeeplyNestedFiveLevels_ProducesCorrectScript()
+    {
+        var index = new TestableVersionedIndex(5);
+        index.TestRenameFieldScript(2, "a.b.c.d.e", "a.b.c.d.f", remove: false);
+
+        string result = index.TestGetReindexScripts(1);
+
+        Assert.Contains("ctx._source.a != null", result);
+        Assert.Contains("ctx._source.a.b != null", result);
+        Assert.Contains("ctx._source.a.b.c != null", result);
+        Assert.Contains("ctx._source.a.b.c.d != null", result);
+        Assert.Contains("ctx._source.a.b.c.d.containsKey('e')", result);
+        Assert.Contains("ctx._source.a.b.c.d.f = ctx._source.a.b.c.d.e;", result);
+    }
+
+    [Fact]
+    public void GetReindexScripts_WithMultiVersionRenameAndRemove_CombinesAllScripts()
+    {
+        var index = new TestableVersionedIndex(4);
+        index.TestRenameFieldScript(2, "oldName", "newName");
+        index.TestRemoveFieldScript(3, "data.legacy");
+        index.TestAddReindexScript(4, "ctx._source.migrated = true;");
+
+        string result = index.TestGetReindexScripts(1);
+
+        Assert.Contains("newName", result);
+        Assert.Contains("remove('oldName')", result);
+        Assert.Contains("data.remove('legacy')", result);
+        Assert.Contains("ctx._source.migrated = true;", result);
+        Assert.Contains("f000(ctx);", result);
+        Assert.Contains("f001(ctx);", result);
+        Assert.Contains("f002(ctx);", result);
+        Assert.Contains("f003(ctx);", result);
+    }
+
+    [Theory]
+    [InlineData("field with space")]
+    [InlineData("field;name")]
+    [InlineData("field(name)")]
+    [InlineData("@timestamp")]
+    [InlineData("field-name")]
+    [InlineData("123field")]
+    public void RenameFieldScript_WithNonIdentifierCharacters_ThrowsArgumentException(string fieldPath)
+    {
+        var index = new TestableVersionedIndex(2);
+
+        Assert.Throws<ArgumentException>(() => index.TestRenameFieldScript(2, fieldPath, "valid"));
     }
 
     private sealed class TestableVersionedIndex : VersionedIndex

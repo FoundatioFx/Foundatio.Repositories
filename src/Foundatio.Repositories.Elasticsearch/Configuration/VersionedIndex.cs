@@ -58,6 +58,9 @@ public partial class VersionedIndex : Index, IVersionedIndex
         ValidateFieldPath(originalName);
         ValidateFieldPath(currentName);
 
+        if (String.Equals(originalName, currentName, StringComparison.Ordinal))
+            throw new ArgumentException($"Original name '{originalName}' and current name cannot be the same.", nameof(currentName));
+
         string guard = BuildContainsKeyGuard(originalName);
         string accessor = BuildFieldAccessor(originalName);
         string assignment = BuildFieldAssignment(currentName, accessor);
