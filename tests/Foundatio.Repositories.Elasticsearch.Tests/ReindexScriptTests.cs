@@ -6,8 +6,6 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public sealed class ReindexScriptTests
 {
-    #region RenameFieldScript -- Compiled Script Verification
-
     [Fact]
     public void RenameFieldScript_WithTopLevelField_ProducesCorrectCompiledScript()
     {
@@ -166,10 +164,6 @@ public sealed class ReindexScriptTests
             result);
     }
 
-    #endregion
-
-    #region RemoveFieldScript -- Compiled Script Verification
-
     [Fact]
     public void RemoveFieldScript_WithTopLevelField_ProducesCorrectCompiledScript()
     {
@@ -218,10 +212,6 @@ public sealed class ReindexScriptTests
             + "ctx._source.metadata.author.remove('name'); }",
             result);
     }
-
-    #endregion
-
-    #region GetReindexScripts -- Script Combining and Version Filtering
 
     [Fact]
     public void GetReindexScripts_WithNoScripts_ReturnsNull()
@@ -301,10 +291,6 @@ public sealed class ReindexScriptTests
         Assert.Contains("newName", result);
         Assert.Contains("remove('oldName')", result);
     }
-
-    #endregion
-
-    #region Input Validation
 
     [Theory]
     [InlineData(null)]
@@ -404,8 +390,6 @@ public sealed class ReindexScriptTests
         // Act / Assert
         Assert.Throws<ArgumentException>(() => index.TestRenameFieldScript(2, "validField", currentName));
     }
-
-    #endregion
 
     private sealed class TestableVersionedIndex : VersionedIndex
     {

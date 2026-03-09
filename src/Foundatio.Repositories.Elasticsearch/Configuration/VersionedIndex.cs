@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
@@ -25,7 +26,7 @@ public interface IVersionedIndex : IIndex
     ReindexWorkItem CreateReindexWorkItem(int currentVersion);
 }
 
-public class VersionedIndex : Index, IVersionedIndex
+public partial class VersionedIndex : Index, IVersionedIndex
 {
     public VersionedIndex(IElasticConfiguration configuration, string name, int version = 1)
         : base(configuration, name)
@@ -80,12 +81,12 @@ public class VersionedIndex : Index, IVersionedIndex
 
     private static void ValidateFieldPath(string fieldPath)
     {
-        if (fieldPath.StartsWith('.') || fieldPath.EndsWith('.') || fieldPath.Contains(".."))
-            throw new ArgumentException($"Field path '{fieldPath}' contains invalid dot notation.", nameof(fieldPath));
-
-        if (fieldPath.Contains('\'') || fieldPath.Contains('\\'))
-            throw new ArgumentException($"Field path '{fieldPath}' contains invalid characters.", nameof(fieldPath));
+        if (!ValidFieldPathRegex().IsMatch(fieldPath))
+            throw new ArgumentException($"Field path '{fieldPath}' is not a valid dotted field path.", nameof(fieldPath));
     }
+
+    [GeneratedRegex(@"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$")]
+    private static partial Regex ValidFieldPathRegex();
 
     private static string BuildContainsKeyGuard(string fieldPath)
     {
