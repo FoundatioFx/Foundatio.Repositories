@@ -206,7 +206,7 @@ All `PatchAsync` overloads return status information:
   - For `ActionPatch`, noop detection depends on the overload used. The `Func<T, bool>` overload respects the return value — `false` skips the write entirely (no Index API call, no date tracking, no cache invalidation) with zero overhead. The `Action<T>` overload always assumes the document was modified. Empty actions (no callbacks) return `false`.
   - For `JsonPatch`, operations always return `true` (the get-modify-reindex pattern always writes). Empty operations (no patches) return `false`.
 - **`PatchAsync(Ids, ...)`** returns `Task<long>` -- the number of documents actually modified (excludes no-ops as reported by the backend).
-- **`PatchAllAsync(...)`** returns `Task<long>` — the number of documents modified by the query. For `ScriptPatch` and `PartialPatch` with caching enabled, the count may include no-ops when using the cached bulk path (the non-cached `UpdateByQuery` path correctly excludes them).
+- **`PatchAllAsync(...)`** returns `Task<long>` — the number of documents modified by the query.
 
 Errors (document not found, version conflicts) throw exceptions rather than returning a status value. See [Error Handling](#error-handling) for details.
 

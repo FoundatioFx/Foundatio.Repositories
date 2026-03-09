@@ -361,7 +361,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 bool actionModified = false;
                 foreach (var action in actionPatch.Actions)
-                    actionModified |= action(response.Source);
+                    actionModified |= action?.Invoke(response.Source) ?? false;
 
                 if (!actionModified)
                 {
@@ -754,7 +754,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 {
                     bool actionModified = false;
                     foreach (var action in actionOperation.Actions)
-                        actionModified |= action(h.Document);
+                        actionModified |= action?.Invoke(h.Document) ?? false;
 
                     if (!actionModified)
                         continue;
@@ -898,10 +898,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 if (HasIdentity && !query.GetIncludes().Contains(_idField.Value))
                     query.Include(_idField.Value);
 
-                // TODO: BatchProcessAsync returns total documents processed (including noops).
-                // The PatchAllAsync return value for this cached path may overcount modified
-                // documents. Consider tracking modified count via updatedIds accumulation.
-                affectedRecords += await BatchProcessAsync(query, async results =>
+                long modifiedInBatch = 0;
+                await BatchProcessAsync(query, async results =>
                 {
                     var bulkResult = await _client.BulkAsync(b =>
                     {
@@ -940,8 +938,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     var result = BulkResult.From(bulkResult);
                     var updatedIds = results.Hits
-                        .Where(h => !result.NoopIds.Contains(h.Id))
+                        .Where(h => result.SuccessfulIds.Contains(h.Id) && !result.NoopIds.Contains(h.Id))
                         .Select(h => h.Id).ToList();
+                    modifiedInBatch += updatedIds.Count;
+
                     if (IsCacheEnabled && updatedIds.Count > 0)
                     {
                         await InvalidateCacheAsync(updatedIds).AnyContext();
@@ -959,6 +959,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     return true;
                 }, options.Clone()).AnyContext();
+
+                affectedRecords += modifiedInBatch;
             }
         }
 
