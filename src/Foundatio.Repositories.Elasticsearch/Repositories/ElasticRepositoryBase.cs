@@ -1571,8 +1571,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 i.IfPrimaryTerm(elasticVersion.PrimaryTerm);
                 i.IfSeqNo(elasticVersion.SequenceNumber);
             }
-
-            return i;
         }).AnyContext();
         _logger.LogRequest(response, options.GetQueryLogLevel());
 
