@@ -75,7 +75,15 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// <param name="id">The identifier of the document to patch.</param>
     /// <param name="operation">The patch operation to apply (e.g., <see cref="PartialPatch"/>, <see cref="JsonPatch"/>, <see cref="ScriptPatch"/>).</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
-    /// <returns><c>true</c> if the document was modified; <c>false</c> if the operation was a no-op.</returns>
+    /// <returns>
+    /// <c>true</c> if the document was modified; <c>false</c> if the operation was a no-op.
+    /// <list type="bullet">
+    /// <item><see cref="PartialPatch"/>: Elasticsearch's automatic <c>detect_noop</c> determines the result. Note that automatic date tracking injects <c>UpdatedUtc</c>, which typically prevents noop detection.</item>
+    /// <item><see cref="ScriptPatch"/>: Only a no-op when the script explicitly sets <c>ctx.op = 'none'</c>.</item>
+    /// <item><see cref="ActionPatch{T}"/>: Returns <c>false</c> when all <see cref="ActionPatch{T}.Actions"/> return <c>false</c>. The <c>Action{T}</c> overload always returns <c>true</c>.</item>
+    /// <item><see cref="JsonPatch"/>: Always returns <c>true</c> (uses get-modify-reindex). Empty operations return <c>false</c>.</item>
+    /// </list>
+    /// </returns>
     /// <exception cref="Exceptions.DocumentNotFoundException">Thrown when the document does not exist.</exception>
     /// <exception cref="Exceptions.VersionConflictDocumentException">Thrown when the document version conflicts (HTTP 409).</exception>
     /// <exception cref="Exceptions.DocumentException">Thrown when the Elasticsearch request fails.</exception>

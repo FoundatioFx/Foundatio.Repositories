@@ -20,6 +20,9 @@ public interface IPatchOperation { }
 /// </summary>
 /// <remarks>
 /// Only the non-null properties of the partial document will be applied to the target document.
+/// Elasticsearch's <c>detect_noop</c> (enabled by default) automatically returns a no-op when
+/// the partial document does not change any field values. However, automatic date tracking
+/// injects <c>UpdatedUtc</c>, which typically prevents noop detection for <see cref="Models.IHaveDates"/> models.
 /// </remarks>
 public class PartialPatch : IPatchOperation
 {
@@ -57,10 +60,13 @@ public class ActionPatch<T> : IPatchOperation where T : class
     /// <param name="changeAction">The action to apply to the document.</param>
     public ActionPatch(Action<T> changeAction)
     {
-        if (changeAction == null)
-            throw new ArgumentNullException(nameof(changeAction));
+        ArgumentNullException.ThrowIfNull(changeAction);
 
-        Actions.Add(doc => { changeAction(doc); return true; });
+        Actions.Add(doc =>
+        {
+            changeAction(doc);
+            return true;
+        });
     }
 
     /// <summary>
@@ -70,8 +76,7 @@ public class ActionPatch<T> : IPatchOperation where T : class
     /// <param name="changeFunc">A function that modifies the document and returns <c>true</c> if modified, <c>false</c> for no-op.</param>
     public ActionPatch(Func<T, bool> changeFunc)
     {
-        if (changeFunc == null)
-            throw new ArgumentNullException(nameof(changeFunc));
+        ArgumentNullException.ThrowIfNull(changeFunc);
 
         Actions.Add(changeFunc);
     }
@@ -83,8 +88,17 @@ public class ActionPatch<T> : IPatchOperation where T : class
     /// <param name="changeActions">The actions to apply to the document.</param>
     public ActionPatch(params Action<T>[] changeActions)
     {
+        ArgumentNullException.ThrowIfNull(changeActions);
+
         foreach (var action in changeActions)
-            Actions.Add(doc => { action(doc); return true; });
+        {
+            ArgumentNullException.ThrowIfNull(action);
+            Actions.Add(doc =>
+            {
+                action(doc);
+                return true;
+            });
+        }
     }
 
     /// <summary>
@@ -96,6 +110,10 @@ public class ActionPatch<T> : IPatchOperation where T : class
 /// <summary>
 /// A patch operation that applies a JSON Patch document (RFC 6902) to a document.
 /// </summary>
+/// <remarks>
+/// Uses a get-modify-reindex pattern, so a write always occurs and <c>PatchAsync</c> always
+/// returns <c>true</c>. Empty patch documents (no operations) return <c>false</c>.
+/// </remarks>
 public class JsonPatch : IPatchOperation
 {
     /// <summary>
@@ -116,6 +134,11 @@ public class JsonPatch : IPatchOperation
 /// <summary>
 /// A patch operation that executes a script to modify a document (Elasticsearch-specific).
 /// </summary>
+/// <remarks>
+/// Elasticsearch does not automatically detect noops for script updates.
+/// To signal a no-op, the script must explicitly set <c>ctx.op = 'none'</c>.
+/// Painless uses <c>==</c> for equality (Java-style); <c>===</c> is not valid.
+/// </remarks>
 public class ScriptPatch : IPatchOperation
 {
     /// <summary>

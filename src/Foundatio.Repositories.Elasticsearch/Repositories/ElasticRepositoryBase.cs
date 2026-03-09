@@ -180,8 +180,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (String.IsNullOrEmpty(id.Value))
             throw new ArgumentNullException(nameof(id));
 
-        if (operation == null)
-            throw new ArgumentNullException(nameof(operation));
+        ArgumentNullException.ThrowIfNull(operation);
 
         if (operation is JsonPatch { Patch: null or { Operations.Count: 0 } })
             return false;
@@ -410,7 +409,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         options = ConfigureOptions(options.As<T>());
 
-        if (ids.Count == 1)
+        if (ids.Count is 1)
             return await PatchAsync(ids[0], operation, options).AnyContext() ? 1 : 0;
 
         if (operation is ScriptPatch scriptPatchOp)
@@ -658,8 +657,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// </summary>
     public virtual async Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null)
     {
-        if (operation == null)
-            throw new ArgumentNullException(nameof(operation));
+        ArgumentNullException.ThrowIfNull(operation);
 
         if (operation is JsonPatch { Patch: null or { Operations: null or { Count: 0 } } })
             return 0;
@@ -748,23 +746,33 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
         else if (operation is ActionPatch<T> actionOperation)
         {
-            affectedRecords += await BatchProcessAsync(query, async results =>
+            long modifiedRecords = 0;
+            await BatchProcessAsync(query, async results =>
             {
+                var modifiedHits = new List<FindHit<T>>();
+                foreach (var h in results.Hits)
+                {
+                    bool actionModified = false;
+                    foreach (var action in actionOperation.Actions)
+                        actionModified |= action(h.Document);
+
+                    if (!actionModified)
+                        continue;
+
+                    if (HasDateTracking)
+                        SetDocumentDates(h.Document, ElasticIndex.Configuration.TimeProvider);
+
+                    modifiedHits.Add(h);
+                }
+
+                if (modifiedHits.Count is 0)
+                    return true;
+
                 var bulkResult = await _client.BulkAsync(b =>
                 {
                     b.Refresh(options.GetRefreshMode(DefaultConsistency));
-                    foreach (var h in results.Hits)
+                    foreach (var h in modifiedHits)
                     {
-                        bool actionModified = false;
-                        foreach (var action in actionOperation.Actions)
-                            actionModified |= action(h.Document);
-
-                        if (!actionModified)
-                            continue;
-
-                        if (HasDateTracking)
-                            SetDocumentDates(h.Document, ElasticIndex.Configuration.TimeProvider);
-
                         var elasticVersion = h.GetElasticVersion();
 
                         b.Index<T>(i =>
@@ -797,9 +805,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     return false;
                 }
 
-                // Only include IDs for documents that were actually indexed (actions returned true)
-                var indexedIds = bulkResult.Items?.Where(i => i.IsValid).Select(i => i.Id).ToHashSet() ?? new HashSet<string>();
-                var updatedIds = results.Hits.Where(h => indexedIds.Contains(h.Id)).Select(h => h.Id).ToList();
+                var updatedIds = bulkResult.Items?.Where(i => i.IsValid).Select(i => i.Id).ToList() ?? [];
+                modifiedRecords += updatedIds.Count;
+
                 if (IsCacheEnabled && updatedIds.Count > 0)
                     await InvalidateCacheAsync(updatedIds).AnyContext();
 
@@ -814,6 +822,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 return true;
             }, options.Clone()).AnyContext();
+
+            affectedRecords += modifiedRecords;
         }
         else
         {
