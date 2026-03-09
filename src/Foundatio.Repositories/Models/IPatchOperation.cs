@@ -42,10 +42,17 @@ public class PartialPatch : IPatchOperation
 /// A patch operation that applies one or more actions to modify a document.
 /// </summary>
 /// <typeparam name="T">The document type.</typeparam>
+/// <remarks>
+/// Actions that return <c>bool</c> signal whether the document was modified. When all actions
+/// return <c>false</c>, the write to Elasticsearch is skipped entirely (no Index call, no date
+/// tracking, no cache invalidation). Actions that use <see cref="Action{T}"/> are assumed to
+/// always modify the document.
+/// </remarks>
 public class ActionPatch<T> : IPatchOperation where T : class
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="ActionPatch{T}"/> class with a single action.
+    /// Initializes a new instance of the <see cref="ActionPatch{T}"/> class with a single action
+    /// that always signals modification.
     /// </summary>
     /// <param name="changeAction">The action to apply to the document.</param>
     public ActionPatch(Action<T> changeAction)
@@ -53,22 +60,37 @@ public class ActionPatch<T> : IPatchOperation where T : class
         if (changeAction == null)
             throw new ArgumentNullException(nameof(changeAction));
 
-        Actions.Add(changeAction);
+        Actions.Add(doc => { changeAction(doc); return true; });
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="ActionPatch{T}"/> class with multiple actions.
+    /// Initializes a new instance of the <see cref="ActionPatch{T}"/> class with a single action
+    /// that returns whether the document was modified.
+    /// </summary>
+    /// <param name="changeFunc">A function that modifies the document and returns <c>true</c> if modified, <c>false</c> for no-op.</param>
+    public ActionPatch(Func<T, bool> changeFunc)
+    {
+        if (changeFunc == null)
+            throw new ArgumentNullException(nameof(changeFunc));
+
+        Actions.Add(changeFunc);
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ActionPatch{T}"/> class with multiple actions
+    /// that always signal modification.
     /// </summary>
     /// <param name="changeActions">The actions to apply to the document.</param>
     public ActionPatch(params Action<T>[] changeActions)
     {
-        Actions.AddRange(changeActions);
+        foreach (var action in changeActions)
+            Actions.Add(doc => { action(doc); return true; });
     }
 
     /// <summary>
-    /// Gets the collection of actions to apply to the document.
+    /// Gets the collection of actions to apply to the document. Each returns <c>true</c> if the document was modified.
     /// </summary>
-    public ICollection<Action<T>> Actions { get; } = new List<Action<T>>();
+    public ICollection<Func<T, bool>> Actions { get; } = new List<Func<T, bool>>();
 }
 
 /// <summary>

@@ -2100,8 +2100,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Arrange
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
 
-        // Act — action runs but doesn't change anything
-        bool modified = await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => { _ = e.Name; }));
+        // Act — action returns false to signal no modification
+        bool modified = await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => false));
 
         // Assert
         Assert.False(modified);
@@ -2113,8 +2113,15 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Arrange
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice"));
 
-        // Act — sets the same value that's already there
-        bool modified = await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => e.Name = "Alice"));
+        // Act — conditionally returns false when value is already correct
+        bool modified = await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e =>
+        {
+            if (e.Name == "Alice")
+                return false;
+
+            e.Name = "Alice";
+            return true;
+        }));
 
         // Assert
         Assert.False(modified);

@@ -360,14 +360,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 if (response.Source is IVersioned versionedDoc && response.PrimaryTerm.HasValue)
                     versionedDoc.Version = response.GetElasticVersion();
 
-                // Snapshot before applying actions so we can detect noop
-                var beforeJson = _client.ConnectionSettings.SourceSerializer.SerializeToString(response.Source);
-
+                bool actionModified = false;
                 foreach (var action in actionPatch.Actions)
-                    action?.Invoke(response.Source);
+                    actionModified |= action(response.Source);
 
-                var afterJson = _client.ConnectionSettings.SourceSerializer.SerializeToString(response.Source);
-                if (String.Equals(beforeJson, afterJson, StringComparison.Ordinal))
+                if (!actionModified)
                 {
                     modified = false;
                     return;
@@ -758,8 +755,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     b.Refresh(options.GetRefreshMode(DefaultConsistency));
                     foreach (var h in results.Hits)
                     {
+                        bool actionModified = false;
                         foreach (var action in actionOperation.Actions)
-                            action?.Invoke(h.Document);
+                            actionModified |= action(h.Document);
+
+                        if (!actionModified)
+                            continue;
 
                         if (HasDateTracking)
                             SetDocumentDates(h.Document, ElasticIndex.Configuration.TimeProvider);
@@ -796,11 +797,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     return false;
                 }
 
-                // ActionPatch bulk path: noop detection per document is not yet implemented
-                // for batch processing. Single-doc PatchAsync does compare before/after, but here
-                // all documents are indexed. Future optimization could skip unchanged documents.
-                var updatedIds = results.Hits.Select(h => h.Id).ToList();
-                if (IsCacheEnabled)
+                // Only include IDs for documents that were actually indexed (actions returned true)
+                var indexedIds = bulkResult.Items?.Where(i => i.IsValid).Select(i => i.Id).ToHashSet() ?? new HashSet<string>();
+                var updatedIds = results.Hits.Where(h => indexedIds.Contains(h.Id)).Select(h => h.Id).ToList();
+                if (IsCacheEnabled && updatedIds.Count > 0)
                     await InvalidateCacheAsync(updatedIds).AnyContext();
 
                 try

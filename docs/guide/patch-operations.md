@@ -170,22 +170,25 @@ await repository.PatchAsync(id, new JsonPatch(patch));
 
 ### ActionPatch
 
-Lambda-based patching for strongly-typed updates:
+Lambda-based patching for strongly-typed updates. Supports both `Action<T>` (always writes) and `Func<T, bool>` (conditional write based on return value):
 
 ```csharp
-// Simple property update
-await repository.PatchAsync(id, new ActionPatch<Employee>(e => 
+// Action<T> — always treated as a modification
+await repository.PatchAsync(id, new ActionPatch<Employee>(e =>
 {
     e.Name = "John Smith";
     e.Age = 32;
 }));
 
-// Complex updates
-await repository.PatchAsync(id, new ActionPatch<Employee>(e => 
+// Func<T, bool> — return false to skip the write
+bool modified = await repository.PatchAsync(id, new ActionPatch<Employee>(e =>
 {
+    if (e.Status == EmployeeStatus.Active)
+        return false;
+
     e.Status = EmployeeStatus.Active;
-    e.UpdatedAt = DateTime.UtcNow;
     e.UpdatedBy = currentUserId;
+    return true;
 }));
 ```
 
@@ -200,7 +203,7 @@ All `PatchAsync` overloads return status information:
 - **`PatchAsync(Id, ...)`** returns `Task<bool>` -- `true` if the document was modified, `false` if the operation was treated as a no-op.
   - For `PartialPatch`, Elasticsearch's automatic noop detection reports `false` when the update does not change any field values (e.g., setting a field to its current value). However, models implementing `IHaveDates` have `UpdatedUtc` injected automatically on partial updates, so most `PartialPatch` calls will return `true` unless date tracking is disabled or the caller explicitly supplies an `UpdatedUtc` value that does not change.
   - For `ScriptPatch`, the operation is only a no-op when the script explicitly sets `ctx.op = 'none'`; simply reassigning the same value in a script is treated as a modification by Elasticsearch. The automatic date tracking script is appended after your script, but Elasticsearch evaluates `ctx.op` at the end of execution — so `ctx.op = 'none'` correctly prevents the write even with the appended timestamp assignment.
-  - For `ActionPatch`, the document is fetched, your action is applied, and the result is compared against the original. If no fields changed, the write is skipped and `false` is returned. Date tracking (`UpdatedUtc`) is only set when the action actually modified the document.
+  - For `ActionPatch`, noop detection depends on the overload used. The `Func<T, bool>` overload respects the return value — `false` skips the write entirely (no Index API call, no date tracking, no cache invalidation) with zero overhead. The `Action<T>` overload always assumes the document was modified. Empty actions (no callbacks) return `false`.
   - For `JsonPatch`, operations always return `true` (the get-modify-reindex pattern always writes). Empty operations (no patches) return `false`.
 - **`PatchAsync(Ids, ...)`** returns `Task<long>` -- the number of documents actually modified (excludes no-ops as reported by the backend).
 - **`PatchAllAsync(...)`** returns `Task<long>` — the number of documents modified by the query.
@@ -211,18 +214,25 @@ Errors (document not found, version conflicts) throw exceptions rather than retu
 - **Date tracking**: Models implementing `IHaveDates` have `UpdatedUtc` set automatically on partial updates. This injected timestamp change means `PartialPatch` will almost always report `true` even when no other field values changed.
 - **Script patches**: Elasticsearch does not detect noops for script-based updates automatically. Your script must explicitly set `ctx.op = 'none'` to signal a no-op. See [Script Noop Example](#script-noop-example) below.
 - **JsonPatch**: Uses a get-modify-reindex pattern (Index API), so a write always occurs and `true` is always returned.
-- **ActionPatch**: Noop detection is performed via before/after serialization comparison. If the action doesn't change any fields, the write is skipped entirely (including date tracking).
+- **ActionPatch (`Action<T>`)**: The `Action<T>` overload always assumes the document was modified. Use the `Func<T, bool>` overload and return `false` from your function to signal a no-op with zero overhead.
 :::
 
 ### Script Noop Example
 
 Use `ctx.op = 'none'` in your Painless script to conditionally skip the update. Elasticsearch evaluates `ctx.op` after the entire script executes, so placing it anywhere in the script works — even when automatic date tracking appends a timestamp assignment.
 
+> **Note:** Painless uses `==` for equality comparison (Java-style), not `===` (JavaScript-style). The `===` operator is not valid in Painless.
+
 ```csharp
 // Only update if the value actually changes
 bool modified = await repository.PatchAsync(id, new ScriptPatch(
-    "if (ctx._source.status == params.newStatus) { ctx.op = 'none'; } " +
-    "else { ctx._source.status = params.newStatus; }")
+    """
+    if (ctx._source.status == params.newStatus) {
+        ctx.op = 'none';
+    } else {
+        ctx._source.status = params.newStatus;
+    }
+    """)
 {
     Params = new Dictionary<string, object> { ["newStatus"] = "active" }
 });
@@ -236,8 +246,13 @@ For bulk operations, noop documents are excluded from the modified count:
 long modifiedCount = await repository.PatchAsync(
     new Ids(id1, id2, id3),
     new ScriptPatch(
-        "if (ctx._source.status == params.newStatus) { ctx.op = 'none'; } " +
-        "else { ctx._source.status = params.newStatus; }")
+        """
+        if (ctx._source.status == params.newStatus) {
+            ctx.op = 'none';
+        } else {
+            ctx._source.status = params.newStatus;
+        }
+        """)
     {
         Params = new Dictionary<string, object> { ["newStatus"] = "active" }
     });
@@ -247,21 +262,30 @@ long modifiedCount = await repository.PatchAsync(
 
 ### ActionPatch Noop Detection
 
-`ActionPatch` compares the serialized document before and after your action runs. If nothing changed, the write to Elasticsearch is skipped entirely — no Index API call, no date tracking update, no cache invalidation:
+`ActionPatch` supports two modes — fire-and-forget with `Action<T>`, or explicit noop signaling with `Func<T, bool>`. The `Func<T, bool>` overload lets your action return `false` to signal a no-op. When all actions return `false`, the write to Elasticsearch is skipped entirely — no Index API call, no date tracking update, no cache invalidation. There is zero performance overhead for noop detection since it uses the return value directly (no serialization or comparison).
+
+The `Action<T>` overload always assumes the document was modified (returns `true` internally). Use `Func<T, bool>` when you want to conditionally skip writes:
 
 ```csharp
-// This returns false if the employee's name is already "Alice"
-bool modified = await repository.PatchAsync(id,
+// Action<T> — always treated as modified (backward compatible)
+await repository.PatchAsync(id,
     new ActionPatch<Employee>(e => e.Name = "Alice"));
 
-// Conditional logic also works — noop when no branch executes a change
+// Func<T, bool> — return false to skip the write when nothing changed
 bool modified = await repository.PatchAsync(id,
     new ActionPatch<Employee>(e =>
     {
-        if (e.Score < threshold)
-            e.Status = "needs-review";
+        if (e.Name == "Alice")
+            return false;
+
+        e.Name = "Alice";
+        return true;
     }));
+
+// modified == false when the employee's name was already "Alice"
 ```
+
+For bulk operations (`PatchAsync(Ids, ...)` and `PatchAllAsync`), the same pattern applies — documents where all actions return `false` are skipped entirely and not sent to Elasticsearch.
 
 ## Patching Multiple Documents
 
