@@ -170,9 +170,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             ThrowForBulkErrors(result, isCreateOperation: false);
     }
 
-    public async Task<bool> PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options)
+    public Task<bool> PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options)
     {
-        return await PatchAsync(id, operation, options.Configure()).AnyContext();
+        return PatchAsync(id, operation, options.Configure());
     }
 
     public virtual async Task<bool> PatchAsync(Id id, IPatchOperation operation, ICommandOptions options = null)
@@ -224,7 +224,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     response.OriginalException);
             }
 
-            modified = response.Result != Result.Noop;
+            modified = response.Result is not Result.Noop;
         }
         else if (operation is PartialPatch partialOperation)
         {
@@ -256,11 +256,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     response.OriginalException);
             }
 
-            modified = response.Result != Result.Noop;
+            modified = response.Result is not Result.Noop;
         }
         else if (operation is JsonPatch jsonOperation)
         {
-            if (jsonOperation.Patch == null || jsonOperation.Patch.Operations.Count == 0)
+            if (jsonOperation.Patch is null or { Operations.Count: 0 })
                 return false;
 
             var policy = _resiliencePolicy;
@@ -320,7 +320,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
         else if (operation is ActionPatch<T> actionPatch)
         {
-            if (actionPatch.Actions == null || actionPatch.Actions.Count == 0)
+            if (actionPatch.Actions is null or { Count: 0 })
                 return false;
 
             var policy = _resiliencePolicy;
@@ -368,19 +368,22 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
 
         // TODO: Find a good way to invalidate cache and send changed notification
-        await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
-        if (IsCacheEnabled)
-            await InvalidateCacheAsync(id).AnyContext();
+        if (modified)
+        {
+            await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
+            if (IsCacheEnabled)
+                await InvalidateCacheAsync(id).AnyContext();
 
-        if (options.ShouldNotify())
-            await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
+            if (options.ShouldNotify())
+                await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
+        }
 
         return modified;
     }
 
-    public async Task<long> PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options)
+    public Task<long> PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options)
     {
-        return await PatchAsync(ids, operation, options.Configure()).AnyContext();
+        return PatchAsync(ids, operation, options.Configure());
     }
 
     public virtual async Task<long> PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions options = null)
@@ -454,17 +457,19 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         var result = BulkResult.From(bulkResponse);
 
-        var successIds = result.IsSuccess ? ids : ids.Where(id => result.SuccessfulIds.Contains(id.Value)).ToList();
-        if (successIds.Count > 0)
+        var modifiedIds = result.IsSuccess
+            ? ids.Where(id => !result.NoopIds.Contains(id.Value)).ToList()
+            : ids.Where(id => result.SuccessfulIds.Contains(id.Value) && !result.NoopIds.Contains(id.Value)).ToList();
+        if (modifiedIds.Count > 0)
         {
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
             if (IsCacheEnabled)
-                await InvalidateCacheAsync(successIds.Select(id => id.Value)).AnyContext();
+                await InvalidateCacheAsync(modifiedIds.Select(id => id.Value)).AnyContext();
 
             if (options.ShouldNotify())
             {
-                var tasks = new List<Task>(successIds.Count);
-                foreach (var id in successIds)
+                var tasks = new List<Task>(modifiedIds.Count);
+                foreach (var id in modifiedIds)
                     tasks.Add(PublishChangeTypeMessageAsync(ChangeType.Saved, id));
 
                 await Task.WhenAll(tasks).AnyContext();

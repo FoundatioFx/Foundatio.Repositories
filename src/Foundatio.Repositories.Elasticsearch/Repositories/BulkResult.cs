@@ -50,7 +50,7 @@ internal sealed record BulkResult
         return new BulkResult
         {
             SuccessfulIds = validItems.Select(i => i.Id).ToHashSet(),
-            NoopIds = validItems.Where(i => i.Result == "noop").Select(i => i.Id).ToHashSet(),
+            NoopIds = validItems.Where(i => String.Equals(i.Result, "noop", StringComparison.Ordinal)).Select(i => i.Id).ToHashSet(),
             ConflictIds = errors.Where(e => e.Status is 409).Select(e => e.Id).ToHashSet(),
             RetryableIds = errors.Where(e => e.Status is 429 or 503).Select(e => e.Id).ToHashSet(),
             FatalIds = errors.Where(e => e.Status is not 409 and not 429 and not 503).Select(e => e.Id).ToHashSet()

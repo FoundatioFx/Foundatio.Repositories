@@ -197,8 +197,11 @@ await repository.PatchAsync(id, new ActionPatch<Employee>(e =>
 
 All `PatchAsync` overloads return status information:
 
-- **`PatchAsync(Id, ...)`** returns `Task<bool>` — `true` if the document was modified, `false` if the operation was a no-op (e.g., setting a field to its current value, empty operations, or a script that sets `ctx.op = 'none'`).
-- **`PatchAsync(Ids, ...)`** returns `Task<long>` — the number of documents actually modified (excludes no-ops).
+- **`PatchAsync(Id, ...)`** returns `Task<bool>` -- `true` if the document was modified, `false` if the operation was treated as a no-op.
+  - For `PartialPatch`, Elasticsearch's automatic noop detection reports `false` when the update does not change any field values (e.g., setting a field to its current value).
+  - For `ScriptPatch`, the operation is only a no-op when the script explicitly sets `ctx.op = 'none'`; simply reassigning the same value in a script is treated as a modification by Elasticsearch.
+  - For `JsonPatch` and `ActionPatch`, operations always return `true` (these use get-modify-reindex, so a write always occurs). Empty operations (no patches/actions) return `false`.
+- **`PatchAsync(Ids, ...)`** returns `Task<long>` -- the number of documents actually modified (excludes no-ops as reported by the backend).
 - **`PatchAllAsync(...)`** returns `Task<long>` — the number of documents modified by the query.
 
 Errors (document not found, version conflicts) throw exceptions rather than returning a status value. See [Error Handling](#error-handling) for details.
