@@ -26,7 +26,7 @@ public interface IVersionedIndex : IIndex
     ReindexWorkItem CreateReindexWorkItem(int currentVersion);
 }
 
-public partial class VersionedIndex : Index, IVersionedIndex
+public class VersionedIndex : Index, IVersionedIndex
 {
     public VersionedIndex(IElasticConfiguration configuration, string name, int version = 1)
         : base(configuration, name)
@@ -82,14 +82,13 @@ public partial class VersionedIndex : Index, IVersionedIndex
         ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script });
     }
 
+    private static readonly Regex _validFieldPathRegex = new(@"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$", RegexOptions.Compiled);
+
     private static void ValidateFieldPath(string fieldPath)
     {
-        if (!ValidFieldPathRegex().IsMatch(fieldPath))
+        if (!_validFieldPathRegex.IsMatch(fieldPath))
             throw new ArgumentException($"Field path '{fieldPath}' is not a valid dotted field path.", nameof(fieldPath));
     }
-
-    [GeneratedRegex(@"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$")]
-    private static partial Regex ValidFieldPathRegex();
 
     private static string BuildContainsKeyGuard(string fieldPath)
     {
