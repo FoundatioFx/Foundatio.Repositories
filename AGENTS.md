@@ -84,6 +84,11 @@ samples
 - Run `dotnet format` to auto-format code
 - Match existing file style; minimize diffs
 - No code comments unless necessary—code should be self-explanatory
+- **Pattern matching over equality operators**: Use `is null` / `is not null` instead of `== null` / `!= null`. Use `is 0` / `is 1` instead of `== 0` / `== 1`
+- **Guard clauses**: Use `ArgumentNullException.ThrowIfNull(param)` instead of manual `if (param == null) throw`
+- **Multi-line bodies**: Always use braces and separate lines for if/else bodies and lambda bodies—no single-line `{ action(); return true; }` patterns
+- **Raw string literals**: Use `"""..."""` for multi-line strings. Never use string concatenation (`+`) to build script or query strings
+- **Domain-correct syntax in scripts**: Verify operator syntax for the target language (e.g., Painless uses `==` not `===`; NEST uses specific query DSL methods)
 
 ### Architecture Patterns
 
@@ -193,6 +198,51 @@ Before marking work complete, verify:
 - **Meaningful messages**: Include parameter names and expected values in exception messages
 - **Don't swallow exceptions**: Log and rethrow, or let propagate unless you can handle properly
 - **Use guard clauses**: Early returns for invalid conditions, keep happy path unindented
+
+### Post-Implementation Design Review
+
+After the code compiles and tests pass, perform a design quality review before considering work complete. Tests passing means the code is correct—this review ensures it is also **well-designed, complete, and maintainable**. Walk through each check explicitly:
+
+#### 1. Design Simplicity
+
+For every abstraction, type, and mechanism you introduced, ask:
+
+- **Is there a simpler way?** If you used serialization, reflection, or complex infrastructure—could a simple callback, flag, or return value achieve the same result? Prefer the approach with the fewest moving parts.
+- **Who controls the behavior?** Prefer giving callers explicit control (e.g., `Func<T, bool>`) over magic behavior (e.g., automatic JSON comparison). Callers know their domain better than infrastructure code.
+- **Would a senior engineer question this?** If the approach needs a paragraph to justify, it's probably too complex.
+
+#### 2. API Consistency
+
+- **Return types**: Do similar methods return similar types? If one overload returns `Task<bool>`, related overloads should follow the same pattern.
+- **Parameter validation**: Every public method entry point validates inputs the same way (`ArgumentNullException.ThrowIfNull`, pattern matching). Check that refactoring didn't silently drop null checks or change validation behavior (e.g., `action?.Invoke` becoming `action(...)` without a null guard).
+- **Naming and style**: Use `is` pattern matching over `==` for null/zero/type checks. Use `ThrowIfNull` over manual `if == null` throws. Multi-line bodies for if statements and lambdas. Match the surrounding code exactly—don't introduce stylistic inconsistencies in your changes.
+
+#### 3. Complete Implementation
+
+- **No TODO comments for core functionality**: If a feature has a TODO for a path that should work, implement it now. TODOs are acceptable for known future optimizations, not for incomplete behavior that callers expect to work.
+- **All code paths**: If single-document path handles noop detection, the bulk path must too. If a method has early exits, verify they run before any side effects (e.g., `EnsureIndexAsync`).
+- **Side effects gated correctly**: Cache invalidation, change notifications, and message publishing should only fire when something actually changed. Trace every side-effect trigger and verify it's gated on the actual modification status.
+
+#### 4. Documentation Completeness
+
+- **XML docs on public types**: Every public class and interface method has XML docs that describe **behavior**, not just parameters. For operations with nuanced behavior (like noop detection varying by type), document the specifics in `<remarks>` or `<returns>` tags.
+- **Feature docs updated**: Any new behavior, return type change, or API addition needs corresponding updates in `docs/guide/`.
+- **Code samples compile**: Mentally (or actually) verify every code sample in documentation would compile and produce the described result. Use modern C# idioms (raw strings, not string concat; correct operator syntax for the target language like Painless `==` not `===`).
+- **Limitations documented**: If a feature has known limitations (e.g., cached bulk path overcount), document them explicitly—both in code comments and in user-facing docs.
+
+#### 5. Performance Audit
+
+- **Hot path allocations**: Did you introduce new allocations (serialization, string building, LINQ `.ToList()`) in paths that execute per-document or per-request? Can they be avoided?
+- **Unnecessary I/O**: Are early exits placed before any network calls? An empty operation should never trigger an Elasticsearch request.
+- **Bulk operation efficiency**: For batch paths, verify you're not sending empty bulk requests or including unchanged documents in writes.
+
+#### 6. Refactoring Safety
+
+When changing types, signatures, or internal behavior:
+
+- **Trace all callers**: Search for every usage of the changed API. Verify each caller still works correctly with the new semantics.
+- **Defensive code preserved**: If the original code had null-safety (`?.Invoke`), ensure the refactored version maintains equivalent safety or adds explicit validation.
+- **Backward compatibility**: If the public API signature changes, verify that existing calling code compiles and behaves identically without modification.
 
 ## Security
 
