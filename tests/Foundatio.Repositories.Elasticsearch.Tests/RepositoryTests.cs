@@ -2131,12 +2131,13 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_MultipleIdsWithScript_ReturnsModifiedCount()
     {
         // Arrange
-        var emp1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice", age: 25), o => o.ImmediateConsistency());
-        var emp2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Bob", age: 30), o => o.ImmediateConsistency());
+        var employeeAlice = EmployeeGenerator.Generate(name: "Alice", age: 25);
+        var employeeBob = EmployeeGenerator.Generate(name: "Bob", age: 30);
+        await _employeeRepository.AddAsync(new List<Employee> { employeeAlice, employeeBob }, o => o.ImmediateConsistency());
 
         // Act
         long modifiedCount = await _employeeRepository.PatchAsync(
-            new Ids(emp1.Id, emp2.Id),
+            new Ids(employeeAlice.Id, employeeBob.Id),
             new ScriptPatch("ctx._source.name = 'Changed';"));
 
         // Assert
@@ -2147,12 +2148,13 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_MultipleIdsWithScriptNoop_ExcludesNoopsFromCount()
     {
         // Arrange
-        var emp1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice", age: 25), o => o.ImmediateConsistency());
-        var emp2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Target", age: 30), o => o.ImmediateConsistency());
+        var employeeAlice = EmployeeGenerator.Generate(name: "Alice", age: 25);
+        var employeeTarget = EmployeeGenerator.Generate(name: "Target", age: 30);
+        await _employeeRepository.AddAsync(new List<Employee> { employeeAlice, employeeTarget }, o => o.ImmediateConsistency());
 
         // Act
         long modifiedCount = await _employeeRepository.PatchAsync(
-            new Ids(emp1.Id, emp2.Id),
+            new Ids(employeeAlice.Id, employeeTarget.Id),
             new ScriptPatch("if (ctx._source.name == params.target) { ctx.op = 'none'; } else { ctx._source.name = params.target; }")
             { Params = new Dictionary<string, object> { ["target"] = "Target" } });
 
@@ -2176,12 +2178,13 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_MultipleIdsWithPartialPatch_ReturnsModifiedCount()
     {
         // Arrange
-        var emp1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice", age: 25), o => o.ImmediateConsistency());
-        var emp2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Bob", age: 30), o => o.ImmediateConsistency());
+        var employeeAlice = EmployeeGenerator.Generate(name: "Alice", age: 25);
+        var employeeBob = EmployeeGenerator.Generate(name: "Bob", age: 30);
+        await _employeeRepository.AddAsync(new List<Employee> { employeeAlice, employeeBob }, o => o.ImmediateConsistency());
 
         // Act
         long modifiedCount = await _employeeRepository.PatchAsync(
-            new Ids(emp1.Id, emp2.Id),
+            new Ids(employeeAlice.Id, employeeBob.Id),
             new PartialPatch(new { name = "Changed" }));
 
         // Assert
@@ -2233,12 +2236,13 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_MultipleIdsWithActionPatchNoop_ReturnsZero()
     {
         // Arrange
-        var emp1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice", age: 25), o => o.ImmediateConsistency());
-        var emp2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Bob", age: 30), o => o.ImmediateConsistency());
+        var employeeAlice = EmployeeGenerator.Generate(name: "Alice", age: 25);
+        var employeeBob = EmployeeGenerator.Generate(name: "Bob", age: 30);
+        await _employeeRepository.AddAsync(new List<Employee> { employeeAlice, employeeBob }, o => o.ImmediateConsistency());
 
         // Act — both actions return false (noop)
         long modifiedCount = await _employeeRepository.PatchAsync(
-            new Ids(emp1.Id, emp2.Id),
+            new Ids(employeeAlice.Id, employeeBob.Id),
             new ActionPatch<Employee>(e => false));
 
         // Assert
@@ -2249,12 +2253,13 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_MultipleIdsWithActionPatchMixed_ReturnsOnlyModifiedCount()
     {
         // Arrange
-        var emp1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice", age: 25), o => o.ImmediateConsistency());
-        var emp2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Target", age: 30), o => o.ImmediateConsistency());
+        var employeeAlice = EmployeeGenerator.Generate(name: "Alice", age: 25);
+        var employeeTarget = EmployeeGenerator.Generate(name: "Target", age: 30);
+        await _employeeRepository.AddAsync(new List<Employee> { employeeAlice, employeeTarget }, o => o.ImmediateConsistency());
 
         // Act — only the non-Target employee should be modified
         long modifiedCount = await _employeeRepository.PatchAsync(
-            new Ids(emp1.Id, emp2.Id),
+            new Ids(employeeAlice.Id, employeeTarget.Id),
             new ActionPatch<Employee>(e =>
             {
                 if (e.Name == "Target")
@@ -2308,8 +2313,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAllAsync_ActionPatchNoop_ReturnsZero()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice", age: 25), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Bob", age: 30), o => o.ImmediateConsistency());
+        var employeeAlice = EmployeeGenerator.Generate(name: "Alice", age: 25);
+        var employeeBob = EmployeeGenerator.Generate(name: "Bob", age: 30);
+        await _employeeRepository.AddAsync(new List<Employee> { employeeAlice, employeeBob }, o => o.ImmediateConsistency());
 
         // Act
         long modifiedCount = await _employeeRepository.PatchAllAsync(
@@ -2325,8 +2331,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAllAsync_ActionPatchMixed_ReturnsOnlyModifiedCount()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice", age: 25), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Target", age: 30), o => o.ImmediateConsistency());
+        var employeeAlice = EmployeeGenerator.Generate(name: "Alice", age: 25);
+        var employeeTarget = EmployeeGenerator.Generate(name: "Target", age: 30);
+        await _employeeRepository.AddAsync(new List<Employee> { employeeAlice, employeeTarget }, o => o.ImmediateConsistency());
 
         // Act — only Alice should be modified
         long modifiedCount = await _employeeRepository.PatchAllAsync(
@@ -2349,8 +2356,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAllAsync_ScriptNoop_ReturnsOnlyModifiedCount()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice", age: 25), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Target", age: 30), o => o.ImmediateConsistency());
+        var employeeAlice = EmployeeGenerator.Generate(name: "Alice", age: 25);
+        var employeeTarget = EmployeeGenerator.Generate(name: "Target", age: 30);
+        await _employeeRepository.AddAsync(new List<Employee> { employeeAlice, employeeTarget }, o => o.ImmediateConsistency());
 
         // Act — only Alice should be modified
         long modifiedCount = await _employeeRepository.PatchAllAsync(
@@ -2373,13 +2381,14 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_MultipleIdsWithJsonPatch_ReturnsModifiedCount()
     {
         // Arrange
-        var emp1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice", age: 25), o => o.ImmediateConsistency());
-        var emp2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Bob", age: 30), o => o.ImmediateConsistency());
+        var employeeAlice = EmployeeGenerator.Generate(name: "Alice", age: 25);
+        var employeeBob = EmployeeGenerator.Generate(name: "Bob", age: 30);
+        await _employeeRepository.AddAsync(new List<Employee> { employeeAlice, employeeBob }, o => o.ImmediateConsistency());
         var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Changed" });
 
         // Act
         long modifiedCount = await _employeeRepository.PatchAsync(
-            new Ids(emp1.Id, emp2.Id),
+            new Ids(employeeAlice.Id, employeeBob.Id),
             new JsonPatch(patch));
 
         // Assert

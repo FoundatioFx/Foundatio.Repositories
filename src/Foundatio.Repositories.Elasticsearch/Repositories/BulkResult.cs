@@ -18,7 +18,7 @@ internal sealed record BulkResult
     public IReadOnlySet<string> RetryableIds { get; init; } = _emptySet;
     public IReadOnlySet<string> FatalIds { get; init; } = _emptySet;
 
-    public int ModifiedCount => SuccessfulIds.Count - NoopIds.Count;
+    public long ModifiedCount => SuccessfulIds.Count - NoopIds.Count;
 
     public string TransportError { get; init; }
     public Exception TransportException { get; init; }
