@@ -384,35 +384,44 @@ public sealed class ReindexScriptTests
     [InlineData("field\\name")]
     public void RenameFieldScript_WithScriptInjectionInCurrentName_ThrowsArgumentException(string currentName)
     {
+        // Arrange
         var index = new TestableVersionedIndex(2);
 
+        // Act / Assert
         Assert.Throws<ArgumentException>(() => index.TestRenameFieldScript(2, "validField", currentName));
     }
 
     [Fact]
     public void RenameFieldScript_WithSameSourceAndTarget_ThrowsArgumentException()
     {
+        // Arrange
         var index = new TestableVersionedIndex(2);
 
+        // Act / Assert
         Assert.Throws<ArgumentException>(() => index.TestRenameFieldScript(2, "fieldName", "fieldName"));
     }
 
     [Fact]
     public void RenameFieldScript_WithSameNestedSourceAndTarget_ThrowsArgumentException()
     {
+        // Arrange
         var index = new TestableVersionedIndex(2);
 
+        // Act / Assert
         Assert.Throws<ArgumentException>(() => index.TestRenameFieldScript(2, "data.field", "data.field"));
     }
 
     [Fact]
     public void RenameFieldScript_WithSingleCharacterFields_ProducesCorrectScript()
     {
+        // Arrange
         var index = new TestableVersionedIndex(5);
         index.TestRenameFieldScript(2, "a", "b");
 
+        // Act
         string result = index.TestGetReindexScripts(1);
 
+        // Assert
         Assert.Contains("containsKey('a')", result);
         Assert.Contains("ctx._source.b = ctx._source.a;", result);
         Assert.Contains("remove('a')", result);
@@ -421,11 +430,14 @@ public sealed class ReindexScriptTests
     [Fact]
     public void RenameFieldScript_WithDeeplyNestedFiveLevels_ProducesCorrectScript()
     {
+        // Arrange
         var index = new TestableVersionedIndex(5);
         index.TestRenameFieldScript(2, "a.b.c.d.e", "a.b.c.d.f", remove: false);
 
+        // Act
         string result = index.TestGetReindexScripts(1);
 
+        // Assert
         Assert.Contains("ctx._source.a != null", result);
         Assert.Contains("ctx._source.a.b != null", result);
         Assert.Contains("ctx._source.a.b.c != null", result);
@@ -437,13 +449,16 @@ public sealed class ReindexScriptTests
     [Fact]
     public void GetReindexScripts_WithMultiVersionRenameAndRemove_CombinesAllScripts()
     {
+        // Arrange
         var index = new TestableVersionedIndex(4);
         index.TestRenameFieldScript(2, "oldName", "newName");
         index.TestRemoveFieldScript(3, "data.legacy");
         index.TestAddReindexScript(4, "ctx._source.migrated = true;");
 
+        // Act
         string result = index.TestGetReindexScripts(1);
 
+        // Assert
         Assert.Contains("newName", result);
         Assert.Contains("remove('oldName')", result);
         Assert.Contains("data.remove('legacy')", result);
@@ -455,17 +470,71 @@ public sealed class ReindexScriptTests
     }
 
     [Theory]
-    [InlineData("field with space")]
-    [InlineData("field;name")]
-    [InlineData("field(name)")]
-    [InlineData("@timestamp")]
-    [InlineData("field-name")]
-    [InlineData("123field")]
-    public void RenameFieldScript_WithNonIdentifierCharacters_ThrowsArgumentException(string fieldPath)
+    [InlineData("field with space", "ctx._source.containsKey('field with space')", "ctx._source['field with space']")]
+    [InlineData("field-name", "ctx._source.containsKey('field-name')", "ctx._source['field-name']")]
+    [InlineData("@timestamp", "ctx._source.containsKey('@timestamp')", "ctx._source['@timestamp']")]
+    [InlineData("123field", "ctx._source.containsKey('123field')", "ctx._source['123field']")]
+    [InlineData("field;name", "ctx._source.containsKey('field;name')", "ctx._source['field;name']")]
+    [InlineData("field(name)", "ctx._source.containsKey('field(name)')", "ctx._source['field(name)']")]
+    public void RenameFieldScript_WithSpecialCharacters_UsesBracketNotation(string fieldPath, string expectedGuard, string expectedAccessor)
     {
+        // Arrange
         var index = new TestableVersionedIndex(2);
 
+        // Act
+        index.TestRenameFieldScript(2, fieldPath, "target");
+        string script = index.TestGetReindexScripts(1);
+
+        // Assert
+        Assert.Contains(expectedGuard, script);
+        Assert.Contains(expectedAccessor, script);
+    }
+
+    [Theory]
+    [InlineData("data.@timestamp", "ctx._source.data != null && ctx._source.data.containsKey('@timestamp')", "ctx._source.data['@timestamp']")]
+    [InlineData("data.field-name", "ctx._source.data != null && ctx._source.data.containsKey('field-name')", "ctx._source.data['field-name']")]
+    public void RenameFieldScript_WithNestedSpecialCharacters_UsesBracketNotation(string fieldPath, string expectedGuard, string expectedAccessor)
+    {
+        // Arrange
+        var index = new TestableVersionedIndex(2);
+
+        // Act
+        index.TestRenameFieldScript(2, fieldPath, "target");
+        string script = index.TestGetReindexScripts(1);
+
+        // Assert
+        Assert.Contains(expectedGuard, script);
+        Assert.Contains(expectedAccessor, script);
+    }
+
+    [Theory]
+    [InlineData("field'name")]
+    [InlineData("field\\name")]
+    public void RenameFieldScript_WithPainlessLiteralBreakingCharacters_ThrowsArgumentException(string fieldPath)
+    {
+        // Arrange
+        var index = new TestableVersionedIndex(2);
+
+        // Act / Assert
         Assert.Throws<ArgumentException>(() => index.TestRenameFieldScript(2, fieldPath, "valid"));
+    }
+
+    [Theory]
+    [InlineData("if", "ctx._source.containsKey('if')", "ctx._source['if']")]
+    [InlineData("return", "ctx._source.containsKey('return')", "ctx._source['return']")]
+    [InlineData("def", "ctx._source.containsKey('def')", "ctx._source['def']")]
+    public void RenameFieldScript_WithPainlessReservedKeyword_UsesBracketNotation(string fieldPath, string expectedGuard, string expectedAccessor)
+    {
+        // Arrange
+        var index = new TestableVersionedIndex(2);
+
+        // Act
+        index.TestRenameFieldScript(2, fieldPath, "target");
+        string script = index.TestGetReindexScripts(1);
+
+        // Assert
+        Assert.Contains(expectedGuard, script);
+        Assert.Contains(expectedAccessor, script);
     }
 
     private sealed class TestableVersionedIndex : VersionedIndex

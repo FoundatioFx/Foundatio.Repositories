@@ -4,12 +4,12 @@ using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
+using Foundatio.Repositories.Elasticsearch.Utility;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
@@ -26,7 +26,7 @@ public interface IVersionedIndex : IIndex
     ReindexWorkItem CreateReindexWorkItem(int currentVersion);
 }
 
-public partial class VersionedIndex : Index, IVersionedIndex
+public class VersionedIndex : Index, IVersionedIndex
 {
     public VersionedIndex(IElasticConfiguration configuration, string name, int version = 1)
         : base(configuration, name)
@@ -55,8 +55,8 @@ public partial class VersionedIndex : Index, IVersionedIndex
     {
         ArgumentException.ThrowIfNullOrEmpty(originalName);
         ArgumentException.ThrowIfNullOrEmpty(currentName);
-        ValidateFieldPath(originalName);
-        ValidateFieldPath(currentName);
+        PainlessFieldPath.Validate(originalName);
+        PainlessFieldPath.Validate(currentName);
 
         if (String.Equals(originalName, currentName, StringComparison.Ordinal))
             throw new ArgumentException($"Original name '{originalName}' and current name cannot be the same.", nameof(currentName));
@@ -74,22 +74,13 @@ public partial class VersionedIndex : Index, IVersionedIndex
     protected void RemoveFieldScript(int versionNumber, string fieldName)
     {
         ArgumentException.ThrowIfNullOrEmpty(fieldName);
-        ValidateFieldPath(fieldName);
+        PainlessFieldPath.Validate(fieldName);
 
         string guard = BuildContainsKeyGuard(fieldName);
         string removal = BuildFieldRemoval(fieldName);
         string script = $"if ({guard}) {{ {removal} }}";
         ReindexScripts.Add(new ReindexScript { Version = versionNumber, Script = script });
     }
-
-    private static void ValidateFieldPath(string fieldPath)
-    {
-        if (!ValidFieldPathRegex().IsMatch(fieldPath))
-            throw new ArgumentException($"Field path '{fieldPath}' is not a valid dotted field path.", nameof(fieldPath));
-    }
-
-    [GeneratedRegex(@"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$")]
-    private static partial Regex ValidFieldPathRegex();
 
     private static string BuildContainsKeyGuard(string fieldPath)
     {
@@ -105,8 +96,9 @@ public partial class VersionedIndex : Index, IVersionedIndex
         {
             if (sb.Length > 0)
                 sb.Append(" && ");
-            sb.Append(prefix).Append('.').Append(segment).Append(" != null");
-            prefix = $"{prefix}.{segment}";
+            string accessor = PainlessFieldPath.AppendSegment(prefix, segment);
+            sb.Append(accessor).Append(" != null");
+            prefix = accessor;
         }
 
         sb.Append(" && ").Append(prefix).Append(".containsKey('").Append(leaf).Append("')");
@@ -115,28 +107,33 @@ public partial class VersionedIndex : Index, IVersionedIndex
 
     private static string BuildFieldAccessor(string fieldPath)
     {
-        return $"ctx._source.{fieldPath}";
+        var segments = fieldPath.Split('.');
+        var prefix = "ctx._source";
+        foreach (string segment in segments)
+            prefix = PainlessFieldPath.AppendSegment(prefix, segment);
+        return prefix;
     }
 
     private static string BuildFieldAssignment(string targetPath, string valueExpression)
     {
         int dotIndex = targetPath.LastIndexOf('.');
         if (dotIndex < 0)
-            return $"ctx._source.{targetPath} = {valueExpression};";
+            return $"{PainlessFieldPath.AppendSegment("ctx._source", targetPath)} = {valueExpression};";
 
         var segments = targetPath[..dotIndex].Split('.');
         var sb = new StringBuilder();
         var prefix = "ctx._source";
         foreach (string segment in segments)
         {
-            sb.Append("if (").Append(prefix).Append('.').Append(segment)
-              .Append(" == null) { ").Append(prefix).Append('.').Append(segment)
+            string accessor = PainlessFieldPath.AppendSegment(prefix, segment);
+            sb.Append("if (").Append(accessor)
+              .Append(" == null) { ").Append(accessor)
               .Append(" = [:]; } ");
-            prefix = $"{prefix}.{segment}";
+            prefix = accessor;
         }
 
         string leaf = targetPath[(dotIndex + 1)..];
-        sb.Append(prefix).Append('.').Append(leaf).Append(" = ").Append(valueExpression).Append(';');
+        sb.Append(PainlessFieldPath.AppendSegment(prefix, leaf)).Append(" = ").Append(valueExpression).Append(';');
         return sb.ToString();
     }
 
@@ -147,7 +144,11 @@ public partial class VersionedIndex : Index, IVersionedIndex
             return $"ctx._source.remove('{fieldPath}');";
 
         string leaf = fieldPath[(dotIndex + 1)..];
-        return $"ctx._source.{fieldPath[..dotIndex]}.remove('{leaf}');";
+        var parentSegments = fieldPath[..dotIndex].Split('.');
+        var prefix = "ctx._source";
+        foreach (string segment in parentSegments)
+            prefix = PainlessFieldPath.AppendSegment(prefix, segment);
+        return $"{prefix}.remove('{leaf}');";
     }
 
     public override async Task ConfigureAsync()

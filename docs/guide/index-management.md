@@ -298,7 +298,7 @@ await configuration.ConfigureIndexesAsync();
 
 ### Field Operations During Reindex
 
-`RenameFieldScript` and `RemoveFieldScript` generate Painless scripts that use dot-notation property access (e.g. `ctx._source.data.field`). Field path segments must be valid Painless identifiers: start with a letter or underscore, followed by letters, digits, or underscores. Field names containing hyphens, `@`, spaces, or other special characters are rejected. For those fields, use `AddReindexScript` with bracket notation instead (e.g. `ctx._source['@timestamp']`).
+`RenameFieldScript` and `RemoveFieldScript` generate Painless scripts that automatically handle field names with special characters. Standard identifiers use dot-notation (e.g. `ctx._source.data.field`), while field names containing hyphens, `@`, spaces, or other non-identifier characters automatically use bracket notation (e.g. `ctx._source['@timestamp']`). The only characters that cannot appear in a field path are single quotes (`'`) and backslashes (`\`), since they would break Painless string literals.
 
 #### Rename a Field
 
