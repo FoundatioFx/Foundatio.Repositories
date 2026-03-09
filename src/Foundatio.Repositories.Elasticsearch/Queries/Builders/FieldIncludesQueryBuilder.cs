@@ -224,6 +224,7 @@ namespace Foundatio.Repositories
         }
 
         internal const string ExcludesMaskKey = "@ExcludesMask";
+        internal const string RequiredFieldsKey = "@RequiredFields";
 
         /// <summary>
         /// Sets a field mask expression that specifies which fields to exclude. The expression uses a
@@ -234,6 +235,16 @@ namespace Foundatio.Repositories
         public static T ExcludeMask<T>(this T options, string maskExpression) where T : ICommandOptions
         {
             return options.BuildOption(ExcludesMaskKey, maskExpression);
+        }
+
+        /// <summary>
+        /// Registers fields that must always be included when any <c>_source</c> field restrictions are active.
+        /// These are typically set by the repository via <c>ConfigureOptions</c> to carry <c>AddRequiredField</c>
+        /// registrations into the query builder pipeline.
+        /// </summary>
+        internal static T RequiredFields<T>(this T options, IEnumerable<Field> fields) where T : ICommandOptions
+        {
+            return options.AddCollectionOptionValue(RequiredFieldsKey, fields);
         }
     }
 }
@@ -284,6 +295,11 @@ namespace Foundatio.Repositories.Options
         {
             return options.SafeGetOption<string>(FieldIncludesCommandExtensions.ExcludesMaskKey);
         }
+
+        public static ICollection<Field> GetRequiredFields(this ICommandOptions options)
+        {
+            return options.SafeGetCollection<Field>(FieldIncludesCommandExtensions.RequiredFieldsKey);
+        }
     }
 }
 
@@ -317,8 +333,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             var includes = new HashSet<Field>();
             includes.AddRange(ctx.Source.GetIncludes());
             includes.AddRange(ctx.Options.GetIncludes());
-            if (includes.Count > 0 && typeof(Models.IIdentity).IsAssignableFrom(typeof(T)))
-                includes.Add(nameof(Models.IIdentity.Id));
 
             string queryIncludeMask = ctx.Source.GetIncludeMask();
             if (!String.IsNullOrEmpty(queryIncludeMask))
@@ -327,8 +341,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             string optionIncludeMask = ctx.Options.GetIncludeMask();
             if (!String.IsNullOrEmpty(optionIncludeMask))
                 includes.AddRange(FieldIncludeParser.ParseFieldPaths(optionIncludeMask).Select(f => (Field)f));
-
-            var resolvedIncludes = resolver.GetResolvedFields(includes).ToArray();
 
             var excludes = new HashSet<Field>();
             excludes.AddRange(ctx.Source.GetExcludes());
@@ -341,6 +353,19 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             string optionExcludeMask = ctx.Options.GetExcludeMask();
             if (!String.IsNullOrEmpty(optionExcludeMask))
                 excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
+
+            bool hasFieldRestrictions = includes.Count > 0 || excludes.Count > 0;
+            if (hasFieldRestrictions)
+            {
+                var requiredFields = ctx.Options.GetRequiredFields();
+                if (requiredFields.Count > 0)
+                    includes.AddRange(requiredFields);
+            }
+
+            if (includes.Count > 0 && typeof(Models.IIdentity).IsAssignableFrom(typeof(T)))
+                includes.Add(nameof(Models.IIdentity.Id));
+
+            var resolvedIncludes = resolver.GetResolvedFields(includes).ToArray();
 
             var resolvedExcludes = resolver.GetResolvedFields(excludes)
                 .Where(f => !resolvedIncludes.Contains(f))

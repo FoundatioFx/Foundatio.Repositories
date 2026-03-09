@@ -677,6 +677,8 @@ When using `RemoveAllAsync` with a query, the repository may use Elasticsearch's
 
 ### AddPropertyRequiredForRemove
 
+> **Deprecated**: `AddPropertyRequiredForRemove` is deprecated and will be removed in a future major version. Use `AddRequiredField` instead, which ensures fields are included in **all** source-filtered operations (not just removes). See [Required Fields](querying.md#required-fields) for details.
+
 This method ensures specific fields are included when fetching documents for removal:
 
 ```csharp

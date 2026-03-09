@@ -13,12 +13,16 @@ public sealed class QueryTests : ElasticRepositoryTestBase
 {
     private readonly ILogEventRepository _dailyRepository;
     private readonly ILogEventRepository _dailyWithCompanyDefaultExcludeRepository;
+    private readonly ILogEventRepository _dailyWithRequiredCompanyRepository;
+    private readonly ILogEventRepository _dailyWithRequiredCompanyAndDefaultExcludeRepository;
     private readonly IEmployeeRepository _employeeRepository;
 
     public QueryTests(ITestOutputHelper output) : base(output)
     {
         _dailyRepository = new DailyLogEventRepository(_configuration);
         _dailyWithCompanyDefaultExcludeRepository = new DailyLogEventWithCompanyDefaultExcludeRepository(_configuration);
+        _dailyWithRequiredCompanyRepository = new DailyLogEventWithRequiredCompanyRepository(_configuration);
+        _dailyWithRequiredCompanyAndDefaultExcludeRepository = new DailyLogEventWithRequiredCompanyAndDefaultExcludeRepository(_configuration);
         _employeeRepository = new EmployeeRepository(_configuration);
     }
 
@@ -621,4 +625,296 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(4, _cache.Hits);
         Assert.Equal(4, _cache.Misses);
     }
+
+    #region Required Fields Tests
+
+    [Fact]
+    public async Task FindAsync_WithIncludesAndRequiredField_ReturnsRequiredFieldInResults()
+    {
+        // Arrange
+        var log = await _dailyWithRequiredCompanyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _dailyWithRequiredCompanyRepository.FindAsync(q => q.Company(log.CompanyId).Include(e => e.Id).Include(l => l.CreatedUtc));
+
+        // Assert
+        Assert.Single(results.Documents);
+        var result = results.Documents.First();
+        Assert.Equal(log.Id, result.Id);
+        Assert.Equal(log.CreatedUtc, result.CreatedUtc);
+        Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Null(result.Message);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithIncludeMaskAndRequiredField_ReturnsRequiredFieldInResults()
+    {
+        // Arrange
+        var log = await _dailyWithRequiredCompanyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _dailyWithRequiredCompanyRepository.FindAsync(q => q.Company(log.CompanyId).IncludeMask("id,createdUtc"));
+
+        // Assert
+        Assert.Single(results.Documents);
+        var result = results.Documents.First();
+        Assert.Equal(log.Id, result.Id);
+        Assert.Equal(log.CreatedUtc, result.CreatedUtc);
+        Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Null(result.Message);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithExcludesAndRequiredField_ReturnsRequiredFieldInResults()
+    {
+        // Arrange
+        var log = await _dailyWithRequiredCompanyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _dailyWithRequiredCompanyRepository.FindAsync(q => q.Company(log.CompanyId).Exclude(e => e.Message));
+
+        // Assert
+        Assert.Single(results.Documents);
+        var result = results.Documents.First();
+        Assert.Equal(log.Id, result.Id);
+        Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Null(result.Message);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithNoFieldRestrictions_DoesNotInjectRequiredField()
+    {
+        // Arrange
+        var log = await _dailyWithRequiredCompanyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _dailyWithRequiredCompanyRepository.FindAsync(q => q.Company(log.CompanyId));
+
+        // Assert
+        Assert.Single(results.Documents);
+        Assert.Equal(log, results.Documents.First());
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WithIncludesAndRequiredField_ReturnsRequiredFieldInResult()
+    {
+        // Arrange
+        var log = await _dailyWithRequiredCompanyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _dailyWithRequiredCompanyRepository.GetByIdAsync(log.Id, o => o.Include(e => e.Id).Include(e => e.CreatedUtc));
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(log.Id, result.Id);
+        Assert.Equal(log.CreatedUtc, result.CreatedUtc);
+        Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Null(result.Message);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WithExcludesAndRequiredField_ReturnsRequiredFieldInResult()
+    {
+        // Arrange
+        var log = await _dailyWithRequiredCompanyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _dailyWithRequiredCompanyRepository.GetByIdAsync(log.Id, o => o.Exclude(e => e.Message));
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(log.Id, result.Id);
+        Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Null(result.Message);
+    }
+
+    [Fact]
+    public async Task GetByIdsAsync_WithIncludesAndRequiredField_ReturnsRequiredFieldInResults()
+    {
+        // Arrange
+        var log = await _dailyWithRequiredCompanyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _dailyWithRequiredCompanyRepository.GetByIdsAsync([log.Id], o => o.Include(e => e.Id).Include(e => e.CreatedUtc));
+
+        // Assert
+        Assert.Single(results);
+        var result = results.First();
+        Assert.Equal(log.Id, result.Id);
+        Assert.Equal(log.CreatedUtc, result.CreatedUtc);
+        Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Null(result.Message);
+    }
+
+    [Fact]
+    public async Task GetByIdsAsync_WithExcludesAndRequiredField_ReturnsRequiredFieldInResults()
+    {
+        // Arrange
+        var log = await _dailyWithRequiredCompanyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _dailyWithRequiredCompanyRepository.GetByIdsAsync([log.Id], o => o.Exclude(e => e.Message));
+
+        // Assert
+        Assert.Single(results);
+        var result = results.First();
+        Assert.Equal(log.Id, result.Id);
+        Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Null(result.Message);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithIncludesAndDefaultExclude_ReturnsRequiredFieldOverExclude()
+    {
+        // Arrange
+        var log = await _dailyWithRequiredCompanyAndDefaultExcludeRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _dailyWithRequiredCompanyAndDefaultExcludeRepository.FindAsync(q => q.Company(log.CompanyId).Include(e => e.Id).Include(e => e.CreatedUtc));
+
+        // Assert
+        Assert.Single(results.Documents);
+        var result = results.Documents.First();
+        Assert.Equal(log.Id, result.Id);
+        Assert.Equal(log.CreatedUtc, result.CreatedUtc);
+        Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Null(result.Message);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithOptionsIncludesAndRequiredField_ReturnsRequiredFieldInResults()
+    {
+        // Arrange
+        var log = await _dailyWithRequiredCompanyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _dailyWithRequiredCompanyRepository.FindAsync(q => q.Company(log.CompanyId), o => o.Include(e => e.Id).Include(e => e.CreatedUtc));
+
+        // Assert
+        Assert.Single(results.Documents);
+        var result = results.Documents.First();
+        Assert.Equal(log.Id, result.Id);
+        Assert.Equal(log.CreatedUtc, result.CreatedUtc);
+        Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Null(result.Message);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WithIncludeMaskAndRequiredField_ReturnsRequiredFieldInResult()
+    {
+        // Arrange
+        var log = await _dailyWithRequiredCompanyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _dailyWithRequiredCompanyRepository.GetByIdAsync(log.Id, o => o.IncludeMask("id,createdUtc"));
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(log.Id, result.Id);
+        Assert.Equal(log.CreatedUtc, result.CreatedUtc);
+        Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Null(result.Message);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithExcludeOfRequiredField_IncludesRequiredFieldAnyway()
+    {
+        // Arrange
+        var log = await _dailyWithRequiredCompanyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _dailyWithRequiredCompanyRepository.FindAsync(q => q.Company(log.CompanyId).Exclude(e => e.CompanyId).Include(e => e.Id));
+
+        // Assert
+        Assert.Single(results.Documents);
+        var result = results.Documents.First();
+        Assert.Equal(log.Id, result.Id);
+        Assert.Equal(log.CompanyId, result.CompanyId);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WithExcludeOfRequiredField_IncludesRequiredFieldAnyway()
+    {
+        // Arrange
+        var log = await _dailyWithRequiredCompanyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _dailyWithRequiredCompanyRepository.GetByIdAsync(log.Id, o => o.Exclude(e => e.CompanyId).Include(e => e.Id));
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(log.Id, result.Id);
+        Assert.Equal(log.CompanyId, result.CompanyId);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithQueryIncludesAndRequiredField_ReturnsRequiredFieldViaQueryMethod()
+    {
+        // Arrange
+        var log = await _dailyWithRequiredCompanyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _dailyWithRequiredCompanyRepository.GetPartialByCompanyAsync(log.CompanyId);
+
+        // Assert
+        Assert.Single(results.Documents);
+        var result = results.Documents.First();
+        Assert.Equal(log.Id, result.Id);
+        Assert.Equal(log.CreatedUtc, result.CreatedUtc);
+        Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Null(result.Message);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WithExcludeMaskAndRequiredField_ReturnsRequiredFieldInResult()
+    {
+        // Arrange
+        var log = await _dailyWithRequiredCompanyRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _dailyWithRequiredCompanyRepository.GetByIdAsync(log.Id, o => o.ExcludeMask("message"));
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(log.Id, result.Id);
+        Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Null(result.Message);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithOnlyDefaultExcludes_DoesNotInjectRequiredField()
+    {
+        // Arrange
+        var log = await _dailyWithRequiredCompanyAndDefaultExcludeRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _dailyWithRequiredCompanyAndDefaultExcludeRepository.FindAsync(q => q.Company(log.CompanyId));
+
+        // Assert
+        Assert.Single(results.Documents);
+        var result = results.Documents.First();
+        Assert.Equal(log.Id, result.Id);
+        Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Null(result.Message);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithDefaultExcludesAndCallerIncludes_InjectsRequiredField()
+    {
+        // Arrange
+        var log = await _dailyWithRequiredCompanyAndDefaultExcludeRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());
+
+        // Act
+        var results = await _dailyWithRequiredCompanyAndDefaultExcludeRepository.FindAsync(q => q.Company(log.CompanyId).Include(e => e.Id).Include(e => e.CreatedUtc));
+
+        // Assert
+        Assert.Single(results.Documents);
+        var result = results.Documents.First();
+        Assert.Equal(log.Id, result.Id);
+        Assert.Equal(log.CreatedUtc, result.CreatedUtc);
+        Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Null(result.Message);
+    }
+
+    #endregion
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -100,6 +100,23 @@ public class DailyLogEventWithNoCachingRepository : DailyLogEventRepository
     public DailyLogEventWithNoCachingRepository(MyAppElasticConfiguration configuration) : base(configuration)
     {
         DisableCache();
+    }
+}
+
+public class DailyLogEventWithRequiredCompanyRepository : DailyLogEventRepository
+{
+    public DailyLogEventWithRequiredCompanyRepository(MyAppElasticConfiguration configuration) : base(configuration)
+    {
+        AddRequiredField(e => e.CompanyId);
+    }
+}
+
+public class DailyLogEventWithRequiredCompanyAndDefaultExcludeRepository : DailyLogEventRepository
+{
+    public DailyLogEventWithRequiredCompanyAndDefaultExcludeRepository(MyAppElasticConfiguration configuration) : base(configuration)
+    {
+        AddRequiredField(e => e.CompanyId);
+        AddDefaultExclude(e => e.Message);
     }
 }
 
