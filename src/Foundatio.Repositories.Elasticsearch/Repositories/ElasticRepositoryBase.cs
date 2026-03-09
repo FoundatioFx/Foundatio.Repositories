@@ -701,7 +701,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             long modifiedRecords = 0;
             await BatchProcessAsync(query, async results =>
             {
-                var processedDocs = new Dictionary<string, T>();
+                var processedDocs = new Dictionary<string, T>(results.Hits.Count);
                 var bulkResult = await _client.BulkAsync(b =>
                 {
                     b.Refresh(options.GetRefreshMode(DefaultConsistency));
@@ -777,7 +777,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             long modifiedRecords = 0;
             await BatchProcessAsync(query, async results =>
             {
-                var modifiedHits = new List<FindHit<T>>();
+                var modifiedHits = new List<FindHit<T>>(results.Hits.Count);
                 foreach (var h in results.Hits)
                 {
                     bool actionModified = false;
