@@ -183,6 +183,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (operation == null)
             throw new ArgumentNullException(nameof(operation));
 
+        if (operation is JsonPatch { Patch: null or { Operations.Count: 0 } })
+            return false;
+
+        if (operation is ActionPatch<T> { Actions: null or { Count: 0 } })
+            return false;
+
         await ElasticIndex.EnsureIndexAsync(id).AnyContext();
 
         options = ConfigureOptions(options.As<T>());
@@ -267,9 +273,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         {
             // JsonPatch uses get-modify-reindex, so a write always occurs regardless of whether
             // field values actually changed. Noop detection is not possible without content comparison.
-            if (jsonOperation.Patch is null or { Operations.Count: 0 })
-                return false;
-
             var policy = _resiliencePolicy;
             if (options.HasRetryCount())
             {
@@ -327,11 +330,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
         else if (operation is ActionPatch<T> actionPatch)
         {
-            // ActionPatch uses get-modify-reindex, so a write always occurs regardless of whether
-            // field values actually changed. Noop detection is not possible without content comparison.
-            if (actionPatch.Actions is null or { Count: 0 })
-                return false;
-
             var policy = _resiliencePolicy;
             if (options.HasRetryCount())
             {
@@ -362,8 +360,18 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 if (response.Source is IVersioned versionedDoc && response.PrimaryTerm.HasValue)
                     versionedDoc.Version = response.GetElasticVersion();
 
+                // Snapshot before applying actions so we can detect noop
+                var beforeJson = _client.ConnectionSettings.SourceSerializer.SerializeToString(response.Source);
+
                 foreach (var action in actionPatch.Actions)
                     action?.Invoke(response.Source);
+
+                var afterJson = _client.ConnectionSettings.SourceSerializer.SerializeToString(response.Source);
+                if (String.Equals(beforeJson, afterJson, StringComparison.Ordinal))
+                {
+                    modified = false;
+                    return;
+                }
 
                 if (HasDateTracking)
                     SetDocumentDates(response.Source, ElasticIndex.Configuration.TimeProvider);
@@ -656,6 +664,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (operation == null)
             throw new ArgumentNullException(nameof(operation));
 
+        if (operation is JsonPatch { Patch: null or { Operations: null or { Count: 0 } } })
+            return 0;
+
+        if (operation is ActionPatch<T> { Actions: null or { Count: 0 } })
+            return 0;
+
         if (!ElasticIndex.HasMultipleIndexes)
             await ElasticIndex.EnsureIndexAsync(null).AnyContext();
 
@@ -669,9 +683,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         long affectedRecords = 0;
         if (operation is JsonPatch jsonOperation)
         {
-            if (jsonOperation.Patch is null or { Operations: null or { Count: 0 } })
-                return 0;
-
             var patcher = new JsonPatcher();
             affectedRecords += await BatchProcessAsync(query, async results =>
             {
@@ -740,9 +751,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
         else if (operation is ActionPatch<T> actionOperation)
         {
-            if (actionOperation.Actions is null or { Count: 0 })
-                return 0;
-
             affectedRecords += await BatchProcessAsync(query, async results =>
             {
                 var bulkResult = await _client.BulkAsync(b =>
@@ -788,8 +796,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     return false;
                 }
 
-                // ActionPatch uses Index API (get-modify-reindex), not Update API, so ES does not
-                // report noop status. All processed documents are treated as modified.
+                // ActionPatch bulk path: noop detection per document is not yet implemented
+                // for batch processing. Single-doc PatchAsync does compare before/after, but here
+                // all documents are indexed. Future optimization could skip unchanged documents.
                 var updatedIds = results.Hits.Select(h => h.Id).ToList();
                 if (IsCacheEnabled)
                     await InvalidateCacheAsync(updatedIds).AnyContext();
@@ -1857,6 +1866,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             : new Dictionary<string, object>();
         patchParams[paramKey] = ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime;
 
+        // Date tracking is appended AFTER the user's script. This is safe for noop detection
+        // because ES evaluates ctx.op after the entire script executes — if the user set
+        // ctx.op = 'none', the write is skipped regardless of source modifications.
         return new ScriptPatch($"{script.Script} {scriptSuffix}") { Params = patchParams };
     }
 

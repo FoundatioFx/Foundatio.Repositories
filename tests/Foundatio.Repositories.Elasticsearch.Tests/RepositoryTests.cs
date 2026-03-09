@@ -2095,6 +2095,32 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task PatchAsync_ActionPatchWithNoChanges_ReturnsFalse()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+
+        // Act — action runs but doesn't change anything
+        bool modified = await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => { _ = e.Name; }));
+
+        // Assert
+        Assert.False(modified);
+    }
+
+    [Fact]
+    public async Task PatchAsync_ActionPatchWithSameValue_ReturnsFalse()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice"));
+
+        // Act — sets the same value that's already there
+        bool modified = await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => e.Name = "Alice"));
+
+        // Assert
+        Assert.False(modified);
+    }
+
+    [Fact]
     public async Task PatchAsync_MultipleIdsWithScript_ReturnsModifiedCount()
     {
         // Arrange
