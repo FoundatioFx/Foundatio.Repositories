@@ -86,7 +86,7 @@ samples
 - No code comments unless necessary—code should be self-explanatory
 - **Pattern matching over equality operators**: Use `is null` / `is not null` instead of `== null` / `!= null`. Use `is 0` / `is 1` instead of `== 0` / `== 1`
 - **Guard clauses**: Use `ArgumentNullException.ThrowIfNull(param)` instead of manual `if (param == null) throw`
-- **Multi-line bodies**: Always use braces and separate lines for if/else bodies and lambda bodies—no single-line `{ action(); return true; }` patterns
+- **Lambda bodies**: Prefer multi-line bodies for lambda expressions—no single-line `{ action(); return true; }` patterns
 - **Raw string literals**: Use `"""..."""` for multi-line strings. Never use string concatenation (`+`) to build script or query strings
 - **Domain-correct syntax in scripts**: Verify operator syntax for the target language (e.g., Painless uses `==` not `===`; NEST uses specific query DSL methods)
 
@@ -216,7 +216,7 @@ For every abstraction, type, and mechanism you introduced, ask:
 
 - **Return types**: Do similar methods return similar types? If one overload returns `Task<bool>`, related overloads should follow the same pattern.
 - **Parameter validation**: Every public method entry point validates inputs the same way (`ArgumentNullException.ThrowIfNull`, pattern matching). Check that refactoring didn't silently drop null checks or change validation behavior (e.g., `action?.Invoke` becoming `action(...)` without a null guard).
-- **Naming and style**: Use `is` pattern matching over `==` for null/zero/type checks. Use `ThrowIfNull` over manual `if == null` throws. Multi-line bodies for if statements and lambdas. Match the surrounding code exactly—don't introduce stylistic inconsistencies in your changes.
+- **Naming and style**: Use `is` pattern matching over `==` for null/zero/type checks. Use `ThrowIfNull` over manual `if == null` throws. Match the surrounding code exactly—don't introduce stylistic inconsistencies in your changes.
 
 #### 3. Complete Implementation
 
