@@ -43,7 +43,9 @@ internal static partial class PainlessFieldPath
         if (fieldPath.Contains('\'') || fieldPath.Contains('\\'))
             throw new ArgumentException($"Field path '{fieldPath}' contains characters that cannot be used in Painless string literals.", paramName);
 
-        if (fieldPath.Any(char.IsControl))
-            throw new ArgumentException($"Field path '{fieldPath}' contains control characters that cannot be used in Painless string literals.", paramName);
+        if (fieldPath.Any(c => char.IsControl(c)
+            || char.GetUnicodeCategory(c) is System.Globalization.UnicodeCategory.LineSeparator
+                or System.Globalization.UnicodeCategory.ParagraphSeparator))
+            throw new ArgumentException($"Field path '{fieldPath}' contains control or line separator characters that cannot be used in Painless string literals.", paramName);
     }
 }
