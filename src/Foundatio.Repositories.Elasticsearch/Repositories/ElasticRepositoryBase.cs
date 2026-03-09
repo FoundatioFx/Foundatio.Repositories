@@ -173,18 +173,23 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             ThrowForBulkErrors(result, isCreateOperation: false);
     }
 
-    public Task PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options)
+    public Task<bool> PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options)
     {
         return PatchAsync(id, operation, options.Configure());
     }
 
-    public virtual async Task PatchAsync(Id id, IPatchOperation operation, ICommandOptions options = null)
+    public virtual async Task<bool> PatchAsync(Id id, IPatchOperation operation, ICommandOptions options = null)
     {
         if (String.IsNullOrEmpty(id.Value))
             throw new ArgumentNullException(nameof(id));
 
-        if (operation == null)
-            throw new ArgumentNullException(nameof(operation));
+        ArgumentNullException.ThrowIfNull(operation);
+
+        if (operation is JsonPatch { Patch: null or { Operations: null or { Count: 0 } } })
+            return false;
+
+        if (operation is ActionPatch<T> { Actions: null or { Count: 0 } })
+            return false;
 
         await ElasticIndex.EnsureIndexAsync(id).AnyContext();
 
@@ -195,8 +200,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         else if (operation is PartialPatch partialPatchOp)
             operation = ApplyDateTracking(partialPatchOp);
 
+        bool modified = true;
+
         if (operation is ScriptPatch scriptOperation)
         {
+            // ScriptPatch: noop detection requires the script to explicitly set ctx.op = 'none'.
+            // Simply reassigning the same value is treated as a modification by Elasticsearch.
             if (!String.IsNullOrEmpty(DefaultPipeline))
             {
                 var request = new UpdateByQueryRequest(ElasticIndex.GetIndex(id))
@@ -224,6 +233,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
                 }
+
+                modified = (response.Noops ?? 0) is 0;
             }
             else
             {
@@ -251,12 +262,18 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
                 }
+
+                modified = response.Result is not Result.NoOp;
             }
         }
         else if (operation is PartialPatch partialOperation)
         {
+            // PartialPatch: Elasticsearch's detect_noop (enabled by default) reports noop when no
+            // field values change. However, ApplyDateTracking injects UpdatedUtc for IHaveDates
+            // models, which typically prevents noop detection since the timestamp always changes.
             if (!String.IsNullOrEmpty(DefaultPipeline))
             {
+                // Pipeline path uses get-merge-reindex, so a write always occurs (like JsonPatch).
                 var policy = _resiliencePolicy;
                 if (options.HasRetryCount())
                 {
@@ -326,8 +343,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             {
                 var request = new UpdateRequest<T, object>(ElasticIndex.GetIndex(id), id.Value)
                 {
-                    // TODO: Null-valued properties are silently dropped by the ES client's SourceSerializer
-                    // (elastic/elasticsearch-net#8763). Consumers must use ScriptPatch or JsonPatch to set fields to null.
                     Doc = partialOperation.Document,
                     RetryOnConflict = options.GetRetryCount()
                 };
@@ -350,13 +365,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
                 }
+
+                modified = response.Result is not Result.NoOp;
             }
         }
         else if (operation is JsonPatch jsonOperation)
         {
-            if (jsonOperation.Patch == null || jsonOperation.Patch.Operations.Count == 0)
-                return;
-
+            // JsonPatch uses get-modify-reindex, so a write always occurs regardless of whether
+            // field values actually changed. Noop detection is not possible without content comparison.
             var policy = _resiliencePolicy;
             if (options.HasRetryCount())
             {
@@ -421,9 +437,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
         else if (operation is ActionPatch<T> actionPatch)
         {
-            if (actionPatch.Actions == null || actionPatch.Actions.Count == 0)
-                return;
-
             var policy = _resiliencePolicy;
             if (options.HasRetryCount())
             {
@@ -433,8 +446,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     _logger.LogWarning("Unable to override resilience policy max attempts");
             }
 
+            T modifiedDocument = null;
             await policy.ExecuteAsync(async ct =>
             {
+                modifiedDocument = null;
+                modified = true;
                 var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
@@ -452,52 +468,72 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 if (response.Source is IVersioned versionedDoc && response.PrimaryTerm.HasValue)
                     versionedDoc.Version = response.GetElasticVersion();
 
+                bool actionModified = false;
                 foreach (var action in actionPatch.Actions)
-                    action?.Invoke(response.Source);
+                    actionModified |= action?.Invoke(response.Source) ?? false;
+
+                if (!actionModified)
+                {
+                    modified = false;
+                    return;
+                }
 
                 if (HasDateTracking)
                     SetDocumentDates(response.Source, ElasticIndex.Configuration.TimeProvider);
 
+                modifiedDocument = response.Source;
                 await IndexDocumentsAsync([response.Source], false, options).AnyContext();
             }).AnyContext();
+
+            if (modified && modifiedDocument is not null)
+            {
+                await OnDocumentsChangedAsync(ChangeType.Saved, [modifiedDocument], options).AnyContext();
+
+                if (options.ShouldNotify())
+                    await PublishChangeTypeMessageAsync(ChangeType.Saved, modifiedDocument).AnyContext();
+
+                return true;
+            }
         }
         else
         {
             throw new ArgumentException("Unknown operation type", nameof(operation));
         }
 
-        // TODO: Find a good way to invalidate cache and send changed notification
-        await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
-        if (IsCacheEnabled)
-            await InvalidateCacheAsync(id).AnyContext();
+        // ScriptPatch, PartialPatch, and single-doc JsonPatch invalidate by ID only because
+        // the modified document is not available client-side. ActionPatch handles its own
+        // document-based invalidation above and returns early.
+        // TODO: Single-doc JsonPatch could deserialize the JToken to T for document-based invalidation.
+        if (modified)
+        {
+            await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
+            if (IsCacheEnabled)
+                await InvalidateCacheAsync(id).AnyContext();
 
-        if (options.ShouldNotify())
-            await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
+            if (options.ShouldNotify())
+                await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
+        }
+
+        return modified;
     }
 
-    public Task PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options)
+    public Task<long> PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options)
     {
         return PatchAsync(ids, operation, options.Configure());
     }
 
-    public virtual async Task PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions options = null)
+    public virtual async Task<long> PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions options = null)
     {
-        if (ids == null)
-            throw new ArgumentNullException(nameof(ids));
+        ArgumentNullException.ThrowIfNull(ids);
+        ArgumentNullException.ThrowIfNull(operation);
 
-        if (operation == null)
-            throw new ArgumentNullException(nameof(operation));
-
-        if (ids.Count == 0)
-            return;
+        if (ids is { Count: 0 })
+            return 0;
 
         options = ConfigureOptions(options.As<T>());
 
-        if (ids.Count == 1)
-        {
-            await PatchAsync(ids[0], operation, options).AnyContext();
-            return;
-        }
+        if (ids.Count is 1)
+            return await PatchAsync(ids[0], operation, options).AnyContext() ? 1 : 0;
 
         if (operation is ScriptPatch scriptPatchOp)
             operation = ApplyDateTracking(scriptPatchOp);
@@ -505,25 +541,23 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             operation = ApplyDateTracking(partialPatchOp);
 
         if (operation is JsonPatch)
-        {
-            await PatchAllAsync(NewQuery().Id(ids), operation, options).AnyContext();
-            return;
-        }
+            return await PatchAllAsync(NewQuery().Id(ids), operation, options).AnyContext();
 
         if (operation is ActionPatch<T>)
-        {
-            await PatchAllAsync(NewQuery().Id(ids), operation, options).AnyContext();
-            return;
-        }
+            return await PatchAllAsync(NewQuery().Id(ids), operation, options).AnyContext();
 
         if (operation is not ScriptPatch and not PartialPatch)
             throw new ArgumentException("Unknown operation type", nameof(operation));
 
         if (!String.IsNullOrEmpty(DefaultPipeline))
         {
+            long pipelineModified = 0;
             foreach (var id in ids)
-                await PatchAsync(id, operation, options).AnyContext();
-            return;
+            {
+                if (await PatchAsync(id, operation, options).AnyContext())
+                    pipelineModified++;
+            }
+            return pipelineModified;
         }
 
         var bulkResponse = await _client.BulkAsync(b =>
@@ -561,17 +595,21 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         var result = BulkResult.From(bulkResponse);
 
-        var successIds = result.IsSuccess ? ids : ids.Where(id => result.SuccessfulIds.Contains(id.Value)).ToList();
-        if (successIds.Count > 0)
+        var modifiedIds = result.IsSuccess
+            ? ids.Where(id => !result.NoopIds.Contains(id.Value)).ToList()
+            : ids.Where(id => result.SuccessfulIds.Contains(id.Value) && !result.NoopIds.Contains(id.Value)).ToList();
+        if (modifiedIds.Count > 0)
         {
+            // ScriptPatch/PartialPatch execute server-side; the modified document is not available.
+            // TODO: Invalidate by documents instead of IDs to support custom cache invalidation overrides.
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
             if (IsCacheEnabled)
-                await InvalidateCacheAsync(successIds.Select(id => id.Value)).AnyContext();
+                await InvalidateCacheAsync(modifiedIds.Select(id => id.Value)).AnyContext();
 
             if (options.ShouldNotify())
             {
-                var tasks = new List<Task>(successIds.Count);
-                foreach (var id in successIds)
+                var tasks = new List<Task>(modifiedIds.Count);
+                foreach (var id in modifiedIds)
                     tasks.Add(PublishChangeTypeMessageAsync(ChangeType.Saved, id));
 
                 await Task.WhenAll(tasks).AnyContext();
@@ -580,6 +618,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         if (result.HasErrors)
             ThrowForBulkErrors(result, operationLabel: "patching");
+
+        return result.ModifiedCount;
     }
 
     public Task RemoveAsync(Id id, CommandOptionsDescriptor<T> options)
@@ -743,8 +783,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// </summary>
     public virtual async Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null)
     {
-        if (operation == null)
-            throw new ArgumentNullException(nameof(operation));
+        ArgumentNullException.ThrowIfNull(operation);
+
+        if (operation is JsonPatch { Patch: null or { Operations: null or { Count: 0 } } })
+            return 0;
+
+        if (operation is ActionPatch<T> { Actions: null or { Count: 0 } })
+            return 0;
 
         if (!ElasticIndex.HasMultipleIndexes)
             await ElasticIndex.EnsureIndexAsync(null).AnyContext();
@@ -759,12 +804,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         long affectedRecords = 0;
         if (operation is JsonPatch jsonOperation)
         {
-            if (jsonOperation.Patch?.Operations == null || jsonOperation.Patch.Operations.Count == 0)
-                return 0;
-
             var patcher = new JsonPatcher();
-            affectedRecords += await BatchProcessAsync(query, async results =>
+            long modifiedRecords = 0;
+            await BatchProcessAsync(query, async results =>
             {
+                var processedDocs = new Dictionary<string, T>(results.Hits.Count);
                 var bulkResult = await _client.BulkAsync(b =>
                 {
                     b.Refresh(options.GetRefreshMode(DefaultConsistency));
@@ -780,6 +824,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         if (HasDateTracking)
                             SetDocumentDates(doc, ElasticIndex.Configuration.TimeProvider);
 
+                        processedDocs[h.Id] = doc;
                         var elasticVersion = h.GetElasticVersion();
 
                         b.Index(doc, i =>
@@ -798,49 +843,73 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     }
                 }).AnyContext();
 
+                var retriedIds = new List<string>();
                 if (bulkResult.IsValidResponse)
                 {
                     _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
                 }
-                else if (!await HandleBulkPatchErrorsAsync(bulkResult, results, "JsonPatch", operation, options).AnyContext())
+                else
                 {
-                    return false;
+                    var retryResult = await HandleBulkPatchErrorsAsync(bulkResult, results, "JsonPatch", operation, options).AnyContext();
+                    modifiedRecords += retryResult.Count;
+                    retriedIds = retryResult.Ids;
                 }
 
-                var updatedIds = results.Hits.Select(h => h.Id).ToList();
-                if (IsCacheEnabled)
-                    await InvalidateCacheAsync(updatedIds).AnyContext();
+                var successfulIds = new HashSet<string>(bulkResult.Items?.Where(i => i.IsValid).Select(i => i.Id) ?? []);
+                var modifiedDocuments = successfulIds.Select(id => processedDocs.GetValueOrDefault(id)).Where(d => d is not null).ToList();
+                modifiedRecords += modifiedDocuments.Count;
 
-                try
+                if (modifiedDocuments.Count > 0 || retriedIds.Count > 0)
                 {
-                    options.GetUpdatedIdsCallback()?.Invoke(updatedIds);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error calling updated ids callback");
+                    if (IsCacheEnabled)
+                        await InvalidateCacheAsync(modifiedDocuments).AnyContext();
+
+                    try
+                    {
+                        var callbackIds = successfulIds.Concat(retriedIds).ToList();
+                        options.GetUpdatedIdsCallback()?.Invoke(callbackIds);
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error calling updated ids callback: {Message}", ex.Message);
+                    }
                 }
 
                 return true;
             }, options.Clone()).AnyContext();
+
+            affectedRecords += modifiedRecords;
         }
         else if (operation is ActionPatch<T> actionOperation)
         {
-            if (actionOperation.Actions == null || actionOperation.Actions.Count == 0)
-                return 0;
-
-            affectedRecords += await BatchProcessAsync(query, async results =>
+            long modifiedRecords = 0;
+            await BatchProcessAsync(query, async results =>
             {
+                var modifiedHits = new List<FindHit<T>>(results.Hits.Count);
+                foreach (var h in results.Hits)
+                {
+                    bool actionModified = false;
+                    foreach (var action in actionOperation.Actions)
+                        actionModified |= action?.Invoke(h.Document) ?? false;
+
+                    if (!actionModified)
+                        continue;
+
+                    if (HasDateTracking)
+                        SetDocumentDates(h.Document, ElasticIndex.Configuration.TimeProvider);
+
+                    modifiedHits.Add(h);
+                }
+
+                if (modifiedHits.Count is 0)
+                    return true;
+
                 var bulkResult = await _client.BulkAsync(b =>
                 {
                     b.Refresh(options.GetRefreshMode(DefaultConsistency));
-                    foreach (var h in results.Hits)
+                    foreach (var h in modifiedHits)
                     {
-                        foreach (var action in actionOperation.Actions)
-                            action?.Invoke(h.Document);
-
-                        if (HasDateTracking)
-                            SetDocumentDates(h.Document, ElasticIndex.Configuration.TimeProvider);
-
                         var elasticVersion = h.GetElasticVersion();
 
                         b.Index(h.Document, i =>
@@ -859,32 +928,43 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     }
                 }).AnyContext();
 
+                var retriedIds = new List<string>();
                 if (bulkResult.IsValidResponse)
                 {
                     _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
                 }
-                else if (!await HandleBulkPatchErrorsAsync(bulkResult, results, "ActionPatch", operation, options).AnyContext())
+                else
                 {
-                    return false;
+                    var retryResult = await HandleBulkPatchErrorsAsync(bulkResult, results, "ActionPatch", operation, options).AnyContext();
+                    modifiedRecords += retryResult.Count;
+                    retriedIds = retryResult.Ids;
                 }
 
-                var updatedIds = results.Hits.Select(h => h.Id).ToList();
-                if (IsCacheEnabled)
-                {
-                    await InvalidateCacheAsync(updatedIds).AnyContext();
-                }
+                var successfulIds = new HashSet<string>(bulkResult.Items?.Where(i => i.IsValid).Select(i => i.Id) ?? []);
+                var modifiedDocuments = modifiedHits.Where(h => successfulIds.Contains(h.Id)).ToList();
+                modifiedRecords += modifiedDocuments.Count;
 
-                try
+                if (modifiedDocuments.Count > 0 || retriedIds.Count > 0)
                 {
-                    options.GetUpdatedIdsCallback()?.Invoke(updatedIds);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error calling updated ids callback");
+                    if (IsCacheEnabled)
+                        await InvalidateCacheAsync(modifiedDocuments.Select(h => h.Document)).AnyContext();
+
+                    try
+                    {
+                        var callbackIds = modifiedDocuments.Select(h => h.Id).Concat(retriedIds).ToList();
+                        options.GetUpdatedIdsCallback()?.Invoke(callbackIds);
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error calling updated ids callback: {Message}", ex.Message);
+                    }
                 }
 
                 return true;
             }, options.Clone()).AnyContext();
+
+            affectedRecords += modifiedRecords;
         }
         else
         {
@@ -982,7 +1062,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 if (HasIdentity && !query.GetIncludes().Contains(_idField.Value))
                     query.Include(_idField.Value);
 
-                affectedRecords += await BatchProcessAsync(query, async results =>
+                long modifiedInBatch = 0;
+                await BatchProcessAsync(query, async results =>
                 {
                     var bulkResult = await _client.BulkAsync(b =>
                     {
@@ -1050,31 +1131,45 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         return false;
                     }
 
-                    var updatedIds = results.Hits.Select(h => h.Id).ToList();
-                    if (IsCacheEnabled)
+                    var result = BulkResult.From(bulkResult);
+                    var updatedIds = results.Hits
+                        .Where(h => result.SuccessfulIds.Contains(h.Id) && !result.NoopIds.Contains(h.Id))
+                        .Select(h => h.Id).ToList();
+                    modifiedInBatch += updatedIds.Count;
+
+                    if (IsCacheEnabled && updatedIds.Count > 0)
                     {
+                        // TODO: Invalidate by documents instead of IDs to support custom cache invalidation overrides.
                         await InvalidateCacheAsync(updatedIds).AnyContext();
                     }
 
                     try
                     {
-                        options.GetUpdatedIdsCallback()?.Invoke(updatedIds);
+                        if (updatedIds.Count > 0)
+                            options.GetUpdatedIdsCallback()?.Invoke(updatedIds);
                     }
+                    catch (OperationCanceledException) { throw; }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error calling updated ids callback");
+                        _logger.LogError(ex, "Error calling updated ids callback: {Message}", ex.Message);
                     }
 
                     return true;
                 }, options.Clone()).AnyContext();
+
+                affectedRecords += modifiedInBatch;
             }
         }
 
         if (affectedRecords > 0)
         {
+            // When called via PatchAsync(Ids), query has IDs and this duplicates per-batch invalidation
+            // (harmless/idempotent). When called directly with a filter query, GetIds() is empty (no-op).
             if (IsCacheEnabled)
                 await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
 
+            // Empty list: batch callbacks handle per-document cache invalidation for ActionPatch/JsonPatch.
+            // This fires the DocumentsChanged event so subscribers know documents were modified.
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
             await SendQueryNotificationsAsync(ChangeType.Saved, query, options).AnyContext();
         }
@@ -1697,26 +1792,29 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         };
     }
 
-    private async Task<bool> HandleBulkPatchErrorsAsync(BulkResponse bulkResponse, FindResults<T> results, string patchType, IPatchOperation operation, ICommandOptions options)
+    private async Task<(long Count, List<string> Ids)> HandleBulkPatchErrorsAsync(BulkResponse bulkResponse, FindResults<T> results, string patchType, IPatchOperation operation, ICommandOptions options)
     {
         var result = BulkResult.From(bulkResponse);
         if (result.HasTransportError || result.FatalIds.Count > 0 || result.RetryableIds.Count > 0)
         {
             _logger.LogErrorRequest(bulkResponse, "Error occurred while bulk updating");
-            return false;
+            ThrowForBulkErrors(result, operationLabel: "patching");
         }
 
+        var retriedIds = new List<string>();
         if (result.HasConflicts)
         {
             _logger.LogRequest(bulkResponse, options.GetQueryLogLevel());
             _logger.LogInformation("Bulk {PatchType} had {ConflictCount} version conflicts, re-fetching and retrying", patchType, result.ConflictIds.Count);
 
-            var conflictHits = results.Hits.Where(h => result.ConflictIds.Contains(h.Id)).ToList();
-            foreach (var hit in conflictHits)
-                await PatchAsync(new Id(hit.Id, hit.Routing), operation, options).AnyContext();
+            foreach (var hit in results.Hits.Where(h => result.ConflictIds.Contains(h.Id)))
+            {
+                if (await PatchAsync(new Id(hit.Id, hit.Routing), operation, options).AnyContext())
+                    retriedIds.Add(hit.Id);
+            }
         }
 
-        return true;
+        return (retriedIds.Count, retriedIds);
     }
 
     private static void ThrowForBulkErrors(BulkResult result, bool isCreateOperation = false, string operationLabel = null)
@@ -1985,6 +2083,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             : new Dictionary<string, object>();
         patchParams[paramKey] = ElasticIndex.Configuration.TimeProvider.GetUtcNow().UtcDateTime;
 
+        // Date tracking is appended AFTER the user's script. This is safe for noop detection
+        // because ES evaluates ctx.op after the entire script executes — if the user set
+        // ctx.op = 'none', the write is skipped regardless of source modifications.
         return new ScriptPatch($"{script.Script} {scriptSuffix}") { Params = patchParams };
     }
 
