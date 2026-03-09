@@ -763,7 +763,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error calling updated ids callback");
+                        _logger.LogError(ex, "Error calling updated ids callback: {Message}", ex.Message);
                     }
                 }
 
@@ -848,7 +848,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error calling updated ids callback");
+                        _logger.LogError(ex, "Error calling updated ids callback: {Message}", ex.Message);
                     }
                 }
 
@@ -987,7 +987,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error calling updated ids callback");
+                        _logger.LogError(ex, "Error calling updated ids callback: {Message}", ex.Message);
                     }
 
                     return true;
