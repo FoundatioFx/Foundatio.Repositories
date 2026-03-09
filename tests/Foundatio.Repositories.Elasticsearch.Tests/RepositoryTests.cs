@@ -2001,7 +2001,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_ScriptWithChange_ReturnsTrue()
     {
         // Arrange
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
 
         // Act
         bool modified = await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'Changed';"));
@@ -2016,7 +2016,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_ScriptWithExplicitNoop_ReturnsFalse()
     {
         // Arrange
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
 
         // Act
         bool modified = await _employeeRepository.PatchAsync(employee.Id,
@@ -2030,7 +2030,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_PartialWithChange_ReturnsTrue()
     {
         // Arrange
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
 
         // Act
         bool modified = await _employeeRepository.PatchAsync(employee.Id, new PartialPatch(new { name = "Changed" }));
@@ -2045,7 +2045,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_JsonPatchWithChange_ReturnsTrue()
     {
         // Arrange
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Changed" });
 
         // Act
@@ -2059,7 +2059,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_JsonPatchWithEmptyOperations_ReturnsFalse()
     {
         // Arrange
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
 
         // Act
         bool modified = await _employeeRepository.PatchAsync(employee.Id, new JsonPatch(new PatchDocument()));
@@ -2072,7 +2072,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_ActionPatchWithChange_ReturnsTrue()
     {
         // Arrange
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
 
         // Act
         bool modified = await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => e.Name = "Changed"));
@@ -2085,7 +2085,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_ActionPatchWithEmptyActions_ReturnsFalse()
     {
         // Arrange
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
 
         // Act
         bool modified = await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>());
@@ -2098,7 +2098,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_ActionPatchWithNoChanges_ReturnsFalse()
     {
         // Arrange
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
 
         // Act — action returns false to signal no modification
         bool modified = await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => false));
@@ -2111,7 +2111,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_ActionPatchWithSameValue_ReturnsFalse()
     {
         // Arrange
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice"));
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice"), o => o.ImmediateConsistency());
 
         // Act — conditionally returns false when value is already correct
         bool modified = await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e =>
@@ -2195,7 +2195,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_SingleIdViaIds_ReturnsDelegatedResult()
     {
         // Arrange
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
 
         // Act
         long modifiedCount = await _employeeRepository.PatchAsync(
@@ -2277,7 +2277,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_ActionPatchWithMultipleActions_AnyTrueReturnsTrue()
     {
         // Arrange
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
 
         // Act — first action returns false, second returns true
         var patch = new ActionPatch<Employee>(e => false);
@@ -2298,7 +2298,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_ActionPatchWithMultipleActions_AllFalseReturnsFalse()
     {
         // Arrange
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
 
         // Act
         var patch = new ActionPatch<Employee>(e => false);
@@ -2399,7 +2399,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     public async Task PatchAsync_ActionPatchWithParamsConstructor_ReturnsTrue()
     {
         // Arrange
-        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
 
         // Act
         bool modified = await _employeeRepository.PatchAsync(employee.Id,

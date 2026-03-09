@@ -381,6 +381,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
 
         // TODO: Find a good way to invalidate cache and send changed notification
+        // All patch paths invalidate by ID only, not by document. This means custom
+        // InvalidateCacheAsync(ModifiedDocument<T>) overrides won't fire for patches.
         if (modified)
         {
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
@@ -950,6 +952,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     if (IsCacheEnabled && updatedIds.Count > 0)
                     {
+                        // TODO: Invalidate by documents instead of IDs to support custom cache invalidation overrides.
                         await InvalidateCacheAsync(updatedIds).AnyContext();
                     }
 
