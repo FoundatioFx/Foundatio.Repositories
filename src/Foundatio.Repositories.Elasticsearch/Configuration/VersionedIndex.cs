@@ -87,7 +87,7 @@ public class VersionedIndex : Index, IVersionedIndex
             throw new ArgumentException($"Field path '{fieldPath}' contains invalid characters.", nameof(fieldPath));
     }
 
-    internal static string BuildContainsKeyGuard(string fieldPath)
+    private static string BuildContainsKeyGuard(string fieldPath)
     {
         int dotIndex = fieldPath.LastIndexOf('.');
         if (dotIndex < 0)
@@ -109,12 +109,12 @@ public class VersionedIndex : Index, IVersionedIndex
         return sb.ToString();
     }
 
-    internal static string BuildFieldAccessor(string fieldPath)
+    private static string BuildFieldAccessor(string fieldPath)
     {
         return $"ctx._source.{fieldPath}";
     }
 
-    internal static string BuildFieldAssignment(string targetPath, string valueExpression)
+    private static string BuildFieldAssignment(string targetPath, string valueExpression)
     {
         int dotIndex = targetPath.LastIndexOf('.');
         if (dotIndex < 0)
@@ -136,7 +136,7 @@ public class VersionedIndex : Index, IVersionedIndex
         return sb.ToString();
     }
 
-    internal static string BuildFieldRemoval(string fieldPath)
+    private static string BuildFieldRemoval(string fieldPath)
     {
         int dotIndex = fieldPath.LastIndexOf('.');
         if (dotIndex < 0)
