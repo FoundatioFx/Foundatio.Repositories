@@ -247,12 +247,16 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         var companyLog = results.Documents.First();
         Assert.Equal(log.Id, companyLog.Id);
         Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
+        Assert.Equal(log.CompanyId, companyLog.CompanyId);
+        Assert.Equal(log.Message, companyLog.Message);
 
         results = await _dailyRepository.FindAsync(q => q.Exclude("createdUtc"));
         Assert.Single(results.Documents);
         companyLog = results.Documents.First();
         Assert.Equal(log.Id, companyLog.Id);
         Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
+        Assert.Equal(log.CompanyId, companyLog.CompanyId);
+        Assert.Equal(log.Message, companyLog.Message);
     }
 
     [Fact]
@@ -676,6 +680,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         var result = results.Documents.First();
         Assert.Equal(log.Id, result.Id);
         Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Equal(log.CreatedUtc, result.CreatedUtc);
+        Assert.Equal(log.Value, result.Value);
         Assert.Null(result.Message);
     }
 
@@ -723,6 +729,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.NotNull(result);
         Assert.Equal(log.Id, result.Id);
         Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Equal(log.CreatedUtc, result.CreatedUtc);
+        Assert.Equal(log.Value, result.Value);
         Assert.Null(result.Message);
     }
 
@@ -758,6 +766,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         var result = results.First();
         Assert.Equal(log.Id, result.Id);
         Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Equal(log.CreatedUtc, result.CreatedUtc);
+        Assert.Equal(log.Value, result.Value);
         Assert.Null(result.Message);
     }
 
@@ -876,6 +886,8 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.NotNull(result);
         Assert.Equal(log.Id, result.Id);
         Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Equal(log.CreatedUtc, result.CreatedUtc);
+        Assert.Equal(log.Value, result.Value);
         Assert.Null(result.Message);
     }
 

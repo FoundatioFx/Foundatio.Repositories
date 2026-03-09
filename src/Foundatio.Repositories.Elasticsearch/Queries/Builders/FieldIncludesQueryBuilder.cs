@@ -23,6 +23,11 @@ namespace Foundatio.Repositories
     {
         internal const string IncludesKey = "@Includes";
 
+        /// <summary>
+        /// Adds a field to the set of included fields returned from Elasticsearch <c>_source</c> filtering.
+        /// Multiple calls are additive. These are merged with any includes set via <see cref="IncludeMask{T}"/>
+        /// and with includes from <see cref="ICommandOptions"/>.
+        /// </summary>
         public static T Include<T>(this T query, Field field) where T : IRepositoryQuery
         {
             query.MarkHasCallerFieldRestrictions();
@@ -62,6 +67,12 @@ namespace Foundatio.Repositories
 
         internal const string IncludesMaskKey = "@IncludesMask";
 
+        /// <summary>
+        /// Sets a field mask expression that specifies which fields to include. The expression uses a
+        /// Google FieldMask-style syntax where nested fields are grouped with parentheses
+        /// (e.g., <c>"id,address(street,city)"</c> expands to <c>id</c>, <c>address.street</c>, <c>address.city</c>).
+        /// The parsed fields are merged with any individually added via <see cref="Include{T}(T, Field)"/>.
+        /// </summary>
         public static T IncludeMask<T>(this T options, string maskExpression) where T : IRepositoryQuery
         {
             options.MarkHasCallerFieldRestrictions();
@@ -70,6 +81,16 @@ namespace Foundatio.Repositories
 
         internal const string ExcludesKey = "@Excludes";
 
+        /// <summary>
+        /// Adds a field to the set of excluded fields omitted from Elasticsearch <c>_source</c> filtering.
+        /// Multiple calls are additive. These are merged with any excludes set via <see cref="ExcludeMask{T}"/>
+        /// and with excludes from <see cref="ICommandOptions"/>.
+        /// If the same field appears in both includes and excludes, the include takes precedence.
+        /// </summary>
+        /// <remarks>
+        /// Setting any explicit excludes on a query will cause default excludes (registered via
+        /// <c>AddDefaultExclude</c> on the repository) to be skipped.
+        /// </remarks>
         public static T Exclude<T>(this T query, Field field) where T : IRepositoryQuery
         {
             query.MarkHasCallerFieldRestrictions();
@@ -102,6 +123,12 @@ namespace Foundatio.Repositories
 
         internal const string ExcludesMaskKey = "@ExcludesMask";
 
+        /// <summary>
+        /// Sets a field mask expression that specifies which fields to exclude. The expression uses a
+        /// Google FieldMask-style syntax where nested fields are grouped with parentheses
+        /// (e.g., <c>"internal(data,logs)"</c> expands to <c>internal.data</c>, <c>internal.logs</c>).
+        /// The parsed fields are merged with any individually added via <see cref="Exclude{T}(T, Field)"/>.
+        /// </summary>
         public static T ExcludeMask<T>(this T options, string maskExpression) where T : IRepositoryQuery
         {
             options.MarkHasCallerFieldRestrictions();
@@ -128,6 +155,11 @@ namespace Foundatio.Repositories
     {
         internal const string IncludesKey = "@Includes";
 
+        /// <summary>
+        /// Adds a field to the set of included fields returned from Elasticsearch <c>_source</c> filtering.
+        /// Multiple calls are additive. These are merged with any includes set via <see cref="IncludeMask{T}"/>
+        /// and with includes from <see cref="IRepositoryQuery"/>.
+        /// </summary>
         public static T Include<T>(this T options, Field field) where T : ICommandOptions
         {
             options.MarkHasCallerFieldRestrictions();
@@ -167,6 +199,12 @@ namespace Foundatio.Repositories
 
         internal const string IncludesMaskKey = "@IncludesMask";
 
+        /// <summary>
+        /// Sets a field mask expression that specifies which fields to include. The expression uses a
+        /// Google FieldMask-style syntax where nested fields are grouped with parentheses
+        /// (e.g., <c>"id,address(street,city)"</c> expands to <c>id</c>, <c>address.street</c>, <c>address.city</c>).
+        /// The parsed fields are merged with any individually added via <see cref="Include{T}(T, Field)"/>.
+        /// </summary>
         public static T IncludeMask<T>(this T options, string maskExpression) where T : ICommandOptions
         {
             options.MarkHasCallerFieldRestrictions();
@@ -175,6 +213,12 @@ namespace Foundatio.Repositories
 
         internal const string ExcludesKey = "@Excludes";
 
+        /// <summary>
+        /// Adds a field to the set of excluded fields omitted from Elasticsearch <c>_source</c> filtering.
+        /// Multiple calls are additive. These are merged with any excludes set via <see cref="ExcludeMask{T}"/>
+        /// and with excludes from <see cref="IRepositoryQuery"/>.
+        /// If the same field appears in both includes and excludes, the include takes precedence.
+        /// </summary>
         public static T Exclude<T>(this T options, Field field) where T : ICommandOptions
         {
             options.MarkHasCallerFieldRestrictions();
@@ -208,6 +252,12 @@ namespace Foundatio.Repositories
         internal const string ExcludesMaskKey = "@ExcludesMask";
         internal const string RequiredFieldsKey = "@RequiredFields";
 
+        /// <summary>
+        /// Sets a field mask expression that specifies which fields to exclude. The expression uses a
+        /// Google FieldMask-style syntax where nested fields are grouped with parentheses
+        /// (e.g., <c>"internal(data,logs)"</c> expands to <c>internal.data</c>, <c>internal.logs</c>).
+        /// The parsed fields are merged with any individually added via <see cref="Exclude{T}(T, Field)"/>.
+        /// </summary>
         public static T ExcludeMask<T>(this T options, string maskExpression) where T : ICommandOptions
         {
             options.MarkHasCallerFieldRestrictions();
@@ -349,7 +399,10 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             {
                 var requiredFields = ctx.Options.GetRequiredFields();
                 if (requiredFields.Count > 0)
-                    includes.AddRange(requiredFields);
+                {
+                    if (includes.Count > 0)
+                        includes.AddRange(requiredFields);
+                }
             }
 
             if (includes.Count > 0 && typeof(Models.IIdentity).IsAssignableFrom(typeof(T)))
@@ -357,8 +410,13 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
             var resolvedIncludes = resolver.GetResolvedFields(includes).ToArray();
 
+            var resolvedRequiredFields = hasFieldRestrictions && includes.Count == 0
+                ? resolver.GetResolvedFields(ctx.Options.GetRequiredFields()).ToHashSet()
+                : null;
+
             var resolvedExcludes = resolver.GetResolvedFields(excludes)
                 .Where(f => !resolvedIncludes.Contains(f))
+                .Where(f => resolvedRequiredFields is null || !resolvedRequiredFields.Contains(f))
                 .ToArray();
 
             if (resolvedIncludes.Length > 0 && resolvedExcludes.Length > 0)

@@ -1035,7 +1035,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (hasRemoveListeners || (IsCacheEnabled && options.ShouldUseCache(true)))
         {
             var includes = query.GetIncludes();
-            foreach (var field in _requiredFields.Select(f => f.Value))
+            foreach (var field in RequiredFields.Select(f => f.Value))
                 if (field != null && !includes.Contains(field))
                     query.Include(field);
 

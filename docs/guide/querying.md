@@ -614,9 +614,16 @@ Importantly, repository-internal `AddDefaultExclude()` registrations alone do **
 
 If a field is registered as both a required field and a default exclude, the required field takes precedence when caller restrictions are active — the field will be included. When no caller restrictions exist, the default exclude applies normally. This is safe because the two features serve different purposes: default excludes reduce payload for full-document reads, while required fields guarantee presence in partial-document reads.
 
+#### How Required Fields Are Applied
+
+The behavior depends on what the caller specified:
+
+- **Caller has includes** (with or without excludes): Required fields are added to the include set. This ensures they appear in the narrowed result alongside the caller's selected fields.
+- **Caller has only excludes**: Required fields are removed from the exclude set. This preserves the "return everything except X" semantics while ensuring required fields cannot be excluded. All other non-excluded fields remain present.
+
 #### Precedence Rules
 
-If a required field also appears in the caller's exclude set, the **include takes precedence** — the field is returned. This mirrors how systems like OData and GraphQL handle mandatory fields in projections: identity and authorization fields are always present regardless of what the client requests.
+When the caller specifies both includes and excludes, and a required field appears in both sets, the **include takes precedence** — the field is returned. This mirrors how systems like OData and GraphQL handle mandatory fields in projections: identity and authorization fields are always present regardless of what the client requests.
 
 #### Affected Operations
 

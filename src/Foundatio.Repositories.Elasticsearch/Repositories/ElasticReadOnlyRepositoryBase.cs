@@ -35,7 +35,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected static readonly string EntityTypeName = typeof(T).Name;
     protected static readonly IReadOnlyCollection<T> EmptyList = new List<T>(0).AsReadOnly();
     private readonly List<Lazy<Field>> _defaultExcludes = new();
-    protected readonly List<Lazy<Field>> _requiredFields = new();
+    private readonly List<Lazy<Field>> _requiredFields = new();
+    protected IReadOnlyList<Lazy<Field>> RequiredFields => _requiredFields;
     protected readonly Lazy<string> _idField;
     protected readonly Lazy<string> _updatedUtcField;
 
@@ -670,12 +671,14 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     }
 
     /// <summary>
-    /// Registers a field that must always be included in Elasticsearch <c>_source</c> filtering results
+    /// Registers a field that must always be present in Elasticsearch <c>_source</c> filtering results
     /// when the caller specifies any field restrictions (<c>.Include()</c>, <c>.Exclude()</c>,
     /// <c>.IncludeMask()</c>, or <c>.ExcludeMask()</c>). When no caller restrictions exist, the full
     /// <c>_source</c> is returned and required fields have no effect. Repository-internal default
     /// excludes alone do not trigger injection.
-    /// If a required field also appears in the exclude set, the include takes precedence.
+    /// When the caller has includes, required fields are added to the include set. When the caller
+    /// has only excludes, required fields are removed from the exclude set to preserve
+    /// "return everything except X" semantics.
     /// </summary>
     protected void AddRequiredField(string field)
     {
@@ -861,7 +864,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         {
             var requiredFields = options.GetRequiredFields();
             if (requiredFields.Count > 0)
-                includes.AddRange(requiredFields);
+            {
+                if (includes.Count > 0)
+                    includes.AddRange(requiredFields);
+            }
         }
 
         if (HasIdentity && includes.Count > 0)
@@ -869,9 +875,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         var resolvedIncludes = ElasticIndex.MappingResolver.GetResolvedFields(includes).ToArray();
 
-        // Remove any included fields from excludes
+        var resolvedRequiredFields = hasCallerFieldRestrictions && includes.Count == 0
+            ? ElasticIndex.MappingResolver.GetResolvedFields(options.GetRequiredFields()).ToHashSet()
+            : null;
+
         var resolvedExcludes = ElasticIndex.MappingResolver.GetResolvedFields(excludes)
             .Where(f => !resolvedIncludes.Contains(f))
+            .Where(f => resolvedRequiredFields is null || !resolvedRequiredFields.Contains(f))
             .ToArray();
 
         return (resolvedIncludes, resolvedExcludes);
