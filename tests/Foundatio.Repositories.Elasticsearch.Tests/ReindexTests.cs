@@ -880,7 +880,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.True(response.IsValid);
         Assert.True(response.Source.TryGetValue("data", out var data));
 
-        string json = _client.SourceSerializer.SerializeToString(data);
+        string json = ToJson(data);
         Assert.Contains("newField", json);
         Assert.Contains("nestedValue", json);
         Assert.DoesNotContain("oldField", json);
@@ -952,7 +952,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.True(response.IsValid);
         Assert.True(response.Source.TryGetValue("data", out var data));
 
-        string json = _client.SourceSerializer.SerializeToString(data);
+        string json = ToJson(data);
         Assert.DoesNotContain("oldField", json);
         Assert.Contains("keepField", json);
         Assert.Contains("keepValue", json);

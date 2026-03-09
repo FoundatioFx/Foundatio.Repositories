@@ -53,8 +53,6 @@ public class VersionedIndex : Index, IVersionedIndex
 
     protected void RenameFieldScript(int versionNumber, string originalName, string currentName, bool removeOriginal = true)
     {
-        ArgumentException.ThrowIfNullOrEmpty(originalName);
-        ArgumentException.ThrowIfNullOrEmpty(currentName);
         PainlessFieldPath.Validate(originalName);
         PainlessFieldPath.Validate(currentName);
 
@@ -73,7 +71,6 @@ public class VersionedIndex : Index, IVersionedIndex
 
     protected void RemoveFieldScript(int versionNumber, string fieldName)
     {
-        ArgumentException.ThrowIfNullOrEmpty(fieldName);
         PainlessFieldPath.Validate(fieldName);
 
         string guard = BuildContainsKeyGuard(fieldName);

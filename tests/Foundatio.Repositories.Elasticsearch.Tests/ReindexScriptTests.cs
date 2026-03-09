@@ -537,6 +537,24 @@ public sealed class ReindexScriptTests
         Assert.Contains(expectedAccessor, script);
     }
 
+    [Theory]
+    [InlineData("@timestamp", "ctx._source.containsKey('@timestamp')", "ctx._source.remove('@timestamp')")]
+    [InlineData("field-name", "ctx._source.containsKey('field-name')", "ctx._source.remove('field-name')")]
+    [InlineData("if", "ctx._source.containsKey('if')", "ctx._source.remove('if')")]
+    public void RemoveFieldScript_WithSpecialCharacters_UsesBracketNotation(string fieldPath, string expectedGuard, string expectedRemoval)
+    {
+        // Arrange
+        var index = new TestableVersionedIndex(2);
+
+        // Act
+        index.TestRemoveFieldScript(2, fieldPath);
+        string script = index.TestGetReindexScripts(1);
+
+        // Assert
+        Assert.Contains(expectedGuard, script);
+        Assert.Contains(expectedRemoval, script);
+    }
+
     private sealed class TestableVersionedIndex : VersionedIndex
     {
         public TestableVersionedIndex(int version)
