@@ -13,9 +13,12 @@ internal sealed record BulkResult
     public static readonly BulkResult Empty = new();
 
     public IReadOnlySet<string> SuccessfulIds { get; init; } = _emptySet;
+    public IReadOnlySet<string> NoopIds { get; init; } = _emptySet;
     public IReadOnlySet<string> ConflictIds { get; init; } = _emptySet;
     public IReadOnlySet<string> RetryableIds { get; init; } = _emptySet;
     public IReadOnlySet<string> FatalIds { get; init; } = _emptySet;
+
+    public int ModifiedCount => SuccessfulIds.Count - NoopIds.Count;
 
     public string TransportError { get; init; }
     public Exception TransportException { get; init; }
@@ -43,9 +46,11 @@ internal sealed record BulkResult
         }
 
         var errors = response.ItemsWithErrors.ToList();
+        var validItems = response.Items.Where(i => i.IsValid).ToList();
         return new BulkResult
         {
-            SuccessfulIds = response.Items.Where(i => i.IsValid).Select(i => i.Id).ToHashSet(),
+            SuccessfulIds = validItems.Select(i => i.Id).ToHashSet(),
+            NoopIds = validItems.Where(i => i.Result == "noop").Select(i => i.Id).ToHashSet(),
             ConflictIds = errors.Where(e => e.Status is 409).Select(e => e.Id).ToHashSet(),
             RetryableIds = errors.Where(e => e.Status is 429 or 503).Select(e => e.Id).ToHashSet(),
             FatalIds = errors.Where(e => e.Status is not 409 and not 429 and not 503).Select(e => e.Id).ToHashSet()

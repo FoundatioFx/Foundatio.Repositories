@@ -10,7 +10,6 @@ using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
-using Microsoft.Extensions.Logging;
 using Nest;
 using Xunit;
 

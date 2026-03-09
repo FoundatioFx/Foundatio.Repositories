@@ -41,8 +41,8 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     Task AddAsync(IEnumerable<T> documents, ICommandOptions options = null);
     Task<T> SaveAsync(T document, ICommandOptions options = null);
     Task SaveAsync(IEnumerable<T> documents, ICommandOptions options = null);
-    Task PatchAsync(Id id, IPatchOperation operation, ICommandOptions options = null);
-    Task PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions options = null);
+    Task<bool> PatchAsync(Id id, IPatchOperation operation, ICommandOptions options = null);
+    Task<long> PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions options = null);
     Task RemoveAsync(Id id, ICommandOptions options = null);
     Task RemoveAsync(T document, ICommandOptions options = null);
     Task RemoveAsync(IEnumerable<T> documents, ICommandOptions options = null);

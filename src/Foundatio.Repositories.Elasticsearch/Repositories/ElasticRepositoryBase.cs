@@ -170,12 +170,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             ThrowForBulkErrors(result, isCreateOperation: false);
     }
 
-    public Task PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options)
+    public async Task<bool> PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options)
     {
-        return PatchAsync(id, operation, options.Configure());
+        return await PatchAsync(id, operation, options.Configure()).AnyContext();
     }
 
-    public virtual async Task PatchAsync(Id id, IPatchOperation operation, ICommandOptions options = null)
+    public virtual async Task<bool> PatchAsync(Id id, IPatchOperation operation, ICommandOptions options = null)
     {
         if (String.IsNullOrEmpty(id.Value))
             throw new ArgumentNullException(nameof(id));
@@ -191,6 +191,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             operation = ApplyDateTracking(scriptPatchOp);
         else if (operation is PartialPatch partialPatchOp)
             operation = ApplyDateTracking(partialPatchOp);
+
+        bool modified = true;
 
         if (operation is ScriptPatch scriptOperation)
         {
@@ -221,6 +223,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"),
                     response.OriginalException);
             }
+
+            modified = response.Result != Result.Noop;
         }
         else if (operation is PartialPatch partialOperation)
         {
@@ -251,11 +255,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"),
                     response.OriginalException);
             }
+
+            modified = response.Result != Result.Noop;
         }
         else if (operation is JsonPatch jsonOperation)
         {
             if (jsonOperation.Patch == null || jsonOperation.Patch.Operations.Count == 0)
-                return;
+                return false;
 
             var policy = _resiliencePolicy;
             if (options.HasRetryCount())
@@ -315,7 +321,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         else if (operation is ActionPatch<T> actionPatch)
         {
             if (actionPatch.Actions == null || actionPatch.Actions.Count == 0)
-                return;
+                return false;
 
             var policy = _resiliencePolicy;
             if (options.HasRetryCount())
@@ -368,14 +374,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         if (options.ShouldNotify())
             await PublishChangeTypeMessageAsync(ChangeType.Saved, id).AnyContext();
+
+        return modified;
     }
 
-    public Task PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options)
+    public async Task<long> PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options)
     {
-        return PatchAsync(ids, operation, options.Configure());
+        return await PatchAsync(ids, operation, options.Configure()).AnyContext();
     }
 
-    public virtual async Task PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions options = null)
+    public virtual async Task<long> PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions options = null)
     {
         if (ids == null)
             throw new ArgumentNullException(nameof(ids));
@@ -384,15 +392,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             throw new ArgumentNullException(nameof(operation));
 
         if (ids.Count == 0)
-            return;
+            return 0;
 
         options = ConfigureOptions(options.As<T>());
 
         if (ids.Count == 1)
-        {
-            await PatchAsync(ids[0], operation, options).AnyContext();
-            return;
-        }
+            return await PatchAsync(ids[0], operation, options).AnyContext() ? 1 : 0;
 
         if (operation is ScriptPatch scriptPatchOp)
             operation = ApplyDateTracking(scriptPatchOp);
@@ -400,16 +405,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             operation = ApplyDateTracking(partialPatchOp);
 
         if (operation is JsonPatch)
-        {
-            await PatchAllAsync(NewQuery().Id(ids), operation, options).AnyContext();
-            return;
-        }
+            return await PatchAllAsync(NewQuery().Id(ids), operation, options).AnyContext();
 
         if (operation is ActionPatch<T>)
-        {
-            await PatchAllAsync(NewQuery().Id(ids), operation, options).AnyContext();
-            return;
-        }
+            return await PatchAllAsync(NewQuery().Id(ids), operation, options).AnyContext();
 
         if (operation is not ScriptPatch and not PartialPatch)
             throw new ArgumentException("Unknown operation type", nameof(operation));
@@ -474,6 +473,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         if (result.HasErrors)
             ThrowForBulkErrors(result, operationLabel: "patching");
+
+        return result.ModifiedCount;
     }
 
     public Task RemoveAsync(Id id, CommandOptionsDescriptor<T> options)

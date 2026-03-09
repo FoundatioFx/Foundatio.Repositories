@@ -193,6 +193,16 @@ await repository.PatchAsync(id, new ActionPatch<Employee>(e =>
 `ActionPatch` fetches the document, applies the lambda, and saves it. For true partial updates without fetching, use `PartialPatch` or `ScriptPatch`.
 :::
 
+## Return Values
+
+All `PatchAsync` overloads return status information:
+
+- **`PatchAsync(Id, ...)`** returns `Task<bool>` — `true` if the document was modified, `false` if the operation was a no-op (e.g., setting a field to its current value, empty operations, or a script that sets `ctx.op = 'none'`).
+- **`PatchAsync(Ids, ...)`** returns `Task<long>` — the number of documents actually modified (excludes no-ops).
+- **`PatchAllAsync(...)`** returns `Task<long>` — the number of documents modified by the query.
+
+Errors (document not found, version conflicts) throw exceptions rather than returning a status value. See [Error Handling](#error-handling) for details.
+
 ## Patching Multiple Documents
 
 ### Patch by IDs

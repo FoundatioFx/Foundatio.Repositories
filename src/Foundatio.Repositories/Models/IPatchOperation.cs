@@ -125,13 +125,13 @@ public class ScriptPatch : IPatchOperation
 public static class ActionPatchExtensions
 {
     /// <inheritdoc cref="IRepository{T}.PatchAsync(Id, IPatchOperation, ICommandOptions)"/>
-    public static Task PatchAsync<T>(this IRepository<T> repository, Id id, ActionPatch<T> operation, ICommandOptions options = null) where T : class, IIdentity, new()
+    public static Task<bool> PatchAsync<T>(this IRepository<T> repository, Id id, ActionPatch<T> operation, ICommandOptions options = null) where T : class, IIdentity, new()
     {
         return repository.PatchAsync(id, operation, options);
     }
 
     /// <inheritdoc cref="IRepository{T}.PatchAsync(Id, IPatchOperation, CommandOptionsDescriptor{T})"/>
-    public static Task PatchAsync<T>(this IRepository<T> repository, Id id, ActionPatch<T> operation, CommandOptionsDescriptor<T> options) where T : class, IIdentity, new()
+    public static Task<bool> PatchAsync<T>(this IRepository<T> repository, Id id, ActionPatch<T> operation, CommandOptionsDescriptor<T> options) where T : class, IIdentity, new()
     {
         return repository.PatchAsync(id, operation, options);
     }

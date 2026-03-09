@@ -75,13 +75,14 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// <param name="id">The identifier of the document to patch.</param>
     /// <param name="operation">The patch operation to apply (e.g., <see cref="PartialPatch"/>, <see cref="JsonPatch"/>, <see cref="ScriptPatch"/>).</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
+    /// <returns><c>true</c> if the document was modified; <c>false</c> if the operation was a no-op.</returns>
     /// <exception cref="Exceptions.DocumentNotFoundException">Thrown when the document does not exist.</exception>
     /// <exception cref="Exceptions.VersionConflictDocumentException">Thrown when the document version conflicts (HTTP 409).</exception>
     /// <exception cref="Exceptions.DocumentException">Thrown when the Elasticsearch request fails.</exception>
-    Task PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options);
+    Task<bool> PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="PatchAsync(Id, IPatchOperation, CommandOptionsDescriptor{T})"/>
-    Task PatchAsync(Id id, IPatchOperation operation, ICommandOptions options = null);
+    Task<bool> PatchAsync(Id id, IPatchOperation operation, ICommandOptions options = null);
 
     /// <summary>
     /// Applies a patch operation to multiple documents.
@@ -89,10 +90,11 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// <param name="ids">The identifiers of the documents to patch.</param>
     /// <param name="operation">The patch operation to apply.</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
-    Task PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options);
+    /// <returns>The number of documents actually modified (excludes no-ops).</returns>
+    Task<long> PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="PatchAsync(Ids, IPatchOperation, CommandOptionsDescriptor{T})"/>
-    Task PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions options = null);
+    Task<long> PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions options = null);
 
     /// <summary>
     /// Permanently removes a document from the repository (hard delete).
