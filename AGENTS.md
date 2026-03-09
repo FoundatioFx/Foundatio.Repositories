@@ -177,6 +177,7 @@ Before writing any implementation code, think critically:
 - **Build incrementally**: Run `dotnet build` after each logical change to catch errors early
 - **Test continuously**: Run `dotnet test` frequently to verify correctness
 - **Match style**: Follow the patterns in surrounding code exactly
+- **Fix issues you find**: If you discover a correctness issue—whether pre-existing or introduced by your changes—fix it. Don't dismiss problems as "out of scope" or "pre-existing." If the fix is trivial, just do it. If it's non-trivial, present the issue and a proposed plan to the user and ask whether to address it now.
 
 ### Validation
 
@@ -243,6 +244,15 @@ When changing types, signatures, or internal behavior:
 - **Trace all callers**: Search for every usage of the changed API. Verify each caller still works correctly with the new semantics.
 - **Defensive code preserved**: If the original code had null-safety (`?.Invoke`), ensure the refactored version maintains equivalent safety or adds explicit validation.
 - **Backward compatibility**: If the public API signature changes, verify that existing calling code compiles and behaves identically without modification.
+
+#### 7. Issues Found During Review
+
+When PR feedback, audits, or your own review surfaces a correctness issue:
+
+- **Never dismiss as "pre-existing" or "out of scope"**: If it's a real correctness problem, it needs to be addressed regardless of who introduced it.
+- **Trivial fixes**: Just fix them immediately—no need to ask.
+- **Non-trivial fixes**: Present the issue, explain the impact, propose a fix plan with scope, and ask whether to address it now or track it separately.
+- **Don't rationalize away problems**: "It works in practice" or "callers probably don't hit this" are not acceptable reasons to skip a fix. Correctness matters.
 
 ## Security
 
