@@ -999,9 +999,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         if (affectedRecords > 0)
         {
+            // When called via PatchAsync(Ids), query has IDs and this duplicates per-batch invalidation
+            // (harmless/idempotent). When called directly with a filter query, GetIds() is empty (no-op).
             if (IsCacheEnabled)
                 await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
 
+            // Empty list: per-document events fire inside batch callbacks for ActionPatch/JsonPatch.
+            // This signals "something changed" to DocumentsChanged subscribers without re-sending documents.
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
             await SendQueryNotificationsAsync(ChangeType.Saved, query, options).AnyContext();
         }
