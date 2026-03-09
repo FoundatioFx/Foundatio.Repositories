@@ -203,7 +203,7 @@ All `PatchAsync` overloads return status information:
 - **`PatchAsync(Id, ...)`** returns `Task<bool>` -- `true` if the document was modified, `false` if the operation was treated as a no-op.
   - For `PartialPatch`, Elasticsearch's automatic noop detection reports `false` when the update does not change any field values (e.g., setting a field to its current value). However, models implementing `IHaveDates` have `UpdatedUtc` injected automatically on partial updates, so most `PartialPatch` calls will return `true` unless date tracking is disabled or the caller explicitly supplies an `UpdatedUtc` value that does not change.
   - For `ScriptPatch`, the operation is only a no-op when the script explicitly sets `ctx.op = 'none'`; simply reassigning the same value in a script is treated as a modification by Elasticsearch. The automatic date tracking script is appended after your script, but Elasticsearch evaluates `ctx.op` at the end of execution — so `ctx.op = 'none'` correctly prevents the write even with the appended timestamp assignment.
-  - For `ActionPatch`, noop detection depends on the overload used. The `Func<T, bool>` overload respects the return value — `false` skips the write entirely (no Index API call, no date tracking, no cache invalidation) with zero overhead. The `Action<T>` overload always assumes the document was modified. Empty actions (no callbacks) return `false`.
+  - For `ActionPatch`, noop detection depends on the overload used. The `Func<T, bool>` overload respects the return value — `false` skips the Elasticsearch write entirely (no Index API call, no date tracking, no cache invalidation). The document is still fetched and the delegate executes, but the reindex step is avoided. The `Action<T>` overload always assumes the document was modified. Empty actions (no callbacks) return `false`.
   - For `JsonPatch`, operations always return `true` (the get-modify-reindex pattern always writes). Empty operations (no patches) return `false`.
 - **`PatchAsync(Ids, ...)`** returns `Task<long>` -- the number of documents actually modified (excludes no-ops as reported by the backend).
 - **`PatchAllAsync(...)`** returns `Task<long>` — the number of documents modified by the query.
@@ -214,7 +214,7 @@ Errors (document not found, version conflicts) throw exceptions rather than retu
 - **Date tracking**: Models implementing `IHaveDates` have `UpdatedUtc` set automatically on partial updates. This injected timestamp change means `PartialPatch` will almost always report `true` even when no other field values changed.
 - **Script patches**: Elasticsearch does not detect noops for script-based updates automatically. Your script must explicitly set `ctx.op = 'none'` to signal a no-op. See [Script Noop Example](#script-noop-example) below.
 - **JsonPatch**: Uses a get-modify-reindex pattern (Index API), so a write always occurs and `true` is always returned.
-- **ActionPatch (`Action<T>`)**: The `Action<T>` overload always assumes the document was modified. Use the `Func<T, bool>` overload and return `false` from your function to signal a no-op with zero overhead.
+- **ActionPatch (`Action<T>`)**: The `Action<T>` overload always assumes the document was modified. Use the `Func<T, bool>` overload and return `false` from your function to skip the reindex step for unchanged documents.
 :::
 
 ### Script Noop Example
@@ -262,7 +262,7 @@ long modifiedCount = await repository.PatchAsync(
 
 ### ActionPatch Noop Detection
 
-`ActionPatch` supports two modes — fire-and-forget with `Action<T>`, or explicit noop signaling with `Func<T, bool>`. The `Func<T, bool>` overload lets your action return `false` to signal a no-op. When all actions return `false`, the write to Elasticsearch is skipped entirely — no Index API call, no date tracking update, no cache invalidation. There is zero performance overhead for noop detection since it uses the return value directly (no serialization or comparison).
+`ActionPatch` supports two modes — fire-and-forget with `Action<T>`, or explicit noop signaling with `Func<T, bool>`. The `Func<T, bool>` overload lets your action return `false` to signal a no-op. When all actions return `false`, the write to Elasticsearch is skipped entirely — no Index API call, no date tracking update, no cache invalidation. The document is still fetched and the delegate executes, but the expensive reindex step is avoided.
 
 The `Action<T>` overload always assumes the document was modified (returns `true` internally). Use `Func<T, bool>` when you want to conditionally skip writes:
 
