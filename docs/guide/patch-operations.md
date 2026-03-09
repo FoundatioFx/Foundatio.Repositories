@@ -275,7 +275,7 @@ await repository.PatchAsync(id,
 bool modified = await repository.PatchAsync(id,
     new ActionPatch<Employee>(e =>
     {
-        if (e.Name == "Alice")
+        if (String.Equals(e.Name, "Alice", StringComparison.Ordinal))
             return false;
 
         e.Name = "Alice";
