@@ -298,6 +298,8 @@ await configuration.ConfigureIndexesAsync();
 
 ### Field Operations During Reindex
 
+`RenameFieldScript` and `RemoveFieldScript` generate Painless scripts that automatically handle field names with special characters. Standard identifiers use dot-notation (e.g. `ctx._source.data.field`), while field names containing hyphens, `@`, spaces, or other non-identifier characters automatically use bracket notation (e.g. `ctx._source['@timestamp']`). Field paths cannot contain single quotes (`'`), backslashes (`\`), or control characters (such as newlines), since these would break Painless string literals.
+
 #### Rename a Field
 
 Use `RenameFieldScript` to rename a field during reindex:
@@ -318,10 +320,36 @@ public EmployeeIndex(IElasticConfiguration configuration)
 The generated Painless script:
 ```javascript
 if (ctx._source.containsKey('dept')) { 
-    ctx._source['department'] = ctx._source.dept; 
+    ctx._source.department = ctx._source.dept; 
 }
 if (ctx._source.containsKey('dept')) { 
     ctx._source.remove('dept'); 
+}
+```
+
+#### Rename a Nested Field
+
+`RenameFieldScript` supports dotted paths for nested properties:
+
+```csharp
+public EmployeeIndex(IElasticConfiguration configuration) 
+    : base(configuration, "employees", version: 2)
+{
+    RenameFieldScript(2, "data.oldField", "data.newField");
+    
+    // Deeply nested paths are also supported:
+    RenameFieldScript(2, "metadata.author.name", "metadata.author.displayName");
+}
+```
+
+The generated Painless script for nested paths includes null-safety guards:
+```javascript
+if (ctx._source.data != null && ctx._source.data.containsKey('oldField')) { 
+    if (ctx._source.data == null) { ctx._source.data = [:]; } 
+    ctx._source.data.newField = ctx._source.data.oldField; 
+}
+if (ctx._source.data != null && ctx._source.data.containsKey('oldField')) { 
+    ctx._source.data.remove('oldField'); 
 }
 ```
 
@@ -333,8 +361,19 @@ Use `RemoveFieldScript` to remove a field:
 public EmployeeIndex(IElasticConfiguration configuration) 
     : base(configuration, "employees", version: 3)
 {
-    // Remove deprecated field in version 3
     RemoveFieldScript(3, "deprecatedField");
+}
+```
+
+#### Remove a Nested Field
+
+`RemoveFieldScript` also supports dotted paths:
+
+```csharp
+public EmployeeIndex(IElasticConfiguration configuration) 
+    : base(configuration, "employees", version: 3)
+{
+    RemoveFieldScript(3, "data.legacyField");
 }
 ```
 
@@ -369,7 +408,7 @@ public EmployeeIndex(IElasticConfiguration configuration)
 
 ### Multi-Version Migration
 
-Scripts are applied incrementally. If upgrading from v1 to v3, both v2 and v3 scripts run:
+Scripts are applied incrementally. When upgrading, only scripts with a version greater than the current index version (and less than or equal to the target version) are applied. If upgrading from v1 to v3, both v2 and v3 scripts run:
 
 ```csharp
 public EmployeeIndex(IElasticConfiguration configuration) 
@@ -381,6 +420,44 @@ public EmployeeIndex(IElasticConfiguration configuration)
     // v3 scripts (run when upgrading from v1 or v2)
     AddReindexScript(3, "ctx._source.version = 3;");
 }
+```
+
+When a single script applies, it is sent directly to Elasticsearch. When multiple scripts apply, they are each wrapped in a named function and called sequentially:
+
+```javascript
+void f000(def ctx) { /* v2 rename script */ }
+void f001(def ctx) { /* v2 remove script */ }
+void f002(def ctx) { /* v3 custom script */ }
+f000(ctx); f001(ctx); f002(ctx); 
+```
+
+Note that `RenameFieldScript` with `removeOriginal: true` (the default) generates **two** scripts at the same version number — one to copy the value and one to remove the original field. Both are included in the combined script.
+
+#### Skipping Over Multiple Versions
+
+If an index is multiple versions behind (e.g., v1 upgrading to v5), all intermediate scripts run in order:
+
+```csharp
+public EmployeeIndex(IElasticConfiguration configuration) 
+    : base(configuration, "employees", version: 5)
+{
+    RenameFieldScript(2, "dept", "department");           // v2
+    RemoveFieldScript(3, "data.legacyField");             // v3
+    RenameFieldScript(4, "data.oldField", "data.newField"); // v4
+    AddReindexScript(5, "ctx._source.migrated = true;");  // v5
+}
+```
+
+When upgrading from v1 to v5, scripts for v2 through v5 all apply. When upgrading from v3 to v5, only v4 and v5 scripts apply. Scripts for versions at or below the current version are always skipped.
+
+#### Moving Fields Between Objects
+
+You can rename fields across different parent objects:
+
+```csharp
+RenameFieldScript(2, "data.oldField", "meta.newField");  // Move between parents
+RenameFieldScript(3, "data.name", "displayName");         // Promote nested to top-level
+RenameFieldScript(4, "companyName", "data.company");      // Demote top-level to nested
 ```
 
 ### Controlling Old Index Deletion
