@@ -1036,7 +1036,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         {
             var includes = query.GetIncludes();
             foreach (var field in RequiredFields.Select(f => f.Value))
-                if (field != null && !includes.Contains(field))
+                if (field is not null && !includes.Contains(field))
                     query.Include(field);
 
             if (!options.HasPageLimit())

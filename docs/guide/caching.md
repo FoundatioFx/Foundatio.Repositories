@@ -689,7 +689,7 @@ public class UserRepository : ElasticRepositoryBase<User>
 }
 ```
 
-Required fields are automatically injected into the includes set for all source-filtered operations: `GetByIdAsync`, `GetByIdsAsync`, `FindAsync`, `RemoveAllAsync`, and `PatchAllAsync`.
+Required fields are automatically injected when caller-specified source filtering is active: added to the include set when includes are present, or removed from the exclude set when only excludes are present. This applies to all source-filtered operations: `GetByIdAsync`, `GetByIdsAsync`, `FindAsync`, `RemoveAllAsync`, and `PatchAllAsync`.
 
 See [Required Fields](querying.md#required-fields) for full details on injection behavior, precedence rules, and interactions with default excludes.
 

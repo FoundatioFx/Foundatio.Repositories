@@ -628,11 +628,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     protected virtual IRepositoryQuery ConfigureQuery(IRepositoryQuery<T> query)
     {
-        if (query == null)
+        if (query is null)
             query = new RepositoryQuery<T>();
 
         if (_defaultExcludes.Count > 0 && query.GetExcludes().Count == 0)
-            query.AddCollectionOptionValue(FieldIncludesQueryExtensions.ExcludesKey, _defaultExcludes.Select(e => (Field)e.Value));
+            query.DefaultExclude(_defaultExcludes.Select(e => (Field)e.Value));
 
         return query;
     }
@@ -854,34 +854,29 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (!String.IsNullOrEmpty(optionExcludeMask))
             excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
 
-        bool hasCallerFieldRestrictions = query.SafeGetOption<bool>(FieldIncludesCommandExtensions.HasCallerFieldRestrictionsKey)
+        bool hasCallerFieldRestrictions = query.GetHasCallerFieldRestrictions()
             || options.GetHasCallerFieldRestrictions();
 
         if (_defaultExcludes.Count > 0 && excludes.Count == 0)
             excludes.AddRange(_defaultExcludes.Select(f => f.Value));
 
-        if (hasCallerFieldRestrictions)
-        {
-            var requiredFields = options.GetRequiredFields();
-            if (requiredFields.Count > 0)
-            {
-                if (includes.Count > 0)
-                    includes.AddRange(requiredFields);
-            }
-        }
+        var requiredFields = hasCallerFieldRestrictions ? options.GetRequiredFields() : Array.Empty<Field>();
+
+        if (requiredFields.Count > 0 && includes.Count > 0)
+            includes.AddRange(requiredFields);
 
         if (HasIdentity && includes.Count > 0)
             includes.Add(_idField.Value);
 
         var resolvedIncludes = ElasticIndex.MappingResolver.GetResolvedFields(includes).ToArray();
 
-        var resolvedRequiredFields = hasCallerFieldRestrictions && includes.Count == 0
-            ? ElasticIndex.MappingResolver.GetResolvedFields(options.GetRequiredFields()).ToHashSet()
-            : null;
+        var resolvedRequiredFields = requiredFields.Count > 0 && includes.Count == 0
+            ? ElasticIndex.MappingResolver.GetResolvedFields(requiredFields).ToHashSet()
+            : new HashSet<Field>();
 
         var resolvedExcludes = ElasticIndex.MappingResolver.GetResolvedFields(excludes)
             .Where(f => !resolvedIncludes.Contains(f))
-            .Where(f => resolvedRequiredFields is null || !resolvedRequiredFields.Contains(f))
+            .Where(f => !resolvedRequiredFields.Contains(f))
             .ToArray();
 
         return (resolvedIncludes, resolvedExcludes);
