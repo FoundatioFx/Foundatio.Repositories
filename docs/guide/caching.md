@@ -669,68 +669,42 @@ Enabling `OriginalsEnabled` adds an extra database read before each save. Use it
 - Proper cache invalidation for non-ID fields
 - Soft delete notifications (to know the document was active before deletion)
 
-## Advanced: Properties Required for Remove
+## Advanced: Required Fields for Cache Invalidation
 
 ### The Problem
 
-When using `RemoveAllAsync` with a query, the repository may use Elasticsearch's `DeleteByQuery` for efficiency. However, event handlers and cache invalidation need certain document properties to function correctly.
+When callers request partial documents (via `.Include()`, `.Exclude()`, or field masks), fields needed for cache invalidation or event handling may be missing. For example, if you cache by `EmailAddress` and a caller requests only `Id` and `Name`, the `InvalidateCacheAsync` override won't have the email to clear the cache.
 
-### AddPropertyRequiredForRemove
+### AddRequiredField
 
-> **Deprecated**: `AddPropertyRequiredForRemove` is deprecated and will be removed in a future major version. Use `AddRequiredField` instead, which ensures fields are included in **all** source-filtered operations (not just removes). See [Required Fields](querying.md#required-fields) for details.
-
-This method ensures specific fields are included when fetching documents for removal:
+Register fields that must always be returned when any caller-specified source filtering is active:
 
 ```csharp
 public class UserRepository : ElasticRepositoryBase<User>
 {
     public UserRepository(UserIndex index) : base(index)
     {
-        // Ensure these fields are fetched for remove operations
-        AddPropertyRequiredForRemove(u => u.EmailAddress);
-        AddPropertyRequiredForRemove(u => u.OrganizationIds);
+        AddRequiredField(u => u.EmailAddress, u => u.OrganizationIds);
     }
 }
 ```
 
-### Why It's Needed
+Required fields are automatically injected into the includes set for all source-filtered operations: `GetByIdAsync`, `GetByIdsAsync`, `FindAsync`, `RemoveAllAsync`, and `PatchAllAsync`.
 
-```csharp
-// When you call:
-await repository.RemoveAllAsync(q => q.FieldEquals(u => u.Status, "inactive"));
+See [Required Fields](querying.md#required-fields) for full details on injection behavior, precedence rules, and interactions with default excludes.
 
-// Internally, if event handlers exist:
-// 1. Repository fetches documents matching the query
-// 2. Only includes fields in _propertiesRequiredForRemove
-// 3. Fires DocumentsRemoving/DocumentsRemoved events
-// 4. Calls InvalidateCacheAsync with the documents
+### Default Required Fields
 
-// Without AddPropertyRequiredForRemove:
-// - EmailAddress would be null in event handlers
-// - Cache invalidation by email would fail
-```
-
-### Default Properties
-
-The repository automatically adds these properties:
+The repository automatically registers these as required fields:
 - `Id` (always required)
 - `CreatedUtc` (if entity implements `IHaveCreatedDate`)
-
-### Multiple Properties
-
-```csharp
-// Add multiple properties at once
-AddPropertyRequiredForRemove(
-    u => u.EmailAddress, 
-    u => u.OrganizationIds,
-    u => u.TenantId);
-```
 
 ### Use Cases
 
 1. **Cache invalidation by non-ID fields**: Need the email to invalidate email cache
 2. **Event handlers that need specific data**: Audit logging, notifications
 3. **Cascade operations**: Need organization IDs to update related entities
+4. **Multi-tenancy**: Authorization checks that need tenant identifiers
 
 ## Next Steps
 

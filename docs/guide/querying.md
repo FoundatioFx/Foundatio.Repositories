@@ -593,7 +593,7 @@ Repositories can register fields that must always be present when any caller-spe
 - **Cache invalidation**: Fields used as custom cache keys must be present to invalidate correctly
 - **Event handling**: Fields needed by `DocumentsChanged` / `DocumentsChanging` handlers
 
-Call `AddRequiredField()` in the repository constructor:
+Call `AddRequiredField()` in the repository constructor. Multiple fields can be registered in a single call:
 
 ```csharp
 public class StackRepository : ElasticRepositoryBase<Stack>
@@ -601,8 +601,7 @@ public class StackRepository : ElasticRepositoryBase<Stack>
     public StackRepository(MyAppElasticConfiguration configuration)
         : base(configuration.Stacks)
     {
-        AddRequiredField(s => s.OrganizationId);
-        AddRequiredField(s => s.ProjectId);
+        AddRequiredField(s => s.OrganizationId, s => s.ProjectId);
     }
 }
 ```
@@ -612,6 +611,8 @@ public class StackRepository : ElasticRepositoryBase<Stack>
 Required fields are **only injected when the caller sets field restrictions** — i.e., when any `.Include()`, `.Exclude()`, `.IncludeMask()`, or `.ExcludeMask()` is specified on the query or command options. When no caller restrictions exist, the full `_source` is returned and required fields have no effect.
 
 Importantly, repository-internal `AddDefaultExclude()` registrations alone do **not** trigger required field injection. Default excludes are a repository concern that still returns nearly all fields; required fields only activate when the caller explicitly requests a partial document.
+
+If a field is registered as both a required field and a default exclude, the required field takes precedence when caller restrictions are active — the field will be included. When no caller restrictions exist, the default exclude applies normally. This is safe because the two features serve different purposes: default excludes reduce payload for full-document reads, while required fields guarantee presence in partial-document reads.
 
 #### Precedence Rules
 
@@ -636,7 +637,6 @@ public class EventRepository : ElasticRepositoryBase<Event>
         : base(configuration.Events)
     {
         AddRequiredField(e => e.OrganizationId);
-        AddRequiredField(e => e.ProjectId);
     }
 
     protected override async Task InvalidateCacheAsync(
@@ -648,26 +648,6 @@ public class EventRepository : ElasticRepositoryBase<Event>
     }
 }
 ```
-
-### Properties Required for Remove
-
-> **Deprecated**: `AddPropertyRequiredForRemove` is deprecated and will be removed in a future major version. Use `AddRequiredField` instead, which covers all source-filtered operations.
-
-When `RemoveAllAsync` processes batch deletions, it first queries for matching documents. The repository ensures that certain critical fields are always included in these queries by registering them with `AddPropertyRequiredForRemove()`. Unlike `AddRequiredField`, this only applies to the `RemoveAllAsync` batch-fetch path — it force-includes fields on the query regardless of any other restrictions:
-
-```csharp
-public class EmployeeRepository : ElasticRepositoryBase<Employee>
-{
-    public EmployeeRepository(/* ... */)
-    {
-        AddPropertyRequiredForRemove(e => e.DepartmentId);
-    }
-}
-```
-
-The `Id` and `CreatedUtc` fields (when applicable) are registered automatically. These fields are needed for cache invalidation, message bus notifications, and event handlers that fire during the delete process.
-
-To ensure a field is included in **all** source-filtered operations (not just removes), use `AddRequiredField` instead.
 
 ### Caching Impact
 

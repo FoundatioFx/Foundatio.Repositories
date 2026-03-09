@@ -35,7 +35,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected static readonly string EntityTypeName = typeof(T).Name;
     protected static readonly IReadOnlyCollection<T> EmptyList = new List<T>(0).AsReadOnly();
     private readonly List<Lazy<Field>> _defaultExcludes = new();
-    private readonly List<Lazy<Field>> _requiredFields = new();
+    protected readonly List<Lazy<Field>> _requiredFields = new();
     protected readonly Lazy<string> _idField;
     protected readonly Lazy<string> _updatedUtcField;
 
@@ -631,7 +631,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             query = new RepositoryQuery<T>();
 
         if (_defaultExcludes.Count > 0 && query.GetExcludes().Count == 0)
-            query.Exclude(_defaultExcludes.Select(e => e.Value));
+            query.AddCollectionOptionValue(FieldIncludesQueryExtensions.ExcludesKey, _defaultExcludes.Select(e => (Field)e.Value));
 
         return query;
     }
@@ -851,7 +851,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (!String.IsNullOrEmpty(optionExcludeMask))
             excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
 
-        bool hasCallerFieldRestrictions = includes.Count > 0 || excludes.Count > 0;
+        bool hasCallerFieldRestrictions = query.SafeGetOption<bool>(FieldIncludesCommandExtensions.HasCallerFieldRestrictionsKey)
+            || options.GetHasCallerFieldRestrictions();
 
         if (_defaultExcludes.Count > 0 && excludes.Count == 0)
             excludes.AddRange(_defaultExcludes.Select(f => f.Value));

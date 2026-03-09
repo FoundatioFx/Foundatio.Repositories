@@ -246,13 +246,13 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Single(results.Documents);
         var companyLog = results.Documents.First();
         Assert.Equal(log.Id, companyLog.Id);
-        Assert.NotEqual(log.CreatedUtc, companyLog.CreatedUtc);
+        Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
 
         results = await _dailyRepository.FindAsync(q => q.Exclude("createdUtc"));
         Assert.Single(results.Documents);
         companyLog = results.Documents.First();
         Assert.Equal(log.Id, companyLog.Id);
-        Assert.NotEqual(log.CreatedUtc, companyLog.CreatedUtc);
+        Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
     }
 
     [Fact]
@@ -430,13 +430,13 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Single(results.Documents);
         var companyLog = results.Documents.First();
         Assert.Equal(log.Id, companyLog.Id);
-        Assert.NotEqual(log.CreatedUtc, companyLog.CreatedUtc);
+        Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
 
         results = await _dailyRepository.FindAsync(q => q.Company(log.CompanyId).ExcludeMask("Createdutc"), o => o.QueryLogLevel(LogLevel.Warning));
         Assert.Single(results.Documents);
         companyLog = results.Documents.First();
         Assert.Equal(log.Id, companyLog.Id);
-        Assert.NotEqual(log.CreatedUtc, companyLog.CreatedUtc);
+        Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
     }
 
     [Fact]
@@ -625,8 +625,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(4, _cache.Hits);
         Assert.Equal(4, _cache.Misses);
     }
-
-    #region Required Fields Tests
 
     [Fact]
     public async Task FindAsync_WithIncludesAndRequiredField_ReturnsRequiredFieldInResults()
@@ -895,6 +893,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         var result = results.Documents.First();
         Assert.Equal(log.Id, result.Id);
         Assert.Equal(log.CompanyId, result.CompanyId);
+        Assert.Equal(log.CreatedUtc, result.CreatedUtc);
         Assert.Null(result.Message);
     }
 
@@ -915,6 +914,4 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(log.CompanyId, result.CompanyId);
         Assert.Null(result.Message);
     }
-
-    #endregion
 }

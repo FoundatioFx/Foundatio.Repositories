@@ -29,16 +29,15 @@ namespace Foundatio.Repositories.Elasticsearch;
 public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, ISearchableRepository<T> where T : class, IIdentity, new()
 {
     protected readonly IMessagePublisher _messagePublisher;
-    private readonly List<Lazy<Field>> _propertiesRequiredForRemove = new();
 
     protected ElasticRepositoryBase(IIndex index) : base(index)
     {
         _messagePublisher = index.Configuration.MessageBus;
         NotificationsEnabled = _messagePublisher != null;
 
-        _propertiesRequiredForRemove.Add(new Lazy<Field>(() => _idField.Value));
+        AddRequiredField(_idField);
         if (HasCreatedDate)
-            _propertiesRequiredForRemove.Add(new Lazy<Field>(() => InferPropertyName(e => ((IHaveCreatedDate)e).CreatedUtc)));
+            AddRequiredField(e => ((IHaveCreatedDate)e).CreatedUtc);
 
         if (HasCustomFields)
         {
@@ -1036,7 +1035,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (hasRemoveListeners || (IsCacheEnabled && options.ShouldUseCache(true)))
         {
             var includes = query.GetIncludes();
-            foreach (var field in _propertiesRequiredForRemove.Select(f => f.Value))
+            foreach (var field in _requiredFields.Select(f => f.Value))
                 if (field != null && !includes.Contains(field))
                     query.Include(field);
 
@@ -1150,28 +1149,28 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     [Obsolete("Use AddRequiredField instead. This method will be removed in a future major version.")]
     protected void AddPropertyRequiredForRemove(string field)
     {
-        _propertiesRequiredForRemove.Add(new Lazy<Field>(() => field));
+        AddRequiredField(field);
     }
 
     /// <inheritdoc cref="AddPropertyRequiredForRemove(string)"/>
     [Obsolete("Use AddRequiredField instead. This method will be removed in a future major version.")]
     protected void AddPropertyRequiredForRemove(Lazy<string> field)
     {
-        _propertiesRequiredForRemove.Add(new Lazy<Field>(() => field.Value));
+        AddRequiredField(field);
     }
 
     /// <inheritdoc cref="AddPropertyRequiredForRemove(string)"/>
     [Obsolete("Use AddRequiredField instead. This method will be removed in a future major version.")]
     protected void AddPropertyRequiredForRemove(Expression<Func<T, object>> objectPath)
     {
-        _propertiesRequiredForRemove.Add(new Lazy<Field>(() => Infer.PropertyName(objectPath)));
+        AddRequiredField(objectPath);
     }
 
     /// <inheritdoc cref="AddPropertyRequiredForRemove(string)"/>
     [Obsolete("Use AddRequiredField instead. This method will be removed in a future major version.")]
     protected void AddPropertyRequiredForRemove(params Expression<Func<T, object>>[] objectPaths)
     {
-        _propertiesRequiredForRemove.AddRange(objectPaths.Select(o => new Lazy<Field>(() => Infer.PropertyName(o))));
+        AddRequiredField(objectPaths);
     }
 
     protected virtual async Task OnCustomFieldsBeforeQuery(object sender, BeforeQueryEventArgs<T> args)
