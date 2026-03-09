@@ -881,9 +881,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.True(response.Source.TryGetValue("data", out var data));
 
         string json = ToJson(data);
-        Assert.Contains("newField", json);
-        Assert.Contains("nestedValue", json);
-        Assert.DoesNotContain("oldField", json);
+        Assert.Equal("{\"newField\":\"nestedValue\"}", json);
     }
 
     [Fact]
@@ -953,9 +951,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.True(response.Source.TryGetValue("data", out var data));
 
         string json = ToJson(data);
-        Assert.DoesNotContain("oldField", json);
-        Assert.Contains("keepField", json);
-        Assert.Contains("keepValue", json);
+        Assert.Equal("{\"keepField\":\"keepValue\"}", json);
     }
 
     private static string GetExpectedEmployeeDailyAliases(IIndex index, DateTime utcNow, DateTime indexDateUtc)
