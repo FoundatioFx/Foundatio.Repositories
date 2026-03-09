@@ -75,13 +75,27 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// <param name="id">The identifier of the document to patch.</param>
     /// <param name="operation">The patch operation to apply (e.g., <see cref="PartialPatch"/>, <see cref="JsonPatch"/>, <see cref="ScriptPatch"/>).</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
+    /// <returns>
+    /// <c>true</c> if the document was modified; <c>false</c> if the operation was a no-op.
+    /// <list type="bullet">
+    /// <item><see cref="PartialPatch"/>: Elasticsearch's automatic <c>detect_noop</c> determines the result. Note that automatic date tracking injects <c>UpdatedUtc</c>, which typically prevents noop detection.</item>
+    /// <item><see cref="ScriptPatch"/>: Only a no-op when the script explicitly sets <c>ctx.op = 'none'</c>.</item>
+    /// <item><see cref="ActionPatch{T}"/>: Returns <c>false</c> when all <see cref="ActionPatch{T}.Actions"/> return <c>false</c>, or when there are no actions. The <c>Action{T}</c> overload always assumes modification.</item>
+    /// <item><see cref="JsonPatch"/>: Always returns <c>true</c> (uses get-modify-reindex). Empty operations return <c>false</c>.</item>
+    /// </list>
+    /// </returns>
     /// <exception cref="Exceptions.DocumentNotFoundException">Thrown when the document does not exist.</exception>
     /// <exception cref="Exceptions.VersionConflictDocumentException">Thrown when the document version conflicts (HTTP 409).</exception>
     /// <exception cref="Exceptions.DocumentException">Thrown when the Elasticsearch request fails.</exception>
-    Task PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options);
+    /// <remarks>
+    /// <para><b>Cache invalidation:</b> <see cref="ActionPatch{T}"/> uses document-based cache invalidation
+    /// (the modified <typeparamref name="T"/> is passed to <c>InvalidateCacheAsync</c>), so custom cache key
+    /// overrides work correctly. All other patch types use ID-based invalidation only.</para>
+    /// </remarks>
+    Task<bool> PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="PatchAsync(Id, IPatchOperation, CommandOptionsDescriptor{T})"/>
-    Task PatchAsync(Id id, IPatchOperation operation, ICommandOptions options = null);
+    Task<bool> PatchAsync(Id id, IPatchOperation operation, ICommandOptions options = null);
 
     /// <summary>
     /// Applies a patch operation to multiple documents.
@@ -89,10 +103,16 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// <param name="ids">The identifiers of the documents to patch.</param>
     /// <param name="operation">The patch operation to apply.</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
-    Task PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options);
+    /// <returns>The number of documents actually modified (excludes no-ops).</returns>
+    /// <remarks>
+    /// <para><b>Cache invalidation:</b> <see cref="ActionPatch{T}"/> and bulk <see cref="JsonPatch"/> use
+    /// document-based cache invalidation. <see cref="ScriptPatch"/> and <see cref="PartialPatch"/> use
+    /// ID-based invalidation only (the modified document is not available client-side).</para>
+    /// </remarks>
+    Task<long> PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="PatchAsync(Ids, IPatchOperation, CommandOptionsDescriptor{T})"/>
-    Task PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions options = null);
+    Task<long> PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions options = null);
 
     /// <summary>
     /// Permanently removes a document from the repository (hard delete).

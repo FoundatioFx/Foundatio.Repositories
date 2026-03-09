@@ -24,6 +24,11 @@ public interface ISearchableRepository<T> : IRepository<T>, ISearchableReadOnlyR
     /// <param name="operation">The patch operation to apply (e.g., <see cref="PartialPatch"/>, <see cref="JsonPatch"/>, <see cref="ScriptPatch"/>).</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
     /// <returns>The number of documents patched.</returns>
+    /// <remarks>
+    /// <para><b>Cache invalidation:</b> <see cref="ActionPatch{T}"/> and <see cref="JsonPatch"/> use
+    /// document-based cache invalidation per batch. <see cref="ScriptPatch"/> and <see cref="PartialPatch"/>
+    /// use ID-based invalidation only (the modified document is not available client-side).</para>
+    /// </remarks>
     Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> query, IPatchOperation operation, CommandOptionsDescriptor<T> options = null);
 
     /// <inheritdoc cref="PatchAllAsync(RepositoryQueryDescriptor{T}, IPatchOperation, CommandOptionsDescriptor{T})"/>
