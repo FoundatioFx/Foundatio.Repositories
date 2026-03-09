@@ -679,7 +679,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (operation is JsonPatch jsonOperation)
         {
             var patcher = new JsonPatcher();
-            affectedRecords += await BatchProcessAsync(query, async results =>
+            long modifiedRecords = 0;
+            await BatchProcessAsync(query, async results =>
             {
                 var bulkResult = await _client.BulkAsync(b =>
                 {
@@ -727,14 +728,17 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
 
                 // JsonPatch uses Index API (get-modify-reindex), not Update API, so ES does not
-                // report noop status. All processed documents are treated as modified.
-                var updatedIds = results.Hits.Select(h => h.Id).ToList();
-                if (IsCacheEnabled)
+                // report noop status. Filter to successfully indexed items only.
+                var updatedIds = bulkResult.Items?.Where(i => i.IsValid).Select(i => i.Id).ToList() ?? [];
+                modifiedRecords += updatedIds.Count;
+
+                if (IsCacheEnabled && updatedIds.Count > 0)
                     await InvalidateCacheAsync(updatedIds).AnyContext();
 
                 try
                 {
-                    options.GetUpdatedIdsCallback()?.Invoke(updatedIds);
+                    if (updatedIds.Count > 0)
+                        options.GetUpdatedIdsCallback()?.Invoke(updatedIds);
                 }
                 catch (Exception ex)
                 {
@@ -743,6 +747,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 return true;
             }, options.Clone()).AnyContext();
+
+            affectedRecords += modifiedRecords;
         }
         else if (operation is ActionPatch<T> actionOperation)
         {

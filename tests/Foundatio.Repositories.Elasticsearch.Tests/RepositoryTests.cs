@@ -2211,4 +2211,197 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             await _employeeRepository.PatchAsync("nonexistent-id-12345",
                 new ScriptPatch("ctx._source.name = 'Changed';")));
     }
+
+    [Fact]
+    public async Task PatchAsync_ActionPatchNoop_DoesNotReindexDocument()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+        var original = await _employeeRepository.GetByIdAsync(employee.Id);
+        string originalVersion = original.Version;
+
+        // Act — noop action should NOT write to Elasticsearch
+        bool modified = await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => false));
+
+        // Assert
+        Assert.False(modified);
+        var after = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.Equal(originalVersion, after.Version);
+    }
+
+    [Fact]
+    public async Task PatchAsync_MultipleIdsWithActionPatchNoop_ReturnsZero()
+    {
+        // Arrange
+        var emp1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice", age: 25), o => o.ImmediateConsistency());
+        var emp2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Bob", age: 30), o => o.ImmediateConsistency());
+
+        // Act — both actions return false (noop)
+        long modifiedCount = await _employeeRepository.PatchAsync(
+            new Ids(emp1.Id, emp2.Id),
+            new ActionPatch<Employee>(e => false));
+
+        // Assert
+        Assert.Equal(0, modifiedCount);
+    }
+
+    [Fact]
+    public async Task PatchAsync_MultipleIdsWithActionPatchMixed_ReturnsOnlyModifiedCount()
+    {
+        // Arrange
+        var emp1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice", age: 25), o => o.ImmediateConsistency());
+        var emp2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Target", age: 30), o => o.ImmediateConsistency());
+
+        // Act — only the non-Target employee should be modified
+        long modifiedCount = await _employeeRepository.PatchAsync(
+            new Ids(emp1.Id, emp2.Id),
+            new ActionPatch<Employee>(e =>
+            {
+                if (e.Name == "Target")
+                    return false;
+
+                e.Name = "Target";
+                return true;
+            }));
+
+        // Assert
+        Assert.Equal(1, modifiedCount);
+    }
+
+    [Fact]
+    public async Task PatchAsync_ActionPatchWithMultipleActions_AnyTrueReturnsTrue()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+
+        // Act — first action returns false, second returns true
+        var patch = new ActionPatch<Employee>(e => false);
+        patch.Actions.Add(e =>
+        {
+            e.Name = "Changed";
+            return true;
+        });
+        bool modified = await _employeeRepository.PatchAsync(employee.Id, patch);
+
+        // Assert
+        Assert.True(modified);
+        var after = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.Equal("Changed", after.Name);
+    }
+
+    [Fact]
+    public async Task PatchAsync_ActionPatchWithMultipleActions_AllFalseReturnsFalse()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+
+        // Act
+        var patch = new ActionPatch<Employee>(e => false);
+        patch.Actions.Add(e => false);
+        bool modified = await _employeeRepository.PatchAsync(employee.Id, patch);
+
+        // Assert
+        Assert.False(modified);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_ActionPatchNoop_ReturnsZero()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice", age: 25), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Bob", age: 30), o => o.ImmediateConsistency());
+
+        // Act
+        long modifiedCount = await _employeeRepository.PatchAllAsync(
+            q => q.Age(25).Age(30),
+            new ActionPatch<Employee>(e => false),
+            o => o.ImmediateConsistency());
+
+        // Assert
+        Assert.Equal(0, modifiedCount);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_ActionPatchMixed_ReturnsOnlyModifiedCount()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice", age: 25), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Target", age: 30), o => o.ImmediateConsistency());
+
+        // Act — only Alice should be modified
+        long modifiedCount = await _employeeRepository.PatchAllAsync(
+            q => q.Age(25).Age(30),
+            new ActionPatch<Employee>(e =>
+            {
+                if (e.Name == "Target")
+                    return false;
+
+                e.Name = "Target";
+                return true;
+            }),
+            o => o.ImmediateConsistency());
+
+        // Assert
+        Assert.Equal(1, modifiedCount);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_ScriptNoop_ReturnsOnlyModifiedCount()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice", age: 25), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Target", age: 30), o => o.ImmediateConsistency());
+
+        // Act — only Alice should be modified
+        long modifiedCount = await _employeeRepository.PatchAllAsync(
+            q => q.Age(25).Age(30),
+            new ScriptPatch("""
+                if (ctx._source.name == params.target) {
+                    ctx.op = 'none';
+                } else {
+                    ctx._source.name = params.target;
+                }
+                """)
+            { Params = new Dictionary<string, object> { ["target"] = "Target" } },
+            o => o.ImmediateConsistency());
+
+        // Assert
+        Assert.Equal(1, modifiedCount);
+    }
+
+    [Fact]
+    public async Task PatchAsync_MultipleIdsWithJsonPatch_ReturnsModifiedCount()
+    {
+        // Arrange
+        var emp1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Alice", age: 25), o => o.ImmediateConsistency());
+        var emp2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Bob", age: 30), o => o.ImmediateConsistency());
+        var patch = new PatchDocument(new ReplaceOperation { Path = "name", Value = "Changed" });
+
+        // Act
+        long modifiedCount = await _employeeRepository.PatchAsync(
+            new Ids(emp1.Id, emp2.Id),
+            new JsonPatch(patch));
+
+        // Assert
+        Assert.Equal(2, modifiedCount);
+    }
+
+    [Fact]
+    public async Task PatchAsync_ActionPatchWithParamsConstructor_ReturnsTrue()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default);
+
+        // Act
+        bool modified = await _employeeRepository.PatchAsync(employee.Id,
+            new ActionPatch<Employee>(
+                e => e.Name = "Changed",
+                e => e.Age = 99));
+
+        // Assert
+        Assert.True(modified);
+        var after = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.Equal("Changed", after.Name);
+        Assert.Equal(99, after.Age);
+    }
 }
