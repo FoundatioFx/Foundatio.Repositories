@@ -908,16 +908,19 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         return false;
                     }
 
-                    var updatedIds = results.Hits.Select(h => h.Id).ToList();
-                    if (IsCacheEnabled)
+                    var result = BulkResult.From(bulkResult);
+                    var updatedIds = results.Hits
+                        .Where(h => !result.NoopIds.Contains(h.Id))
+                        .Select(h => h.Id).ToList();
+                    if (IsCacheEnabled && updatedIds.Count > 0)
                     {
-                        // TODO: Add cache invalidation for documents.
                         await InvalidateCacheAsync(updatedIds).AnyContext();
                     }
 
                     try
                     {
-                        options.GetUpdatedIdsCallback()?.Invoke(updatedIds);
+                        if (updatedIds.Count > 0)
+                            options.GetUpdatedIdsCallback()?.Invoke(updatedIds);
                     }
                     catch (Exception ex)
                     {
