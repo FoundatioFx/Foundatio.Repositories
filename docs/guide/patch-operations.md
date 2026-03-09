@@ -581,6 +581,23 @@ foreach (var emp in employees.Documents)
 }
 ```
 
+### Cache Invalidation
+
+Patch operations handle cache invalidation differently depending on whether the full document is available:
+
+**Document-based invalidation** (supports custom `InvalidateCacheAsync` overrides):
+- `ActionPatch` — single-doc and bulk: the modified `T` is passed to `InvalidateCacheAsync(IEnumerable<T>)` and `OnDocumentsChangedAsync`, enabling custom cache key strategies based on document properties.
+- `JsonPatch` — bulk (`PatchAllAsync`): deserialized documents are tracked and used for document-based invalidation after successful indexing.
+
+**ID-based invalidation** (removes cache entries by document ID only):
+- `ScriptPatch` — all paths: executes server-side on Elasticsearch; the modified document is never returned to the client.
+- `PartialPatch` — all paths: same as `ScriptPatch`; the Update API does not return the full document.
+- `JsonPatch` — single-doc (`PatchAsync(Id)`): uses the low-level client with raw `JToken`, so a typed `T` is not available.
+
+::: warning ID-Based Invalidation Limitation
+If your repository overrides `InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>>)` to compute custom cache keys from document properties (e.g., composite keys, secondary lookups), those overrides will **not** fire for `ScriptPatch`, `PartialPatch`, or single-doc `JsonPatch`. Only the standard ID-based cache key is removed. Consider using `ActionPatch` with `Func<T, bool>` if you need full document-based cache invalidation for conditional updates.
+:::
+
 ## Next Steps
 
 - [CRUD Operations](/guide/crud-operations) - Full document operations

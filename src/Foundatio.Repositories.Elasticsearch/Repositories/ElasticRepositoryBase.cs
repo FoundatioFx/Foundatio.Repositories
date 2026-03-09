@@ -338,8 +338,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     _logger.LogWarning("Unable to override resilience policy max attempts");
             }
 
+            T modifiedDocument = null;
             await policy.ExecuteAsync(async ct =>
             {
+                modifiedDocument = null;
+                modified = true;
                 var request = new GetRequest(ElasticIndex.GetIndex(id), id.Value);
                 if (id.Routing != null)
                     request.Routing = id.Routing;
@@ -372,17 +375,29 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 if (HasDateTracking)
                     SetDocumentDates(response.Source, ElasticIndex.Configuration.TimeProvider);
 
+                modifiedDocument = response.Source;
                 await IndexDocumentsAsync([response.Source], false, options).AnyContext();
             });
+
+            if (modified && modifiedDocument is not null)
+            {
+                await OnDocumentsChangedAsync(ChangeType.Saved, [modifiedDocument], options).AnyContext();
+
+                if (options.ShouldNotify())
+                    await PublishChangeTypeMessageAsync(ChangeType.Saved, modifiedDocument).AnyContext();
+
+                return true;
+            }
         }
         else
         {
             throw new ArgumentException("Unknown operation type", nameof(operation));
         }
 
-        // TODO: Find a good way to invalidate cache and send changed notification
-        // All patch paths invalidate by ID only, not by document. This means custom
-        // InvalidateCacheAsync(ModifiedDocument<T>) overrides won't fire for patches.
+        // ScriptPatch, PartialPatch, and single-doc JsonPatch invalidate by ID only because
+        // the modified document is not available client-side. ActionPatch handles its own
+        // document-based invalidation above and returns early.
+        // TODO: Single-doc JsonPatch could deserialize the JToken to T for document-based invalidation.
         if (modified)
         {
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
@@ -474,6 +489,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             : ids.Where(id => result.SuccessfulIds.Contains(id.Value) && !result.NoopIds.Contains(id.Value)).ToList();
         if (modifiedIds.Count > 0)
         {
+            // ScriptPatch/PartialPatch execute server-side; the modified document is not available.
+            // TODO: Invalidate by documents instead of IDs to support custom cache invalidation overrides.
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
             if (IsCacheEnabled)
                 await InvalidateCacheAsync(modifiedIds.Select(id => id.Value)).AnyContext();
@@ -684,6 +701,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             long modifiedRecords = 0;
             await BatchProcessAsync(query, async results =>
             {
+                var processedDocs = new Dictionary<string, T>();
                 var bulkResult = await _client.BulkAsync(b =>
                 {
                     b.Refresh(options.GetRefreshMode(DefaultConsistency));
@@ -697,6 +715,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         if (HasDateTracking)
                             SetDocumentDates(doc, ElasticIndex.Configuration.TimeProvider);
 
+                        processedDocs[h.Id] = doc;
                         var elasticVersion = h.GetElasticVersion();
 
                         b.Index<T>(i =>
@@ -729,22 +748,23 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     return false;
                 }
 
-                // JsonPatch uses Index API (get-modify-reindex), not Update API, so ES does not
-                // report noop status. Filter to successfully indexed items only.
-                var updatedIds = bulkResult.Items?.Where(i => i.IsValid).Select(i => i.Id).ToList() ?? [];
-                modifiedRecords += updatedIds.Count;
+                var successfulIds = new HashSet<string>(bulkResult.Items?.Where(i => i.IsValid).Select(i => i.Id) ?? []);
+                var modifiedDocuments = successfulIds.Select(id => processedDocs.GetValueOrDefault(id)).Where(d => d is not null).ToList();
+                modifiedRecords += modifiedDocuments.Count;
 
-                if (IsCacheEnabled && updatedIds.Count > 0)
-                    await InvalidateCacheAsync(updatedIds).AnyContext();
+                if (modifiedDocuments.Count > 0)
+                {
+                    if (IsCacheEnabled)
+                        await InvalidateCacheAsync(modifiedDocuments).AnyContext();
 
-                try
-                {
-                    if (updatedIds.Count > 0)
-                        options.GetUpdatedIdsCallback()?.Invoke(updatedIds);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error calling updated ids callback");
+                    try
+                    {
+                        options.GetUpdatedIdsCallback()?.Invoke(modifiedDocuments.Select(d => d.Id).ToList());
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error calling updated ids callback");
+                    }
                 }
 
                 return true;
@@ -813,19 +833,23 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     return false;
                 }
 
-                var updatedIds = bulkResult.Items?.Where(i => i.IsValid).Select(i => i.Id).ToList() ?? [];
-                modifiedRecords += updatedIds.Count;
+                var successfulIds = new HashSet<string>(bulkResult.Items?.Where(i => i.IsValid).Select(i => i.Id) ?? []);
+                var modifiedDocuments = modifiedHits.Where(h => successfulIds.Contains(h.Id)).Select(h => h.Document).ToList();
+                modifiedRecords += modifiedDocuments.Count;
 
-                if (IsCacheEnabled && updatedIds.Count > 0)
-                    await InvalidateCacheAsync(updatedIds).AnyContext();
+                if (modifiedDocuments.Count > 0)
+                {
+                    if (IsCacheEnabled)
+                        await InvalidateCacheAsync(modifiedDocuments).AnyContext();
 
-                try
-                {
-                    options.GetUpdatedIdsCallback()?.Invoke(updatedIds);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error calling updated ids callback");
+                    try
+                    {
+                        options.GetUpdatedIdsCallback()?.Invoke(modifiedDocuments.Select(d => d.Id).ToList());
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error calling updated ids callback");
+                    }
                 }
 
                 return true;

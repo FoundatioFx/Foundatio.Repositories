@@ -23,6 +23,8 @@ public interface IPatchOperation { }
 /// Elasticsearch's <c>detect_noop</c> (enabled by default) automatically returns a no-op when
 /// the partial document does not change any field values. However, automatic date tracking
 /// injects <c>UpdatedUtc</c>, which typically prevents noop detection for <see cref="Models.IHaveDates"/> models.
+/// <para><b>Cache invalidation:</b> Uses ID-based invalidation only. The Update API executes
+/// server-side and does not return the modified document to the client.</para>
 /// </remarks>
 public class PartialPatch : IPatchOperation
 {
@@ -50,6 +52,8 @@ public class PartialPatch : IPatchOperation
 /// return <c>false</c>, the write to Elasticsearch is skipped entirely (no Index call, no date
 /// tracking, no cache invalidation). Actions that use <see cref="Action{T}"/> are assumed to
 /// always modify the document.
+/// <para><b>Cache invalidation:</b> Uses document-based invalidation. The modified <typeparamref name="T"/>
+/// is passed to <c>InvalidateCacheAsync</c>, so custom cache key overrides work correctly.</para>
 /// </remarks>
 public class ActionPatch<T> : IPatchOperation where T : class
 {
@@ -113,6 +117,9 @@ public class ActionPatch<T> : IPatchOperation where T : class
 /// <remarks>
 /// Uses a get-modify-reindex pattern, so a write always occurs and <c>PatchAsync</c> always
 /// returns <c>true</c>. Empty patch documents (no operations) return <c>false</c>.
+/// <para><b>Cache invalidation:</b> Bulk operations (<c>PatchAllAsync</c>) use document-based
+/// invalidation. Single-document <c>PatchAsync</c> uses ID-based invalidation because it
+/// operates on raw JSON rather than a typed document.</para>
 /// </remarks>
 public class JsonPatch : IPatchOperation
 {
@@ -138,6 +145,8 @@ public class JsonPatch : IPatchOperation
 /// Elasticsearch does not automatically detect noops for script updates.
 /// To signal a no-op, the script must explicitly set <c>ctx.op = 'none'</c>.
 /// Painless uses <c>==</c> for equality (Java-style); <c>===</c> is not valid.
+/// <para><b>Cache invalidation:</b> Uses ID-based invalidation only. Scripts execute
+/// server-side and do not return the modified document to the client.</para>
 /// </remarks>
 public class ScriptPatch : IPatchOperation
 {

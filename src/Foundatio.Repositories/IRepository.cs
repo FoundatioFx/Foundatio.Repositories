@@ -87,6 +87,11 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// <exception cref="Exceptions.DocumentNotFoundException">Thrown when the document does not exist.</exception>
     /// <exception cref="Exceptions.VersionConflictDocumentException">Thrown when the document version conflicts (HTTP 409).</exception>
     /// <exception cref="Exceptions.DocumentException">Thrown when the Elasticsearch request fails.</exception>
+    /// <remarks>
+    /// <para><b>Cache invalidation:</b> <see cref="ActionPatch{T}"/> uses document-based cache invalidation
+    /// (the modified <typeparamref name="T"/> is passed to <c>InvalidateCacheAsync</c>), so custom cache key
+    /// overrides work correctly. All other patch types use ID-based invalidation only.</para>
+    /// </remarks>
     Task<bool> PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="PatchAsync(Id, IPatchOperation, CommandOptionsDescriptor{T})"/>
@@ -99,6 +104,11 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     /// <param name="operation">The patch operation to apply.</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
     /// <returns>The number of documents actually modified (excludes no-ops).</returns>
+    /// <remarks>
+    /// <para><b>Cache invalidation:</b> <see cref="ActionPatch{T}"/> and bulk <see cref="JsonPatch"/> use
+    /// document-based cache invalidation. <see cref="ScriptPatch"/> and <see cref="PartialPatch"/> use
+    /// ID-based invalidation only (the modified document is not available client-side).</para>
+    /// </remarks>
     Task<long> PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="PatchAsync(Ids, IPatchOperation, CommandOptionsDescriptor{T})"/>
