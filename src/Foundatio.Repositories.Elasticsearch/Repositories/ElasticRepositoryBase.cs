@@ -759,7 +759,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     try
                     {
-                        options.GetUpdatedIdsCallback()?.Invoke(modifiedDocuments.Select(d => d.Id).ToList());
+                        options.GetUpdatedIdsCallback()?.Invoke(successfulIds.ToList());
                     }
                     catch (Exception ex)
                     {
@@ -834,17 +834,17 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
 
                 var successfulIds = new HashSet<string>(bulkResult.Items?.Where(i => i.IsValid).Select(i => i.Id) ?? []);
-                var modifiedDocuments = modifiedHits.Where(h => successfulIds.Contains(h.Id)).Select(h => h.Document).ToList();
+                var modifiedDocuments = modifiedHits.Where(h => successfulIds.Contains(h.Id)).ToList();
                 modifiedRecords += modifiedDocuments.Count;
 
                 if (modifiedDocuments.Count > 0)
                 {
                     if (IsCacheEnabled)
-                        await InvalidateCacheAsync(modifiedDocuments).AnyContext();
+                        await InvalidateCacheAsync(modifiedDocuments.Select(h => h.Document)).AnyContext();
 
                     try
                     {
-                        options.GetUpdatedIdsCallback()?.Invoke(modifiedDocuments.Select(d => d.Id).ToList());
+                        options.GetUpdatedIdsCallback()?.Invoke(modifiedDocuments.Select(h => h.Id).ToList());
                     }
                     catch (Exception ex)
                     {
@@ -1004,8 +1004,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             if (IsCacheEnabled)
                 await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
 
-            // Empty list: per-document events fire inside batch callbacks for ActionPatch/JsonPatch.
-            // This signals "something changed" to DocumentsChanged subscribers without re-sending documents.
+            // Empty list: batch callbacks handle per-document cache invalidation for ActionPatch/JsonPatch.
+            // This fires the DocumentsChanged event so subscribers know documents were modified.
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
             await SendQueryNotificationsAsync(ChangeType.Saved, query, options).AnyContext();
         }
