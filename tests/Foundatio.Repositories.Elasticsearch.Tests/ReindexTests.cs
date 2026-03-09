@@ -830,7 +830,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var employee = await version1Repository.AddAsync(
             EmployeeGenerator.Generate(companyName: "TestCompany", createdUtc: DateTime.UtcNow),
             o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         // Act
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
@@ -842,8 +843,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             new DocumentPath<Dictionary<string, object>>(employee.Id).Index(version2Index.VersionedName),
             ct: TestCancellationToken);
         Assert.True(response.IsValid);
-        Assert.True(response.Source.ContainsKey("companyNameRenamed"));
-        Assert.Equal("TestCompany", response.Source["companyNameRenamed"]?.ToString());
+        Assert.True(response.Source.TryGetValue("companyNameRenamed", out var companyNameRenamed));
+        Assert.Equal("TestCompany", companyNameRenamed?.ToString());
         Assert.False(response.Source.ContainsKey("companyName"));
     }
 
@@ -864,7 +865,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var employee = EmployeeGenerator.Generate(createdUtc: DateTime.UtcNow);
         employee.Data["oldField"] = "nestedValue";
         employee = await version1Repository.AddAsync(employee, o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         // Act
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
@@ -876,9 +878,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             new DocumentPath<Dictionary<string, object>>(employee.Id).Index(version2Index.VersionedName),
             ct: TestCancellationToken);
         Assert.True(response.IsValid);
-        Assert.True(response.Source.ContainsKey("data"));
+        Assert.True(response.Source.TryGetValue("data", out var data));
 
-        string json = _client.SourceSerializer.SerializeToString(response.Source["data"]);
+        string json = _client.SourceSerializer.SerializeToString(data);
         Assert.Contains("newField", json);
         Assert.Contains("nestedValue", json);
         Assert.DoesNotContain("oldField", json);
@@ -901,7 +903,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var employee = await version1Repository.AddAsync(
             EmployeeGenerator.Generate(companyName: "TestCompany", createdUtc: DateTime.UtcNow),
             o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         // Act
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
@@ -934,7 +937,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         employee.Data["oldField"] = "nestedValue";
         employee.Data["keepField"] = "keepValue";
         employee = await version1Repository.AddAsync(employee, o => o.ImmediateConsistency());
-        Assert.NotNull(employee?.Id);
+        Assert.NotNull(employee);
+        Assert.NotNull(employee.Id);
 
         // Act
         await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
@@ -946,9 +950,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
             new DocumentPath<Dictionary<string, object>>(employee.Id).Index(version2Index.VersionedName),
             ct: TestCancellationToken);
         Assert.True(response.IsValid);
-        Assert.True(response.Source.ContainsKey("data"));
+        Assert.True(response.Source.TryGetValue("data", out var data));
 
-        string json = _client.SourceSerializer.SerializeToString(response.Source["data"]);
+        string json = _client.SourceSerializer.SerializeToString(data);
         Assert.DoesNotContain("oldField", json);
         Assert.Contains("keepField", json);
         Assert.Contains("keepValue", json);
