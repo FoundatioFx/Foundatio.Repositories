@@ -739,31 +739,31 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     return b;
                 }).AnyContext();
 
+                var retriedIds = new List<string>();
                 if (bulkResult.IsValid)
                 {
                     _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
                 }
                 else
                 {
-                    var retriedCount = await HandleBulkPatchErrorsAsync(bulkResult, results, "JsonPatch", operation, options).AnyContext();
-                    if (retriedCount is null)
-                        return false;
-
-                    modifiedRecords += retriedCount.Value;
+                    var retryResult = await HandleBulkPatchErrorsAsync(bulkResult, results, "JsonPatch", operation, options).AnyContext();
+                    modifiedRecords += retryResult.Count;
+                    retriedIds = retryResult.Ids;
                 }
 
                 var successfulIds = new HashSet<string>(bulkResult.Items?.Where(i => i.IsValid).Select(i => i.Id) ?? []);
                 var modifiedDocuments = successfulIds.Select(id => processedDocs.GetValueOrDefault(id)).Where(d => d is not null).ToList();
                 modifiedRecords += modifiedDocuments.Count;
 
-                if (modifiedDocuments.Count > 0)
+                if (modifiedDocuments.Count > 0 || retriedIds.Count > 0)
                 {
                     if (IsCacheEnabled)
                         await InvalidateCacheAsync(modifiedDocuments).AnyContext();
 
                     try
                     {
-                        options.GetUpdatedIdsCallback()?.Invoke(successfulIds.ToList());
+                        var callbackIds = successfulIds.Concat(retriedIds).ToList();
+                        options.GetUpdatedIdsCallback()?.Invoke(callbackIds);
                     }
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex)
@@ -829,31 +829,31 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     return b;
                 }).AnyContext();
 
+                var retriedIds = new List<string>();
                 if (bulkResult.IsValid)
                 {
                     _logger.LogRequest(bulkResult, options.GetQueryLogLevel());
                 }
                 else
                 {
-                    var retriedCount = await HandleBulkPatchErrorsAsync(bulkResult, results, "ActionPatch", operation, options).AnyContext();
-                    if (retriedCount is null)
-                        return false;
-
-                    modifiedRecords += retriedCount.Value;
+                    var retryResult = await HandleBulkPatchErrorsAsync(bulkResult, results, "ActionPatch", operation, options).AnyContext();
+                    modifiedRecords += retryResult.Count;
+                    retriedIds = retryResult.Ids;
                 }
 
                 var successfulIds = new HashSet<string>(bulkResult.Items?.Where(i => i.IsValid).Select(i => i.Id) ?? []);
                 var modifiedDocuments = modifiedHits.Where(h => successfulIds.Contains(h.Id)).ToList();
                 modifiedRecords += modifiedDocuments.Count;
 
-                if (modifiedDocuments.Count > 0)
+                if (modifiedDocuments.Count > 0 || retriedIds.Count > 0)
                 {
                     if (IsCacheEnabled)
                         await InvalidateCacheAsync(modifiedDocuments.Select(h => h.Document)).AnyContext();
 
                     try
                     {
-                        options.GetUpdatedIdsCallback()?.Invoke(modifiedDocuments.Select(h => h.Id).ToList());
+                        var callbackIds = modifiedDocuments.Select(h => h.Id).Concat(retriedIds).ToList();
+                        options.GetUpdatedIdsCallback()?.Invoke(callbackIds);
                     }
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex)
@@ -1638,16 +1638,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         };
     }
 
-    private async Task<long?> HandleBulkPatchErrorsAsync(BulkResponse bulkResponse, FindResults<T> results, string patchType, IPatchOperation operation, ICommandOptions options)
+    private async Task<(long Count, List<string> Ids)> HandleBulkPatchErrorsAsync(BulkResponse bulkResponse, FindResults<T> results, string patchType, IPatchOperation operation, ICommandOptions options)
     {
         var result = BulkResult.From(bulkResponse);
         if (result.HasTransportError || result.FatalIds.Count > 0 || result.RetryableIds.Count > 0)
         {
             _logger.LogErrorRequest(bulkResponse, "Error occurred while bulk updating");
-            return null;
+            ThrowForBulkErrors(result, operationLabel: "patching");
         }
 
-        long retriedCount = 0;
+        var retriedIds = new List<string>();
         if (result.HasConflicts)
         {
             _logger.LogRequest(bulkResponse, options.GetQueryLogLevel());
@@ -1656,11 +1656,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             foreach (var hit in results.Hits.Where(h => result.ConflictIds.Contains(h.Id)))
             {
                 if (await PatchAsync(new Id(hit.Id, hit.Routing), operation, options).AnyContext())
-                    retriedCount++;
+                    retriedIds.Add(hit.Id);
             }
         }
 
-        return retriedCount;
+        return (retriedIds.Count, retriedIds);
     }
 
     private static void ThrowForBulkErrors(BulkResult result, bool isCreateOperation = false, string operationLabel = null)
