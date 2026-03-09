@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 
@@ -42,10 +43,7 @@ internal static partial class PainlessFieldPath
         if (fieldPath.Contains('\'') || fieldPath.Contains('\\'))
             throw new ArgumentException($"Field path '{fieldPath}' contains characters that cannot be used in Painless string literals.", paramName);
 
-        foreach (char c in fieldPath)
-        {
-            if (char.IsControl(c))
-                throw new ArgumentException($"Field path '{fieldPath}' contains control characters that cannot be used in Painless string literals.", paramName);
-        }
+        if (fieldPath.Any(char.IsControl))
+            throw new ArgumentException($"Field path '{fieldPath}' contains control characters that cannot be used in Painless string literals.", paramName);
     }
 }
