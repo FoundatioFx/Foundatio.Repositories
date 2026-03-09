@@ -2116,7 +2116,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Act — conditionally returns false when value is already correct
         bool modified = await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e =>
         {
-            if (e.Name == "Alice")
+            if (String.Equals(e.Name, "Alice", StringComparison.Ordinal))
                 return false;
 
             e.Name = "Alice";
@@ -2262,7 +2262,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             new Ids(employeeAlice.Id, employeeTarget.Id),
             new ActionPatch<Employee>(e =>
             {
-                if (e.Name == "Target")
+                if (String.Equals(e.Name, "Target", StringComparison.Ordinal))
                     return false;
 
                 e.Name = "Target";
@@ -2340,7 +2340,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             q => q.Age(25).Age(30),
             new ActionPatch<Employee>(e =>
             {
-                if (e.Name == "Target")
+                if (String.Equals(e.Name, "Target", StringComparison.Ordinal))
                     return false;
 
                 e.Name = "Target";
