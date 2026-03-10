@@ -857,16 +857,12 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         bool hasCallerFieldRestrictions = query.GetHasCallerFieldRestrictions()
             || options.GetHasCallerFieldRestrictions();
 
-        if (_defaultExcludes.Count > 0 && excludes.Count == 0)
+        if (_defaultExcludes.Count > 0 && excludes.Count is 0)
             excludes.AddRange(_defaultExcludes.Select(f => f.Value));
 
-        var requiredFields = hasCallerFieldRestrictions ? options.GetRequiredFields() : (ICollection<Field>)[];
-
+        var requiredFields = hasCallerFieldRestrictions ? options.GetRequiredFields() : [];
         if (requiredFields.Count > 0 && includes.Count > 0)
             includes.AddRange(requiredFields);
-
-        if (HasIdentity && includes.Count > 0)
-            includes.Add(_idField.Value);
 
         var resolvedIncludes = ElasticIndex.MappingResolver.GetResolvedFields(includes).ToArray();
 

@@ -17,7 +17,6 @@ namespace Foundatio.Repositories
     /// These control Elasticsearch <c>_source</c> filtering to limit which fields are returned.
     /// Includes and excludes from the query are merged with those from <see cref="ICommandOptions"/> at execution time.
     /// If the same field appears in both includes and excludes, the include takes precedence.
-    /// When any includes are specified on an <see cref="Models.IIdentity"/> type, the <c>Id</c> field is automatically included.
     /// </summary>
     public static class FieldIncludesQueryExtensions
     {
@@ -161,7 +160,6 @@ namespace Foundatio.Repositories
     /// These control Elasticsearch <c>_source</c> filtering to limit which fields are returned.
     /// Includes and excludes from command options are merged with those from <see cref="IRepositoryQuery"/> at execution time.
     /// If the same field appears in both includes and excludes, the include takes precedence.
-    /// When any includes are specified on an <see cref="Models.IIdentity"/> type, the <c>Id</c> field is automatically included.
     /// </summary>
     /// <remarks>
     /// ID-based caching is skipped when includes or excludes are active to avoid storing incomplete documents in the cache.
@@ -379,9 +377,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
     ///   <item>Parsed mask expressions from <see cref="ICommandOptions"/> (<c>.IncludeMask()</c> / <c>.ExcludeMask()</c>)</item>
     /// </list>
     /// <para>
-    /// When any includes are present and the entity type implements <see cref="Models.IIdentity"/>, the <c>Id</c>
-    /// field is automatically added to the include set.
     /// If a field appears in both includes and excludes, the include takes precedence (the exclude is dropped).
+    /// Required fields registered on the repository are automatically injected when caller-specified
+    /// field restrictions are active.
     /// </para>
     /// </remarks>
     public class FieldIncludesQueryBuilder : IElasticQueryBuilder
@@ -417,12 +415,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             bool hasFieldRestrictions = ctx.Source.GetHasCallerFieldRestrictions()
                 || ctx.Options.GetHasCallerFieldRestrictions();
             var requiredFields = hasFieldRestrictions ? ctx.Options.GetRequiredFields() : (ICollection<Field>)[];
-
             if (requiredFields.Count > 0 && includes.Count > 0)
                 includes.AddRange(requiredFields);
-
-            if (includes.Count > 0 && typeof(Models.IIdentity).IsAssignableFrom(typeof(T)))
-                includes.Add(nameof(Models.IIdentity.Id));
 
             var resolvedIncludes = resolver.GetResolvedFields(includes).ToArray();
 
