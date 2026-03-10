@@ -608,9 +608,9 @@ public class StackRepository : ElasticRepositoryBase<Stack>
 
 #### When Required Fields Are Injected
 
-Required fields are **only injected when the caller sets field restrictions** — i.e., when any `.Include()`, `.Exclude()`, `.IncludeMask()`, or `.ExcludeMask()` is specified on the query or command options. When no caller restrictions exist, the full `_source` is returned and required fields have no effect.
+Required fields are **only injected when field restrictions are active** — i.e., when any `.Include()`, `.Exclude()`, `.IncludeMask()`, or `.ExcludeMask()` is specified on the query or command options. When no restrictions exist, the full `_source` is returned and required fields have no effect.
 
-Importantly, repository-internal `AddDefaultExclude()` registrations alone do **not** trigger required field injection. Default excludes are a repository concern that still returns nearly all fields; required fields only activate when the caller explicitly requests a partial document.
+When repository-internal `AddDefaultExclude()` registrations are the only excludes present, required field injection runs but is effectively a no-op — default excludes never overlap with required fields like `Id` or `CreatedUtc`, so no fields are added or removed.
 
 If a field is registered as both a required field and a default exclude, the required field takes precedence when caller restrictions are active — the field will be included. When no caller restrictions exist, the default exclude applies normally. This is safe because the two features serve different purposes: default excludes reduce payload for full-document reads, while required fields guarantee presence in partial-document reads.
 

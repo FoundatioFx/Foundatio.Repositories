@@ -892,7 +892,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task FindAsync_WithOnlyDefaultExcludes_DoesNotInjectRequiredField()
+    public async Task FindAsync_WithOnlyDefaultExcludes_ReturnsAllFieldsExceptDefaultExclude()
     {
         // Arrange
         var log = await _dailyWithRequiredCompanyAndDefaultExcludeRepository.AddAsync(LogEventGenerator.Generate(companyId: "1234567890", message: "test"), o => o.ImmediateConsistency());

@@ -672,12 +672,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     /// <summary>
     /// Registers a field that must always be present in Elasticsearch <c>_source</c> filtering results
-    /// when the caller specifies any field restrictions (<c>.Include()</c>, <c>.Exclude()</c>,
-    /// <c>.IncludeMask()</c>, or <c>.ExcludeMask()</c>). When no caller restrictions exist, the full
-    /// <c>_source</c> is returned and required fields have no effect. Repository-internal default
-    /// excludes alone do not trigger injection.
-    /// When the caller has includes, required fields are added to the include set. When the caller
-    /// has only excludes, required fields are removed from the exclude set to preserve
+    /// when any field restrictions (<c>.Include()</c>, <c>.Exclude()</c>,
+    /// <c>.IncludeMask()</c>, or <c>.ExcludeMask()</c>) are active. When no restrictions exist, the full
+    /// <c>_source</c> is returned and required fields have no effect.
+    /// When includes are present, required fields are added to the include set. When only excludes
+    /// are present, required fields are removed from the exclude set to preserve
     /// "return everything except X" semantics.
     /// </summary>
     protected void AddRequiredField(string field)
