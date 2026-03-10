@@ -208,6 +208,8 @@ public class CountResult : IHaveData
         Data = data ?? new Dictionary<string, object>();
     }
 
+    private AggregationsHelper _aggs;
+
     /// <summary>
     /// Gets the total number of documents matching the query.
     /// </summary>
@@ -218,7 +220,15 @@ public class CountResult : IHaveData
     /// Gets the aggregation results.
     /// </summary>
     [JsonInclude]
-    public IReadOnlyDictionary<string, IAggregate> Aggregations { get; set; }
+    public IReadOnlyDictionary<string, IAggregate> Aggregations
+    {
+        get;
+        set
+        {
+            field = value ?? EmptyReadOnly<string, IAggregate>.Dictionary;
+            _aggs = null;
+        }
+    }
 
     /// <summary>
     /// Gets additional metadata associated with the result.
@@ -231,7 +241,7 @@ public class CountResult : IHaveData
     /// </summary>
     [IgnoreDataMember]
     [JsonIgnore]
-    public AggregationsHelper Aggs => field ??= new AggregationsHelper(Aggregations);
+    public AggregationsHelper Aggs => _aggs ??= new AggregationsHelper(Aggregations);
 
     /// <summary>
     /// Implicitly converts a <see cref="CountResult"/> to a <see cref="long"/>.
