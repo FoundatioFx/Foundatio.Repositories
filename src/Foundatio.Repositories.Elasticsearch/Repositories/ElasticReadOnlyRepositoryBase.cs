@@ -854,8 +854,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (!String.IsNullOrEmpty(optionExcludeMask))
             excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
 
-        bool hasCallerFieldRestrictions = query.GetHasCallerFieldRestrictions()
-            || options.GetHasCallerFieldRestrictions();
+        bool hasCallerFieldRestrictions = query.HasCallerFieldRestrictions()
+            || options.HasCallerFieldRestrictions();
 
         if (_defaultExcludes.Count > 0 && excludes.Count is 0)
             excludes.AddRange(_defaultExcludes.Select(f => f.Value));
@@ -866,7 +866,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         var resolvedIncludes = ElasticIndex.MappingResolver.GetResolvedFields(includes).ToArray();
 
-        var resolvedRequiredFields = requiredFields.Count > 0 && includes.Count == 0
+        var resolvedRequiredFields = requiredFields.Count > 0 && includes.Count is 0
             ? ElasticIndex.MappingResolver.GetResolvedFields(requiredFields).ToHashSet()
             : new HashSet<Field>();
 

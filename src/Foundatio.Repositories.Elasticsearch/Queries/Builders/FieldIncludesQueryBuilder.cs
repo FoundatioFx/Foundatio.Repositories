@@ -321,7 +321,7 @@ namespace Foundatio.Repositories.Options
             return options.SafeGetOption<string>(FieldIncludesQueryExtensions.ExcludesMaskKey);
         }
 
-        public static bool GetHasCallerFieldRestrictions(this IRepositoryQuery options)
+        public static bool HasCallerFieldRestrictions(this IRepositoryQuery options)
         {
             return options.SafeGetOption<bool>(FieldIncludesCommandExtensions.HasCallerFieldRestrictionsKey);
         }
@@ -354,7 +354,7 @@ namespace Foundatio.Repositories.Options
             return options.SafeGetCollection<Field>(FieldIncludesCommandExtensions.RequiredFieldsKey);
         }
 
-        public static bool GetHasCallerFieldRestrictions(this ICommandOptions options)
+        public static bool HasCallerFieldRestrictions(this ICommandOptions options)
         {
             return options.SafeGetOption<bool>(FieldIncludesCommandExtensions.HasCallerFieldRestrictionsKey);
         }
@@ -412,8 +412,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             if (!String.IsNullOrEmpty(optionExcludeMask))
                 excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
 
-            bool hasFieldRestrictions = ctx.Source.GetHasCallerFieldRestrictions()
-                || ctx.Options.GetHasCallerFieldRestrictions();
+            bool hasFieldRestrictions = ctx.Source.HasCallerFieldRestrictions()
+                || ctx.Options.HasCallerFieldRestrictions();
             var requiredFields = hasFieldRestrictions ? ctx.Options.GetRequiredFields() : (ICollection<Field>)[];
             if (requiredFields.Count > 0 && includes.Count > 0)
                 includes.AddRange(requiredFields);
