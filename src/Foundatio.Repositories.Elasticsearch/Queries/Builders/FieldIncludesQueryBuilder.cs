@@ -17,7 +17,6 @@ namespace Foundatio.Repositories
     /// These control Elasticsearch <c>_source</c> filtering to limit which fields are returned.
     /// Includes and excludes from the query are merged with those from <see cref="ICommandOptions"/> at execution time.
     /// If the same field appears in both includes and excludes, the include takes precedence.
-    /// When any includes are specified on an <see cref="Models.IIdentity"/> type, the <c>Id</c> field is automatically included.
     /// </summary>
     public static class FieldIncludesQueryExtensions
     {
@@ -54,6 +53,9 @@ namespace Foundatio.Repositories
         /// <inheritdoc cref="Include{T}(T, Field)"/>
         public static IRepositoryQuery<T> Include<T>(this IRepositoryQuery<T> query, params Expression<Func<T, object>>[] objectPaths) where T : class
         {
+            if (objectPaths.Length is 0)
+                return query;
+
             foreach (var objectPath in objectPaths)
                 query.Include(objectPath);
 
@@ -105,6 +107,9 @@ namespace Foundatio.Repositories
         /// <inheritdoc cref="Exclude{T}(T, Field)"/>
         public static IRepositoryQuery<T> Exclude<T>(this IRepositoryQuery<T> query, params Expression<Func<T, object>>[] objectPaths) where T : class
         {
+            if (objectPaths.Length is 0)
+                return query;
+
             foreach (var objectPath in objectPaths)
                 query.Exclude(objectPath);
 
@@ -130,7 +135,6 @@ namespace Foundatio.Repositories
     /// These control Elasticsearch <c>_source</c> filtering to limit which fields are returned.
     /// Includes and excludes from command options are merged with those from <see cref="IRepositoryQuery"/> at execution time.
     /// If the same field appears in both includes and excludes, the include takes precedence.
-    /// When any includes are specified on an <see cref="Models.IIdentity"/> type, the <c>Id</c> field is automatically included.
     /// </summary>
     /// <remarks>
     /// ID-based caching is skipped when includes or excludes are active to avoid storing incomplete documents in the cache.
@@ -170,6 +174,9 @@ namespace Foundatio.Repositories
         /// <inheritdoc cref="Include{T}(T, Field)"/>
         public static ICommandOptions<T> Include<T>(this ICommandOptions<T> options, params Expression<Func<T, object>>[] objectPaths) where T : class
         {
+            if (objectPaths.Length is 0)
+                return options;
+
             foreach (var objectPath in objectPaths)
                 options.Include(objectPath);
 
@@ -217,6 +224,9 @@ namespace Foundatio.Repositories
         /// <inheritdoc cref="Exclude{T}(T, Field)"/>
         public static ICommandOptions<T> Exclude<T>(this ICommandOptions<T> options, params Expression<Func<T, object>>[] objectPaths) where T : class
         {
+            if (objectPaths.Length is 0)
+                return options;
+
             foreach (var objectPath in objectPaths)
                 options.Exclude(objectPath);
 
@@ -224,6 +234,7 @@ namespace Foundatio.Repositories
         }
 
         internal const string ExcludesMaskKey = "@ExcludesMask";
+        internal const string RequiredFieldsKey = "@RequiredFields";
 
         /// <summary>
         /// Sets a field mask expression that specifies which fields to exclude. The expression uses a
@@ -234,6 +245,16 @@ namespace Foundatio.Repositories
         public static T ExcludeMask<T>(this T options, string maskExpression) where T : ICommandOptions
         {
             return options.BuildOption(ExcludesMaskKey, maskExpression);
+        }
+
+        /// <summary>
+        /// Registers fields that must always be included when any <c>_source</c> field restrictions are active.
+        /// These are typically set by the repository via <c>ConfigureOptions</c> to carry <c>AddRequiredField</c>
+        /// registrations into the query builder pipeline.
+        /// </summary>
+        internal static T RequiredFields<T>(this T options, IEnumerable<Field> fields) where T : ICommandOptions
+        {
+            return options.AddCollectionOptionValue(RequiredFieldsKey, fields);
         }
     }
 }
@@ -284,6 +305,11 @@ namespace Foundatio.Repositories.Options
         {
             return options.SafeGetOption<string>(FieldIncludesCommandExtensions.ExcludesMaskKey);
         }
+
+        public static ICollection<Field> GetRequiredFields(this ICommandOptions options)
+        {
+            return options.SafeGetCollection<Field>(FieldIncludesCommandExtensions.RequiredFieldsKey);
+        }
     }
 }
 
@@ -303,9 +329,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
     ///   <item>Parsed mask expressions from <see cref="ICommandOptions"/> (<c>.IncludeMask()</c> / <c>.ExcludeMask()</c>)</item>
     /// </list>
     /// <para>
-    /// When any includes are present and the entity type implements <see cref="Models.IIdentity"/>, the <c>Id</c>
-    /// field is automatically added to the include set.
     /// If a field appears in both includes and excludes, the include takes precedence (the exclude is dropped).
+    /// Required fields registered on the repository are automatically injected when caller-specified
+    /// field restrictions are active.
     /// </para>
     /// </remarks>
     public class FieldIncludesQueryBuilder : IElasticQueryBuilder
@@ -317,8 +343,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             var includes = new HashSet<Field>();
             includes.AddRange(ctx.Source.GetIncludes());
             includes.AddRange(ctx.Options.GetIncludes());
-            if (includes.Count > 0 && typeof(Models.IIdentity).IsAssignableFrom(typeof(T)))
-                includes.Add(nameof(Models.IIdentity.Id));
 
             string queryIncludeMask = ctx.Source.GetIncludeMask();
             if (!String.IsNullOrEmpty(queryIncludeMask))
@@ -327,8 +351,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             string optionIncludeMask = ctx.Options.GetIncludeMask();
             if (!String.IsNullOrEmpty(optionIncludeMask))
                 includes.AddRange(FieldIncludeParser.ParseFieldPaths(optionIncludeMask).Select(f => (Field)f));
-
-            var resolvedIncludes = resolver.GetResolvedFields(includes).ToArray();
 
             var excludes = new HashSet<Field>();
             excludes.AddRange(ctx.Source.GetExcludes());
@@ -342,9 +364,21 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             if (!String.IsNullOrEmpty(optionExcludeMask))
                 excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
 
+            bool hasFieldRestrictions = includes.Count > 0 || excludes.Count > 0;
+            var requiredFields = hasFieldRestrictions ? ctx.Options.GetRequiredFields() : (ICollection<Field>)[];
+            if (requiredFields.Count > 0 && includes.Count > 0)
+                includes.AddRange(requiredFields);
+
+            var resolvedIncludes = resolver.GetResolvedFields(includes).ToArray();
             var resolvedExcludes = resolver.GetResolvedFields(excludes)
                 .Where(f => !resolvedIncludes.Contains(f))
                 .ToArray();
+
+            if (requiredFields.Count > 0 && resolvedIncludes.Length is 0)
+            {
+                var resolvedRequiredFields = resolver.GetResolvedFields(requiredFields);
+                resolvedExcludes = resolvedExcludes.Where(f => !resolvedRequiredFields.Contains(f)).ToArray();
+            }
 
             if (resolvedIncludes.Length > 0 && resolvedExcludes.Length > 0)
                 ctx.Search.Source(s => s.Includes(i => i.Fields(resolvedIncludes)).Excludes(i => i.Fields(resolvedExcludes)));
