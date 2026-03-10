@@ -549,4 +549,143 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         Assert.Contains(results.Documents, e => String.Equals(e.Name, "Bob"));
         Assert.Contains(results.Documents, e => String.Equals(e.Name, "Charlie"));
     }
+
+    [Fact]
+    public async Task CountAsync_WithAfterQueryHandler_TransformsAggregations()
+    {
+        // Arrange
+        List<Employee> employees =
+        [
+            EmployeeGenerator.Generate("alice_123", "Alice", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 5 }
+            ]),
+            EmployeeGenerator.Generate("bob_456", "Bob", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 3 }
+            ])
+        ];
+
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        _employeeRepository.AfterQuery.AddHandler((sender, args) =>
+        {
+            args.Result.Aggregations = new Dictionary<string, IAggregate>(args.Result.Aggregations)
+            {
+                ["custom_marker"] = new ValueAggregate { Value = 42 }
+            };
+            return Task.CompletedTask;
+        });
+
+        // Act
+        var result = await _employeeRepository.CountAsync(q => q.AggregationsExpression("terms:peerReviews.rating"));
+
+        // Assert
+        Assert.Equal(2, result.Total);
+        Assert.Contains("custom_marker", result.Aggregations.Keys);
+        Assert.Equal(42, ((ValueAggregate)result.Aggregations["custom_marker"]).Value);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithAfterQueryHandler_TransformsAggregations()
+    {
+        // Arrange
+        List<Employee> employees =
+        [
+            EmployeeGenerator.Generate("alice_123", "Alice", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 5 }
+            ]),
+            EmployeeGenerator.Generate("bob_456", "Bob", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 3 }
+            ])
+        ];
+
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        _employeeRepository.AfterQuery.AddHandler((sender, args) =>
+        {
+            args.Result.Aggregations = new Dictionary<string, IAggregate>(args.Result.Aggregations)
+            {
+                ["custom_marker"] = new ValueAggregate { Value = 99 }
+            };
+            return Task.CompletedTask;
+        });
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.AggregationsExpression("terms:peerReviews.rating"));
+
+        // Assert
+        Assert.Equal(2, result.Documents.Count);
+        Assert.Contains("custom_marker", result.Aggregations.Keys);
+        Assert.Equal(99, ((ValueAggregate)result.Aggregations["custom_marker"]).Value);
+    }
+
+    [Fact]
+    public async Task CountAsync_WithAfterQueryHandlerFlatteningNestedAggs_ReturnsTopLevelTermsAggs()
+    {
+        // Arrange
+        List<Employee> employees =
+        [
+            EmployeeGenerator.Generate("alice_123", "Alice", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 5 },
+                new PeerReview { ReviewerEmployeeId = "charlie_789", Rating = 4 }
+            ]),
+            EmployeeGenerator.Generate("bob_456", "Bob", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 3 },
+                new PeerReview { ReviewerEmployeeId = "charlie_789", Rating = 5 }
+            ]),
+            EmployeeGenerator.Generate("charlie_789", "Charlie", peerReviews:
+            [
+                new PeerReview { ReviewerEmployeeId = "alice_123", Rating = 4 },
+                new PeerReview { ReviewerEmployeeId = "bob_456", Rating = 2 }
+            ])
+        ];
+
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+
+        _employeeRepository.AfterQuery.AddHandler((sender, args) =>
+        {
+            args.Result.Aggregations = FlattenSingleBucketAggregations(args.Result.Aggregations);
+            return Task.CompletedTask;
+        });
+
+        // Act
+        var result = await _employeeRepository.CountAsync(q => q.AggregationsExpression("terms:peerReviews.rating"));
+
+        // Assert — terms agg is at top level, not buried inside nested_peerReviews
+        Assert.Equal(3, result.Total);
+        Assert.DoesNotContain("nested_peerReviews", result.Aggregations.Keys);
+        Assert.Contains("terms_peerReviews.rating", result.Aggregations.Keys);
+
+        var ratingTermsAgg = result.Aggregations.Terms<int>("terms_peerReviews.rating");
+        Assert.Equal(4, ratingTermsAgg.Buckets.Count);
+        Assert.Equal(2, ratingTermsAgg.Buckets.First(b => b.Key == 5).Total);
+        Assert.Equal(2, ratingTermsAgg.Buckets.First(b => b.Key == 4).Total);
+        Assert.Equal(1, ratingTermsAgg.Buckets.First(b => b.Key == 3).Total);
+        Assert.Equal(1, ratingTermsAgg.Buckets.First(b => b.Key == 2).Total);
+    }
+
+    private static IReadOnlyDictionary<string, IAggregate> FlattenSingleBucketAggregations(IReadOnlyDictionary<string, IAggregate> aggregations)
+    {
+        var flattened = new Dictionary<string, IAggregate>();
+
+        foreach (var kvp in aggregations)
+        {
+            if (kvp.Value is SingleBucketAggregate singleBucket)
+            {
+                foreach (var inner in FlattenSingleBucketAggregations(singleBucket.Aggregations))
+                    flattened[inner.Key] = inner.Value;
+            }
+            else
+            {
+                flattened[kvp.Key] = kvp.Value;
+            }
+        }
+
+        return flattened;
+    }
 }

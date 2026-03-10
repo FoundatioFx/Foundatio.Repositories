@@ -319,6 +319,16 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         await BeforeQuery.InvokeAsync(this, new BeforeQueryEventArgs<T>(query, options, this, resultType)).AnyContext();
     }
 
+    public AsyncEvent<AfterQueryEventArgs<T>> AfterQuery { get; } = new AsyncEvent<AfterQueryEventArgs<T>>();
+
+    protected async Task OnAfterQueryAsync(IRepositoryQuery query, ICommandOptions options, Type resultType, CountResult result)
+    {
+        if (AfterQuery is not { HasHandlers: true })
+            return;
+
+        await AfterQuery.InvokeAsync(this, new AfterQueryEventArgs<T>(query, options, this, resultType, result)).AnyContext();
+    }
+
     #endregion
 
     #region ISearchableReadOnlyRepository
@@ -416,6 +426,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 result = response.ToFindResults(options, _logger);
             }
         }
+
+        await OnAfterQueryAsync(query, options, typeof(TResult), result).AnyContext();
 
         if (useSnapshotPaging && !result.HasMore)
         {
@@ -574,6 +586,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             _logger.LogRequest(response, options.GetQueryLogLevel());
             result = response.ToCountResult(options, _logger);
         }
+
+        await OnAfterQueryAsync(query, options, typeof(T), result).AnyContext();
 
         if (IsCacheEnabled && options.ShouldUseCache() && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
             await SetCachedQueryResultAsync(options, result, "count").AnyContext();

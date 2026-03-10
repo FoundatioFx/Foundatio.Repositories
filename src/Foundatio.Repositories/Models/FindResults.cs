@@ -218,7 +218,7 @@ public class CountResult : IHaveData
     /// Gets the aggregation results.
     /// </summary>
     [JsonInclude]
-    public IReadOnlyDictionary<string, IAggregate> Aggregations { get; protected set; }
+    public IReadOnlyDictionary<string, IAggregate> Aggregations { get; set; }
 
     /// <summary>
     /// Gets additional metadata associated with the result.
