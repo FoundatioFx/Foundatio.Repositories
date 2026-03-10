@@ -57,8 +57,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     protected string DefaultPipeline { get; set; } = null;
     protected bool AutoCreateCustomFields { get; set; } = false;
 
-    #region IRepository
-
     public Task<T> AddAsync(T document, CommandOptionsDescriptor<T> options)
     {
         return AddAsync(document, options.Configure());
@@ -659,10 +657,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return count;
     }
 
-    #endregion
-
-    #region ISearchableRepository
-
     public Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> query, IPatchOperation operation, CommandOptionsDescriptor<T> options = null)
     {
         return PatchAllAsync(query.Configure(), operation, options.Configure());
@@ -1134,8 +1128,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return recordsProcessed;
     }
 
-    #endregion
-
     /// <summary>
     /// Registers a field that must always be included when <see cref="RemoveAllAsync(IRepositoryQuery, ICommandOptions)"/>
     /// fetches documents for deletion. This ensures critical fields (needed for cache invalidation,
@@ -1320,8 +1312,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return null;
     }
 
-    #region Events
-
     public AsyncEvent<DocumentsEventArgs<T>> DocumentsAdding { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
 
     private async Task OnDocumentsAddingAsync(IReadOnlyCollection<T> documents, ICommandOptions options)
@@ -1466,8 +1456,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         await DocumentsChanged.InvokeAsync(this, new DocumentsChangeEventArgs<T>(changeType, documents, this, options)).AnyContext();
     }
-
-    #endregion
 
     private async Task<IReadOnlyCollection<T>> GetOriginalDocumentsAsync(Ids ids, ICommandOptions options = null)
     {

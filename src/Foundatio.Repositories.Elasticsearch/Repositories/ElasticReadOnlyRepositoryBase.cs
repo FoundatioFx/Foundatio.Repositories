@@ -80,8 +80,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected int MaxPageLimit { get; set; } = 10000;
     protected Microsoft.Extensions.Logging.LogLevel DefaultQueryLogLevel { get; set; } = Microsoft.Extensions.Logging.LogLevel.Trace;
 
-    #region IReadOnlyRepository
-
     public Task<T> GetByIdAsync(Id id, CommandOptionsDescriptor<T> options)
     {
         return GetByIdAsync(id, options.Configure());
@@ -328,10 +326,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         await AfterQuery.InvokeAsync(this, new AfterQueryEventArgs<T>(query, options, this, result.GetType(), result)).AnyContext();
     }
-
-    #endregion
-
-    #region ISearchableReadOnlyRepository
 
     public virtual Task<FindResults<T>> FindAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null)
     {
@@ -632,8 +626,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     {
         return CountAsync(q => q.SystemFilter(systemFilter).FilterExpression(filter).AggregationsExpression(aggregations), o => options.As<T>());
     }
-
-    #endregion
 
     protected virtual IRepositoryQuery<T> NewQuery()
     {
