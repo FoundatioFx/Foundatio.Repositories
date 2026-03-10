@@ -853,10 +853,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (!String.IsNullOrEmpty(optionExcludeMask))
             excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
 
-        bool hasFieldRestrictions = includes.Count > 0 || excludes.Count > 0;
-
         if (_defaultExcludes.Count > 0 && excludes.Count is 0)
             excludes.AddRange(_defaultExcludes.Select(f => f.Value));
+
+        bool hasFieldRestrictions = includes.Count > 0 || excludes.Count > 0;
 
         var requiredFields = hasFieldRestrictions ? options.GetRequiredFields() : [];
         if (requiredFields.Count > 0 && includes.Count > 0)
