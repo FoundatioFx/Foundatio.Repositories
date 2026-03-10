@@ -296,11 +296,6 @@ namespace Foundatio.Repositories
         }
 
         internal const string HasCallerFieldRestrictionsKey = "@HasCallerFieldRestrictions";
-
-        internal static T HasCallerFieldRestrictions<T>(this T options, bool value) where T : ICommandOptions
-        {
-            return options.BuildOption(HasCallerFieldRestrictionsKey, value);
-        }
     }
 }
 
