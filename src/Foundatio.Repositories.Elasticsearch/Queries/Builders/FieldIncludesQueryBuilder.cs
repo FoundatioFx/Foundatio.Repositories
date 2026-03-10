@@ -29,28 +29,24 @@ namespace Foundatio.Repositories
         /// </summary>
         public static T Include<T>(this T query, Field field) where T : IRepositoryQuery
         {
-            query.MarkHasCallerFieldRestrictions();
             return query.AddCollectionOptionValue(IncludesKey, field);
         }
 
         /// <inheritdoc cref="Include{T}(T, Field)"/>
         public static T Include<T>(this T query, IEnumerable<Field> fields) where T : IRepositoryQuery
         {
-            query.MarkHasCallerFieldRestrictions();
             return query.AddCollectionOptionValue(IncludesKey, fields);
         }
 
         /// <inheritdoc cref="Include{T}(T, Field)"/>
         public static IRepositoryQuery Include<T>(this IRepositoryQuery query, Expression<Func<T, object>> objectPath)
         {
-            query.MarkHasCallerFieldRestrictions();
             return query.AddCollectionOptionValue<IRepositoryQuery, Field>(IncludesKey, objectPath);
         }
 
         /// <inheritdoc cref="Include{T}(T, Field)"/>
         public static IRepositoryQuery<T> Include<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath) where T : class
         {
-            query.MarkHasCallerFieldRestrictions();
             return query.AddCollectionOptionValue<IRepositoryQuery<T>, Field>(IncludesKey, objectPath);
         }
 
@@ -60,7 +56,6 @@ namespace Foundatio.Repositories
             if (objectPaths.Length is 0)
                 return query;
 
-            query.MarkHasCallerFieldRestrictions();
             foreach (var objectPath in objectPaths)
                 query.Include(objectPath);
 
@@ -77,7 +72,6 @@ namespace Foundatio.Repositories
         /// </summary>
         public static T IncludeMask<T>(this T options, string maskExpression) where T : IRepositoryQuery
         {
-            options.MarkHasCallerFieldRestrictions();
             return options.BuildOption(IncludesMaskKey, maskExpression);
         }
 
@@ -95,21 +89,18 @@ namespace Foundatio.Repositories
         /// </remarks>
         public static T Exclude<T>(this T query, Field field) where T : IRepositoryQuery
         {
-            query.MarkHasCallerFieldRestrictions();
             return query.AddCollectionOptionValue(ExcludesKey, field);
         }
 
         /// <inheritdoc cref="Exclude{T}(T, Field)"/>
         public static T Exclude<T>(this T query, IEnumerable<Field> fields) where T : IRepositoryQuery
         {
-            query.MarkHasCallerFieldRestrictions();
             return query.AddCollectionOptionValue(ExcludesKey, fields);
         }
 
         /// <inheritdoc cref="Exclude{T}(T, Field)"/>
         public static IRepositoryQuery<T> Exclude<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath) where T : class
         {
-            query.MarkHasCallerFieldRestrictions();
             return query.AddCollectionOptionValue<IRepositoryQuery<T>, Field>(ExcludesKey, objectPath);
         }
 
@@ -119,7 +110,6 @@ namespace Foundatio.Repositories
             if (objectPaths.Length is 0)
                 return query;
 
-            query.MarkHasCallerFieldRestrictions();
             foreach (var objectPath in objectPaths)
                 query.Exclude(objectPath);
 
@@ -136,22 +126,7 @@ namespace Foundatio.Repositories
         /// </summary>
         public static T ExcludeMask<T>(this T options, string maskExpression) where T : IRepositoryQuery
         {
-            options.MarkHasCallerFieldRestrictions();
             return options.BuildOption(ExcludesMaskKey, maskExpression);
-        }
-
-        internal static void MarkHasCallerFieldRestrictions(this IOptions options)
-        {
-            options.Values.Set(FieldIncludesCommandExtensions.HasCallerFieldRestrictionsKey, true);
-        }
-
-        /// <summary>
-        /// Adds default excludes to the query without marking it as having caller-specified field restrictions.
-        /// Used internally by the repository to apply default excludes that should not trigger required field injection.
-        /// </summary>
-        internal static T DefaultExclude<T>(this T query, IEnumerable<Field> fields) where T : IRepositoryQuery
-        {
-            return query.AddCollectionOptionValue(ExcludesKey, fields);
         }
     }
 
@@ -175,28 +150,24 @@ namespace Foundatio.Repositories
         /// </summary>
         public static T Include<T>(this T options, Field field) where T : ICommandOptions
         {
-            options.MarkHasCallerFieldRestrictions();
             return options.AddCollectionOptionValue(IncludesKey, field);
         }
 
         /// <inheritdoc cref="Include{T}(T, Field)"/>
         public static T Include<T>(this T options, IEnumerable<Field> fields) where T : ICommandOptions
         {
-            options.MarkHasCallerFieldRestrictions();
             return options.AddCollectionOptionValue(IncludesKey, fields);
         }
 
         /// <inheritdoc cref="Include{T}(T, Field)"/>
         public static ICommandOptions Include<T>(this ICommandOptions options, Expression<Func<T, object>> objectPath)
         {
-            options.MarkHasCallerFieldRestrictions();
             return options.AddCollectionOptionValue<ICommandOptions, Field>(IncludesKey, objectPath);
         }
 
         /// <inheritdoc cref="Include{T}(T, Field)"/>
         public static ICommandOptions<T> Include<T>(this ICommandOptions<T> options, Expression<Func<T, object>> objectPath) where T : class
         {
-            options.MarkHasCallerFieldRestrictions();
             return options.AddCollectionOptionValue<ICommandOptions<T>, Field>(IncludesKey, objectPath);
         }
 
@@ -206,7 +177,6 @@ namespace Foundatio.Repositories
             if (objectPaths.Length is 0)
                 return options;
 
-            options.MarkHasCallerFieldRestrictions();
             foreach (var objectPath in objectPaths)
                 options.Include(objectPath);
 
@@ -223,7 +193,6 @@ namespace Foundatio.Repositories
         /// </summary>
         public static T IncludeMask<T>(this T options, string maskExpression) where T : ICommandOptions
         {
-            options.MarkHasCallerFieldRestrictions();
             return options.BuildOption(IncludesMaskKey, maskExpression);
         }
 
@@ -237,21 +206,18 @@ namespace Foundatio.Repositories
         /// </summary>
         public static T Exclude<T>(this T options, Field field) where T : ICommandOptions
         {
-            options.MarkHasCallerFieldRestrictions();
             return options.AddCollectionOptionValue(ExcludesKey, field);
         }
 
         /// <inheritdoc cref="Exclude{T}(T, Field)"/>
         public static T Exclude<T>(this T options, IEnumerable<Field> fields) where T : ICommandOptions
         {
-            options.MarkHasCallerFieldRestrictions();
             return options.AddCollectionOptionValue(ExcludesKey, fields);
         }
 
         /// <inheritdoc cref="Exclude{T}(T, Field)"/>
         public static ICommandOptions<T> Exclude<T>(this ICommandOptions<T> options, Expression<Func<T, object>> objectPath) where T : class
         {
-            options.MarkHasCallerFieldRestrictions();
             return options.AddCollectionOptionValue<ICommandOptions<T>, Field>(ExcludesKey, objectPath);
         }
 
@@ -261,7 +227,6 @@ namespace Foundatio.Repositories
             if (objectPaths.Length is 0)
                 return options;
 
-            options.MarkHasCallerFieldRestrictions();
             foreach (var objectPath in objectPaths)
                 options.Exclude(objectPath);
 
@@ -279,7 +244,6 @@ namespace Foundatio.Repositories
         /// </summary>
         public static T ExcludeMask<T>(this T options, string maskExpression) where T : ICommandOptions
         {
-            options.MarkHasCallerFieldRestrictions();
             return options.BuildOption(ExcludesMaskKey, maskExpression);
         }
 
@@ -293,7 +257,16 @@ namespace Foundatio.Repositories
             return options.AddCollectionOptionValue(RequiredFieldsKey, fields);
         }
 
-        internal const string HasCallerFieldRestrictionsKey = "@HasCallerFieldRestrictions";
+        internal const string DefaultExcludesKey = "@DefaultExcludes";
+
+        /// <summary>
+        /// Registers default excludes that are applied when no caller-specified excludes are present.
+        /// These are set by the repository via <c>ConfigureOptions</c> and do not trigger required field injection.
+        /// </summary>
+        internal static T DefaultExcludes<T>(this T options, IEnumerable<Field> fields) where T : ICommandOptions
+        {
+            return options.AddCollectionOptionValue(DefaultExcludesKey, fields);
+        }
     }
 }
 
@@ -319,11 +292,6 @@ namespace Foundatio.Repositories.Options
         public static string GetExcludeMask(this IRepositoryQuery options)
         {
             return options.SafeGetOption<string>(FieldIncludesQueryExtensions.ExcludesMaskKey);
-        }
-
-        public static bool HasCallerFieldRestrictions(this IRepositoryQuery options)
-        {
-            return options.SafeGetOption<bool>(FieldIncludesCommandExtensions.HasCallerFieldRestrictionsKey);
         }
     }
 
@@ -354,9 +322,9 @@ namespace Foundatio.Repositories.Options
             return options.SafeGetCollection<Field>(FieldIncludesCommandExtensions.RequiredFieldsKey);
         }
 
-        public static bool HasCallerFieldRestrictions(this ICommandOptions options)
+        public static ICollection<Field> GetDefaultExcludes(this ICommandOptions options)
         {
-            return options.SafeGetOption<bool>(FieldIncludesCommandExtensions.HasCallerFieldRestrictionsKey);
+            return options.SafeGetCollection<Field>(FieldIncludesCommandExtensions.DefaultExcludesKey);
         }
     }
 }
@@ -412,22 +380,26 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             if (!String.IsNullOrEmpty(optionExcludeMask))
                 excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
 
-            bool hasFieldRestrictions = ctx.Source.HasCallerFieldRestrictions()
-                || ctx.Options.HasCallerFieldRestrictions();
+            bool hasFieldRestrictions = includes.Count > 0 || excludes.Count > 0;
+
+            var defaultExcludes = ctx.Options.GetDefaultExcludes();
+            if (defaultExcludes.Count > 0 && excludes.Count is 0)
+                excludes.AddRange(defaultExcludes);
+
             var requiredFields = hasFieldRestrictions ? ctx.Options.GetRequiredFields() : (ICollection<Field>)[];
             if (requiredFields.Count > 0 && includes.Count > 0)
                 includes.AddRange(requiredFields);
 
             var resolvedIncludes = resolver.GetResolvedFields(includes).ToArray();
-
-            var resolvedRequiredFields = requiredFields.Count > 0 && includes.Count == 0
-                ? resolver.GetResolvedFields(requiredFields).ToHashSet()
-                : new HashSet<Field>();
-
             var resolvedExcludes = resolver.GetResolvedFields(excludes)
                 .Where(f => !resolvedIncludes.Contains(f))
-                .Where(f => !resolvedRequiredFields.Contains(f))
                 .ToArray();
+
+            if (requiredFields.Count > 0 && resolvedIncludes.Length is 0)
+            {
+                var resolvedRequiredFields = resolver.GetResolvedFields(requiredFields);
+                resolvedExcludes = resolvedExcludes.Where(f => !resolvedRequiredFields.Contains(f)).ToArray();
+            }
 
             if (resolvedIncludes.Length > 0 && resolvedExcludes.Length > 0)
                 ctx.Search.Source(s => s.Includes(i => i.Fields(resolvedIncludes)).Excludes(i => i.Fields(resolvedExcludes)));

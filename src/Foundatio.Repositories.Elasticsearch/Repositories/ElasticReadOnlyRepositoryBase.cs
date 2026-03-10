@@ -631,9 +631,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (query is null)
             query = new RepositoryQuery<T>();
 
-        if (_defaultExcludes.Count > 0 && query.GetExcludes().Count == 0)
-            query.DefaultExclude(_defaultExcludes.Select(e => (Field)e.Value));
-
         return query;
     }
 
@@ -790,6 +787,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (_requiredFields.Count > 0)
             options.RequiredFields(_requiredFields.Select(f => f.Value));
 
+        if (_defaultExcludes.Count > 0)
+            options.DefaultExcludes(_defaultExcludes.Select(f => f.Value));
+
         return options;
     }
 
@@ -854,26 +854,25 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (!String.IsNullOrEmpty(optionExcludeMask))
             excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
 
-        bool hasCallerFieldRestrictions = query.HasCallerFieldRestrictions()
-            || options.HasCallerFieldRestrictions();
+        bool hasFieldRestrictions = includes.Count > 0 || excludes.Count > 0;
 
         if (_defaultExcludes.Count > 0 && excludes.Count is 0)
             excludes.AddRange(_defaultExcludes.Select(f => f.Value));
 
-        var requiredFields = hasCallerFieldRestrictions ? options.GetRequiredFields() : [];
+        var requiredFields = hasFieldRestrictions ? options.GetRequiredFields() : [];
         if (requiredFields.Count > 0 && includes.Count > 0)
             includes.AddRange(requiredFields);
 
         var resolvedIncludes = ElasticIndex.MappingResolver.GetResolvedFields(includes).ToArray();
-
-        var resolvedRequiredFields = requiredFields.Count > 0 && includes.Count is 0
-            ? ElasticIndex.MappingResolver.GetResolvedFields(requiredFields).ToHashSet()
-            : new HashSet<Field>();
-
         var resolvedExcludes = ElasticIndex.MappingResolver.GetResolvedFields(excludes)
             .Where(f => !resolvedIncludes.Contains(f))
-            .Where(f => !resolvedRequiredFields.Contains(f))
             .ToArray();
+
+        if (requiredFields.Count > 0 && resolvedIncludes.Length is 0)
+        {
+            var resolvedRequiredFields = ElasticIndex.MappingResolver.GetResolvedFields(requiredFields);
+            resolvedExcludes = resolvedExcludes.Where(f => !resolvedRequiredFields.Contains(f)).ToArray();
+        }
 
         return (resolvedIncludes, resolvedExcludes);
     }
