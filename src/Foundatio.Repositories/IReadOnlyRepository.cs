@@ -92,4 +92,9 @@ public interface IReadOnlyRepository<T> where T : class, new()
     /// Event raised before a query is executed, allowing modification of query parameters.
     /// </summary>
     AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; }
+
+    /// <summary>
+    /// Event raised after a query is executed, allowing transformation of query results including aggregations.
+    /// </summary>
+    AsyncEvent<AfterQueryEventArgs<T>> AfterQuery { get; }
 }

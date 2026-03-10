@@ -26,6 +26,7 @@ public interface IReadOnlyRepository<T> where T : class, new()
 
     // Events
     AsyncEvent<BeforeQueryEventArgs<T>> BeforeQuery { get; }
+    AsyncEvent<AfterQueryEventArgs<T>> AfterQuery { get; }
 }
 ```
 
@@ -110,6 +111,7 @@ The repository provides a comprehensive event system that allows you to hook int
 | `DocumentsChanging` | Before any change | Universal change tracking |
 | `DocumentsChanged` | After any change | Universal change tracking |
 | `BeforeQuery` | Before query execution | Add filters, track metrics |
+| `AfterQuery` | After query execution | Transform aggregations, modify results |
 | `BeforePublishEntityChanged` | Before notification publish | Modify or cancel notifications |
 
 ### Event Argument Types
@@ -181,6 +183,23 @@ public class BeforeQueryEventArgs<T> : EventArgs
 }
 ```
 
+#### AfterQueryEventArgs&lt;T&gt;
+
+Used for `AfterQuery` - provides access to the query result for post-processing:
+
+```csharp
+public class AfterQueryEventArgs<T> : EventArgs
+{
+    public Type ResultType { get; }
+    public IRepositoryQuery Query { get; }
+    public ICommandOptions Options { get; }
+    public IReadOnlyRepository<T> Repository { get; }
+    public CountResult Result { get; }
+}
+```
+
+Modify `Result.Aggregations` directly to transform aggregation results. The result is mutated in place before caching and returning.
+
 #### BeforePublishEntityChangedEventArgs&lt;T&gt;
 
 Used for `BeforePublishEntityChanged` - supports cancellation:
@@ -208,6 +227,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>
         DocumentsAdding.AddHandler(OnDocumentsAdding);
         DocumentsSaving.AddHandler(OnDocumentsSaving);
         BeforeQuery.AddHandler(OnBeforeQuery);
+        AfterQuery.AddHandler(OnAfterQuery);
     }
 
     private Task OnDocumentsAdding(object sender, DocumentsEventArgs<Employee> args)
@@ -243,6 +263,14 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>
     {
         // Add tenant filter to all queries using typed expression
         args.Query.FieldEquals(e => e.TenantId, _currentTenantId);
+        return Task.CompletedTask;
+    }
+
+    private Task OnAfterQuery(object sender, AfterQueryEventArgs<Employee> args)
+    {
+        // Flatten nested aggregation wrappers so consumers see
+        // terms/metrics at the top level instead of inside nested buckets
+        args.Result.Aggregations = FlattenNestedAggregations(args.Result.Aggregations);
         return Task.CompletedTask;
     }
 }

@@ -80,8 +80,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected int MaxPageLimit { get; set; } = 10000;
     protected Microsoft.Extensions.Logging.LogLevel DefaultQueryLogLevel { get; set; } = Microsoft.Extensions.Logging.LogLevel.Trace;
 
-    #region IReadOnlyRepository
-
     public Task<T> GetByIdAsync(Id id, CommandOptionsDescriptor<T> options)
     {
         return GetByIdAsync(id, options.Configure());
@@ -319,9 +317,15 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         await BeforeQuery.InvokeAsync(this, new BeforeQueryEventArgs<T>(query, options, this, resultType)).AnyContext();
     }
 
-    #endregion
+    public AsyncEvent<AfterQueryEventArgs<T>> AfterQuery { get; } = new AsyncEvent<AfterQueryEventArgs<T>>();
 
-    #region ISearchableReadOnlyRepository
+    protected async Task OnAfterQueryAsync(IRepositoryQuery query, ICommandOptions options, CountResult result)
+    {
+        if (AfterQuery is not { HasHandlers: true })
+            return;
+
+        await AfterQuery.InvokeAsync(this, new AfterQueryEventArgs<T>(query, options, this, result.GetType(), result)).AnyContext();
+    }
 
     public virtual Task<FindResults<T>> FindAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null)
     {
@@ -416,6 +420,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 result = response.ToFindResults(options, _logger);
             }
         }
+
+        await OnAfterQueryAsync(query, options, result).AnyContext();
 
         if (useSnapshotPaging && !result.HasMore)
         {
@@ -575,6 +581,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             result = response.ToCountResult(options, _logger);
         }
 
+        await OnAfterQueryAsync(query, options, result).AnyContext();
+
         if (IsCacheEnabled && options.ShouldUseCache() && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
             await SetCachedQueryResultAsync(options, result, "count").AnyContext();
 
@@ -618,8 +626,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     {
         return CountAsync(q => q.SystemFilter(systemFilter).FilterExpression(filter).AggregationsExpression(aggregations), o => options.As<T>());
     }
-
-    #endregion
 
     protected virtual IRepositoryQuery<T> NewQuery()
     {
