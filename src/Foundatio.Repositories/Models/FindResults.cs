@@ -218,7 +218,15 @@ public class CountResult : IHaveData
     /// Gets the aggregation results.
     /// </summary>
     [JsonInclude]
-    public IReadOnlyDictionary<string, IAggregate> Aggregations { get; protected set; }
+    public IReadOnlyDictionary<string, IAggregate> Aggregations
+    {
+        get;
+        set
+        {
+            field = value ?? EmptyReadOnly<string, IAggregate>.Dictionary;
+            Aggs = null;
+        }
+    }
 
     /// <summary>
     /// Gets additional metadata associated with the result.
@@ -231,7 +239,7 @@ public class CountResult : IHaveData
     /// </summary>
     [IgnoreDataMember]
     [JsonIgnore]
-    public AggregationsHelper Aggs => field ??= new AggregationsHelper(Aggregations);
+    public AggregationsHelper Aggs { get => field ??= new AggregationsHelper(Aggregations); private set; }
 
     /// <summary>
     /// Implicitly converts a <see cref="CountResult"/> to a <see cref="long"/>.
