@@ -256,17 +256,6 @@ namespace Foundatio.Repositories
         {
             return options.AddCollectionOptionValue(RequiredFieldsKey, fields);
         }
-
-        internal const string DefaultExcludesKey = "@DefaultExcludes";
-
-        /// <summary>
-        /// Registers default excludes that are applied when no caller-specified excludes are present.
-        /// These are set by the repository via <c>ConfigureOptions</c> and do not trigger required field injection.
-        /// </summary>
-        internal static T DefaultExcludes<T>(this T options, IEnumerable<Field> fields) where T : ICommandOptions
-        {
-            return options.AddCollectionOptionValue(DefaultExcludesKey, fields);
-        }
     }
 }
 
@@ -320,11 +309,6 @@ namespace Foundatio.Repositories.Options
         public static ICollection<Field> GetRequiredFields(this ICommandOptions options)
         {
             return options.SafeGetCollection<Field>(FieldIncludesCommandExtensions.RequiredFieldsKey);
-        }
-
-        public static ICollection<Field> GetDefaultExcludes(this ICommandOptions options)
-        {
-            return options.SafeGetCollection<Field>(FieldIncludesCommandExtensions.DefaultExcludesKey);
         }
     }
 }
@@ -381,11 +365,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
 
             bool hasFieldRestrictions = includes.Count > 0 || excludes.Count > 0;
-
-            var defaultExcludes = ctx.Options.GetDefaultExcludes();
-            if (defaultExcludes.Count > 0 && excludes.Count is 0)
-                excludes.AddRange(defaultExcludes);
-
             var requiredFields = hasFieldRestrictions ? ctx.Options.GetRequiredFields() : (ICollection<Field>)[];
             if (requiredFields.Count > 0 && includes.Count > 0)
                 includes.AddRange(requiredFields);

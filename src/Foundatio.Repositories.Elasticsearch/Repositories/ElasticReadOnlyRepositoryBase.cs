@@ -631,6 +631,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (query is null)
             query = new RepositoryQuery<T>();
 
+        if (_defaultExcludes.Count > 0 && query.GetExcludes().Count is 0)
+            query.Exclude(_defaultExcludes.Select(e => (Field)e.Value));
+
         return query;
     }
 
@@ -786,9 +789,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         if (_requiredFields.Count > 0)
             options.RequiredFields(_requiredFields.Select(f => f.Value));
-
-        if (_defaultExcludes.Count > 0)
-            options.DefaultExcludes(_defaultExcludes.Select(f => f.Value));
 
         return options;
     }
