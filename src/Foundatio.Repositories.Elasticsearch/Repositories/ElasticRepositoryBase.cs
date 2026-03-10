@@ -32,16 +32,15 @@ namespace Foundatio.Repositories.Elasticsearch;
 public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, ISearchableRepository<T> where T : class, IIdentity, new()
 {
     protected readonly IMessagePublisher _messagePublisher;
-    private readonly List<Lazy<Field>> _propertiesRequiredForRemove = new();
 
     protected ElasticRepositoryBase(IIndex index) : base(index)
     {
         _messagePublisher = index.Configuration.MessageBus;
         NotificationsEnabled = _messagePublisher != null;
 
-        AddPropertyRequiredForRemove(_idField);
+        AddRequiredField(_idField);
         if (HasCreatedDate)
-            AddPropertyRequiredForRemove(e => ((IHaveCreatedDate)e).CreatedUtc);
+            AddRequiredField(e => ((IHaveCreatedDate)e).CreatedUtc);
 
         if (HasCustomFields)
         {
@@ -1189,8 +1188,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (hasRemoveListeners || (IsCacheEnabled && options.ShouldUseCache(true)))
         {
             var includes = query.GetIncludes();
-            foreach (var field in _propertiesRequiredForRemove.Select(f => f.Value))
-                if (field != null && !includes.Contains(field))
+            foreach (var field in RequiredFields.Select(f => f.Value))
+                if (field is not null && !includes.Contains(field))
                     query.Include(field);
 
             if (!options.HasPageLimit())
@@ -1296,27 +1295,35 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// notifications, or event handlers) are returned even when the caller has specified a restricted
     /// include set. <c>Id</c> and <c>CreatedUtc</c> (when applicable) are registered automatically.
     /// </summary>
+    /// <remarks>
+    /// To ensure a field is included in <em>all</em> source-filtered operations (not just removes),
+    /// use <see cref="ElasticReadOnlyRepositoryBase{T}.AddRequiredField(string)"/> instead.
+    /// </remarks>
+    [Obsolete("Use AddRequiredField instead. This method will be removed in a future major version.")]
     protected void AddPropertyRequiredForRemove(string field)
     {
-        _propertiesRequiredForRemove.Add(new Lazy<Field>(() => field));
+        AddRequiredField(field);
     }
 
     /// <inheritdoc cref="AddPropertyRequiredForRemove(string)"/>
+    [Obsolete("Use AddRequiredField instead. This method will be removed in a future major version.")]
     protected void AddPropertyRequiredForRemove(Lazy<string> field)
     {
-        _propertiesRequiredForRemove.Add(new Lazy<Field>(() => field.Value));
+        AddRequiredField(field);
     }
 
     /// <inheritdoc cref="AddPropertyRequiredForRemove(string)"/>
+    [Obsolete("Use AddRequiredField instead. This method will be removed in a future major version.")]
     protected void AddPropertyRequiredForRemove(Expression<Func<T, object>> objectPath)
     {
-        _propertiesRequiredForRemove.Add(new Lazy<Field>(() => Infer.PropertyName(objectPath)));
+        AddRequiredField(objectPath);
     }
 
     /// <inheritdoc cref="AddPropertyRequiredForRemove(string)"/>
+    [Obsolete("Use AddRequiredField instead. This method will be removed in a future major version.")]
     protected void AddPropertyRequiredForRemove(params Expression<Func<T, object>>[] objectPaths)
     {
-        _propertiesRequiredForRemove.AddRange(objectPaths.Select(o => new Lazy<Field>(() => Infer.PropertyName(o))));
+        AddRequiredField(objectPaths);
     }
 
     protected virtual async Task OnCustomFieldsBeforeQuery(object sender, BeforeQueryEventArgs<T> args)

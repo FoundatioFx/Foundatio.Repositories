@@ -39,6 +39,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected static readonly string EntityTypeName = typeof(T).Name;
     protected static readonly IReadOnlyCollection<T> EmptyList = new List<T>(0).AsReadOnly();
     private readonly List<Lazy<Field>> _defaultExcludes = new();
+    private readonly List<Lazy<Field>> _requiredFields = new();
+    protected IReadOnlyList<Lazy<Field>> RequiredFields => _requiredFields;
     protected readonly Lazy<string> _idField;
     protected readonly Lazy<string> _updatedUtcField;
 
@@ -645,11 +647,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     protected virtual IRepositoryQuery ConfigureQuery(IRepositoryQuery<T> query)
     {
-        if (query == null)
+        if (query is null)
             query = new RepositoryQuery<T>();
 
-        if (_defaultExcludes.Count > 0 && query.GetExcludes().Count == 0)
-            query.Exclude(_defaultExcludes.Select(e => e.Value));
+        if (_defaultExcludes.Count > 0 && query.GetExcludes().Count is 0)
+            query.Exclude(_defaultExcludes.Select(e => (Field)e.Value));
 
         return query;
     }
@@ -685,6 +687,38 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected void AddDefaultExclude(params Expression<Func<T, object>>[] objectPaths)
     {
         _defaultExcludes.AddRange(objectPaths.Select(o => new Lazy<Field>(() => InferPropertyName(o))));
+    }
+
+    /// <summary>
+    /// Registers a field that must always be present in Elasticsearch <c>_source</c> filtering results
+    /// when any field restrictions (<c>.Include()</c>, <c>.Exclude()</c>,
+    /// <c>.IncludeMask()</c>, or <c>.ExcludeMask()</c>) are active. When no restrictions exist, the full
+    /// <c>_source</c> is returned and required fields have no effect.
+    /// When includes are present, required fields are added to the include set. When only excludes
+    /// are present, required fields are removed from the exclude set to preserve
+    /// "return everything except X" semantics.
+    /// </summary>
+    protected void AddRequiredField(string field)
+    {
+        _requiredFields.Add(new Lazy<Field>(() => field));
+    }
+
+    /// <inheritdoc cref="AddRequiredField(string)"/>
+    protected void AddRequiredField(Lazy<string> field)
+    {
+        _requiredFields.Add(new Lazy<Field>(() => field.Value));
+    }
+
+    /// <inheritdoc cref="AddRequiredField(string)"/>
+    protected void AddRequiredField(Expression<Func<T, object>> objectPath)
+    {
+        _requiredFields.Add(new Lazy<Field>(() => InferPropertyName(objectPath)));
+    }
+
+    /// <inheritdoc cref="AddRequiredField(string)"/>
+    protected void AddRequiredField(params Expression<Func<T, object>>[] objectPaths)
+    {
+        _requiredFields.AddRange(objectPaths.Select(o => new Lazy<Field>(() => InferPropertyName(o))));
     }
 
     public bool IsCacheEnabled { get; private set; } = false;
@@ -773,6 +807,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         options.MaxPageLimit(MaxPageLimit);
         options.DefaultQueryLogLevel(DefaultQueryLogLevel);
 
+        if (_requiredFields.Count > 0)
+            options.RequiredFields(_requiredFields.Select(f => f.Value));
+
         return options;
     }
 
@@ -824,30 +861,38 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         var includes = new HashSet<Field>();
         includes.AddRange(query.GetIncludes());
         includes.AddRange(options.GetIncludes());
-        if (HasIdentity && includes.Count > 0)
-            includes.Add(_idField.Value);
 
         string optionIncludeMask = options.GetIncludeMask();
         if (!String.IsNullOrEmpty(optionIncludeMask))
             includes.AddRange(FieldIncludeParser.ParseFieldPaths(optionIncludeMask).Select(f => (Field)f));
 
-        var resolvedIncludes = ElasticIndex.MappingResolver.GetResolvedFields(includes).ToArray();
-
         var excludes = new HashSet<Field>();
         excludes.AddRange(query.GetExcludes());
         excludes.AddRange(options.GetExcludes());
-
-        if (_defaultExcludes.Count > 0 && excludes.Count == 0)
-            excludes.AddRange(_defaultExcludes.Select(f => f.Value));
 
         string optionExcludeMask = options.GetExcludeMask();
         if (!String.IsNullOrEmpty(optionExcludeMask))
             excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
 
-        // Remove any included fields from excludes
+        if (_defaultExcludes.Count > 0 && excludes.Count is 0)
+            excludes.AddRange(_defaultExcludes.Select(f => f.Value));
+
+        bool hasFieldRestrictions = includes.Count > 0 || excludes.Count > 0;
+
+        var requiredFields = hasFieldRestrictions ? options.GetRequiredFields() : [];
+        if (requiredFields.Count > 0 && includes.Count > 0)
+            includes.AddRange(requiredFields);
+
+        var resolvedIncludes = ElasticIndex.MappingResolver.GetResolvedFields(includes).ToArray();
         var resolvedExcludes = ElasticIndex.MappingResolver.GetResolvedFields(excludes)
             .Where(f => !resolvedIncludes.Contains(f))
             .ToArray();
+
+        if (requiredFields.Count > 0 && resolvedIncludes.Length is 0)
+        {
+            var resolvedRequiredFields = ElasticIndex.MappingResolver.GetResolvedFields(requiredFields);
+            resolvedExcludes = resolvedExcludes.Where(f => !resolvedRequiredFields.Contains(f)).ToArray();
+        }
 
         return (resolvedIncludes, resolvedExcludes);
     }

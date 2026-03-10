@@ -584,21 +584,74 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>
 
 Default excludes are only applied when **no explicit excludes** are set on the query. As soon as the caller specifies any `.Exclude()` call, the defaults are skipped entirely. This prevents unexpected interactions between default and explicit excludes.
 
-### Properties Required for Remove
+### Required Fields
 
-When `RemoveAllAsync` processes batch deletions, it first queries for matching documents. The repository ensures that certain critical fields are always included in these queries (regardless of any field restrictions the caller may have set) by registering them with `AddPropertyRequiredForRemove()`:
+Repositories can register fields that must always be present when any caller-specified `_source` field restrictions are active. This is useful for:
+
+- **Multi-tenancy**: Ensuring `OrganizationId` or `ProjectId` is always available for authorization checks
+- **Cache invalidation**: Fields used as custom cache keys must be present to invalidate correctly
+- **Event handling**: Fields needed by `DocumentsChanged` / `DocumentsChanging` handlers
+
+Call `AddRequiredField()` in the repository constructor. Multiple fields can be registered in a single call:
 
 ```csharp
-public class EmployeeRepository : ElasticRepositoryBase<Employee>
+public class StackRepository : ElasticRepositoryBase<Stack>
 {
-    public EmployeeRepository(/* ... */)
+    public StackRepository(MyAppElasticConfiguration configuration)
+        : base(configuration.Stacks)
     {
-        AddPropertyRequiredForRemove(e => e.DepartmentId);
+        AddRequiredField(s => s.OrganizationId, s => s.ProjectId);
     }
 }
 ```
 
-The `Id` and `CreatedUtc` fields (when applicable) are registered automatically. These fields are needed for cache invalidation, message bus notifications, and event handlers that fire during the delete process.
+#### When Required Fields Are Injected
+
+Required fields are **only injected when field restrictions are active** — i.e., when any includes, excludes, masks, or default excludes are present. When no restrictions exist at all, the full `_source` is returned and required fields have no effect.
+
+When repository-internal `AddDefaultExclude()` registrations are the only excludes present, required field injection runs but is effectively a no-op — default excludes never overlap with required fields like `Id` or `CreatedUtc`, so no fields are added or removed. If a field is registered as both a required field and a default exclude, the required field takes precedence — the field will be removed from the exclude set.
+
+#### How Required Fields Are Applied
+
+The behavior depends on what the caller specified:
+
+- **Caller has includes** (with or without excludes): Required fields are added to the include set. This ensures they appear in the narrowed result alongside the caller's selected fields.
+- **Caller has only excludes**: Required fields are removed from the exclude set. This preserves the "return everything except X" semantics while ensuring required fields cannot be excluded. All other non-excluded fields remain present.
+
+#### Precedence Rules
+
+When the caller specifies both includes and excludes, and a required field appears in both sets, the **include takes precedence** — the field is returned. This mirrors how systems like OData and GraphQL handle mandatory fields in projections: identity and authorization fields are always present regardless of what the client requests.
+
+#### Affected Operations
+
+Required fields apply to all source-filtered operations: `GetByIdAsync`, `GetByIdsAsync`, `FindAsync`, `PatchAllAsync`, and `BatchProcessAsync`.
+
+#### Impact on Minimal-Field Queries
+
+When you use `AddRequiredField`, callers requesting minimal fields (e.g., `.Include(e => e.Id)` for a lightweight list view) will also receive the required fields. Factor this into your API design — required fields add a small payload overhead to every partial-document response but ensure correctness for authorization, caching, and event handling.
+
+#### Custom Cache Key Fields
+
+If your repository uses custom cache keys based on specific field values (e.g., caching by `CompanyId`), register those fields as required to ensure cache invalidation works correctly even when callers request partial documents:
+
+```csharp
+public class EventRepository : ElasticRepositoryBase<Event>
+{
+    public EventRepository(MyAppElasticConfiguration configuration)
+        : base(configuration.Events)
+    {
+        AddRequiredField(e => e.OrganizationId);
+    }
+
+    protected override async Task InvalidateCacheAsync(
+        IReadOnlyCollection<ModifiedDocument<Event>> documents, ChangeType? changeType = null)
+    {
+        await base.InvalidateCacheAsync(documents, changeType);
+        // OrganizationId is guaranteed present because it's a required field
+        await Cache.RemoveAllAsync(documents.Select(d => $"org:{d.Value.OrganizationId}"));
+    }
+}
+```
 
 ### Caching Impact
 
