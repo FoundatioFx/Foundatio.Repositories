@@ -860,7 +860,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (_defaultExcludes.Count > 0 && excludes.Count == 0)
             excludes.AddRange(_defaultExcludes.Select(f => f.Value));
 
-        var requiredFields = hasCallerFieldRestrictions ? options.GetRequiredFields() : Array.Empty<Field>();
+        var requiredFields = hasCallerFieldRestrictions ? options.GetRequiredFields() : (ICollection<Field>)[];
 
         if (requiredFields.Count > 0 && includes.Count > 0)
             includes.AddRange(requiredFields);

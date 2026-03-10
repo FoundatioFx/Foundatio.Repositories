@@ -58,7 +58,7 @@ namespace Foundatio.Repositories
         /// <inheritdoc cref="Include{T}(T, Field)"/>
         public static IRepositoryQuery<T> Include<T>(this IRepositoryQuery<T> query, params Expression<Func<T, object>>[] objectPaths) where T : class
         {
-            if (objectPaths.Length == 0)
+            if (objectPaths.Length is 0)
                 return query;
 
             query.MarkHasCallerFieldRestrictions();
@@ -117,7 +117,7 @@ namespace Foundatio.Repositories
         /// <inheritdoc cref="Exclude{T}(T, Field)"/>
         public static IRepositoryQuery<T> Exclude<T>(this IRepositoryQuery<T> query, params Expression<Func<T, object>>[] objectPaths) where T : class
         {
-            if (objectPaths.Length == 0)
+            if (objectPaths.Length is 0)
                 return query;
 
             query.MarkHasCallerFieldRestrictions();
@@ -205,7 +205,7 @@ namespace Foundatio.Repositories
         /// <inheritdoc cref="Include{T}(T, Field)"/>
         public static ICommandOptions<T> Include<T>(this ICommandOptions<T> options, params Expression<Func<T, object>>[] objectPaths) where T : class
         {
-            if (objectPaths.Length == 0)
+            if (objectPaths.Length is 0)
                 return options;
 
             options.MarkHasCallerFieldRestrictions();
@@ -260,7 +260,7 @@ namespace Foundatio.Repositories
         /// <inheritdoc cref="Exclude{T}(T, Field)"/>
         public static ICommandOptions<T> Exclude<T>(this ICommandOptions<T> options, params Expression<Func<T, object>>[] objectPaths) where T : class
         {
-            if (objectPaths.Length == 0)
+            if (objectPaths.Length is 0)
                 return options;
 
             options.MarkHasCallerFieldRestrictions();
@@ -421,7 +421,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
             bool hasFieldRestrictions = ctx.Source.GetHasCallerFieldRestrictions()
                 || ctx.Options.GetHasCallerFieldRestrictions();
-            var requiredFields = hasFieldRestrictions ? ctx.Options.GetRequiredFields() : Array.Empty<Field>();
+            var requiredFields = hasFieldRestrictions ? ctx.Options.GetRequiredFields() : (ICollection<Field>)[];
 
             if (requiredFields.Count > 0 && includes.Count > 0)
                 includes.AddRange(requiredFields);
