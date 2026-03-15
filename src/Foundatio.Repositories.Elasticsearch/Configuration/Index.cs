@@ -36,7 +36,7 @@ public class Index : IIndex
     private readonly ConcurrentDictionary<string, ICustomFieldType> _customFieldTypes = new();
     private readonly AsyncLock _lock = new();
     private readonly CancellationTokenSource _disposedCancellationTokenSource = new();
-    private bool _disposed;
+    private int _disposed;
     protected readonly ILogger _logger;
 
     public Index(IElasticConfiguration configuration, string name = null)
@@ -417,10 +417,9 @@ public class Index : IIndex
 
     public virtual void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        _disposed = true;
         _disposedCancellationTokenSource.Cancel();
         _disposedCancellationTokenSource.Dispose();
     }
