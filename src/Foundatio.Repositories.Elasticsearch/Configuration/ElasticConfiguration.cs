@@ -33,7 +33,7 @@ public class ElasticConfiguration : IElasticConfiguration
     private readonly Lazy<ICustomFieldDefinitionRepository> _customFieldDefinitionRepository;
     protected readonly bool _shouldDisposeCache;
     private readonly bool _shouldDisposeMessageBus;
-    private bool _disposed;
+    private int _disposed;
 
     public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, TimeProvider timeProvider = null, IResiliencePolicyProvider resiliencePolicyProvider = null, ILoggerFactory loggerFactory = null)
     {
@@ -225,10 +225,8 @@ public class ElasticConfiguration : IElasticConfiguration
 
     public virtual void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
-
-        _disposed = true;
 
         if (_shouldDisposeCache)
             Cache.Dispose();

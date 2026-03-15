@@ -48,6 +48,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     private ScopedCacheClient _scopedCacheClient;
     private readonly CancellationTokenSource _disposedCancellationTokenSource = new();
+    private int _disposed;
     protected CancellationToken DisposedCancellationToken => _disposedCancellationTokenSource.Token;
 
     protected ElasticReadOnlyRepositoryBase(IIndex index)
@@ -1096,6 +1097,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     public virtual void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
         _disposedCancellationTokenSource.Cancel();
         _disposedCancellationTokenSource.Dispose();
     }
