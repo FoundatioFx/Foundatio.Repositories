@@ -6,13 +6,13 @@ description: >
   aggregation queries, partial and script patches, and search-after pagination.
   Apply when working with any IRepository, ISearchableRepository, FindAsync,
   CountAsync, PatchAsync, PatchAllAsync, or RemoveAllAsync method. Never use
-  raw IElasticClient directly -- always use repository methods. Use context7
+  raw ElasticsearchClient directly -- always use repository methods. Use context7
   MCP to fetch current API docs and examples.
 ---
 
 # Foundatio Repositories
 
-High-level Elasticsearch repository pattern for .NET. Interface-first, with built-in caching, messaging, patch operations, and soft deletes. **Never use raw `IElasticClient` directly** -- always use repository methods.
+High-level Elasticsearch repository pattern for .NET. Interface-first, with built-in caching, messaging, patch operations, and soft deletes. **Never use raw `ElasticsearchClient` directly** -- always use repository methods.
 
 ## Documentation via context7
 
