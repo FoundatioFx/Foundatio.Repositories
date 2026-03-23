@@ -122,14 +122,27 @@ var employee = hit?.Document;
 | Method | Purpose |
 | --- | --- |
 | `.FieldEquals(e => e.Field, value)` | Exact match (multiple values = OR) |
-| `.FieldCondition(e => e.Field, op, value)` | Comparison (Equals, Contains, etc.) |
+| `.FieldNotEquals(e => e.Field, value)` | Negated exact match |
+| `.FieldCondition(e => e.Field, op, value)` | Comparison (any operator) |
 | `.FieldHasValue(e => e.Field)` | Field is not null/empty |
 | `.FieldEmpty(e => e.Field)` | Field is null/empty |
+| `.FieldContains(e => e.Field, "token")` | Full-text token match (analyzed fields only) |
+| `.FieldNotContains(e => e.Field, "token")` | Negated full-text token match |
+| `.FieldGreaterThan(e => e.Field, value)` | Strictly greater than |
+| `.FieldGreaterThanOrEqual(e => e.Field, value)` | Greater than or equal |
+| `.FieldLessThan(e => e.Field, value)` | Strictly less than |
+| `.FieldLessThanOrEqual(e => e.Field, value)` | Less than or equal |
+| `.FieldOr(g => g.FieldEquals(...).FieldEquals(...))` | OR grouping |
+| `.FieldAnd(g => g.FieldEquals(...).FieldEquals(...))` | AND grouping (explicit) |
+| `.FieldNot(g => g.FieldEquals(...))` | NOT grouping (AND-NOT semantics) |
 | `.DateRange(start, end, e => e.DateField)` | Date range filter |
 | `.SortAscending(e => e.Field)` | Sort ascending |
 | `.SortDescending(e => e.Field)` | Sort descending |
 | `.Include(e => e.Field)` | Return only specific fields |
 | `.Exclude(e => e.Field)` | Exclude fields from response |
+
+All `Field*` methods have `*If` variants for conditional application (e.g., `.FieldEqualsIf(e => e.Field, value, condition)`).
+Range operators support DateTime, DateTimeOffset, numeric (int/long/double/float/decimal), and string types.
 
 ### FilterExpression (Lucene-style)
 
@@ -350,4 +363,8 @@ bool exists = await repository.ExistsAsync(id);
 - **`ImmediateConsistency()` is for tests only**: It triggers an Elasticsearch index refresh after writes. Never use in production -- it degrades cluster performance.
 - **Register repositories as singletons**: Repository instances maintain internal state (index configuration, cache references). Always register via DI as singletons.
 - **`FieldEquals` with multiple values is OR**: `.FieldEquals(e => e.EmploymentType, "FullTime", "Contract")` produces an OR filter, not AND.
+- **`FieldContains` is token matching, NOT wildcard**: `FieldContains(f => f.Name, "Er")` will NOT match "Eric". Use `FilterExpression("field:pattern*")` for prefix/wildcard matching.
+- **`FieldNot` is AND-NOT**: Multiple conditions inside `FieldNot` mean NOT A AND NOT B. For NOT (A AND B), nest `FieldAnd` inside `FieldNot`.
+- **Range operators + time-series indexes**: `FieldLessThanOrEqual(f => f.CreatedUtc, now)` does NOT narrow which daily/monthly indexes are queried. Always pair with `.Index(start, end)`.
+- **`FieldEquals` on analyzed text fields throws**: If the field has no `.keyword` sub-field, `FieldEquals` throws `QueryValidationException`. Use `FieldContains` for full-text search.
 - **`PatchAsync(Ids, ...)` requires `Ids` type**: Use `new Ids(id1, id2)` -- `string[]` does not implicitly convert to `Ids`.

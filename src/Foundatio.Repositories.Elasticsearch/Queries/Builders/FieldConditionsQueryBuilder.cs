@@ -2,294 +2,353 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using System.Linq.Expressions;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Parsers.LuceneQueries.Visitors;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Options;
 using Nest;
 
-namespace Foundatio.Repositories
+namespace Foundatio.Repositories.Elasticsearch.Queries.Builders;
+
+/// <summary>
+/// Translates <see cref="FieldCondition"/> objects and <see cref="FieldConditionGroup"/> trees
+/// stored on the query options bag into Elasticsearch filter clauses.
+/// </summary>
+/// <remarks>
+/// <para>Registered as a default query builder in <see cref="ElasticQueryBuilder.RegisterDefaults"/>.
+/// Runs after <c>SoftDeletesQueryBuilder</c> and <c>DateRangeQueryBuilder</c>.</para>
+/// <para>Performs runtime validation and throws <see cref="Exceptions.QueryValidationException"/>
+/// for detectable misuse such as TermQuery on analyzed-only fields, Contains on keyword fields,
+/// and contradictory soft-delete conditions.</para>
+/// </remarks>
+public class FieldConditionsQueryBuilder : IElasticQueryBuilder
 {
-    public class FieldCondition
+    public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
     {
-        public Field Field { get; set; }
-        public object Value { get; set; }
-        public ComparisonOperator Operator { get; set; }
-    }
+        var resolver = ctx.GetMappingResolver();
 
-    public enum ComparisonOperator
-    {
-        Equals,
-        NotEquals,
-        IsEmpty,
-        HasValue,
-        Contains,
-        NotContains
-    }
-
-    public static class FieldConditionQueryExtensions
-    {
-        internal const string FieldConditionsKey = "@FieldConditionsKey";
-
-        public static T FieldCondition<T>(this T query, Field field, ComparisonOperator op, object value) where T : IRepositoryQuery
+        var fieldConditions = ctx.Source.SafeGetCollection<FieldCondition>(FieldConditionQueryExtensions.FieldConditionsKey);
+        if (fieldConditions is { Count: > 0 })
         {
-            return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = field, Value = value, Operator = op });
-        }
-
-        public static T FieldCondition<T>(this T query, Field field, ComparisonOperator op, params object[] values) where T : IRepositoryQuery
-        {
-            return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = field, Value = values, Operator = op });
-        }
-
-        public static TQuery FieldConditionIf<TQuery, TValue>(this TQuery query, Field field, ComparisonOperator op, TValue value = default, Func<TValue, bool> condition = null) where TQuery : IRepositoryQuery
-        {
-            bool result = condition == null || condition(value);
-            return result ? query.FieldCondition(field, op, value) : query;
-        }
-
-        public static TQuery FieldConditionIf<TQuery, TValue>(this TQuery query, Field field, ComparisonOperator op, TValue value = default, bool condition = true) where TQuery : IRepositoryQuery
-        {
-            return condition ? query.FieldCondition(field, op, value) : query;
-        }
-
-        public static IRepositoryQuery<T> FieldCondition<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, ComparisonOperator op, object value) where T : class
-        {
-            return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = value, Operator = op });
-        }
-
-        public static IRepositoryQuery<T> FieldCondition<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, ComparisonOperator op, params object[] values) where T : class
-        {
-            return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = values, Operator = op });
-        }
-
-        public static IRepositoryQuery<TModel> FieldConditionIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, ComparisonOperator op, TValue value = default, Func<TValue, bool> condition = null) where TModel : class
-        {
-            bool result = condition == null || condition(value);
-            return result ? query.FieldCondition(objectPath, op, value) : query;
-        }
-
-        public static IRepositoryQuery<TModel> FieldConditionIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, ComparisonOperator op, TValue value = default, bool condition = true) where TModel : class
-        {
-            return condition ? query.FieldCondition(objectPath, op, value) : query;
-        }
-
-        public static T FieldEquals<T>(this T query, Field field, object value) where T : IRepositoryQuery
-        {
-            return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = field, Value = value, Operator = ComparisonOperator.Equals });
-        }
-
-        public static T FieldEquals<T>(this T query, Field field, params object[] values) where T : IRepositoryQuery
-        {
-            return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = field, Value = values, Operator = ComparisonOperator.Equals });
-        }
-
-        public static TQuery FieldEqualsIf<TQuery, TValue>(this TQuery query, Field field, TValue value = default, Func<TValue, bool> condition = null) where TQuery : IRepositoryQuery
-        {
-            bool result = condition == null || condition(value);
-            return result ? query.FieldEquals(field, value) : query;
-        }
-
-        public static TQuery FieldEqualsIf<TQuery, TValue>(this TQuery query, Field field, TValue value = default, bool condition = true) where TQuery : IRepositoryQuery
-        {
-            return condition ? query.FieldEquals(field, value) : query;
-        }
-
-        public static IRepositoryQuery<T> FieldEquals<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, object value) where T : class
-        {
-            return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.Equals });
-        }
-
-        public static IRepositoryQuery<T> FieldEquals<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, params object[] values) where T : class
-        {
-            return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = values, Operator = ComparisonOperator.Equals });
-        }
-
-        public static IRepositoryQuery<TModel> FieldEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue value = default, Func<TValue, bool> condition = null) where TModel : class
-        {
-            bool result = condition == null || condition(value);
-            return result ? query.FieldEquals(objectPath, value) : query;
-        }
-
-        public static IRepositoryQuery<TModel> FieldEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue value = default, bool condition = true) where TModel : class
-        {
-            return condition ? query.FieldEquals(objectPath, value) : query;
-        }
-
-        public static T FieldNotEquals<T>(this T query, Field field, object value) where T : IRepositoryQuery
-        {
-            return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = field, Value = value, Operator = ComparisonOperator.NotEquals });
-        }
-
-        public static T FieldNotEquals<T>(this T query, Field field, params object[] values) where T : IRepositoryQuery
-        {
-            return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = field, Value = values, Operator = ComparisonOperator.NotEquals });
-        }
-
-        public static TQuery FieldNotEqualsIf<TQuery, TValue>(this TQuery query, Field field, TValue value = default, Func<TValue, bool> condition = null) where TQuery : IRepositoryQuery
-        {
-            bool result = condition == null || condition(value);
-            return result ? query.FieldNotEquals(field, value) : query;
-        }
-
-        public static TQuery FieldNotEqualsIf<TQuery, TValue>(this TQuery query, Field field, TValue value = default, bool condition = true) where TQuery : IRepositoryQuery
-        {
-            return condition ? query.FieldNotEquals(field, value) : query;
-        }
-
-        public static IRepositoryQuery<T> FieldNotEquals<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, object value) where T : class
-        {
-            return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.NotEquals });
-        }
-
-        public static IRepositoryQuery<T> FieldNotEquals<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, params object[] values) where T : class
-        {
-            return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = values, Operator = ComparisonOperator.NotEquals });
-        }
-
-        public static IRepositoryQuery<TModel> FieldNotEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue value = default, Func<TValue, bool> condition = null) where TModel : class
-        {
-            bool result = condition == null || condition(value);
-            return result ? query.FieldNotEquals(objectPath, value) : query;
-        }
-
-        public static IRepositoryQuery<TModel> FieldNotEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue value = default, bool condition = true) where TModel : class
-        {
-            return condition ? query.FieldNotEquals(objectPath, value) : query;
-        }
-
-        public static T FieldHasValue<T>(this T query, Field field) where T : IRepositoryQuery
-        {
-            return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = field, Operator = ComparisonOperator.HasValue });
-        }
-
-        public static IRepositoryQuery<T> FieldHasValue<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath) where T : class
-        {
-            return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Operator = ComparisonOperator.HasValue });
-        }
-
-        public static T FieldEmpty<T>(this T query, Field field) where T : IRepositoryQuery
-        {
-            return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = field, Operator = ComparisonOperator.IsEmpty });
-        }
-
-        public static IRepositoryQuery<T> FieldEmpty<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath) where T : class
-        {
-            return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Operator = ComparisonOperator.IsEmpty });
-        }
-    }
-}
-
-namespace Foundatio.Repositories.Options
-{
-    public static class ReadFieldConditionQueryExtensions
-    {
-        public static ICollection<FieldCondition> GetFieldConditions(this IRepositoryQuery query)
-        {
-            return query.SafeGetCollection<FieldCondition>(FieldConditionQueryExtensions.FieldConditionsKey);
-        }
-    }
-}
-
-namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
-{
-    public class FieldConditionsQueryBuilder : IElasticQueryBuilder
-    {
-        public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
-        {
-            var resolver = ctx.GetMappingResolver();
-
-            var fieldConditions = ctx.Source.SafeGetCollection<FieldCondition>(FieldConditionQueryExtensions.FieldConditionsKey);
-            if (fieldConditions == null || fieldConditions.Count <= 0)
-                return;
-
             foreach (var fieldValue in fieldConditions)
             {
-                if (fieldValue.Value is null && fieldValue.Operator is ComparisonOperator.Equals or ComparisonOperator.Contains)
-                    fieldValue.Operator = ComparisonOperator.IsEmpty;
-                else if (fieldValue.Value is null && fieldValue.Operator is ComparisonOperator.NotEquals or ComparisonOperator.NotContains)
-                    fieldValue.Operator = ComparisonOperator.HasValue;
-
-                bool nonAnalyzed = fieldValue.Operator is ComparisonOperator.Equals or ComparisonOperator.NotEquals;
-                string resolvedField = await ResolveFieldAsync(ctx, resolver, fieldValue.Field, nonAnalyzed).AnyContext();
-
-                switch (fieldValue.Operator)
-                {
-                    case ComparisonOperator.Equals:
-                        QueryBase eqQuery;
-                        if (fieldValue.Value is IEnumerable and not string)
-                        {
-                            var values = new List<object>();
-                            foreach (var value in (IEnumerable)fieldValue.Value)
-                                values.Add(value);
-                            eqQuery = new TermsQuery { Field = resolvedField, Terms = values };
-                        }
-                        else
-                            eqQuery = new TermQuery { Field = resolvedField, Value = fieldValue.Value };
-                        ctx.Filter &= eqQuery;
-
-                        break;
-                    case ComparisonOperator.NotEquals:
-                        QueryBase neQuery;
-                        if (fieldValue.Value is IEnumerable and not string)
-                        {
-                            var values = new List<object>();
-                            foreach (var value in (IEnumerable)fieldValue.Value)
-                                values.Add(value);
-                            neQuery = new TermsQuery { Field = resolvedField, Terms = values };
-                        }
-                        else
-                            neQuery = new TermQuery { Field = resolvedField, Value = fieldValue.Value };
-
-                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { neQuery } };
-                        break;
-                    case ComparisonOperator.Contains:
-                        if (!resolver.IsPropertyAnalyzed(resolvedField))
-                            throw new InvalidOperationException($"Contains operator can't be used on non-analyzed field {resolvedField}");
-
-                        string containsText = fieldValue.Value is IEnumerable and not string
-                            ? String.Join(" ", ((IEnumerable)fieldValue.Value).Cast<object>())
-                            : fieldValue.Value?.ToString() ?? String.Empty;
-                        ctx.Filter &= new MatchQuery { Field = resolvedField, Query = containsText, Operator = Operator.And };
-
-                        break;
-                    case ComparisonOperator.NotContains:
-                        if (!resolver.IsPropertyAnalyzed(resolvedField))
-                            throw new InvalidOperationException($"NotContains operator can't be used on non-analyzed field {resolvedField}");
-
-                        string notContainsText = fieldValue.Value is IEnumerable and not string
-                            ? String.Join(" ", ((IEnumerable)fieldValue.Value).Cast<object>())
-                            : fieldValue.Value?.ToString() ?? String.Empty;
-                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { new MatchQuery { Field = resolvedField, Query = notContainsText, Operator = Operator.And } } };
-
-                        break;
-                    case ComparisonOperator.IsEmpty:
-                        ctx.Filter &= new BoolQuery { MustNot = new QueryContainer[] { new ExistsQuery { Field = resolvedField } } };
-                        break;
-                    case ComparisonOperator.HasValue:
-                        ctx.Filter &= new ExistsQuery { Field = resolvedField };
-                        break;
-                }
+                ValidateCondition(fieldValue, ctx);
+                ctx.Filter &= await TranslateConditionAsync(fieldValue, resolver, ctx).AnyContext();
             }
         }
 
-        private static async Task<string> ResolveFieldAsync<T>(QueryBuilderContext<T> ctx, ElasticMappingResolver resolver, Field field, bool nonAnalyzed) where T : class, new()
+        var groups = ctx.Source.SafeGetCollection<FieldConditionGroup>(FieldConditionQueryExtensions.FieldConditionGroupsKey);
+        if (groups is { Count: > 0 })
         {
-            string resolved = resolver.GetResolvedField(field);
-
-            if (ctx is IQueryVisitorContextWithFieldResolver { FieldResolver: not null } fieldResolverCtx)
+            foreach (var group in groups)
             {
-                string customResolved = await fieldResolverCtx.FieldResolver(resolved, ctx).AnyContext();
-                if (!String.IsNullOrWhiteSpace(customResolved))
-                    resolved = customResolved;
+                var translated = await TranslateGroupAsync(group, resolver, ctx).AnyContext();
+                if (translated is not null)
+                    ctx.Filter &= translated;
+            }
+        }
+    }
+
+    private static void ValidateCondition<T>(FieldCondition condition, QueryBuilderContext<T> ctx) where T : class, new()
+    {
+        if (condition.Field is null)
+        {
+            throw new QueryValidationException(
+                "A FieldCondition was added with a null field. Every condition must specify which field it applies to. This is likely a bug in the query construction code.");
+        }
+
+        bool isRange = condition.Operator is ComparisonOperator.GreaterThan
+            or ComparisonOperator.GreaterThanOrEqual
+            or ComparisonOperator.LessThan
+            or ComparisonOperator.LessThanOrEqual;
+
+        if (isRange)
+        {
+            var resolver = ctx.GetMappingResolver();
+            string fieldName = resolver.GetResolvedField(condition.Field);
+
+            if (condition.Value is null)
+            {
+                throw new QueryValidationException(
+                    $"""
+                    Range operator '{condition.Operator}' cannot be used with a null value on field '{fieldName}'.
+                    A null range bound is meaningless — there is no "greater than nothing".
+
+                    To fix this:
+                      - Use FieldHasValue() to check if the field exists
+                      - Use FieldEmpty() to check if the field is missing
+                      - Use the *If variant to conditionally add the range:
+                        .Field{condition.Operator}If(f => f.Property, value, value.HasValue)
+                    """, fieldName, condition.Operator.ToString());
             }
 
-            if (nonAnalyzed)
-                resolved = resolver.GetNonAnalyzedFieldName(resolved);
+            if (condition.Value is IEnumerable and not string)
+            {
+                throw new QueryValidationException(
+                    $"""
+                    Range operator '{condition.Operator}' cannot be used with a collection value on field '{fieldName}'.
+                    Range operators compare a single scalar value against the field.
 
-            return resolved;
+                    To fix this:
+                      - Use a single scalar value: .Field{condition.Operator}(f => f.Property, singleValue)
+                      - For multiple value matching: .FieldEquals(f => f.Property, value1, value2, value3)
+                    """, fieldName, condition.Operator.ToString());
+            }
         }
+
+        if (ctx.Options.SupportsSoftDeletes()
+            && ctx.Options.GetSoftDeleteMode() is SoftDeleteQueryMode.ActiveOnly)
+        {
+            var resolver = ctx.GetMappingResolver();
+            string resolvedField = resolver.GetResolvedField(condition.Field);
+            if (String.Equals(resolvedField, "isDeleted", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new QueryValidationException(
+                    $"""
+                    FieldEquals targets the 'isDeleted' field on a soft-delete-enabled entity, but the current query uses ActiveOnly mode (the default).
+                    The SoftDeletesQueryBuilder automatically adds an 'isDeleted: false' filter, so combining it with your 'isDeleted: {condition.Value}' condition creates a contradictory filter that returns zero results.
+
+                    To fix this, add one of these to your query:
+                      - .IncludeSoftDeletes()        — returns both active and deleted documents
+                      - .SoftDeleteMode(DeletedOnly)  — returns only deleted documents
+                      - .SoftDeleteMode(All)          — returns all documents regardless of delete status
+                    """, resolvedField, condition.Operator.ToString());
+            }
+        }
+    }
+
+    internal static async Task<QueryContainer> TranslateConditionAsync<T>(
+        FieldCondition condition, ElasticMappingResolver resolver, QueryBuilderContext<T> ctx) where T : class, new()
+    {
+        if (condition.Value is null && condition.Operator is ComparisonOperator.Equals or ComparisonOperator.Contains)
+            condition.Operator = ComparisonOperator.IsEmpty;
+        else if (condition.Value is null && condition.Operator is ComparisonOperator.NotEquals or ComparisonOperator.NotContains)
+            condition.Operator = ComparisonOperator.HasValue;
+
+        bool nonAnalyzed = condition.Operator is ComparisonOperator.Equals or ComparisonOperator.NotEquals;
+
+        string resolvedField = await ResolveFieldAsync(ctx, resolver, condition.Field, nonAnalyzed).AnyContext();
+
+        if (nonAnalyzed)
+        {
+            ValidateNonAnalyzedField(resolver, resolvedField, condition);
+        }
+
+        switch (condition.Operator)
+        {
+            case ComparisonOperator.Equals:
+            {
+                QueryBase eqQuery;
+                if (condition.Value is IEnumerable and not string)
+                {
+                    var values = new List<object>();
+                    foreach (var value in (IEnumerable)condition.Value)
+                        values.Add(value);
+                    eqQuery = new TermsQuery { Field = resolvedField, Terms = values };
+                }
+                else
+                {
+                    eqQuery = new TermQuery { Field = resolvedField, Value = condition.Value };
+                }
+                return eqQuery;
+            }
+            case ComparisonOperator.NotEquals:
+            {
+                QueryBase neQuery;
+                if (condition.Value is IEnumerable and not string)
+                {
+                    var values = new List<object>();
+                    foreach (var value in (IEnumerable)condition.Value)
+                        values.Add(value);
+                    neQuery = new TermsQuery { Field = resolvedField, Terms = values };
+                }
+                else
+                {
+                    neQuery = new TermQuery { Field = resolvedField, Value = condition.Value };
+                }
+                return new BoolQuery { MustNot = new QueryContainer[] { neQuery } };
+            }
+            case ComparisonOperator.Contains:
+            {
+                if (!resolver.IsPropertyAnalyzed(resolvedField))
+                {
+                    throw new QueryValidationException(
+                        $"""
+                        FieldContains cannot be used on field '{resolvedField}' because it is a non-analyzed (keyword) field.
+                        FieldContains generates a MatchQuery which requires an analyzed text field to tokenize the input.
+
+                        To fix this, either:
+                          - Use FieldEquals() for exact matching on keyword fields
+                          - Change the field mapping to a text type if you need full-text search
+                        """, resolvedField, nameof(ComparisonOperator.Contains));
+                }
+
+                string containsText = condition.Value is IEnumerable and not string
+                    ? String.Join(" ", ((IEnumerable)condition.Value).Cast<object>())
+                    : condition.Value?.ToString() ?? String.Empty;
+                return new MatchQuery { Field = resolvedField, Query = containsText, Operator = Operator.And };
+            }
+            case ComparisonOperator.NotContains:
+            {
+                if (!resolver.IsPropertyAnalyzed(resolvedField))
+                {
+                    throw new QueryValidationException(
+                        $"""
+                        FieldNotContains cannot be used on field '{resolvedField}' because it is a non-analyzed (keyword) field.
+                        FieldNotContains generates a MatchQuery which requires an analyzed text field to tokenize the input.
+
+                        To fix this, either:
+                          - Use FieldNotEquals() for exact negation on keyword fields
+                          - Change the field mapping to a text type if you need full-text search
+                        """, resolvedField, nameof(ComparisonOperator.NotContains));
+                }
+
+                string notContainsText = condition.Value is IEnumerable and not string
+                    ? String.Join(" ", ((IEnumerable)condition.Value).Cast<object>())
+                    : condition.Value?.ToString() ?? String.Empty;
+                return new BoolQuery { MustNot = new QueryContainer[] { new MatchQuery { Field = resolvedField, Query = notContainsText, Operator = Operator.And } } };
+            }
+            case ComparisonOperator.IsEmpty:
+                return new BoolQuery { MustNot = new QueryContainer[] { new ExistsQuery { Field = resolvedField } } };
+            case ComparisonOperator.HasValue:
+                return new ExistsQuery { Field = resolvedField };
+            case ComparisonOperator.GreaterThan:
+            case ComparisonOperator.GreaterThanOrEqual:
+            case ComparisonOperator.LessThan:
+            case ComparisonOperator.LessThanOrEqual:
+                return BuildRangeQuery(resolvedField, condition.Operator, condition.Value);
+            default:
+                throw new ArgumentOutOfRangeException(nameof(condition.Operator), condition.Operator, "Unknown comparison operator.");
+        }
+    }
+
+    private static void ValidateNonAnalyzedField(ElasticMappingResolver resolver, string resolvedField, FieldCondition condition)
+    {
+        string originalField = resolver.GetResolvedField(condition.Field);
+        if (String.Equals(originalField, resolvedField, StringComparison.Ordinal) && resolver.IsPropertyAnalyzed(resolvedField))
+        {
+            throw new QueryValidationException(
+                $"""
+                Field{condition.Operator} cannot be used on field '{resolvedField}' because it is an analyzed text field with no .keyword sub-field.
+                A TermQuery on an analyzed text field almost never matches because Elasticsearch stores lowercased tokens (e.g., "eric") but TermQuery matches the exact input (e.g., "Eric").
+
+                To fix this, either:
+                  - Use FieldContains() for full-text token matching
+                  - Add a .keyword sub-field to the field mapping in your index configuration:
+                    m.Text(p => p.Name(f => f.Property).Fields(f => f.Keyword(k => k.Name("keyword"))))
+                """, resolvedField, condition.Operator.ToString());
+        }
+    }
+
+    private static QueryContainer BuildRangeQuery(string field, ComparisonOperator op, object value)
+    {
+        switch (value)
+        {
+            case DateTime dtValue:
+            {
+                var rangeQuery = new DateRangeQuery { Field = field };
+                switch (op)
+                {
+                    case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = dtValue; break;
+                    case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = dtValue; break;
+                    case ComparisonOperator.LessThan: rangeQuery.LessThan = dtValue; break;
+                    case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = dtValue; break;
+                }
+                return rangeQuery;
+            }
+            case DateTimeOffset dtoValue:
+            {
+                var rangeQuery = new DateRangeQuery { Field = field };
+                switch (op)
+                {
+                    case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = dtoValue.UtcDateTime; break;
+                    case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = dtoValue.UtcDateTime; break;
+                    case ComparisonOperator.LessThan: rangeQuery.LessThan = dtoValue.UtcDateTime; break;
+                    case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = dtoValue.UtcDateTime; break;
+                }
+                return rangeQuery;
+            }
+            case int or long or double or float or decimal:
+            {
+                var numValue = Convert.ToDouble(value);
+                var rangeQuery = new NumericRangeQuery { Field = field };
+                switch (op)
+                {
+                    case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = numValue; break;
+                    case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = numValue; break;
+                    case ComparisonOperator.LessThan: rangeQuery.LessThan = numValue; break;
+                    case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = numValue; break;
+                }
+                return rangeQuery;
+            }
+            case string strValue:
+            {
+                var rangeQuery = new TermRangeQuery { Field = field };
+                switch (op)
+                {
+                    case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = strValue; break;
+                    case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = strValue; break;
+                    case ComparisonOperator.LessThan: rangeQuery.LessThan = strValue; break;
+                    case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = strValue; break;
+                }
+                return rangeQuery;
+            }
+            default:
+                throw new QueryValidationException(
+                    $"""
+                    Range operator '{op}' received a value of unsupported type '{value.GetType().Name}' on field '{field}'.
+                    Range operators support DateTime, DateTimeOffset, numeric types (int, long, double, float, decimal), and string.
+                    """, field, op.ToString());
+        }
+    }
+
+    private static async Task<QueryContainer> TranslateGroupAsync<T>(
+        FieldConditionGroup group, ElasticMappingResolver resolver, QueryBuilderContext<T> ctx) where T : class, new()
+    {
+        var clauses = new List<QueryContainer>();
+
+        foreach (var condition in group.Conditions)
+            clauses.Add(await TranslateConditionAsync(condition, resolver, ctx).AnyContext());
+
+        foreach (var child in group.Children)
+        {
+            var childQuery = await TranslateGroupAsync(child, resolver, ctx).AnyContext();
+            if (childQuery is not null)
+                clauses.Add(childQuery);
+        }
+
+        if (clauses.Count is 0)
+            return null;
+
+        if (clauses.Count is 1 && group.Operator is not FieldConditionGroupOperator.Not)
+            return clauses[0];
+
+        return group.Operator switch
+        {
+            FieldConditionGroupOperator.Or => new BoolQuery { Should = clauses.ToArray(), MinimumShouldMatch = 1 },
+            FieldConditionGroupOperator.And => new BoolQuery { Must = clauses.ToArray() },
+            FieldConditionGroupOperator.Not => new BoolQuery { MustNot = clauses.ToArray() },
+            _ => throw new ArgumentOutOfRangeException(nameof(group.Operator), group.Operator, "Unknown group operator.")
+        };
+    }
+
+    private static async Task<string> ResolveFieldAsync<T>(QueryBuilderContext<T> ctx, ElasticMappingResolver resolver, Field field, bool nonAnalyzed) where T : class, new()
+    {
+        string resolved = resolver.GetResolvedField(field);
+
+        if (ctx is IQueryVisitorContextWithFieldResolver { FieldResolver: not null } fieldResolverCtx)
+        {
+            string customResolved = await fieldResolverCtx.FieldResolver(resolved, ctx).AnyContext();
+            if (!String.IsNullOrWhiteSpace(customResolved))
+                resolved = customResolved;
+        }
+
+        if (nonAnalyzed)
+            resolved = resolver.GetNonAnalyzedFieldName(resolved);
+
+        return resolved;
     }
 }
