@@ -108,7 +108,7 @@ var results = await repository.FindAsync(q => q
     .FieldGreaterThanOrEqual(e => e.Age, 18)
     .FieldLessThan(e => e.Age, 65));
 
-// String/keyword comparison (generates TermRangeQuery)
+// String/keyword comparison (generates TermRangeQuery on keyword field)
 var results = await repository.FindAsync(q => q
     .FieldGreaterThanOrEqual(e => e.InstanceKey, "20240101"));
 
@@ -116,6 +116,8 @@ var results = await repository.FindAsync(q => q
 var results = await repository.FindAsync(q => q
     .FieldGreaterThanIf(e => e.Age, minAge, minAge.HasValue));
 ```
+
+> **String ranges require keyword fields:** String range operators generate a `TermRangeQuery` and automatically resolve to the `.keyword` sub-field (like `FieldEquals`). If the field is an analyzed text field with no `.keyword` sub-field, a `QueryValidationException` is thrown at build time.
 
 **DateRange vs range operators:** Use `.DateRange(start, end, field)` for bounded date windows (validates start < end, supports timezone). Use `FieldGreaterThan`/`FieldLessThanOrEqual` etc. for one-sided comparisons and non-date types.
 

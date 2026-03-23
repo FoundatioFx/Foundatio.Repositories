@@ -131,8 +131,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldConditionContainsNull_WithNullValue_BehavesAsIsEmpty()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, name: "Eric J. Smith"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 19, name: "Eric J. Smith"),
+            EmployeeGenerator.Generate(age: 20)
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldCondition(e => e.Name, ComparisonOperator.Contains, (object)null));
@@ -146,8 +148,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldConditionNotContainsNull_WithNullValue_BehavesAsHasValue()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, name: "Eric J. Smith"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 19, name: "Eric J. Smith"),
+            EmployeeGenerator.Generate(age: 20)
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldCondition(e => e.Name, ComparisonOperator.NotContains, (object)null));
@@ -932,9 +936,11 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldGreaterThan_WithIntAge_ReturnsOlderEmployees()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 18), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18),
+            EmployeeGenerator.Generate(age: 19),
+            EmployeeGenerator.Generate(age: 25)
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThan(e => e.Age, 18), o => o.QueryLogLevel(LogLevel.Trace));
@@ -948,9 +954,11 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldGreaterThanOrEqual_WithIntAge_ReturnsMatchingAndOlder()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 17), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 18), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 17),
+            EmployeeGenerator.Generate(age: 18),
+            EmployeeGenerator.Generate(age: 25)
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThanOrEqual(e => e.Age, 18), o => o.QueryLogLevel(LogLevel.Trace));
@@ -964,9 +972,11 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldLessThan_WithIntAge_ReturnsYoungerEmployees()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 18), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 30), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18),
+            EmployeeGenerator.Generate(age: 25),
+            EmployeeGenerator.Generate(age: 30)
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldLessThan(e => e.Age, 25), o => o.QueryLogLevel(LogLevel.Trace));
@@ -980,9 +990,11 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldLessThanOrEqual_WithIntAge_ReturnsMatchingAndYounger()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 18), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 30), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18),
+            EmployeeGenerator.Generate(age: 25),
+            EmployeeGenerator.Generate(age: 30)
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldLessThanOrEqual(e => e.Age, 25), o => o.QueryLogLevel(LogLevel.Trace));
@@ -997,8 +1009,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     {
         // Arrange
         var cutoff = DateTime.UtcNow.SubtractDays(5);
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20, createdUtc: DateTime.UtcNow.SubtractDays(10)), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25, createdUtc: DateTime.UtcNow.SubtractDays(1)), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 20, createdUtc: DateTime.UtcNow.SubtractDays(10)),
+            EmployeeGenerator.Generate(age: 25, createdUtc: DateTime.UtcNow.SubtractDays(1))
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThan(e => e.CreatedUtc, cutoff), o => o.QueryLogLevel(LogLevel.Trace));
@@ -1012,8 +1026,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     {
         // Arrange
         var cutoff = DateTimeOffset.UtcNow.AddDays(5);
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20, nextReview: DateTimeOffset.UtcNow.AddDays(1)), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25, nextReview: DateTimeOffset.UtcNow.AddDays(10)), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 20, nextReview: DateTimeOffset.UtcNow.AddDays(1)),
+            EmployeeGenerator.Generate(age: 25, nextReview: DateTimeOffset.UtcNow.AddDays(10))
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldLessThanOrEqual(e => e.NextReview, cutoff), o => o.QueryLogLevel(LogLevel.Trace));
@@ -1026,8 +1042,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldGreaterThanOrEqual_WithDouble_ReturnsMatchingDocuments()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 18), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18),
+            EmployeeGenerator.Generate(age: 25)
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThanOrEqual(e => e.DecimalAge, 25.0), o => o.QueryLogLevel(LogLevel.Trace));
@@ -1040,10 +1058,12 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldRange_WithCombinedBounds_ReturnsDocumentsInRange()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 15), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 30), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 15),
+            EmployeeGenerator.Generate(age: 20),
+            EmployeeGenerator.Generate(age: 25),
+            EmployeeGenerator.Generate(age: 30)
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q
@@ -1060,8 +1080,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldGreaterThanIf_WhenConditionFalse_ReturnsAllDocuments()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 18), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18),
+            EmployeeGenerator.Generate(age: 25)
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThanIf(e => e.Age, 18, false));
@@ -1074,8 +1096,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldGreaterThanIf_WhenConditionTrue_FiltersDocuments()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 18), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18),
+            EmployeeGenerator.Generate(age: 25)
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThanIf(e => e.Age, 18, true), o => o.QueryLogLevel(LogLevel.Trace));
@@ -1119,8 +1143,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldContains_WithSingleToken_MatchesAnalyzedField()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake Niemyjski"), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Eric J. Smith"),
+            EmployeeGenerator.Generate(name: "Blake Niemyjski")
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldContains(e => e.Name, "Eric"), o => o.QueryLogLevel(LogLevel.Trace));
@@ -1134,8 +1160,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldContains_WithMultipleTokens_MatchesAllTokensOrderIndependent()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake Niemyjski"), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Eric J. Smith"),
+            EmployeeGenerator.Generate(name: "Blake Niemyjski")
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldContains(e => e.Name, "Smith Eric"), o => o.QueryLogLevel(LogLevel.Trace));
@@ -1162,8 +1190,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldNotContains_WithMatchingToken_ExcludesDocuments()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake Niemyjski"), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Eric J. Smith"),
+            EmployeeGenerator.Generate(name: "Blake Niemyjski")
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldNotContains(e => e.Name, "Eric"), o => o.QueryLogLevel(LogLevel.Trace));
@@ -1177,8 +1207,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldContainsIf_WhenConditionFalse_ReturnsAllDocuments()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake Niemyjski"), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Eric J. Smith"),
+            EmployeeGenerator.Generate(name: "Blake Niemyjski")
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldContainsIf(e => e.Name, "Eric", false));
@@ -1207,8 +1239,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldHasValueIf_WhenConditionTrue_FiltersToDocumentsWithValue()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Eric"),
+            EmployeeGenerator.Generate(age: 20)
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldHasValueIf(e => e.Name, true), o => o.QueryLogLevel(LogLevel.Trace));
@@ -1222,8 +1256,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldHasValueIf_WhenConditionFalse_ReturnsAllDocuments()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Eric"),
+            EmployeeGenerator.Generate(age: 20)
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldHasValueIf(e => e.Name, false));
@@ -1236,8 +1272,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldEmptyIf_WhenConditionTrue_FiltersToDocumentsWithoutValue()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Eric"),
+            EmployeeGenerator.Generate(age: 20)
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldEmptyIf(e => e.Name, true), o => o.QueryLogLevel(LogLevel.Trace));
@@ -1251,8 +1289,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldEmptyIf_WhenConditionFalse_ReturnsAllDocuments()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Eric"),
+            EmployeeGenerator.Generate(age: 20)
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldEmptyIf(e => e.Name, false));
@@ -1265,9 +1305,11 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldOr_WithTwoConditions_MatchesEitherCondition()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 18, companyId: "company1"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25, companyId: "company2"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 30, companyId: "company3"), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18, companyId: "company1"),
+            EmployeeGenerator.Generate(age: 25, companyId: "company2"),
+            EmployeeGenerator.Generate(age: 30, companyId: "company3")
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => g
@@ -1285,9 +1327,11 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     {
         // Arrange
         var companyId = "test-company";
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 18, companyId: companyId, companyName: "TestCo"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25, companyId: companyId, companyName: "OtherCo"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 30, companyId: "other-company"), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18, companyId: companyId, companyName: "TestCo"),
+            EmployeeGenerator.Generate(age: 25, companyId: companyId, companyName: "OtherCo"),
+            EmployeeGenerator.Generate(age: 30, companyId: "other-company")
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => g
@@ -1306,9 +1350,11 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldNot_WithSingleCondition_ExcludesMatchingDocuments()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 18, companyName: "Active"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25, companyName: "Inactive"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 30, companyName: "Active"), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18, companyName: "Active"),
+            EmployeeGenerator.Generate(age: 25, companyName: "Inactive"),
+            EmployeeGenerator.Generate(age: 30, companyName: "Active")
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldNot(g => g
@@ -1324,9 +1370,11 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldNot_WithMultipleConditions_ExcludesDocumentsMatchingAny()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 18, companyName: "Active"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25, companyName: "Inactive"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 30, companyName: "Pending"), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18, companyName: "Active"),
+            EmployeeGenerator.Generate(age: 25, companyName: "Inactive"),
+            EmployeeGenerator.Generate(age: 30, companyName: "Pending")
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldNot(g => g
@@ -1343,8 +1391,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldOr_WithEmptyLambda_ReturnsAllDocuments()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 18), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18),
+            EmployeeGenerator.Generate(age: 25)
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => { }));
@@ -1357,8 +1407,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldOr_WithSingleCondition_UnwrapsWithoutBoolQuery()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 18), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18),
+            EmployeeGenerator.Generate(age: 25)
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => g
@@ -1374,9 +1426,11 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     {
         // Arrange
         var companyId = "test-company";
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 18, companyId: companyId), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25, companyId: "other"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 30, companyId: "another"), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18, companyId: companyId),
+            EmployeeGenerator.Generate(age: 25, companyId: "other"),
+            EmployeeGenerator.Generate(age: 30, companyId: "another")
+        ], o => o.ImmediateConsistency());
 
         var includeAgeFilter = true;
         var group = FieldConditionGroup<Employee>.Or();
@@ -1395,9 +1449,11 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldOr_WithFieldEmpty_MatchesDocumentsWithOrWithoutValue()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 18, companyName: "TestCo"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 30, companyName: "OtherCo"), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18, companyName: "TestCo"),
+            EmployeeGenerator.Generate(age: 25),
+            EmployeeGenerator.Generate(age: 30, companyName: "OtherCo")
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => g
@@ -1413,9 +1469,11 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task FieldOr_WithMixedRangeAndEquals_MatchesBothConditions()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 18), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25, companyName: "Special"), o => o.ImmediateConsistency());
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 30), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18),
+            EmployeeGenerator.Generate(age: 25, companyName: "Special"),
+            EmployeeGenerator.Generate(age: 30)
+        ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => g
@@ -1471,6 +1529,66 @@ public sealed class QueryTests : ElasticRepositoryTestBase
 
         // Assert
         Assert.Equal(1, result.Total);
+    }
+
+    [Fact]
+    public async Task FieldGreaterThan_WithStringOnKeywordField_ReturnsMatchingDocuments()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(companyName: "Alpha"),
+            EmployeeGenerator.Generate(companyName: "Beta"),
+            EmployeeGenerator.Generate(companyName: "Gamma")
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(
+            q => q.FieldGreaterThan(e => e.CompanyName, "Beta"),
+            o => o.QueryLogLevel(LogLevel.Trace));
+
+        // Assert
+        Assert.Equal(1, result.Total);
+        Assert.Equal("Gamma", result.Documents.First().CompanyName);
+    }
+
+    [Fact]
+    public async Task FieldLessThanOrEqual_WithStringOnKeywordField_ReturnsMatchingDocuments()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(companyName: "Alpha"),
+            EmployeeGenerator.Generate(companyName: "Beta"),
+            EmployeeGenerator.Generate(companyName: "Gamma")
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(
+            q => q.FieldLessThanOrEqual(e => e.CompanyName, "Beta"),
+            o => o.QueryLogLevel(LogLevel.Trace));
+
+        // Assert
+        Assert.Equal(2, result.Total);
+        Assert.True(result.Documents.All(d => String.Compare(d.CompanyName, "Beta", StringComparison.Ordinal) <= 0));
+    }
+
+    [Fact]
+    public async Task FieldGreaterThan_WithStringOnAnalyzedFieldWithKeyword_ResolvesToKeyword()
+    {
+        // Arrange — Name is text with .keyword sub-field; string range should auto-resolve to keyword
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Alpha"),
+            EmployeeGenerator.Generate(name: "Beta"),
+            EmployeeGenerator.Generate(name: "Gamma")
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(
+            q => q.FieldGreaterThan(e => e.Name, "Beta"),
+            o => o.QueryLogLevel(LogLevel.Trace));
+
+        // Assert
+        Assert.Equal(1, result.Total);
+        Assert.Equal("Gamma", result.Documents.First().Name);
     }
 }
 

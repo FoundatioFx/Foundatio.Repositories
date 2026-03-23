@@ -140,12 +140,17 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
             condition.Operator = ComparisonOperator.HasValue;
 
         bool nonAnalyzed = condition.Operator is ComparisonOperator.Equals or ComparisonOperator.NotEquals;
+        bool isStringRange = condition.Value is string
+            && condition.Operator is ComparisonOperator.GreaterThan
+                or ComparisonOperator.GreaterThanOrEqual
+                or ComparisonOperator.LessThan
+                or ComparisonOperator.LessThanOrEqual;
 
-        string resolvedField = await ResolveFieldAsync(ctx, resolver, condition.Field, nonAnalyzed).AnyContext();
+        string resolvedField = await ResolveFieldAsync(ctx, resolver, condition.Field, nonAnalyzed || isStringRange).AnyContext();
 
         ValidateSoftDeleteCondition(resolvedField, condition, ctx.Options);
 
-        if (nonAnalyzed)
+        if (nonAnalyzed || isStringRange)
         {
             ValidateNonAnalyzedField(resolver, resolvedField, condition);
         }
@@ -243,13 +248,23 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         string originalField = resolver.GetResolvedField(condition.Field);
         if (String.Equals(originalField, resolvedField, StringComparison.Ordinal) && resolver.IsPropertyAnalyzed(resolvedField))
         {
+            bool isRange = condition.Operator is ComparisonOperator.GreaterThan
+                or ComparisonOperator.GreaterThanOrEqual
+                or ComparisonOperator.LessThan
+                or ComparisonOperator.LessThanOrEqual;
+
+            string queryType = isRange ? "TermRangeQuery" : "TermQuery";
+            string suggestion = isRange
+                ? "Use FieldContains() for full-text token matching, or target a keyword field for lexicographic range comparison"
+                : "Use FieldContains() for full-text token matching";
+
             throw new QueryValidationException(
                 $"""
                 Field{condition.Operator} cannot be used on field '{resolvedField}' because it is an analyzed text field with no .keyword sub-field.
-                A TermQuery on an analyzed text field almost never matches because Elasticsearch stores lowercased tokens (e.g., "eric") but TermQuery matches the exact input (e.g., "Eric").
+                A {queryType} on an analyzed text field produces unexpected results because Elasticsearch stores lowercased tokens, not the original text.
 
                 To fix this, either:
-                  - Use FieldContains() for full-text token matching
+                  - {suggestion}
                   - Add a .keyword sub-field to the field mapping in your index configuration:
                     m.Text(p => p.Name(f => f.Property).Fields(f => f.Keyword(k => k.Name("keyword"))))
                 """, resolvedField, condition.Operator.ToString());
@@ -261,101 +276,21 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         switch (value)
         {
             case DateTime dtValue:
-                {
-                    var rangeQuery = new DateRangeQuery { Field = field };
-                    switch (op)
-                    {
-                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = dtValue; break;
-                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = dtValue; break;
-                        case ComparisonOperator.LessThan: rangeQuery.LessThan = dtValue; break;
-                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = dtValue; break;
-                    }
-                    return rangeQuery;
-                }
+                return BuildDateRange(field, op, dtValue);
             case DateTimeOffset dtoValue:
-                {
-                    var rangeQuery = new DateRangeQuery { Field = field };
-                    switch (op)
-                    {
-                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = dtoValue.UtcDateTime; break;
-                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = dtoValue.UtcDateTime; break;
-                        case ComparisonOperator.LessThan: rangeQuery.LessThan = dtoValue.UtcDateTime; break;
-                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = dtoValue.UtcDateTime; break;
-                    }
-                    return rangeQuery;
-                }
+                return BuildDateRange(field, op, dtoValue.UtcDateTime);
             case int intValue:
-                {
-                    var rangeQuery = new NumericRangeQuery { Field = field };
-                    switch (op)
-                    {
-                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = intValue; break;
-                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = intValue; break;
-                        case ComparisonOperator.LessThan: rangeQuery.LessThan = intValue; break;
-                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = intValue; break;
-                    }
-                    return rangeQuery;
-                }
+                return BuildNumericRange(field, op, intValue);
             case long longValue:
-                {
-                    var rangeQuery = new NumericRangeQuery { Field = field };
-                    switch (op)
-                    {
-                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = longValue; break;
-                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = longValue; break;
-                        case ComparisonOperator.LessThan: rangeQuery.LessThan = longValue; break;
-                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = longValue; break;
-                    }
-                    return rangeQuery;
-                }
+                return BuildNumericRange(field, op, longValue);
             case double doubleValue:
-                {
-                    var rangeQuery = new NumericRangeQuery { Field = field };
-                    switch (op)
-                    {
-                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = doubleValue; break;
-                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = doubleValue; break;
-                        case ComparisonOperator.LessThan: rangeQuery.LessThan = doubleValue; break;
-                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = doubleValue; break;
-                    }
-                    return rangeQuery;
-                }
+                return BuildNumericRange(field, op, doubleValue);
             case float floatValue:
-                {
-                    var rangeQuery = new NumericRangeQuery { Field = field };
-                    switch (op)
-                    {
-                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = floatValue; break;
-                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = floatValue; break;
-                        case ComparisonOperator.LessThan: rangeQuery.LessThan = floatValue; break;
-                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = floatValue; break;
-                    }
-                    return rangeQuery;
-                }
+                return BuildNumericRange(field, op, floatValue);
             case decimal decValue:
-                {
-                    var rangeQuery = new NumericRangeQuery { Field = field };
-                    switch (op)
-                    {
-                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = (double)decValue; break;
-                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = (double)decValue; break;
-                        case ComparisonOperator.LessThan: rangeQuery.LessThan = (double)decValue; break;
-                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = (double)decValue; break;
-                    }
-                    return rangeQuery;
-                }
+                return BuildNumericRange(field, op, (double)decValue);
             case string strValue:
-                {
-                    var rangeQuery = new TermRangeQuery { Field = field };
-                    switch (op)
-                    {
-                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = strValue; break;
-                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = strValue; break;
-                        case ComparisonOperator.LessThan: rangeQuery.LessThan = strValue; break;
-                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = strValue; break;
-                    }
-                    return rangeQuery;
-                }
+                return BuildTermRange(field, op, strValue);
             default:
                 throw new QueryValidationException(
                     $"""
@@ -363,6 +298,69 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
                     Range operators support DateTime, DateTimeOffset, numeric types (int, long, double, float, decimal), and string.
                     """, field, op.ToString());
         }
+    }
+
+    private static DateRangeQuery BuildDateRange(string field, ComparisonOperator op, DateTime value)
+    {
+        var query = new DateRangeQuery { Field = field };
+        switch (op)
+        {
+            case ComparisonOperator.GreaterThan:
+                query.GreaterThan = value;
+                break;
+            case ComparisonOperator.GreaterThanOrEqual:
+                query.GreaterThanOrEqualTo = value;
+                break;
+            case ComparisonOperator.LessThan:
+                query.LessThan = value;
+                break;
+            case ComparisonOperator.LessThanOrEqual:
+                query.LessThanOrEqualTo = value;
+                break;
+        }
+        return query;
+    }
+
+    private static NumericRangeQuery BuildNumericRange(string field, ComparisonOperator op, double value)
+    {
+        var query = new NumericRangeQuery { Field = field };
+        switch (op)
+        {
+            case ComparisonOperator.GreaterThan:
+                query.GreaterThan = value;
+                break;
+            case ComparisonOperator.GreaterThanOrEqual:
+                query.GreaterThanOrEqualTo = value;
+                break;
+            case ComparisonOperator.LessThan:
+                query.LessThan = value;
+                break;
+            case ComparisonOperator.LessThanOrEqual:
+                query.LessThanOrEqualTo = value;
+                break;
+        }
+        return query;
+    }
+
+    private static TermRangeQuery BuildTermRange(string field, ComparisonOperator op, string value)
+    {
+        var query = new TermRangeQuery { Field = field };
+        switch (op)
+        {
+            case ComparisonOperator.GreaterThan:
+                query.GreaterThan = value;
+                break;
+            case ComparisonOperator.GreaterThanOrEqual:
+                query.GreaterThanOrEqualTo = value;
+                break;
+            case ComparisonOperator.LessThan:
+                query.LessThan = value;
+                break;
+            case ComparisonOperator.LessThanOrEqual:
+                query.LessThanOrEqualTo = value;
+                break;
+        }
+        return query;
     }
 
     private static async Task<QueryContainer> TranslateGroupAsync<T>(
