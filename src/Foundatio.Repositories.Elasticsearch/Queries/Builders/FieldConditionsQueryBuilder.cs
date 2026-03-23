@@ -20,7 +20,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders;
 /// <remarks>
 /// <para>Registered as a default query builder in <see cref="ElasticQueryBuilder.RegisterDefaults"/>.
 /// Runs after <c>SoftDeletesQueryBuilder</c> and <c>DateRangeQueryBuilder</c>.</para>
-/// <para>Performs runtime validation and throws <see cref="Exceptions.QueryValidationException"/>
+/// <para>Performs runtime validation and throws <see cref="QueryValidationException"/>
 /// for detectable misuse such as TermQuery on analyzed-only fields, Contains on keyword fields,
 /// and contradictory soft-delete conditions.</para>
 /// </remarks>
@@ -104,18 +104,26 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         {
             var resolver = ctx.GetMappingResolver();
             string resolvedField = resolver.GetResolvedField(condition.Field);
-            if (String.Equals(resolvedField, "isDeleted", StringComparison.OrdinalIgnoreCase))
+            if (String.Equals(resolvedField, "isDeleted", StringComparison.OrdinalIgnoreCase)
+                && condition.Value is bool boolValue)
             {
-                throw new QueryValidationException(
-                    $"""
-                    FieldEquals targets the 'isDeleted' field on a soft-delete-enabled entity, but the current query uses ActiveOnly mode (the default).
-                    The SoftDeletesQueryBuilder automatically adds an 'isDeleted: false' filter, so combining it with your 'isDeleted: {condition.Value}' condition creates a contradictory filter that returns zero results.
+                bool isContradictory =
+                    (condition.Operator is ComparisonOperator.Equals && boolValue) ||
+                    (condition.Operator is ComparisonOperator.NotEquals && !boolValue);
 
-                    To fix this, add one of these to your query:
-                      - .IncludeSoftDeletes()        — returns both active and deleted documents
-                      - .SoftDeleteMode(DeletedOnly)  — returns only deleted documents
-                      - .SoftDeleteMode(All)          — returns all documents regardless of delete status
-                    """, resolvedField, condition.Operator.ToString());
+                if (isContradictory)
+                {
+                    throw new QueryValidationException(
+                        $"""
+                        Field condition targets 'isDeleted' with operator '{condition.Operator}' and value '{boolValue}', but the current query uses ActiveOnly mode (the default).
+                        The SoftDeletesQueryBuilder automatically adds an 'isDeleted: false' filter, so this condition creates a contradictory filter that returns zero results.
+
+                        To fix this, add one of these to your query:
+                          - .IncludeSoftDeletes()        — returns both active and deleted documents
+                          - .SoftDeleteMode(DeletedOnly)  — returns only deleted documents
+                          - .SoftDeleteMode(All)          — returns all documents regardless of delete status
+                        """, resolvedField, condition.Operator.ToString());
+                }
             }
         }
     }
@@ -311,7 +319,10 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         var clauses = new List<QueryContainer>();
 
         foreach (var condition in group.Conditions)
+        {
+            ValidateCondition(condition, ctx);
             clauses.Add(await TranslateConditionAsync(condition, resolver, ctx).AnyContext());
+        }
 
         foreach (var child in group.Children)
         {

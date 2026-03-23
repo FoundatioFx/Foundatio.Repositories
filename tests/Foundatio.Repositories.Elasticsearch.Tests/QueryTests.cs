@@ -1458,5 +1458,19 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Assert
         Assert.Equal(1, result.Total);
     }
+
+    [Fact]
+    public async Task FieldEquals_OnIsDeletedFalseWithActiveOnlyMode_DoesNotThrow()
+    {
+        // Arrange — isDeleted=false with ActiveOnly is redundant but not contradictory
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q
+            .FieldEquals(e => e.IsDeleted, false));
+
+        // Assert
+        Assert.Equal(1, result.Total);
+    }
 }
 

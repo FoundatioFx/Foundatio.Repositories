@@ -65,7 +65,7 @@ namespace Foundatio.Repositories
         /// <remarks>
         /// <para>This is NOT wildcard or substring matching. <c>FieldContains(f =&gt; f.Name, "Er")</c>
         /// will NOT match "Eric" because "er" is not a complete token.</para>
-        /// <para>Throws <see cref="Exceptions.QueryValidationException"/> at build time if the field
+        /// <para>Throws <see cref="Foundatio.Repositories.Exceptions.QueryValidationException"/> at build time if the field
         /// is a non-analyzed (keyword) field.</para>
         /// </remarks>
         public static IRepositoryQuery<T> FieldContains<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, object value) where T : class
@@ -168,7 +168,7 @@ namespace Foundatio.Repositories
         /// <remarks>
         /// <para><b>Target field type:</b> keyword, numeric, boolean, date. For full-text search
         /// on analyzed fields, use <c>FieldContains</c> instead.</para>
-        /// <para><b>Throws</b> <see cref="Exceptions.QueryValidationException"/> at build time if the
+        /// <para><b>Throws</b> <see cref="Foundatio.Repositories.Exceptions.QueryValidationException"/> at build time if the
         /// field is an analyzed text field with no <c>.keyword</c> sub-field.</para>
         /// </remarks>
         public static T FieldEquals<T>(this T query, Field field, object value) where T : IRepositoryQuery
