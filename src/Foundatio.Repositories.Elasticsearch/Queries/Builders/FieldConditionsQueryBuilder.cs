@@ -140,43 +140,43 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         switch (condition.Operator)
         {
             case ComparisonOperator.Equals:
-            {
-                QueryBase eqQuery;
-                if (condition.Value is IEnumerable and not string)
                 {
-                    var values = new List<object>();
-                    foreach (var value in (IEnumerable)condition.Value)
-                        values.Add(value);
-                    eqQuery = new TermsQuery { Field = resolvedField, Terms = values };
+                    QueryBase eqQuery;
+                    if (condition.Value is IEnumerable and not string)
+                    {
+                        var values = new List<object>();
+                        foreach (var value in (IEnumerable)condition.Value)
+                            values.Add(value);
+                        eqQuery = new TermsQuery { Field = resolvedField, Terms = values };
+                    }
+                    else
+                    {
+                        eqQuery = new TermQuery { Field = resolvedField, Value = condition.Value };
+                    }
+                    return eqQuery;
                 }
-                else
-                {
-                    eqQuery = new TermQuery { Field = resolvedField, Value = condition.Value };
-                }
-                return eqQuery;
-            }
             case ComparisonOperator.NotEquals:
-            {
-                QueryBase neQuery;
-                if (condition.Value is IEnumerable and not string)
                 {
-                    var values = new List<object>();
-                    foreach (var value in (IEnumerable)condition.Value)
-                        values.Add(value);
-                    neQuery = new TermsQuery { Field = resolvedField, Terms = values };
+                    QueryBase neQuery;
+                    if (condition.Value is IEnumerable and not string)
+                    {
+                        var values = new List<object>();
+                        foreach (var value in (IEnumerable)condition.Value)
+                            values.Add(value);
+                        neQuery = new TermsQuery { Field = resolvedField, Terms = values };
+                    }
+                    else
+                    {
+                        neQuery = new TermQuery { Field = resolvedField, Value = condition.Value };
+                    }
+                    return new BoolQuery { MustNot = new QueryContainer[] { neQuery } };
                 }
-                else
-                {
-                    neQuery = new TermQuery { Field = resolvedField, Value = condition.Value };
-                }
-                return new BoolQuery { MustNot = new QueryContainer[] { neQuery } };
-            }
             case ComparisonOperator.Contains:
-            {
-                if (!resolver.IsPropertyAnalyzed(resolvedField))
                 {
-                    throw new QueryValidationException(
-                        $"""
+                    if (!resolver.IsPropertyAnalyzed(resolvedField))
+                    {
+                        throw new QueryValidationException(
+                            $"""
                         FieldContains cannot be used on field '{resolvedField}' because it is a non-analyzed (keyword) field.
                         FieldContains generates a MatchQuery which requires an analyzed text field to tokenize the input.
 
@@ -184,19 +184,19 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
                           - Use FieldEquals() for exact matching on keyword fields
                           - Change the field mapping to a text type if you need full-text search
                         """, resolvedField, nameof(ComparisonOperator.Contains));
-                }
+                    }
 
-                string containsText = condition.Value is IEnumerable and not string
-                    ? String.Join(" ", ((IEnumerable)condition.Value).Cast<object>())
-                    : condition.Value?.ToString() ?? String.Empty;
-                return new MatchQuery { Field = resolvedField, Query = containsText, Operator = Operator.And };
-            }
+                    string containsText = condition.Value is IEnumerable and not string
+                        ? String.Join(" ", ((IEnumerable)condition.Value).Cast<object>())
+                        : condition.Value?.ToString() ?? String.Empty;
+                    return new MatchQuery { Field = resolvedField, Query = containsText, Operator = Operator.And };
+                }
             case ComparisonOperator.NotContains:
-            {
-                if (!resolver.IsPropertyAnalyzed(resolvedField))
                 {
-                    throw new QueryValidationException(
-                        $"""
+                    if (!resolver.IsPropertyAnalyzed(resolvedField))
+                    {
+                        throw new QueryValidationException(
+                            $"""
                         FieldNotContains cannot be used on field '{resolvedField}' because it is a non-analyzed (keyword) field.
                         FieldNotContains generates a MatchQuery which requires an analyzed text field to tokenize the input.
 
@@ -204,13 +204,13 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
                           - Use FieldNotEquals() for exact negation on keyword fields
                           - Change the field mapping to a text type if you need full-text search
                         """, resolvedField, nameof(ComparisonOperator.NotContains));
-                }
+                    }
 
-                string notContainsText = condition.Value is IEnumerable and not string
-                    ? String.Join(" ", ((IEnumerable)condition.Value).Cast<object>())
-                    : condition.Value?.ToString() ?? String.Empty;
-                return new BoolQuery { MustNot = new QueryContainer[] { new MatchQuery { Field = resolvedField, Query = notContainsText, Operator = Operator.And } } };
-            }
+                    string notContainsText = condition.Value is IEnumerable and not string
+                        ? String.Join(" ", ((IEnumerable)condition.Value).Cast<object>())
+                        : condition.Value?.ToString() ?? String.Empty;
+                    return new BoolQuery { MustNot = new QueryContainer[] { new MatchQuery { Field = resolvedField, Query = notContainsText, Operator = Operator.And } } };
+                }
             case ComparisonOperator.IsEmpty:
                 return new BoolQuery { MustNot = new QueryContainer[] { new ExistsQuery { Field = resolvedField } } };
             case ComparisonOperator.HasValue:
@@ -248,54 +248,54 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         switch (value)
         {
             case DateTime dtValue:
-            {
-                var rangeQuery = new DateRangeQuery { Field = field };
-                switch (op)
                 {
-                    case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = dtValue; break;
-                    case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = dtValue; break;
-                    case ComparisonOperator.LessThan: rangeQuery.LessThan = dtValue; break;
-                    case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = dtValue; break;
+                    var rangeQuery = new DateRangeQuery { Field = field };
+                    switch (op)
+                    {
+                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = dtValue; break;
+                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = dtValue; break;
+                        case ComparisonOperator.LessThan: rangeQuery.LessThan = dtValue; break;
+                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = dtValue; break;
+                    }
+                    return rangeQuery;
                 }
-                return rangeQuery;
-            }
             case DateTimeOffset dtoValue:
-            {
-                var rangeQuery = new DateRangeQuery { Field = field };
-                switch (op)
                 {
-                    case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = dtoValue.UtcDateTime; break;
-                    case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = dtoValue.UtcDateTime; break;
-                    case ComparisonOperator.LessThan: rangeQuery.LessThan = dtoValue.UtcDateTime; break;
-                    case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = dtoValue.UtcDateTime; break;
+                    var rangeQuery = new DateRangeQuery { Field = field };
+                    switch (op)
+                    {
+                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = dtoValue.UtcDateTime; break;
+                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = dtoValue.UtcDateTime; break;
+                        case ComparisonOperator.LessThan: rangeQuery.LessThan = dtoValue.UtcDateTime; break;
+                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = dtoValue.UtcDateTime; break;
+                    }
+                    return rangeQuery;
                 }
-                return rangeQuery;
-            }
             case int or long or double or float or decimal:
-            {
-                var numValue = Convert.ToDouble(value);
-                var rangeQuery = new NumericRangeQuery { Field = field };
-                switch (op)
                 {
-                    case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = numValue; break;
-                    case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = numValue; break;
-                    case ComparisonOperator.LessThan: rangeQuery.LessThan = numValue; break;
-                    case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = numValue; break;
+                    var numValue = Convert.ToDouble(value);
+                    var rangeQuery = new NumericRangeQuery { Field = field };
+                    switch (op)
+                    {
+                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = numValue; break;
+                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = numValue; break;
+                        case ComparisonOperator.LessThan: rangeQuery.LessThan = numValue; break;
+                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = numValue; break;
+                    }
+                    return rangeQuery;
                 }
-                return rangeQuery;
-            }
             case string strValue:
-            {
-                var rangeQuery = new TermRangeQuery { Field = field };
-                switch (op)
                 {
-                    case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = strValue; break;
-                    case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = strValue; break;
-                    case ComparisonOperator.LessThan: rangeQuery.LessThan = strValue; break;
-                    case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = strValue; break;
+                    var rangeQuery = new TermRangeQuery { Field = field };
+                    switch (op)
+                    {
+                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = strValue; break;
+                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = strValue; break;
+                        case ComparisonOperator.LessThan: rangeQuery.LessThan = strValue; break;
+                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = strValue; break;
+                    }
+                    return rangeQuery;
                 }
-                return rangeQuery;
-            }
             default:
                 throw new QueryValidationException(
                     $"""

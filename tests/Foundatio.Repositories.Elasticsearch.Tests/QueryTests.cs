@@ -2,11 +2,10 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
-using Foundatio.Parsers.LuceneQueries;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Xunit;
-using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 using FieldQueryValidationException = Foundatio.Repositories.Exceptions.QueryValidationException;
+using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 using ParserQueryValidationException = Foundatio.Parsers.LuceneQueries.QueryValidationException;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;

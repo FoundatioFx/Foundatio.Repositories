@@ -20,7 +20,8 @@ namespace Foundatio.Repositories.Exceptions;
 /// </remarks>
 public class QueryValidationException : RepositoryException
 {
-    public QueryValidationException() : base() { }
+    public QueryValidationException() { }
+
     public QueryValidationException(string message) : base(message) { }
 
     public QueryValidationException(string message, string field, string op = null) : base(message)
