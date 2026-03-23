@@ -298,6 +298,12 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
         return this;
     }
 
+    public new FieldConditionGroup<T> FieldCondition(Field field, ComparisonOperator op, params object[] values)
+    {
+        base.FieldCondition(field, op, values);
+        return this;
+    }
+
     public FieldConditionGroup<T> FieldCondition(Expression<Func<T, object>> objectPath, ComparisonOperator op, object value)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Value = value, Operator = op });
@@ -316,6 +322,12 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
         return this;
     }
 
+    public new FieldConditionGroup<T> FieldContains(Field field, params object[] values)
+    {
+        base.FieldContains(field, values);
+        return this;
+    }
+
     public FieldConditionGroup<T> FieldContains(Expression<Func<T, object>> objectPath, object value)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.Contains });
@@ -331,6 +343,12 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
     public new FieldConditionGroup<T> FieldNotContains(Field field, object value)
     {
         base.FieldNotContains(field, value);
+        return this;
+    }
+
+    public new FieldConditionGroup<T> FieldNotContains(Field field, params object[] values)
+    {
+        base.FieldNotContains(field, values);
         return this;
     }
 
@@ -376,6 +394,12 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
         return this;
     }
 
+    public new FieldConditionGroup<T> FieldEquals(Field field, params object[] values)
+    {
+        base.FieldEquals(field, values);
+        return this;
+    }
+
     public FieldConditionGroup<T> FieldEquals(Expression<Func<T, object>> objectPath, object value)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.Equals });
@@ -391,6 +415,12 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
     public new FieldConditionGroup<T> FieldNotEquals(Field field, object value)
     {
         base.FieldNotEquals(field, value);
+        return this;
+    }
+
+    public new FieldConditionGroup<T> FieldNotEquals(Field field, params object[] values)
+    {
+        base.FieldNotEquals(field, values);
         return this;
     }
 

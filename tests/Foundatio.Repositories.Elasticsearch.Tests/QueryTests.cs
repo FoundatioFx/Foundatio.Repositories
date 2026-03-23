@@ -1378,10 +1378,10 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25, companyId: "other"), o => o.ImmediateConsistency());
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 30, companyId: "another"), o => o.ImmediateConsistency());
 
-        var includeIds = new[] { "some-id" };
+        var includeAgeFilter = true;
         var group = FieldConditionGroup<Employee>.Or();
         group.FieldEquals(f => f.CompanyId, companyId);
-        if (includeIds.Length > 0)
+        if (includeAgeFilter)
             group.FieldEquals(f => f.Age, 25);
 
         // Act

@@ -67,11 +67,10 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
 
         if (isRange)
         {
-            var resolver = ctx.GetMappingResolver();
-            string fieldName = resolver.GetResolvedField(condition.Field);
-
             if (condition.Value is null)
             {
+                var resolver = ctx.GetMappingResolver();
+                string fieldName = resolver.GetResolvedField(condition.Field);
                 throw new QueryValidationException(
                     $"""
                     Range operator '{condition.Operator}' cannot be used with a null value on field '{fieldName}'.
@@ -87,6 +86,8 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
 
             if (condition.Value is IEnumerable and not string)
             {
+                var resolver = ctx.GetMappingResolver();
+                string fieldName = resolver.GetResolvedField(condition.Field);
                 throw new QueryValidationException(
                     $"""
                     Range operator '{condition.Operator}' cannot be used with a collection value on field '{fieldName}'.
@@ -98,33 +99,35 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
                     """, fieldName, condition.Operator.ToString());
             }
         }
+    }
 
-        if (ctx.Options.SupportsSoftDeletes()
-            && ctx.Options.GetSoftDeleteMode() is SoftDeleteQueryMode.ActiveOnly)
+    private static void ValidateSoftDeleteCondition(string resolvedField, FieldCondition condition, ICommandOptions options)
+    {
+        if (!options.SupportsSoftDeletes() || options.GetSoftDeleteMode() is not SoftDeleteQueryMode.ActiveOnly)
+            return;
+
+        if (!String.Equals(resolvedField, "isDeleted", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        if (condition.Value is not bool boolValue)
+            return;
+
+        bool isContradictory =
+            (condition.Operator is ComparisonOperator.Equals && boolValue) ||
+            (condition.Operator is ComparisonOperator.NotEquals && !boolValue);
+
+        if (isContradictory)
         {
-            var resolver = ctx.GetMappingResolver();
-            string resolvedField = resolver.GetResolvedField(condition.Field);
-            if (String.Equals(resolvedField, "isDeleted", StringComparison.OrdinalIgnoreCase)
-                && condition.Value is bool boolValue)
-            {
-                bool isContradictory =
-                    (condition.Operator is ComparisonOperator.Equals && boolValue) ||
-                    (condition.Operator is ComparisonOperator.NotEquals && !boolValue);
+            throw new QueryValidationException(
+                $"""
+                Field condition targets 'isDeleted' with operator '{condition.Operator}' and value '{boolValue}', but the current query uses ActiveOnly mode (the default).
+                The SoftDeletesQueryBuilder automatically adds an 'isDeleted: false' filter, so this condition creates a contradictory filter that returns zero results.
 
-                if (isContradictory)
-                {
-                    throw new QueryValidationException(
-                        $"""
-                        Field condition targets 'isDeleted' with operator '{condition.Operator}' and value '{boolValue}', but the current query uses ActiveOnly mode (the default).
-                        The SoftDeletesQueryBuilder automatically adds an 'isDeleted: false' filter, so this condition creates a contradictory filter that returns zero results.
-
-                        To fix this, add one of these to your query:
-                          - .IncludeSoftDeletes()        — returns both active and deleted documents
-                          - .SoftDeleteMode(DeletedOnly)  — returns only deleted documents
-                          - .SoftDeleteMode(All)          — returns all documents regardless of delete status
-                        """, resolvedField, condition.Operator.ToString());
-                }
-            }
+                To fix this, add one of these to your query:
+                  - .IncludeSoftDeletes()        — returns both active and deleted documents
+                  - .SoftDeleteMode(DeletedOnly)  — returns only deleted documents
+                  - .SoftDeleteMode(All)          — returns all documents regardless of delete status
+                """, resolvedField, condition.Operator.ToString());
         }
     }
 
@@ -139,6 +142,8 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         bool nonAnalyzed = condition.Operator is ComparisonOperator.Equals or ComparisonOperator.NotEquals;
 
         string resolvedField = await ResolveFieldAsync(ctx, resolver, condition.Field, nonAnalyzed).AnyContext();
+
+        ValidateSoftDeleteCondition(resolvedField, condition, ctx.Options);
 
         if (nonAnalyzed)
         {
@@ -279,16 +284,63 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
                     }
                     return rangeQuery;
                 }
-            case int or long or double or float or decimal:
+            case int intValue:
                 {
-                    var numValue = Convert.ToDouble(value);
                     var rangeQuery = new NumericRangeQuery { Field = field };
                     switch (op)
                     {
-                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = numValue; break;
-                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = numValue; break;
-                        case ComparisonOperator.LessThan: rangeQuery.LessThan = numValue; break;
-                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = numValue; break;
+                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = intValue; break;
+                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = intValue; break;
+                        case ComparisonOperator.LessThan: rangeQuery.LessThan = intValue; break;
+                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = intValue; break;
+                    }
+                    return rangeQuery;
+                }
+            case long longValue:
+                {
+                    var rangeQuery = new NumericRangeQuery { Field = field };
+                    switch (op)
+                    {
+                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = longValue; break;
+                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = longValue; break;
+                        case ComparisonOperator.LessThan: rangeQuery.LessThan = longValue; break;
+                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = longValue; break;
+                    }
+                    return rangeQuery;
+                }
+            case double doubleValue:
+                {
+                    var rangeQuery = new NumericRangeQuery { Field = field };
+                    switch (op)
+                    {
+                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = doubleValue; break;
+                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = doubleValue; break;
+                        case ComparisonOperator.LessThan: rangeQuery.LessThan = doubleValue; break;
+                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = doubleValue; break;
+                    }
+                    return rangeQuery;
+                }
+            case float floatValue:
+                {
+                    var rangeQuery = new NumericRangeQuery { Field = field };
+                    switch (op)
+                    {
+                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = floatValue; break;
+                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = floatValue; break;
+                        case ComparisonOperator.LessThan: rangeQuery.LessThan = floatValue; break;
+                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = floatValue; break;
+                    }
+                    return rangeQuery;
+                }
+            case decimal decValue:
+                {
+                    var rangeQuery = new NumericRangeQuery { Field = field };
+                    switch (op)
+                    {
+                        case ComparisonOperator.GreaterThan: rangeQuery.GreaterThan = (double)decValue; break;
+                        case ComparisonOperator.GreaterThanOrEqual: rangeQuery.GreaterThanOrEqualTo = (double)decValue; break;
+                        case ComparisonOperator.LessThan: rangeQuery.LessThan = (double)decValue; break;
+                        case ComparisonOperator.LessThanOrEqual: rangeQuery.LessThanOrEqualTo = (double)decValue; break;
                     }
                     return rangeQuery;
                 }
