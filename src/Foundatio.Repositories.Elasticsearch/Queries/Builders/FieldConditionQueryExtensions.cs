@@ -347,6 +347,7 @@ namespace Foundatio.Repositories
         /// </remarks>
         public static IRepositoryQuery<T> FieldAnd<T>(this IRepositoryQuery<T> query, Action<FieldConditionGroup<T>> configure) where T : class
         {
+            ArgumentNullException.ThrowIfNull(configure);
             var group = new FieldConditionGroup<T>(FieldConditionGroupOperator.And);
             configure(group);
             return query.AddCollectionOptionValue(FieldConditionGroupsKey, (FieldConditionGroup)group);
@@ -354,6 +355,7 @@ namespace Foundatio.Repositories
 
         public static IRepositoryQuery<T> FieldAnd<T>(this IRepositoryQuery<T> query, FieldConditionGroup<T> group) where T : class
         {
+            ArgumentNullException.ThrowIfNull(group);
             return query.AddCollectionOptionValue(FieldConditionGroupsKey, (FieldConditionGroup)group);
         }
 
@@ -367,6 +369,7 @@ namespace Foundatio.Repositories
         /// </remarks>
         public static IRepositoryQuery<T> FieldNot<T>(this IRepositoryQuery<T> query, Action<FieldConditionGroup<T>> configure) where T : class
         {
+            ArgumentNullException.ThrowIfNull(configure);
             var group = new FieldConditionGroup<T>(FieldConditionGroupOperator.Not);
             configure(group);
             return query.AddCollectionOptionValue(FieldConditionGroupsKey, (FieldConditionGroup)group);
@@ -374,6 +377,7 @@ namespace Foundatio.Repositories
 
         public static IRepositoryQuery<T> FieldNot<T>(this IRepositoryQuery<T> query, FieldConditionGroup<T> group) where T : class
         {
+            ArgumentNullException.ThrowIfNull(group);
             return query.AddCollectionOptionValue(FieldConditionGroupsKey, (FieldConditionGroup)group);
         }
 
@@ -383,6 +387,7 @@ namespace Foundatio.Repositories
         /// </summary>
         public static IRepositoryQuery<T> FieldOr<T>(this IRepositoryQuery<T> query, Action<FieldConditionGroup<T>> configure) where T : class
         {
+            ArgumentNullException.ThrowIfNull(configure);
             var group = new FieldConditionGroup<T>(FieldConditionGroupOperator.Or);
             configure(group);
             return query.AddCollectionOptionValue(FieldConditionGroupsKey, (FieldConditionGroup)group);
@@ -393,6 +398,7 @@ namespace Foundatio.Repositories
         /// </summary>
         public static IRepositoryQuery<T> FieldOr<T>(this IRepositoryQuery<T> query, FieldConditionGroup<T> group) where T : class
         {
+            ArgumentNullException.ThrowIfNull(group);
             return query.AddCollectionOptionValue(FieldConditionGroupsKey, (FieldConditionGroup)group);
         }
 
@@ -400,6 +406,7 @@ namespace Foundatio.Repositories
 
         public static T FieldAnd<T>(this T query, Action<FieldConditionGroup> configure) where T : IRepositoryQuery
         {
+            ArgumentNullException.ThrowIfNull(configure);
             var group = new FieldConditionGroup(FieldConditionGroupOperator.And);
             configure(group);
             return query.AddCollectionOptionValue(FieldConditionGroupsKey, group);
@@ -407,11 +414,13 @@ namespace Foundatio.Repositories
 
         public static T FieldAnd<T>(this T query, FieldConditionGroup group) where T : IRepositoryQuery
         {
+            ArgumentNullException.ThrowIfNull(group);
             return query.AddCollectionOptionValue(FieldConditionGroupsKey, group);
         }
 
         public static T FieldNot<T>(this T query, Action<FieldConditionGroup> configure) where T : IRepositoryQuery
         {
+            ArgumentNullException.ThrowIfNull(configure);
             var group = new FieldConditionGroup(FieldConditionGroupOperator.Not);
             configure(group);
             return query.AddCollectionOptionValue(FieldConditionGroupsKey, group);
@@ -419,11 +428,13 @@ namespace Foundatio.Repositories
 
         public static T FieldNot<T>(this T query, FieldConditionGroup group) where T : IRepositoryQuery
         {
+            ArgumentNullException.ThrowIfNull(group);
             return query.AddCollectionOptionValue(FieldConditionGroupsKey, group);
         }
 
         public static T FieldOr<T>(this T query, Action<FieldConditionGroup> configure) where T : IRepositoryQuery
         {
+            ArgumentNullException.ThrowIfNull(configure);
             var group = new FieldConditionGroup(FieldConditionGroupOperator.Or);
             configure(group);
             return query.AddCollectionOptionValue(FieldConditionGroupsKey, group);
@@ -431,6 +442,7 @@ namespace Foundatio.Repositories
 
         public static T FieldOr<T>(this T query, FieldConditionGroup group) where T : IRepositoryQuery
         {
+            ArgumentNullException.ThrowIfNull(group);
             return query.AddCollectionOptionValue(FieldConditionGroupsKey, group);
         }
 
