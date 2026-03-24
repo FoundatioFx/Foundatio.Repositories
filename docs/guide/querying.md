@@ -76,7 +76,7 @@ var results = await repository.FindAsync(q => q.FieldEquals(e => e.Type, Employe
 
 ### Field Conditions
 
-`FieldCondition` supports equality, text matching, and existence checks:
+`FieldCondition` supports equality, text matching, existence checks, and range comparisons:
 
 ```csharp
 // Equality check
@@ -88,9 +88,110 @@ var results = await repository.FindAsync(q => q
     .FieldCondition(e => e.Name, ComparisonOperator.Contains, "John"));
 ```
 
-Available operators: `Equals`, `NotEquals`, `IsEmpty`, `HasValue`, `Contains`, `NotContains`.
+Available operators: `Equals`, `NotEquals`, `IsEmpty`, `HasValue`, `Contains`, `NotContains`, `GreaterThan`, `GreaterThanOrEqual`, `LessThan`, `LessThanOrEqual`.
 
-> **Note:** For numeric range comparisons (e.g., age >= 25), use `FilterExpression` with Lucene syntax: `q.FilterExpression("age:[25 TO *]")`
+### Range Operators
+
+For one-sided comparisons and non-date types, use the range operator shorthands:
+
+```csharp
+// Date comparison (generates DateRangeQuery)
+var results = await repository.FindAsync(q => q
+    .FieldLessThanOrEqual(e => e.SnoozeUntilUtc, DateTime.UtcNow));
+
+// Numeric comparison (generates NumericRangeQuery)
+var results = await repository.FindAsync(q => q
+    .FieldGreaterThanOrEqual(e => e.Age, 18));
+
+// Bounded range (two conditions ANDed)
+var results = await repository.FindAsync(q => q
+    .FieldGreaterThanOrEqual(e => e.Age, 18)
+    .FieldLessThan(e => e.Age, 65));
+
+// String/keyword comparison (generates TermRangeQuery on keyword field)
+var results = await repository.FindAsync(q => q
+    .FieldGreaterThanOrEqual(e => e.InstanceKey, "20240101"));
+
+// Conditional range (only applied when condition is true)
+var results = await repository.FindAsync(q => q
+    .FieldGreaterThanIf(e => e.Age, minAge, minAge is not null));
+```
+
+> **String ranges require keyword fields:** String range operators generate a `TermRangeQuery` and automatically resolve to the `.keyword` sub-field (like `FieldEquals`). If the field is an analyzed text field with no `.keyword` sub-field, a `QueryValidationException` is thrown at build time.
+
+**DateRange vs range operators:** Use `.DateRange(start, end, field)` for bounded date windows (validates start < end, supports timezone). Use `FieldGreaterThan`/`FieldLessThanOrEqual` etc. for one-sided comparisons and non-date types.
+
+> **Numeric precision note:** `long` values use NEST's `LongRangeQuery` which preserves full precision. `decimal` values are converted to `double` for NEST's `NumericRangeQuery`, which may lose precision for values exceeding ~15-17 significant digits. If exact precision matters, prefer `long` fields with an explicit scaling factor.
+
+### Contains (Full-Text Token Matching)
+
+`FieldContains` generates a `MatchQuery` on analyzed fields. It matches complete analyzed tokens, NOT substrings or wildcards:
+
+```csharp
+// Matches documents where Name contains the token "eric"
+var results = await repository.FindAsync(q => q
+    .FieldContains(e => e.Name, "Eric"));
+
+// Multiple tokens: all must be present (AND), order-independent
+// Matches "Eric J. Smith" AND "Smith, Eric" but NOT "Eric"
+var results = await repository.FindAsync(q => q
+    .FieldContains(e => e.Name, "Eric Smith"));
+
+// DOES NOT WORK: "Er" is not a complete token
+var results = await repository.FindAsync(q => q
+    .FieldContains(e => e.Name, "Er"));  // returns nothing
+```
+
+### OR / AND / NOT Grouping
+
+For complex boolean logic, use `FieldOr`, `FieldAnd`, and `FieldNot`:
+
+```csharp
+// Simple OR: match either condition
+var results = await repository.FindAsync(q => q.FieldOr(g => g
+    .FieldEquals(f => f.IsPrivate, false)
+    .FieldEquals(f => f.CompanyId, companyIds)
+));
+
+// Nested AND inside OR
+var results = await repository.FindAsync(q => q.FieldOr(g => g
+    .FieldEquals(f => f.Status, "RunNow")
+    .FieldAnd(g2 => g2
+        .FieldEquals(f => f.IsEnabled, true)
+        .FieldLessThanOrEqual(f => f.NextRunDateUtc, DateTime.UtcNow)
+    )
+));
+
+// NOT: exclude documents matching any condition (AND-NOT semantics)
+var results = await repository.FindAsync(q => q.FieldNot(g => g
+    .FieldEquals(f => f.BillingStatus, BillingStatus.Active)
+    .FieldEquals(f => f.BillingStatus, BillingStatus.Trialing)
+));
+
+// Dynamic/conditional OR groups (builder API)
+var group = FieldConditionGroup<Program>.Or();
+group.FieldEquals(f => f.IsPrivate, false);
+if (privateIds.Count > 0)
+    group.FieldEquals(f => f.PrivateId, privateIds);
+if (includeIds.Count > 0)
+    group.FieldEquals(f => f.Id, includeIds);
+var results = await repository.FindAsync(q => q.FieldOr(group));
+```
+
+> **FieldNot semantics:** Multiple conditions inside `FieldNot` produce NOT A AND NOT B (exclude documents matching **any** clause). For NOT (A AND B), nest an explicit AND: `FieldNot(g => g.FieldAnd(g2 => g2.FieldEquals(A).FieldEquals(B)))`.
+
+### Field-Type Validation
+
+The query builder performs runtime validation and throws `QueryValidationException` for detectable misuse:
+
+- **FieldEquals/FieldNotEquals on text-only fields** — throws if the field is an analyzed text field with no `.keyword` sub-field (TermQuery on analyzed fields almost never matches).
+- **FieldContains/FieldNotContains on keyword fields** — throws because MatchQuery requires an analyzed field.
+- **FieldEquals on IsDeleted with ActiveOnly soft-delete mode** — throws because it creates a contradictory filter.
+- **Range with null value** — throws with guidance to use `*If` variants or `FieldHasValue`/`FieldEmpty`.
+- **Range with collection value** — throws with guidance to use `FieldEquals` for multi-value matching.
+
+> **Note:** For wildcard/prefix matching on keyword fields, use `FilterExpression("field:pattern*")`. For phrase matching (adjacent words in order), use `FilterExpression("field:\"quick brown\"")`.
+
 
 ### Field Empty/Has Value
 
