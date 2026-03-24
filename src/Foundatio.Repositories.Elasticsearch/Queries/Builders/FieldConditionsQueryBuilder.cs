@@ -106,7 +106,8 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         if (!options.SupportsSoftDeletes() || options.GetSoftDeleteMode() is not SoftDeleteQueryMode.ActiveOnly)
             return;
 
-        if (!String.Equals(resolvedField, "isDeleted", StringComparison.OrdinalIgnoreCase))
+        string softDeleteField = ResolveSoftDeleteFieldName(options);
+        if (!String.Equals(resolvedField, softDeleteField, StringComparison.OrdinalIgnoreCase))
             return;
 
         if (condition.Value is not bool boolValue)
@@ -120,8 +121,8 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         {
             throw new QueryValidationException(
                 $"""
-                Field condition targets 'isDeleted' with operator '{condition.Operator}' and value '{boolValue}', but the current query uses ActiveOnly mode (the default).
-                The SoftDeletesQueryBuilder automatically adds an 'isDeleted: false' filter, so this condition creates a contradictory filter that returns zero results.
+                Field condition targets '{softDeleteField}' with operator '{condition.Operator}' and value '{boolValue}', but the current query uses ActiveOnly mode (the default).
+                The SoftDeletesQueryBuilder automatically adds an '{softDeleteField}: false' filter, so this condition creates a contradictory filter that returns zero results.
 
                 To fix this, add one of these to your query:
                   - .IncludeSoftDeletes()                            — returns both active and deleted documents
@@ -129,6 +130,22 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
                   - .SoftDeleteMode(SoftDeleteQueryMode.All)         — returns all documents regardless of delete status
                 """, resolvedField, condition.Operator.ToString());
         }
+    }
+
+    private static string ResolveSoftDeleteFieldName(ICommandOptions options)
+    {
+        var documentType = options.DocumentType();
+        var property = documentType?.GetProperty(nameof(Foundatio.Repositories.Models.ISupportSoftDeletes.IsDeleted));
+        var index = options.GetElasticIndex();
+
+        if (property is not null && index is not null)
+        {
+            string inferred = index.Configuration.Client.Infer.Field(new Field(property));
+            if (!String.IsNullOrEmpty(inferred))
+                return inferred;
+        }
+
+        return "isDeleted";
     }
 
     internal static async Task<QueryContainer> TranslateConditionAsync<T>(
