@@ -30,7 +30,7 @@ public class QueryValidationException : RepositoryException
         Operator = op;
     }
 
-    /// <summary>The Elasticsearch field name that caused the validation failure, or the original field identifier/expression when resolution has not yet occurred.</summary>
+    /// <summary>The resolved Elasticsearch field name that caused the validation failure.</summary>
     public string Field { get; }
 
     /// <summary>The comparison operator that was used (e.g., "Equals", "Contains", "GreaterThan"), if applicable.</summary>

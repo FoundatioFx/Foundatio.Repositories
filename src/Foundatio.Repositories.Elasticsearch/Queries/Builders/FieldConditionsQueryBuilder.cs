@@ -67,11 +67,14 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
 
         if (isRange)
         {
+            var resolver = ctx.GetMappingResolver();
+            string fieldName = resolver.GetResolvedField(condition.Field);
+
             if (condition.Value is null)
             {
                 throw new QueryValidationException(
                     $"""
-                    Range operator '{condition.Operator}' cannot be used with a null value on field '{condition.Field}'.
+                    Range operator '{condition.Operator}' cannot be used with a null value on field '{fieldName}'.
                     A null range bound is meaningless — there is no "greater than nothing".
 
                     To fix this:
@@ -79,20 +82,20 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
                       - Use FieldEmpty() to check if the field is missing
                       - Use the *If variant to conditionally add the range, for example:
                         .Field{condition.Operator}If(f => f.Property, value, value is not null)
-                    """, condition.Field.ToString(), condition.Operator.ToString());
+                    """, fieldName, condition.Operator.ToString());
             }
 
             if (condition.Value is IEnumerable and not string)
             {
                 throw new QueryValidationException(
                     $"""
-                    Range operator '{condition.Operator}' cannot be used with a collection value on field '{condition.Field}'.
+                    Range operator '{condition.Operator}' cannot be used with a collection value on field '{fieldName}'.
                     Range operators compare a single scalar value against the field.
 
                     To fix this:
                       - Use a single scalar value: .Field{condition.Operator}(f => f.Property, singleValue)
                       - For multiple value matching: .FieldEquals(f => f.Property, value1, value2, value3)
-                    """, condition.Field.ToString(), condition.Operator.ToString());
+                    """, fieldName, condition.Operator.ToString());
             }
         }
     }
