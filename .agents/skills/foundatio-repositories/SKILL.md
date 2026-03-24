@@ -141,7 +141,7 @@ var employee = hit?.Document;
 | `.Include(e => e.Field)` | Return only specific fields |
 | `.Exclude(e => e.Field)` | Exclude fields from response |
 
-All `Field*` methods have `*If` variants for conditional application (e.g., `.FieldEqualsIf(e => e.Field, value, condition)`).
+Most single-field `Field*` predicate methods (such as `FieldEquals`, `FieldNotEquals`, `FieldContains`, `FieldNotContains`, `FieldGreaterThan`, `FieldGreaterThanOrEqual`, `FieldLessThan`, `FieldLessThanOrEqual`, `FieldHasValue`, and `FieldEmpty`) have `*If` variants for conditional application (e.g., `.FieldEqualsIf(e => e.Field, value, condition)`).
 Range operators support DateTime, DateTimeOffset, numeric (int/long/double/float/decimal), and string types.
 
 ### FilterExpression (Lucene-style)

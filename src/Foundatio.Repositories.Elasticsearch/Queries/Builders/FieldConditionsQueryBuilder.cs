@@ -124,9 +124,9 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
                 The SoftDeletesQueryBuilder automatically adds an 'isDeleted: false' filter, so this condition creates a contradictory filter that returns zero results.
 
                 To fix this, add one of these to your query:
-                  - .IncludeSoftDeletes()        — returns both active and deleted documents
-                  - .SoftDeleteMode(DeletedOnly)  — returns only deleted documents
-                  - .SoftDeleteMode(All)          — returns all documents regardless of delete status
+                  - .IncludeSoftDeletes()                            — returns both active and deleted documents
+                  - .SoftDeleteMode(SoftDeleteQueryMode.DeletedOnly) — returns only deleted documents
+                  - .SoftDeleteMode(SoftDeleteQueryMode.All)         — returns all documents regardless of delete status
                 """, resolvedField, condition.Operator.ToString());
         }
     }
