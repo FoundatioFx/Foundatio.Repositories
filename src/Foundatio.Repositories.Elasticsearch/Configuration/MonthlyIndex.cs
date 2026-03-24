@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.Extensions;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
@@ -66,32 +68,30 @@ public class MonthlyIndex<T> : MonthlyIndex where T : class
         return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetLatestIndexMapping, _logger);
     }
 
-    public virtual TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map)
+    public virtual void ConfigureIndexMapping(TypeMappingDescriptor<T> map)
     {
-        return map.AutoMap<T>().Properties(p => p.SetupDefaults());
+        map.Properties(p => p.SetupDefaults());
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        idx = base.ConfigureIndex(idx);
-        return idx.Map<T>(f =>
+        base.ConfigureIndex(idx);
+        idx.Mappings<T>(f =>
         {
             if (CustomFieldTypes.Count > 0)
             {
                 f.DynamicTemplates(d =>
                 {
                     foreach (var customFieldType in CustomFieldTypes.Values)
-                        d.DynamicTemplate($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping));
-
-                    return d;
+                        d.Add($"idx_{customFieldType.Type}", df => df.PathMatch("idx.*").Match($"{customFieldType.Type}-*").Mapping(customFieldType.ConfigureMapping<T>()));
                 });
             }
 
-            return ConfigureIndexMapping(f);
+            ConfigureIndexMapping(f);
         });
     }
 
-    public override void ConfigureSettings(ConnectionSettings settings)
+    public override void ConfigureSettings(ElasticsearchClientSettings settings)
     {
         settings.DefaultMappingFor<T>(d => d.IndexName(Name));
     }

@@ -3,13 +3,15 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Parsers.LuceneQueries.Visitors;
+using Foundatio.Repositories.Elasticsearch.Utility;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders;
 
@@ -51,6 +53,8 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
             }
         }
     }
+
+    private static FieldValue ToFieldValue(object value) => FieldValueHelper.ToFieldValue(value);
 
     private static void ValidateCondition(FieldCondition condition)
     {
@@ -147,7 +151,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         return "isDeleted";
     }
 
-    internal static async Task<QueryContainer> TranslateConditionAsync<T>(
+    internal static async Task<Query> TranslateConditionAsync<T>(
         FieldCondition condition, ElasticMappingResolver resolver, QueryBuilderContext<T> ctx) where T : class, new()
     {
         if (condition.Value is null && condition.Operator is ComparisonOperator.Equals or ComparisonOperator.Contains)
@@ -176,35 +180,35 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         {
             case ComparisonOperator.Equals:
                 {
-                    QueryBase eqQuery;
+                    Query eqQuery;
                     if (condition.Value is IEnumerable and not string)
                     {
-                        var values = new List<object>();
+                        var values = new List<FieldValue>();
                         foreach (var value in (IEnumerable)condition.Value)
-                            values.Add(value);
-                        eqQuery = new TermsQuery { Field = resolvedField, Terms = values };
+                            values.Add(ToFieldValue(value));
+                        eqQuery = new TermsQuery { Field = resolvedField, Terms = new TermsQueryField(values) };
                     }
                     else
                     {
-                        eqQuery = new TermQuery { Field = resolvedField, Value = condition.Value };
+                        eqQuery = new TermQuery { Field = resolvedField, Value = ToFieldValue(condition.Value) };
                     }
                     return eqQuery;
                 }
             case ComparisonOperator.NotEquals:
                 {
-                    QueryBase neQuery;
+                    Query neQuery;
                     if (condition.Value is IEnumerable and not string)
                     {
-                        var values = new List<object>();
+                        var values = new List<FieldValue>();
                         foreach (var value in (IEnumerable)condition.Value)
-                            values.Add(value);
-                        neQuery = new TermsQuery { Field = resolvedField, Terms = values };
+                            values.Add(ToFieldValue(value));
+                        neQuery = new TermsQuery { Field = resolvedField, Terms = new TermsQueryField(values) };
                     }
                     else
                     {
-                        neQuery = new TermQuery { Field = resolvedField, Value = condition.Value };
+                        neQuery = new TermQuery { Field = resolvedField, Value = ToFieldValue(condition.Value) };
                     }
-                    return new BoolQuery { MustNot = new QueryContainer[] { neQuery } };
+                    return new BoolQuery { MustNot = new Query[] { neQuery } };
                 }
             case ComparisonOperator.Contains:
                 {
@@ -244,10 +248,10 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
                     string notContainsText = condition.Value is IEnumerable and not string
                         ? String.Join(" ", ((IEnumerable)condition.Value).Cast<object>())
                         : condition.Value?.ToString() ?? String.Empty;
-                    return new BoolQuery { MustNot = new QueryContainer[] { new MatchQuery { Field = resolvedField, Query = notContainsText, Operator = Operator.And } } };
+                    return new BoolQuery { MustNot = new Query[] { new MatchQuery { Field = resolvedField, Query = notContainsText, Operator = Operator.And } } };
                 }
             case ComparisonOperator.IsEmpty:
-                return new BoolQuery { MustNot = new QueryContainer[] { new ExistsQuery { Field = resolvedField } } };
+                return new BoolQuery { MustNot = new Query[] { new ExistsQuery { Field = resolvedField } } };
             case ComparisonOperator.HasValue:
                 return new ExistsQuery { Field = resolvedField };
             case ComparisonOperator.GreaterThan:
@@ -287,7 +291,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         }
     }
 
-    private static QueryContainer BuildRangeQuery(string field, ComparisonOperator op, object value)
+    private static Query BuildRangeQuery(string field, ComparisonOperator op, object value)
     {
         switch (value)
         {
@@ -296,17 +300,15 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
             case DateTimeOffset dtoValue:
                 return BuildDateRange(field, op, dtoValue.UtcDateTime);
             case int intValue:
-                return BuildNumericRange(field, op, intValue);
+                return BuildNumberRange(field, op, intValue);
             case long longValue:
-                return BuildLongRange(field, op, longValue);
+                return BuildNumberRange(field, op, longValue);
             case double doubleValue:
-                return BuildNumericRange(field, op, doubleValue);
+                return BuildNumberRange(field, op, doubleValue);
             case float floatValue:
-                return BuildNumericRange(field, op, floatValue);
+                return BuildNumberRange(field, op, (double)floatValue);
             case decimal decValue:
-                // NEST has no DecimalRangeQuery; NumericRangeQuery accepts double.
-                // Values exceeding ~15-17 significant digits may lose precision.
-                return BuildNumericRange(field, op, (double)decValue);
+                return BuildNumberRange(field, op, (double)decValue);
             case string strValue:
                 return BuildTermRange(field, op, strValue);
             default:
@@ -324,58 +326,37 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         switch (op)
         {
             case ComparisonOperator.GreaterThan:
-                query.GreaterThan = value;
+                query.Gt = value;
                 break;
             case ComparisonOperator.GreaterThanOrEqual:
-                query.GreaterThanOrEqualTo = value;
+                query.Gte = value;
                 break;
             case ComparisonOperator.LessThan:
-                query.LessThan = value;
+                query.Lt = value;
                 break;
             case ComparisonOperator.LessThanOrEqual:
-                query.LessThanOrEqualTo = value;
+                query.Lte = value;
                 break;
         }
         return query;
     }
 
-    private static NumericRangeQuery BuildNumericRange(string field, ComparisonOperator op, double value)
+    private static NumberRangeQuery BuildNumberRange(string field, ComparisonOperator op, double value)
     {
-        var query = new NumericRangeQuery { Field = field };
+        var query = new NumberRangeQuery { Field = field };
         switch (op)
         {
             case ComparisonOperator.GreaterThan:
-                query.GreaterThan = value;
+                query.Gt = value;
                 break;
             case ComparisonOperator.GreaterThanOrEqual:
-                query.GreaterThanOrEqualTo = value;
+                query.Gte = value;
                 break;
             case ComparisonOperator.LessThan:
-                query.LessThan = value;
+                query.Lt = value;
                 break;
             case ComparisonOperator.LessThanOrEqual:
-                query.LessThanOrEqualTo = value;
-                break;
-        }
-        return query;
-    }
-
-    private static LongRangeQuery BuildLongRange(string field, ComparisonOperator op, long value)
-    {
-        var query = new LongRangeQuery { Field = field };
-        switch (op)
-        {
-            case ComparisonOperator.GreaterThan:
-                query.GreaterThan = value;
-                break;
-            case ComparisonOperator.GreaterThanOrEqual:
-                query.GreaterThanOrEqualTo = value;
-                break;
-            case ComparisonOperator.LessThan:
-                query.LessThan = value;
-                break;
-            case ComparisonOperator.LessThanOrEqual:
-                query.LessThanOrEqualTo = value;
+                query.Lte = value;
                 break;
         }
         return query;
@@ -387,25 +368,25 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         switch (op)
         {
             case ComparisonOperator.GreaterThan:
-                query.GreaterThan = value;
+                query.Gt = value;
                 break;
             case ComparisonOperator.GreaterThanOrEqual:
-                query.GreaterThanOrEqualTo = value;
+                query.Gte = value;
                 break;
             case ComparisonOperator.LessThan:
-                query.LessThan = value;
+                query.Lt = value;
                 break;
             case ComparisonOperator.LessThanOrEqual:
-                query.LessThanOrEqualTo = value;
+                query.Lte = value;
                 break;
         }
         return query;
     }
 
-    private static async Task<QueryContainer> TranslateGroupAsync<T>(
+    private static async Task<Query> TranslateGroupAsync<T>(
         FieldConditionGroup group, ElasticMappingResolver resolver, QueryBuilderContext<T> ctx) where T : class, new()
     {
-        var clauses = new List<QueryContainer>();
+        var clauses = new List<Query>();
 
         foreach (var condition in group.Conditions)
         {

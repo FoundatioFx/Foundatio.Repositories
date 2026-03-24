@@ -2,12 +2,12 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -104,12 +104,12 @@ public class EmployeeWithCustomFieldsRepository : ElasticRepositoryBase<Employee
 
     public Task<CountResult> GetNumberOfEmployeesWithMissingCompanyName(string company)
     {
-        return CountAsync(q => q.Company(company).ElasticFilter(!Query<EmployeeWithCustomFields>.Exists(f => f.Field(e => e.CompanyName))));
+        return CountAsync(q => q.Company(company).ElasticFilter(new BoolQuery { MustNot = [new ExistsQuery { Field = "companyName" }] }));
     }
 
     public Task<CountResult> GetNumberOfEmployeesWithMissingName(string company)
     {
-        return CountAsync(q => q.Company(company).ElasticFilter(!Query<EmployeeWithCustomFields>.Exists(f => f.Field(e => e.Name))));
+        return CountAsync(q => q.Company(company).ElasticFilter(new BoolQuery { MustNot = [new ExistsQuery { Field = "name" }] }));
     }
 
     /// <summary>

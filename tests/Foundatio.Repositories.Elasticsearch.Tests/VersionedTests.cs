@@ -3,14 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Elasticsearch.Net;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
-using Nest;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -121,13 +120,13 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         var request = new UpdateRequest<Employee, Employee>(_configuration.Employees.Name, employee.Id)
         {
-            Script = new InlineScript("ctx._source.version = '112:2'"),
+            Script = new Script { Source = "ctx._source.version = '112:2'" },
             Refresh = Refresh.True
         };
 
         var response = await _client.UpdateAsync(request, TestCancellationToken);
         _logger.LogRequest(response);
-        Assert.True(response.IsValid);
+        Assert.True(response.IsValidResponse);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
         Assert.Equal("1:2", employee.Version);
@@ -306,7 +305,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees);
-        await _client.Indices.RefreshAsync(Indices.All, ct: TestCancellationToken);
+        await _client.Indices.RefreshAsync(Indices.All, cancellationToken: TestCancellationToken);
 
         Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 
@@ -342,7 +341,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         var employees = EmployeeGenerator.GenerateEmployees(NUMBER_OF_EMPLOYEES, companyId: "1");
         await _employeeRepository.AddAsync(employees);
-        await _client.Indices.RefreshAsync(Indices.All, ct: TestCancellationToken);
+        await _client.Indices.RefreshAsync(Indices.All, cancellationToken: TestCancellationToken);
 
         Assert.Equal(NUMBER_OF_EMPLOYEES, await _employeeRepository.CountAsync());
 

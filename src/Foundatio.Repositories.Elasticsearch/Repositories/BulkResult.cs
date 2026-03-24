@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
-using Nest;
+using Foundatio.Repositories.Elasticsearch.Extensions;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
@@ -36,12 +37,12 @@ internal sealed record BulkResult
 
     internal static BulkResult From(BulkResponse response)
     {
-        if (!response.IsValid && !response.ItemsWithErrors.Any())
+        if (!response.IsValidResponse && !response.ItemsWithErrors.Any())
         {
             return new BulkResult
             {
                 TransportError = response.GetErrorMessage("Error processing bulk operation"),
-                TransportException = response.OriginalException
+                TransportException = response.OriginalException()
             };
         }
 

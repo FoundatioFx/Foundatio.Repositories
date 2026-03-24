@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
-using Nest;
+using Elastic.Clients.Elasticsearch;
 
 namespace Foundatio.Repositories;
 

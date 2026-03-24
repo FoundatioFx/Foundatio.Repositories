@@ -1,5 +1,5 @@
-﻿using Foundatio.Repositories.Models;
-using Nest;
+﻿using Elastic.Clients.Elasticsearch;
+using Foundatio.Repositories.Models;
 
 namespace Foundatio.Repositories.Elasticsearch;
 

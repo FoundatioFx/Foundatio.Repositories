@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Text.Json;
 using Foundatio.Repositories.Models;
 
-namespace Foundatio.Repositories.Utility;
+namespace Foundatio.Repositories.Serialization;
 
 public class AggregationsSystemTextJsonConverter : System.Text.Json.Serialization.JsonConverter<IAggregate>
 {
@@ -25,7 +25,7 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
             "percentiles" => DeserializePercentiles(element, options),
             "sbucket" => DeserializeSingleBucket(element, options),
             "stats" => element.Deserialize<StatsAggregate>(options),
-            // TopHitsAggregate cannot be round-tripped: it holds ILazyDocument references (raw ES doc bytes) that require a serializer instance to materialize.
+            "tophits" => element.Deserialize<TopHitsAggregate>(options),
             "value" => element.Deserialize<ValueAggregate>(options),
             "dvalue" => element.Deserialize<ValueAggregate<DateTime>>(options),
             _ => null
@@ -36,12 +36,7 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
 
     public override void Write(Utf8JsonWriter writer, IAggregate value, JsonSerializerOptions options)
     {
-        var serializerOptions = new JsonSerializerOptions(options)
-        {
-            Converters = { new DoubleSystemTextJsonConverter() }
-        };
-
-        JsonSerializer.Serialize(writer, value, value.GetType(), serializerOptions);
+        JsonSerializer.Serialize(writer, value, value.GetType(), options);
     }
 
     private static PercentilesAggregate DeserializePercentiles(JsonElement element, JsonSerializerOptions options)
@@ -83,7 +78,6 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
     private static string GetTokenType(JsonElement element)
     {
         var dataPropertyElement = GetProperty(element, "Data");
-
         if (dataPropertyElement != null && dataPropertyElement.Value.TryGetProperty("@type", out var typeElement))
             return typeElement.ToString();
 

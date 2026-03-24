@@ -1,65 +1,47 @@
-﻿using System;
-using System.IO;
-using System.Reflection;
-using Elasticsearch.Net;
-using Nest;
+using System;
+using System.Text.Json;
+using Elastic.Clients.Elasticsearch.Core.Search;
+using Foundatio.Serializer;
 using ILazyDocument = Foundatio.Repositories.Models.ILazyDocument;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 public class ElasticLazyDocument : ILazyDocument
 {
-    private readonly Nest.ILazyDocument _inner;
-    private IElasticsearchSerializer _requestResponseSerializer;
+    private readonly Hit<object> _hit;
+    private readonly ITextSerializer _serializer;
 
-    public ElasticLazyDocument(Nest.ILazyDocument inner)
+    public ElasticLazyDocument(Hit<object> hit, ITextSerializer serializer)
     {
-        _inner = inner;
+        _hit = hit;
+        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
     }
-
-    private static readonly Lazy<Func<Nest.ILazyDocument, IElasticsearchSerializer>> _getSerializer =
-        new(() =>
-        {
-            var serializerField = typeof(Nest.LazyDocument).GetField("_requestResponseSerializer", BindingFlags.GetField | BindingFlags.NonPublic | BindingFlags.Instance);
-            return lazyDocument =>
-            {
-                var d = lazyDocument as Nest.LazyDocument;
-                if (d == null)
-                    return null;
-
-                var serializer = serializerField?.GetValue(d) as IElasticsearchSerializer;
-                return serializer;
-            };
-        });
-
-    private static readonly Lazy<Func<Nest.ILazyDocument, byte[]>> _getBytes =
-        new(() =>
-        {
-            var bytesProperty = typeof(Nest.LazyDocument).GetProperty("Bytes", BindingFlags.GetProperty | BindingFlags.NonPublic | BindingFlags.Instance);
-            return lazyDocument =>
-            {
-                var d = lazyDocument as Nest.LazyDocument;
-                if (d == null)
-                    return null;
-
-                var bytes = bytesProperty?.GetValue(d) as byte[];
-                return bytes;
-            };
-        });
 
     public T As<T>() where T : class
     {
-        if (_requestResponseSerializer == null)
-            _requestResponseSerializer = _getSerializer.Value(_inner);
+        if (_hit?.Source is null)
+            return null;
 
-        var bytes = _getBytes.Value(_inner);
-        var hit = _requestResponseSerializer.Deserialize<IHit<T>>(new MemoryStream(bytes));
-        return hit?.Source;
+        if (_hit.Source is T typed)
+            return typed;
+
+        if (_hit.Source is JsonElement jsonElement)
+            return _serializer.Deserialize<T>(jsonElement.GetRawText());
+
+        return _serializer.Deserialize<T>(_serializer.SerializeToString(_hit.Source));
     }
 
     public object As(Type objectType)
     {
-        var hitType = typeof(IHit<>).MakeGenericType(objectType);
-        return _inner.As(hitType);
+        if (_hit?.Source is null)
+            return null;
+
+        if (objectType.IsInstanceOfType(_hit.Source))
+            return _hit.Source;
+
+        if (_hit.Source is JsonElement jsonElement)
+            return _serializer.Deserialize(jsonElement.GetRawText(), objectType);
+
+        return _serializer.Deserialize(_serializer.SerializeToString(_hit.Source), objectType);
     }
 }

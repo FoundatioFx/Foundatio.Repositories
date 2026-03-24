@@ -46,16 +46,15 @@ public sealed class EmployeeIndex : VersionedIndex<Employee>
     public EmployeeIndex(IElasticConfiguration configuration) 
         : base(configuration, "employees", version: 1) { }
 
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(
-        TypeMappingDescriptor<Employee> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
     {
-        return map
-            .Dynamic(false)
+        map
+            .Dynamic(DynamicMapping.False)
             .Properties(p => p
                 .SetupDefaults()
-                .Text(f => f.Name(e => e.Name).AddKeywordAndSortFields())
-                .Text(f => f.Name(e => e.Email).AddKeywordAndSortFields())
-                .Number(f => f.Name(e => e.Age).Type(NumberType.Integer))
+                .Text(e => e.Name, t => t.AddKeywordAndSortFields())
+                .Text(e => e.Email, t => t.AddKeywordAndSortFields())
+                .IntegerNumber(e => e.Age)
             );
     }
 }

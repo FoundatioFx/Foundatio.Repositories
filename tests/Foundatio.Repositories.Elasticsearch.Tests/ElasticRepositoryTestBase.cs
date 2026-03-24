@@ -2,16 +2,17 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Caching;
 using Foundatio.Jobs;
 using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
+using Foundatio.Serializer;
 using Foundatio.Utility;
 using Foundatio.Xunit;
 using Microsoft.Extensions.Logging;
-using Nest;
 using Xunit;
 using IAsyncLifetime = Xunit.IAsyncLifetime;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -22,9 +23,10 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
 {
     protected readonly MyAppElasticConfiguration _configuration;
     protected readonly InMemoryCacheClient _cache;
-    protected readonly IElasticClient _client;
+    protected readonly ElasticsearchClient _client;
     protected readonly IQueue<WorkItemData> _workItemQueue;
     protected readonly InMemoryMessageBus _messageBus;
+    protected readonly ITextSerializer _serializer;
 
     public ElasticRepositoryTestBase(ITestOutputHelper output) : base(output)
     {
@@ -35,6 +37,7 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
         _workItemQueue = new InMemoryQueue<WorkItemData>(new InMemoryQueueOptions<WorkItemData> { LoggerFactory = Log });
         _configuration = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log);
         _client = _configuration.Client;
+        _serializer = _configuration.Serializer;
     }
 
     private static bool _elasticsearchReady;
@@ -56,7 +59,7 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
 
         await _workItemQueue.DeleteQueueAsync();
         await _configuration.DeleteIndexesAsync();
-        await _client.Indices.DeleteAsync(Indices.Parse("employee*"));
+        await DeleteWildcardIndicesAsync("employee*");
         if (configureIndexes)
             await _configuration.ConfigureIndexesAsync(null, false);
 
@@ -68,6 +71,18 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
         _logger.LogInformation("Done removing data {Duration:g}", sw.Elapsed);
 
         Log.DefaultLogLevel = minimumLevel;
+    }
+
+    protected async Task DeleteWildcardIndicesAsync(string pattern)
+    {
+        // Use GetAsync to resolve wildcards to actual index names to avoid issues with action.destructive_requires_name=true.
+        // Note: ResolveIndexAsync sends a body in ES 9.x client which ES rejects; use GetAsync instead.
+        var getResponse = await _client.Indices.GetAsync(Indices.Parse(pattern), d => d.IgnoreUnavailable());
+        if (getResponse.IsValidResponse && getResponse.Indices != null && getResponse.Indices.Count > 0)
+        {
+            var indexNames = string.Join(",", getResponse.Indices.Keys);
+            await _client.Indices.DeleteAsync(Indices.Parse(indexNames), i => i.IgnoreUnavailable());
+        }
     }
 
     public virtual ValueTask DisposeAsync() => ValueTask.CompletedTask;
