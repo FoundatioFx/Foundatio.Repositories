@@ -114,12 +114,14 @@ var results = await repository.FindAsync(q => q
 
 // Conditional range (only applied when condition is true)
 var results = await repository.FindAsync(q => q
-    .FieldGreaterThanIf(e => e.Age, minAge, minAge.HasValue));
+    .FieldGreaterThanIf(e => e.Age, minAge, minAge != null));
 ```
 
 > **String ranges require keyword fields:** String range operators generate a `TermRangeQuery` and automatically resolve to the `.keyword` sub-field (like `FieldEquals`). If the field is an analyzed text field with no `.keyword` sub-field, a `QueryValidationException` is thrown at build time.
 
 **DateRange vs range operators:** Use `.DateRange(start, end, field)` for bounded date windows (validates start < end, supports timezone). Use `FieldGreaterThan`/`FieldLessThanOrEqual` etc. for one-sided comparisons and non-date types.
+
+> **Numeric precision note:** NEST's `NumericRangeQuery` uses `double` internally. `long` values greater than 2^53 and `decimal` values with more than ~15 significant digits may lose precision. For such cases, use `FilterExpression` with Lucene range syntax for full precision.
 
 ### Contains (Full-Text Token Matching)
 

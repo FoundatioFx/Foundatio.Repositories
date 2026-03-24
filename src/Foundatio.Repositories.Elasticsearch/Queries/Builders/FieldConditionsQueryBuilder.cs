@@ -79,8 +79,8 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
                     To fix this:
                       - Use FieldHasValue() to check if the field exists
                       - Use FieldEmpty() to check if the field is missing
-                      - Use the *If variant to conditionally add the range:
-                        .Field{condition.Operator}If(f => f.Property, value, value.HasValue)
+                      - Use the *If variant to conditionally add the range, for example:
+                        .Field{condition.Operator}If(f => f.Property, value, value != null)
                     """, fieldName, condition.Operator.ToString());
             }
 
@@ -338,6 +338,12 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         return query;
     }
 
+    /// <remarks>
+    /// NEST's <see cref="NumericRangeQuery"/> only supports <c>double?</c> for range boundaries.
+    /// This means <c>long</c> values greater than 2^53 and <c>decimal</c> values with more than
+    /// ~15 significant digits may lose precision when converted to <c>double</c>. For such cases,
+    /// consider using <c>FilterExpression</c> with Lucene range syntax for full precision.
+    /// </remarks>
     private static NumericRangeQuery BuildNumericRange(string field, ComparisonOperator op, double value)
     {
         var query = new NumericRangeQuery { Field = field };
