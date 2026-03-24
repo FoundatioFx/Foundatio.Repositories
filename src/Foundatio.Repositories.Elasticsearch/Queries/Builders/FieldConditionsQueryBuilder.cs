@@ -35,7 +35,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         {
             foreach (var fieldValue in fieldConditions)
             {
-                ValidateCondition(fieldValue, ctx);
+                ValidateCondition(fieldValue);
                 ctx.Filter &= await TranslateConditionAsync(fieldValue, resolver, ctx).AnyContext();
             }
         }
@@ -52,51 +52,51 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         }
     }
 
-    private static void ValidateCondition<T>(FieldCondition condition, QueryBuilderContext<T> ctx) where T : class, new()
+    private static void ValidateCondition(FieldCondition condition)
     {
         if (condition.Field is null)
         {
             throw new QueryValidationException(
                 "A FieldCondition was added with a null field. Every condition must specify which field it applies to. This is likely a bug in the query construction code.");
         }
+    }
 
+    private static void ValidateRangeCondition(string resolvedField, FieldCondition condition)
+    {
         bool isRange = condition.Operator is ComparisonOperator.GreaterThan
             or ComparisonOperator.GreaterThanOrEqual
             or ComparisonOperator.LessThan
             or ComparisonOperator.LessThanOrEqual;
 
-        if (isRange)
+        if (!isRange)
+            return;
+
+        if (condition.Value is null)
         {
-            var resolver = ctx.GetMappingResolver();
-            string fieldName = resolver.GetResolvedField(condition.Field);
+            throw new QueryValidationException(
+                $"""
+                Range operator '{condition.Operator}' cannot be used with a null value on field '{resolvedField}'.
+                A null range bound is meaningless — there is no "greater than nothing".
 
-            if (condition.Value is null)
-            {
-                throw new QueryValidationException(
-                    $"""
-                    Range operator '{condition.Operator}' cannot be used with a null value on field '{fieldName}'.
-                    A null range bound is meaningless — there is no "greater than nothing".
+                To fix this:
+                  - Use FieldHasValue() to check if the field exists
+                  - Use FieldEmpty() to check if the field is missing
+                  - Use the *If variant to conditionally add the range, for example:
+                    .Field{condition.Operator}If(f => f.Property, value, value is not null)
+                """, resolvedField, condition.Operator.ToString());
+        }
 
-                    To fix this:
-                      - Use FieldHasValue() to check if the field exists
-                      - Use FieldEmpty() to check if the field is missing
-                      - Use the *If variant to conditionally add the range, for example:
-                        .Field{condition.Operator}If(f => f.Property, value, value is not null)
-                    """, fieldName, condition.Operator.ToString());
-            }
+        if (condition.Value is IEnumerable and not string)
+        {
+            throw new QueryValidationException(
+                $"""
+                Range operator '{condition.Operator}' cannot be used with a collection value on field '{resolvedField}'.
+                Range operators compare a single scalar value against the field.
 
-            if (condition.Value is IEnumerable and not string)
-            {
-                throw new QueryValidationException(
-                    $"""
-                    Range operator '{condition.Operator}' cannot be used with a collection value on field '{fieldName}'.
-                    Range operators compare a single scalar value against the field.
-
-                    To fix this:
-                      - Use a single scalar value: .Field{condition.Operator}(f => f.Property, singleValue)
-                      - For multiple value matching: .FieldEquals(f => f.Property, value1, value2, value3)
-                    """, fieldName, condition.Operator.ToString());
-            }
+                To fix this:
+                  - Use a single scalar value: .Field{condition.Operator}(f => f.Property, singleValue)
+                  - For multiple value matching: .FieldEquals(f => f.Property, value1, value2, value3)
+                """, resolvedField, condition.Operator.ToString());
         }
     }
 
@@ -165,6 +165,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         string resolvedField = await ResolveFieldAsync(ctx, resolver, condition.Field, nonAnalyzed || isStringRange).AnyContext();
 
         ValidateSoftDeleteCondition(resolvedField, condition, ctx.Options);
+        ValidateRangeCondition(resolvedField, condition);
 
         if (nonAnalyzed || isStringRange)
         {
@@ -408,7 +409,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
 
         foreach (var condition in group.Conditions)
         {
-            ValidateCondition(condition, ctx);
+            ValidateCondition(condition);
             clauses.Add(await TranslateConditionAsync(condition, resolver, ctx).AnyContext());
         }
 
