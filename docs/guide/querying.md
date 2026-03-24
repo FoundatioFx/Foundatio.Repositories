@@ -76,7 +76,7 @@ var results = await repository.FindAsync(q => q.FieldEquals(e => e.Type, Employe
 
 ### Field Conditions
 
-`FieldCondition` supports equality, text matching, and existence checks:
+`FieldCondition` supports equality, text matching, existence checks, and range comparisons:
 
 ```csharp
 // Equality check
