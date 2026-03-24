@@ -299,41 +299,13 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
             case int intValue:
                 return BuildNumericRange(field, op, intValue);
             case long longValue:
-                {
-                    double converted = longValue;
-                    if ((long)converted != longValue)
-                    {
-                        throw new QueryValidationException(
-                            $"""
-                        Range operator '{op}' on field '{field}' received a long value ({longValue}) that loses precision when converted to double.
-                        NEST's NumericRangeQuery uses double internally, which can only represent integers exactly up to 2^53 (9,007,199,254,740,992).
-
-                        To fix this, use FilterExpression with Lucene range syntax for full precision:
-                          .FilterExpression("{field}:[{longValue} TO *]")
-                        """, field, op.ToString());
-                    }
-                    return BuildNumericRange(field, op, converted);
-                }
+                return BuildLongRange(field, op, longValue);
             case double doubleValue:
                 return BuildNumericRange(field, op, doubleValue);
             case float floatValue:
                 return BuildNumericRange(field, op, floatValue);
             case decimal decValue:
-                {
-                    double converted = (double)decValue;
-                    if ((decimal)converted != decValue)
-                    {
-                        throw new QueryValidationException(
-                            $"""
-                        Range operator '{op}' on field '{field}' received a decimal value ({decValue}) that loses precision when converted to double.
-                        NEST's NumericRangeQuery uses double internally, which has ~15-17 significant digits of precision.
-
-                        To fix this, use FilterExpression with Lucene range syntax for full precision:
-                          .FilterExpression("{field}:[{decValue} TO *]")
-                        """, field, op.ToString());
-                    }
-                    return BuildNumericRange(field, op, converted);
-                }
+                return BuildNumericRange(field, op, (double)decValue);
             case string strValue:
                 return BuildTermRange(field, op, strValue);
             default:
@@ -366,15 +338,30 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         return query;
     }
 
-    /// <remarks>
-    /// NEST's <see cref="NumericRangeQuery"/> only supports <c>double?</c> for range boundaries.
-    /// Callers must convert to <c>double</c> before calling this method. Precision loss for
-    /// <c>long</c> (> 2^53) and <c>decimal</c> (> ~15 significant digits) is detected and
-    /// rejected by <see cref="BuildRangeQuery"/> before reaching this method.
-    /// </remarks>
     private static NumericRangeQuery BuildNumericRange(string field, ComparisonOperator op, double value)
     {
         var query = new NumericRangeQuery { Field = field };
+        switch (op)
+        {
+            case ComparisonOperator.GreaterThan:
+                query.GreaterThan = value;
+                break;
+            case ComparisonOperator.GreaterThanOrEqual:
+                query.GreaterThanOrEqualTo = value;
+                break;
+            case ComparisonOperator.LessThan:
+                query.LessThan = value;
+                break;
+            case ComparisonOperator.LessThanOrEqual:
+                query.LessThanOrEqualTo = value;
+                break;
+        }
+        return query;
+    }
+
+    private static LongRangeQuery BuildLongRange(string field, ComparisonOperator op, long value)
+    {
+        var query = new LongRangeQuery { Field = field };
         switch (op)
         {
             case ComparisonOperator.GreaterThan:
