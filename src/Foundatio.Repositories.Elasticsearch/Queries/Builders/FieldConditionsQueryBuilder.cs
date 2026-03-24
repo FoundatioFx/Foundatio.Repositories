@@ -79,7 +79,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
                       - Use FieldEmpty() to check if the field is missing
                       - Use the *If variant to conditionally add the range, for example:
                         .Field{condition.Operator}If(f => f.Property, value, value is not null)
-                    """, condition.Field?.ToString(), condition.Operator.ToString());
+                    """, condition.Field.ToString(), condition.Operator.ToString());
             }
 
             if (condition.Value is IEnumerable and not string)
@@ -92,7 +92,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
                     To fix this:
                       - Use a single scalar value: .Field{condition.Operator}(f => f.Property, singleValue)
                       - For multiple value matching: .FieldEquals(f => f.Property, value1, value2, value3)
-                    """, condition.Field?.ToString(), condition.Operator.ToString());
+                    """, condition.Field.ToString(), condition.Operator.ToString());
             }
         }
     }
