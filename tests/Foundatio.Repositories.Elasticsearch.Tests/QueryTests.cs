@@ -932,7 +932,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Null(result.Message);
     }
 
-
     [Fact]
     public async Task FieldAnd_AtTopLevel_RequiresAllConditions()
     {
@@ -955,7 +954,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(25, result.Documents.First().Age);
     }
 
-
     [Fact]
     public async Task FieldConditionIf_WithFuncConditionReturnsFalse_ReturnsAllDocuments()
     {
@@ -973,7 +971,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Assert
         Assert.Equal(2, result.Total);
     }
-
 
     [Fact]
     public async Task FieldConditionIf_WithFuncCondition_AppliesWhenFuncReturnsTrue()
@@ -993,7 +990,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal("Acme", result.Documents.First().CompanyName);
     }
 
-
     [Fact]
     public async Task FieldContainsIf_WhenConditionFalse_ReturnsAllDocuments()
     {
@@ -1010,7 +1006,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(2, result.Total);
     }
 
-
     [Fact]
     public async Task FieldContains_OnKeywordField_ThrowsQueryValidationException()
     {
@@ -1026,7 +1021,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Contains("non-analyzed", ex.Message);
         Assert.Contains("FieldEquals", ex.Message);
     }
-
 
     [Fact]
     public async Task FieldContains_WithMultipleTokens_MatchesAllTokensOrderIndependent()
@@ -1045,7 +1039,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal("Eric J. Smith", result.Documents.First().Name);
     }
 
-
     [Fact]
     public async Task FieldContains_WithPartialToken_DoesNotMatch()
     {
@@ -1058,7 +1051,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Assert
         Assert.Empty(result.Documents);
     }
-
 
     [Fact]
     public async Task FieldContains_WithSingleToken_MatchesAnalyzedField()
@@ -1077,7 +1069,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal("Eric J. Smith", result.Documents.First().Name);
     }
 
-
     [Fact]
     public async Task FieldEmptyIf_WhenConditionFalse_ReturnsAllDocuments()
     {
@@ -1093,7 +1084,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Assert
         Assert.Equal(2, result.Total);
     }
-
 
     [Fact]
     public async Task FieldEmptyIf_WhenConditionTrue_FiltersToDocumentsWithoutValue()
@@ -1112,7 +1102,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Null(result.Documents.First().Name);
     }
 
-
     [Fact]
     public async Task FieldEqualsIf_WhenConditionFalse_ReturnsAllDocuments()
     {
@@ -1129,7 +1118,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Assert
         Assert.Equal(2, result.Total);
     }
-
 
     [Fact]
     public async Task FieldEqualsIf_WhenConditionTrue_FiltersDocuments()
@@ -1149,7 +1137,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal("Acme", result.Documents.First().CompanyName);
     }
 
-
     [Fact]
     public async Task FieldEquals_OnAnalyzedFieldWithKeyword_ResolvesToKeyword()
     {
@@ -1167,7 +1154,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(1, result.Total);
         Assert.Equal("Eric", result.Documents.First().Name);
     }
-
 
     [Fact]
     public async Task FieldEquals_OnAnalyzedFieldWithNoKeyword_ThrowsQueryValidationException()
@@ -1188,7 +1174,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Contains(".keyword", ex.Message);
     }
 
-
     [Fact]
     public async Task FieldEquals_OnIsDeletedFalseWithActiveOnlyMode_DoesNotThrow()
     {
@@ -1202,7 +1187,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Assert
         Assert.Equal(1, result.Total);
     }
-
 
     [Fact]
     public async Task FieldEquals_OnIsDeletedWithActiveOnlyMode_ThrowsQueryValidationException()
@@ -1221,7 +1205,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Contains("IncludeSoftDeletes", ex.Message);
     }
 
-
     [Fact]
     public async Task FieldEquals_OnIsDeletedWithSoftDeleteModeAll_DoesNotThrow()
     {
@@ -1236,7 +1219,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Assert
         Assert.Equal(1, result.Total);
     }
-
 
     [Fact]
     public async Task FieldGreaterThanIf_WhenConditionFalse_ReturnsAllDocuments()
@@ -1254,7 +1236,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(2, result.Total);
     }
 
-
     [Fact]
     public async Task FieldGreaterThanIf_WhenConditionTrue_FiltersDocuments()
     {
@@ -1271,7 +1252,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(1, result.Total);
     }
 
-
     [Fact]
     public async Task FieldGreaterThanOrEqual_WithDouble_ReturnsMatchingDocuments()
     {
@@ -1287,7 +1267,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Assert
         Assert.Equal(1, result.Total);
     }
-
 
     [Fact]
     public async Task FieldGreaterThanOrEqual_WithIntAge_ReturnsMatchingAndOlder()
@@ -1307,7 +1286,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.True(result.Documents.All(d => d.Age >= 18));
     }
 
-
     [Fact]
     public async Task FieldGreaterThan_WithDateTime_ReturnsNewerDocuments()
     {
@@ -1324,7 +1302,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Assert
         Assert.Equal(1, result.Total);
     }
-
 
     [Fact]
     public async Task FieldGreaterThan_WithIntAge_ReturnsOlderEmployees()
@@ -1343,7 +1320,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(2, result.Total);
         Assert.True(result.Documents.All(d => d.Age > 18));
     }
-
 
     [Fact]
     public async Task FieldGreaterThan_WithLongValue_UsesLongRangeQuery()
@@ -1364,7 +1340,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.True(result.Documents.All(d => d.Age > 25));
     }
 
-
     [Fact]
     public async Task FieldGreaterThan_WithStringOnAnalyzedFieldWithKeyword_ResolvesToKeyword()
     {
@@ -1383,7 +1358,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(1, result.Total);
         Assert.Equal("Gamma", result.Documents.First().Name);
     }
-
 
     [Fact]
     public async Task FieldGreaterThan_WithStringOnAnalyzedFieldWithNoKeyword_ThrowsQueryValidationException()
@@ -1404,7 +1378,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Contains(".keyword", ex.Message);
     }
 
-
     [Fact]
     public async Task FieldGreaterThan_WithStringOnKeywordField_ReturnsMatchingDocuments()
     {
@@ -1424,7 +1397,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal("Gamma", result.Documents.First().CompanyName);
     }
 
-
     [Fact]
     public async Task FieldHasValueIf_WhenConditionFalse_ReturnsAllDocuments()
     {
@@ -1440,7 +1412,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Assert
         Assert.Equal(2, result.Total);
     }
-
 
     [Fact]
     public async Task FieldHasValueIf_WhenConditionTrue_FiltersToDocumentsWithValue()
@@ -1459,7 +1430,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.NotNull(result.Documents.First().Name);
     }
 
-
     [Fact]
     public async Task FieldLessThanOrEqual_WithDateTimeOffset_ReturnsOlderDocuments()
     {
@@ -1476,7 +1446,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Assert
         Assert.Equal(1, result.Total);
     }
-
 
     [Fact]
     public async Task FieldLessThanOrEqual_WithIntAge_ReturnsMatchingAndYounger()
@@ -1495,7 +1464,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(2, result.Total);
         Assert.True(result.Documents.All(d => d.Age <= 25));
     }
-
 
     [Fact]
     public async Task FieldLessThanOrEqual_WithLongValue_UsesLongRangeQuery()
@@ -1516,7 +1484,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.True(result.Documents.All(d => d.Age <= 25));
     }
 
-
     [Fact]
     public async Task FieldLessThanOrEqual_WithStringOnKeywordField_ReturnsMatchingDocuments()
     {
@@ -1536,7 +1503,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.True(result.Documents.All(d => String.Compare(d.CompanyName, "Beta", StringComparison.Ordinal) <= 0));
     }
 
-
     [Fact]
     public async Task FieldLessThan_WithIntAge_ReturnsYoungerEmployees()
     {
@@ -1555,7 +1521,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.True(result.Documents.All(d => d.Age < 25));
     }
 
-
     [Fact]
     public async Task FieldNotContains_OnKeywordField_ThrowsQueryValidationException()
     {
@@ -1571,7 +1536,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Contains("non-analyzed", ex.Message);
         Assert.Contains("FieldNotEquals", ex.Message);
     }
-
 
     [Fact]
     public async Task FieldNotContains_WithMatchingToken_ExcludesDocuments()
@@ -1589,7 +1553,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Single(result.Documents);
         Assert.Equal("Blake Niemyjski", result.Documents.First().Name);
     }
-
 
     [Fact]
     public async Task FieldNotEqualsIf_WhenConditionTrue_ExcludesMatchingDocuments()
@@ -1609,7 +1572,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal("Globex", result.Documents.First().CompanyName);
     }
 
-
     [Fact]
     public async Task FieldNotEquals_WithNonNullValue_ExcludesMatchingDocuments()
     {
@@ -1628,7 +1590,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(1, result.Total);
         Assert.Equal("Globex", result.Documents.First().CompanyName);
     }
-
 
     [Fact]
     public async Task FieldNot_WithMultipleConditions_ExcludesDocumentsMatchingAny()
@@ -1651,7 +1612,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal("Pending", result.Documents.First().CompanyName);
     }
 
-
     [Fact]
     public async Task FieldNot_WithSingleCondition_ExcludesMatchingDocuments()
     {
@@ -1671,7 +1631,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(1, result.Total);
         Assert.Equal("Inactive", result.Documents.First().CompanyName);
     }
-
 
     [Fact]
     public async Task FieldOr_WithBuilderApi_SupportsDynamicConditionalGroups()
@@ -1697,7 +1656,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(2, result.Total);
     }
 
-
     [Fact]
     public async Task FieldOr_WithEmptyLambda_ReturnsAllDocuments()
     {
@@ -1713,7 +1671,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Assert
         Assert.Equal(2, result.Total);
     }
-
 
     [Fact]
     public async Task FieldOr_WithFieldEmpty_MatchesDocumentsWithOrWithoutValue()
@@ -1735,7 +1692,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(2, result.Total);
     }
 
-
     [Fact]
     public async Task FieldOr_WithMixedRangeAndEquals_MatchesBothConditions()
     {
@@ -1755,7 +1711,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Assert
         Assert.Equal(2, result.Total);
     }
-
 
     [Fact]
     public async Task FieldOr_WithNestedFieldAnd_ProducesCorrectBoolQuery()
@@ -1781,7 +1736,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(2, result.Total);
     }
 
-
     [Fact]
     public async Task FieldOr_WithNullRangeInsideGroup_ThrowsQueryValidationException()
     {
@@ -1801,7 +1755,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Contains("GreaterThan", ex.Message);
     }
 
-
     [Fact]
     public async Task FieldOr_WithSingleCondition_UnwrapsWithoutBoolQuery()
     {
@@ -1819,7 +1772,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Assert
         Assert.Equal(1, result.Total);
     }
-
 
     [Fact]
     public async Task FieldOr_WithTwoConditions_MatchesEitherCondition()
@@ -1842,7 +1794,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.True(result.Documents.All(d => d.Age is 18 or 25));
     }
 
-
     [Fact]
     public async Task FieldRange_WithCollectionValue_ThrowsQueryValidationException()
     {
@@ -1857,7 +1808,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
 
         Assert.Contains("collection value", ex.Message);
     }
-
 
     [Fact]
     public async Task FieldRange_WithCombinedBounds_ReturnsDocumentsInRange()
@@ -1880,7 +1830,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.True(result.Documents.All(d => d.Age >= 20 && d.Age < 30));
     }
 
-
     [Fact]
     public async Task FieldRange_WithNullValue_ThrowsQueryValidationException()
     {
@@ -1896,7 +1845,6 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Contains("null value", ex.Message);
         Assert.Contains("GreaterThan", ex.Message);
     }
-
 
     [Fact]
     public async Task FieldRange_WithUnsupportedType_ThrowsQueryValidationException()
@@ -1914,6 +1862,5 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Contains("unsupported type", ex.Message);
         Assert.Contains("Guid", ex.Message);
     }
-
 }
 
