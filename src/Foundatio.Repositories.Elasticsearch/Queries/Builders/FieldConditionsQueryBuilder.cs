@@ -195,13 +195,13 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
                     {
                         throw new QueryValidationException(
                             $"""
-                        FieldContains cannot be used on field '{resolvedField}' because it is a non-analyzed (keyword) field.
-                        FieldContains generates a MatchQuery which requires an analyzed text field to tokenize the input.
+                            FieldContains cannot be used on field '{resolvedField}' because it is a non-analyzed (keyword) field.
+                            FieldContains generates a MatchQuery which requires an analyzed text field to tokenize the input.
 
-                        To fix this, either:
-                          - Use FieldEquals() for exact matching on keyword fields
-                          - Change the field mapping to a text type if you need full-text search
-                        """, resolvedField, nameof(ComparisonOperator.Contains));
+                            To fix this, either:
+                              - Use FieldEquals() for exact matching on keyword fields
+                              - Change the field mapping to a text type if you need full-text search
+                            """, resolvedField, nameof(ComparisonOperator.Contains));
                     }
 
                     string containsText = condition.Value is IEnumerable and not string
@@ -215,13 +215,13 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
                     {
                         throw new QueryValidationException(
                             $"""
-                        FieldNotContains cannot be used on field '{resolvedField}' because it is a non-analyzed (keyword) field.
-                        FieldNotContains generates a MatchQuery which requires an analyzed text field to tokenize the input.
+                            FieldNotContains cannot be used on field '{resolvedField}' because it is a non-analyzed (keyword) field.
+                            FieldNotContains generates a MatchQuery which requires an analyzed text field to tokenize the input.
 
-                        To fix this, either:
-                          - Use FieldNotEquals() for exact negation on keyword fields
-                          - Change the field mapping to a text type if you need full-text search
-                        """, resolvedField, nameof(ComparisonOperator.NotContains));
+                            To fix this, either:
+                              - Use FieldNotEquals() for exact negation on keyword fields
+                              - Change the field mapping to a text type if you need full-text search
+                            """, resolvedField, nameof(ComparisonOperator.NotContains));
                     }
 
                     string notContainsText = condition.Value is IEnumerable and not string
