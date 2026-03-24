@@ -121,7 +121,7 @@ var results = await repository.FindAsync(q => q
 
 **DateRange vs range operators:** Use `.DateRange(start, end, field)` for bounded date windows (validates start < end, supports timezone). Use `FieldGreaterThan`/`FieldLessThanOrEqual` etc. for one-sided comparisons and non-date types.
 
-> **Numeric precision note:** `long` values use NEST's `LongRangeQuery` which preserves full precision. `decimal` values are converted to `double` for NEST's `NumericRangeQuery` — this matches Elasticsearch's own `double` field type, so no additional precision loss occurs beyond what the field mapping already imposes.
+> **Numeric precision note:** `long` values use NEST's `LongRangeQuery` which preserves full precision. `decimal` values are converted to `double` for NEST's `NumericRangeQuery`, which may lose precision for values exceeding ~15-17 significant digits. If exact precision matters, prefer `long` fields with an explicit scaling factor.
 
 ### Contains (Full-Text Token Matching)
 

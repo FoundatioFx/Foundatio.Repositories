@@ -301,6 +301,8 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
             case float floatValue:
                 return BuildNumericRange(field, op, floatValue);
             case decimal decValue:
+                // NEST has no DecimalRangeQuery; NumericRangeQuery accepts double.
+                // Values exceeding ~15-17 significant digits may lose precision.
                 return BuildNumericRange(field, op, (double)decValue);
             case string strValue:
                 return BuildTermRange(field, op, strValue);

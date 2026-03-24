@@ -236,6 +236,7 @@ public class FieldConditionGroup
 
     public FieldConditionGroup FieldAnd(Action<FieldConditionGroup> configure)
     {
+        ArgumentNullException.ThrowIfNull(configure);
         var child = new FieldConditionGroup(FieldConditionGroupOperator.And);
         configure(child);
         Children.Add(child);
@@ -244,6 +245,7 @@ public class FieldConditionGroup
 
     public FieldConditionGroup FieldNot(Action<FieldConditionGroup> configure)
     {
+        ArgumentNullException.ThrowIfNull(configure);
         var child = new FieldConditionGroup(FieldConditionGroupOperator.Not);
         configure(child);
         Children.Add(child);
@@ -252,6 +254,7 @@ public class FieldConditionGroup
 
     public FieldConditionGroup FieldOr(Action<FieldConditionGroup> configure)
     {
+        ArgumentNullException.ThrowIfNull(configure);
         var child = new FieldConditionGroup(FieldConditionGroupOperator.Or);
         configure(child);
         Children.Add(child);
@@ -492,6 +495,7 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
 
     public FieldConditionGroup<T> FieldAnd(Action<FieldConditionGroup<T>> configure)
     {
+        ArgumentNullException.ThrowIfNull(configure);
         var child = new FieldConditionGroup<T>(FieldConditionGroupOperator.And);
         configure(child);
         Children.Add(child);
@@ -506,6 +510,7 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
 
     public FieldConditionGroup<T> FieldNot(Action<FieldConditionGroup<T>> configure)
     {
+        ArgumentNullException.ThrowIfNull(configure);
         var child = new FieldConditionGroup<T>(FieldConditionGroupOperator.Not);
         configure(child);
         Children.Add(child);
@@ -520,6 +525,7 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
 
     public FieldConditionGroup<T> FieldOr(Action<FieldConditionGroup<T>> configure)
     {
+        ArgumentNullException.ThrowIfNull(configure);
         var child = new FieldConditionGroup<T>(FieldConditionGroupOperator.Or);
         configure(child);
         Children.Add(child);
