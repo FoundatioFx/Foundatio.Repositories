@@ -261,8 +261,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
 
     private static void ValidateNonAnalyzedField(ElasticMappingResolver resolver, string resolvedField, FieldCondition condition)
     {
-        string originalField = resolver.GetResolvedField(condition.Field);
-        if (String.Equals(originalField, resolvedField, StringComparison.Ordinal) && resolver.IsPropertyAnalyzed(resolvedField))
+        if (resolver.IsPropertyAnalyzed(resolvedField))
         {
             bool isRange = condition.Operator is ComparisonOperator.GreaterThan
                 or ComparisonOperator.GreaterThanOrEqual

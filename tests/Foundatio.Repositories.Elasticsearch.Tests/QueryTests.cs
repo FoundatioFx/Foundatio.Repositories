@@ -932,23 +932,362 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Null(result.Message);
     }
 
+
     [Fact]
-    public async Task FieldGreaterThan_WithIntAge_ReturnsOlderEmployees()
+    public async Task FieldAnd_AtTopLevel_RequiresAllConditions()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 25, companyName: "Acme"),
+            EmployeeGenerator.Generate(age: 30, companyName: "Acme"),
+            EmployeeGenerator.Generate(age: 25, companyName: "Globex")
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldAnd(g => g
+            .FieldEquals(f => f.CompanyName, "Acme")
+            .FieldEquals(f => f.Age, 25)
+        ));
+
+        // Assert
+        Assert.Equal(1, result.Total);
+        Assert.Equal("Acme", result.Documents.First().CompanyName);
+        Assert.Equal(25, result.Documents.First().Age);
+    }
+
+
+    [Fact]
+    public async Task FieldConditionIf_WithFuncConditionReturnsFalse_ReturnsAllDocuments()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18, companyName: "Acme"),
+            EmployeeGenerator.Generate(age: 25, companyName: "Globex")
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        string nullValue = null;
+        var result = await _employeeRepository.FindAsync(q => q
+            .FieldEqualsIf(e => e.CompanyName, nullValue, condition: v => v is not null));
+
+        // Assert
+        Assert.Equal(2, result.Total);
+    }
+
+
+    [Fact]
+    public async Task FieldConditionIf_WithFuncCondition_AppliesWhenFuncReturnsTrue()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18, companyName: "Acme"),
+            EmployeeGenerator.Generate(age: 25, companyName: "Globex")
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q
+            .FieldEqualsIf(e => e.CompanyName, "Acme", condition: v => !String.IsNullOrEmpty(v?.ToString())));
+
+        // Assert
+        Assert.Equal(1, result.Total);
+        Assert.Equal("Acme", result.Documents.First().CompanyName);
+    }
+
+
+    [Fact]
+    public async Task FieldContainsIf_WhenConditionFalse_ReturnsAllDocuments()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Eric J. Smith"),
+            EmployeeGenerator.Generate(name: "Blake Niemyjski")
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldContainsIf(e => e.Name, "Eric", false));
+
+        // Assert
+        Assert.Equal(2, result.Total);
+    }
+
+
+    [Fact]
+    public async Task FieldContains_OnKeywordField_ThrowsQueryValidationException()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyName: "Exceptionless"), o => o.ImmediateConsistency());
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<FieldQueryValidationException>(async () =>
+        {
+            await _employeeRepository.FindAsync(q => q.FieldContains(e => e.CompanyName, "Exception"));
+        });
+
+        Assert.Contains("non-analyzed", ex.Message);
+        Assert.Contains("FieldEquals", ex.Message);
+    }
+
+
+    [Fact]
+    public async Task FieldContains_WithMultipleTokens_MatchesAllTokensOrderIndependent()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Eric J. Smith"),
+            EmployeeGenerator.Generate(name: "Blake Niemyjski")
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldContains(e => e.Name, "Smith Eric"));
+
+        // Assert
+        Assert.Single(result.Documents);
+        Assert.Equal("Eric J. Smith", result.Documents.First().Name);
+    }
+
+
+    [Fact]
+    public async Task FieldContains_WithPartialToken_DoesNotMatch()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith"), o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldContains(e => e.Name, "Er"));
+
+        // Assert
+        Assert.Empty(result.Documents);
+    }
+
+
+    [Fact]
+    public async Task FieldContains_WithSingleToken_MatchesAnalyzedField()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Eric J. Smith"),
+            EmployeeGenerator.Generate(name: "Blake Niemyjski")
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldContains(e => e.Name, "Eric"));
+
+        // Assert
+        Assert.Single(result.Documents);
+        Assert.Equal("Eric J. Smith", result.Documents.First().Name);
+    }
+
+
+    [Fact]
+    public async Task FieldEmptyIf_WhenConditionFalse_ReturnsAllDocuments()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Eric"),
+            EmployeeGenerator.Generate(age: 20)
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldEmptyIf(e => e.Name, false));
+
+        // Assert
+        Assert.Equal(2, result.Total);
+    }
+
+
+    [Fact]
+    public async Task FieldEmptyIf_WhenConditionTrue_FiltersToDocumentsWithoutValue()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Eric"),
+            EmployeeGenerator.Generate(age: 20)
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldEmptyIf(e => e.Name, true));
+
+        // Assert
+        Assert.Single(result.Documents);
+        Assert.Null(result.Documents.First().Name);
+    }
+
+
+    [Fact]
+    public async Task FieldEqualsIf_WhenConditionFalse_ReturnsAllDocuments()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18, companyName: "Acme"),
+            EmployeeGenerator.Generate(age: 25, companyName: "Globex")
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q
+            .FieldEqualsIf(e => e.CompanyName, "Acme", false));
+
+        // Assert
+        Assert.Equal(2, result.Total);
+    }
+
+
+    [Fact]
+    public async Task FieldEqualsIf_WhenConditionTrue_FiltersDocuments()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18, companyName: "Acme"),
+            EmployeeGenerator.Generate(age: 25, companyName: "Globex")
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q
+            .FieldEqualsIf(e => e.CompanyName, "Acme", true));
+
+        // Assert
+        Assert.Equal(1, result.Total);
+        Assert.Equal("Acme", result.Documents.First().CompanyName);
+    }
+
+
+    [Fact]
+    public async Task FieldEquals_OnAnalyzedFieldWithKeyword_ResolvesToKeyword()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Eric"),
+            EmployeeGenerator.Generate(name: "Blake"),
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q
+            .FieldEquals(e => e.Name, "Eric"));
+
+        // Assert
+        Assert.Equal(1, result.Total);
+        Assert.Equal("Eric", result.Documents.First().Name);
+    }
+
+
+    [Fact]
+    public async Task FieldEquals_OnAnalyzedFieldWithNoKeyword_ThrowsQueryValidationException()
+    {
+        // Arrange
+        var employee = EmployeeGenerator.Generate(name: "Eric");
+        employee.PhoneNumbers = [new PhoneInfo { Number = "555-1234" }];
+        await _employeeRepository.AddAsync(employee, o => o.ImmediateConsistency());
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<FieldQueryValidationException>(async () =>
+        {
+            await _employeeRepository.FindAsync(q => q
+                .FieldEquals(e => e.PhoneNumbers[0].Number, "555-1234"));
+        });
+
+        Assert.Contains("analyzed text field", ex.Message);
+        Assert.Contains(".keyword", ex.Message);
+    }
+
+
+    [Fact]
+    public async Task FieldEquals_OnIsDeletedFalseWithActiveOnlyMode_DoesNotThrow()
+    {
+        // Arrange — isDeleted=false with ActiveOnly is redundant but not contradictory
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q
+            .FieldEquals(e => e.IsDeleted, false));
+
+        // Assert
+        Assert.Equal(1, result.Total);
+    }
+
+
+    [Fact]
+    public async Task FieldEquals_OnIsDeletedWithActiveOnlyMode_ThrowsQueryValidationException()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<FieldQueryValidationException>(async () =>
+        {
+            await _employeeRepository.FindAsync(q => q.FieldEquals(e => e.IsDeleted, true));
+        });
+
+        Assert.Contains("isDeleted", ex.Message);
+        Assert.Contains("ActiveOnly", ex.Message);
+        Assert.Contains("IncludeSoftDeletes", ex.Message);
+    }
+
+
+    [Fact]
+    public async Task FieldEquals_OnIsDeletedWithSoftDeleteModeAll_DoesNotThrow()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q
+            .FieldEquals(e => e.IsDeleted, false),
+            o => o.SoftDeleteMode(SoftDeleteQueryMode.All));
+
+        // Assert
+        Assert.Equal(1, result.Total);
+    }
+
+
+    [Fact]
+    public async Task FieldGreaterThanIf_WhenConditionFalse_ReturnsAllDocuments()
     {
         // Arrange
         await _employeeRepository.AddAsync([
             EmployeeGenerator.Generate(age: 18),
-            EmployeeGenerator.Generate(age: 19),
             EmployeeGenerator.Generate(age: 25)
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThan(e => e.Age, 18));
+        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThanIf(e => e.Age, 18, false));
 
         // Assert
         Assert.Equal(2, result.Total);
-        Assert.True(result.Documents.All(d => d.Age > 18));
     }
+
+
+    [Fact]
+    public async Task FieldGreaterThanIf_WhenConditionTrue_FiltersDocuments()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18),
+            EmployeeGenerator.Generate(age: 25)
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThanIf(e => e.Age, 18, true));
+
+        // Assert
+        Assert.Equal(1, result.Total);
+    }
+
+
+    [Fact]
+    public async Task FieldGreaterThanOrEqual_WithDouble_ReturnsMatchingDocuments()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18),
+            EmployeeGenerator.Generate(age: 25)
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThanOrEqual(e => e.DecimalAge, 25.0));
+
+        // Assert
+        Assert.Equal(1, result.Total);
+    }
+
 
     [Fact]
     public async Task FieldGreaterThanOrEqual_WithIntAge_ReturnsMatchingAndOlder()
@@ -968,8 +1307,46 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.True(result.Documents.All(d => d.Age >= 18));
     }
 
+
     [Fact]
-    public async Task FieldLessThan_WithIntAge_ReturnsYoungerEmployees()
+    public async Task FieldGreaterThan_WithDateTime_ReturnsNewerDocuments()
+    {
+        // Arrange
+        var cutoff = DateTime.UtcNow.SubtractDays(5);
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 20, createdUtc: DateTime.UtcNow.SubtractDays(10)),
+            EmployeeGenerator.Generate(age: 25, createdUtc: DateTime.UtcNow.SubtractDays(1))
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThan(e => e.CreatedUtc, cutoff));
+
+        // Assert
+        Assert.Equal(1, result.Total);
+    }
+
+
+    [Fact]
+    public async Task FieldGreaterThan_WithIntAge_ReturnsOlderEmployees()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18),
+            EmployeeGenerator.Generate(age: 19),
+            EmployeeGenerator.Generate(age: 25)
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThan(e => e.Age, 18));
+
+        // Assert
+        Assert.Equal(2, result.Total);
+        Assert.True(result.Documents.All(d => d.Age > 18));
+    }
+
+
+    [Fact]
+    public async Task FieldGreaterThan_WithLongValue_UsesLongRangeQuery()
     {
         // Arrange
         await _employeeRepository.AddAsync([
@@ -979,12 +1356,127 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldLessThan(e => e.Age, 25));
+        var result = await _employeeRepository.FindAsync(q => q
+            .FieldGreaterThan(e => e.Age, (long)25));
 
         // Assert
         Assert.Equal(1, result.Total);
-        Assert.True(result.Documents.All(d => d.Age < 25));
+        Assert.True(result.Documents.All(d => d.Age > 25));
     }
+
+
+    [Fact]
+    public async Task FieldGreaterThan_WithStringOnAnalyzedFieldWithKeyword_ResolvesToKeyword()
+    {
+        // Arrange — Name is text with .keyword sub-field; string range should auto-resolve to keyword
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Alpha"),
+            EmployeeGenerator.Generate(name: "Beta"),
+            EmployeeGenerator.Generate(name: "Gamma")
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(
+            q => q.FieldGreaterThan(e => e.Name, "Beta"));
+
+        // Assert
+        Assert.Equal(1, result.Total);
+        Assert.Equal("Gamma", result.Documents.First().Name);
+    }
+
+
+    [Fact]
+    public async Task FieldGreaterThan_WithStringOnAnalyzedFieldWithNoKeyword_ThrowsQueryValidationException()
+    {
+        // Arrange
+        var employee = EmployeeGenerator.Generate(name: "Eric");
+        employee.PhoneNumbers = [new PhoneInfo { Number = "555-1234" }];
+        await _employeeRepository.AddAsync(employee, o => o.ImmediateConsistency());
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<FieldQueryValidationException>(async () =>
+        {
+            await _employeeRepository.FindAsync(q => q
+                .FieldGreaterThan(e => e.PhoneNumbers[0].Number, "500"));
+        });
+
+        Assert.Contains("analyzed text field", ex.Message);
+        Assert.Contains(".keyword", ex.Message);
+    }
+
+
+    [Fact]
+    public async Task FieldGreaterThan_WithStringOnKeywordField_ReturnsMatchingDocuments()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(companyName: "Alpha"),
+            EmployeeGenerator.Generate(companyName: "Beta"),
+            EmployeeGenerator.Generate(companyName: "Gamma")
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(
+            q => q.FieldGreaterThan(e => e.CompanyName, "Beta"));
+
+        // Assert
+        Assert.Equal(1, result.Total);
+        Assert.Equal("Gamma", result.Documents.First().CompanyName);
+    }
+
+
+    [Fact]
+    public async Task FieldHasValueIf_WhenConditionFalse_ReturnsAllDocuments()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Eric"),
+            EmployeeGenerator.Generate(age: 20)
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldHasValueIf(e => e.Name, false));
+
+        // Assert
+        Assert.Equal(2, result.Total);
+    }
+
+
+    [Fact]
+    public async Task FieldHasValueIf_WhenConditionTrue_FiltersToDocumentsWithValue()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Eric"),
+            EmployeeGenerator.Generate(age: 20)
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldHasValueIf(e => e.Name, true));
+
+        // Assert
+        Assert.Single(result.Documents);
+        Assert.NotNull(result.Documents.First().Name);
+    }
+
+
+    [Fact]
+    public async Task FieldLessThanOrEqual_WithDateTimeOffset_ReturnsOlderDocuments()
+    {
+        // Arrange
+        var cutoff = DateTimeOffset.UtcNow.AddDays(5);
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 20, nextReview: DateTimeOffset.UtcNow.AddDays(1)),
+            EmployeeGenerator.Generate(age: 25, nextReview: DateTimeOffset.UtcNow.AddDays(10))
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldLessThanOrEqual(e => e.NextReview, cutoff));
+
+        // Assert
+        Assert.Equal(1, result.Total);
+    }
+
 
     [Fact]
     public async Task FieldLessThanOrEqual_WithIntAge_ReturnsMatchingAndYounger()
@@ -1004,186 +1496,82 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.True(result.Documents.All(d => d.Age <= 25));
     }
 
-    [Fact]
-    public async Task FieldGreaterThan_WithDateTime_ReturnsNewerDocuments()
-    {
-        // Arrange
-        var cutoff = DateTime.UtcNow.SubtractDays(5);
-        await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(age: 20, createdUtc: DateTime.UtcNow.SubtractDays(10)),
-            EmployeeGenerator.Generate(age: 25, createdUtc: DateTime.UtcNow.SubtractDays(1))
-        ], o => o.ImmediateConsistency());
-
-        // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThan(e => e.CreatedUtc, cutoff));
-
-        // Assert
-        Assert.Equal(1, result.Total);
-    }
 
     [Fact]
-    public async Task FieldLessThanOrEqual_WithDateTimeOffset_ReturnsOlderDocuments()
-    {
-        // Arrange
-        var cutoff = DateTimeOffset.UtcNow.AddDays(5);
-        await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(age: 20, nextReview: DateTimeOffset.UtcNow.AddDays(1)),
-            EmployeeGenerator.Generate(age: 25, nextReview: DateTimeOffset.UtcNow.AddDays(10))
-        ], o => o.ImmediateConsistency());
-
-        // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldLessThanOrEqual(e => e.NextReview, cutoff));
-
-        // Assert
-        Assert.Equal(1, result.Total);
-    }
-
-    [Fact]
-    public async Task FieldGreaterThanOrEqual_WithDouble_ReturnsMatchingDocuments()
+    public async Task FieldLessThanOrEqual_WithLongValue_UsesLongRangeQuery()
     {
         // Arrange
         await _employeeRepository.AddAsync([
             EmployeeGenerator.Generate(age: 18),
-            EmployeeGenerator.Generate(age: 25)
-        ], o => o.ImmediateConsistency());
-
-        // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThanOrEqual(e => e.DecimalAge, 25.0));
-
-        // Assert
-        Assert.Equal(1, result.Total);
-    }
-
-    [Fact]
-    public async Task FieldRange_WithCombinedBounds_ReturnsDocumentsInRange()
-    {
-        // Arrange
-        await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(age: 15),
-            EmployeeGenerator.Generate(age: 20),
             EmployeeGenerator.Generate(age: 25),
             EmployeeGenerator.Generate(age: 30)
         ], o => o.ImmediateConsistency());
 
         // Act
         var result = await _employeeRepository.FindAsync(q => q
-            .FieldGreaterThanOrEqual(e => e.Age, 20)
-            .FieldLessThan(e => e.Age, 30));
+            .FieldLessThanOrEqual(e => e.Age, (long)25));
 
         // Assert
         Assert.Equal(2, result.Total);
-        Assert.True(result.Documents.All(d => d.Age >= 20 && d.Age < 30));
+        Assert.True(result.Documents.All(d => d.Age <= 25));
     }
 
+
     [Fact]
-    public async Task FieldGreaterThanIf_WhenConditionFalse_ReturnsAllDocuments()
+    public async Task FieldLessThanOrEqual_WithStringOnKeywordField_ReturnsMatchingDocuments()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(companyName: "Alpha"),
+            EmployeeGenerator.Generate(companyName: "Beta"),
+            EmployeeGenerator.Generate(companyName: "Gamma")
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(
+            q => q.FieldLessThanOrEqual(e => e.CompanyName, "Beta"));
+
+        // Assert
+        Assert.Equal(2, result.Total);
+        Assert.True(result.Documents.All(d => String.Compare(d.CompanyName, "Beta", StringComparison.Ordinal) <= 0));
+    }
+
+
+    [Fact]
+    public async Task FieldLessThan_WithIntAge_ReturnsYoungerEmployees()
     {
         // Arrange
         await _employeeRepository.AddAsync([
             EmployeeGenerator.Generate(age: 18),
-            EmployeeGenerator.Generate(age: 25)
+            EmployeeGenerator.Generate(age: 25),
+            EmployeeGenerator.Generate(age: 30)
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThanIf(e => e.Age, 18, false));
-
-        // Assert
-        Assert.Equal(2, result.Total);
-    }
-
-    [Fact]
-    public async Task FieldGreaterThanIf_WhenConditionTrue_FiltersDocuments()
-    {
-        // Arrange
-        await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(age: 18),
-            EmployeeGenerator.Generate(age: 25)
-        ], o => o.ImmediateConsistency());
-
-        // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThanIf(e => e.Age, 18, true));
+        var result = await _employeeRepository.FindAsync(q => q.FieldLessThan(e => e.Age, 25));
 
         // Assert
         Assert.Equal(1, result.Total);
+        Assert.True(result.Documents.All(d => d.Age < 25));
     }
 
+
     [Fact]
-    public async Task FieldRange_WithNullValue_ThrowsQueryValidationException()
+    public async Task FieldNotContains_OnKeywordField_ThrowsQueryValidationException()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyName: "Exceptionless"), o => o.ImmediateConsistency());
 
         // Act & Assert
         var ex = await Assert.ThrowsAsync<FieldQueryValidationException>(async () =>
         {
-            await _employeeRepository.FindAsync(q => q.FieldGreaterThan(e => e.Age, null));
+            await _employeeRepository.FindAsync(q => q.FieldNotContains(e => e.CompanyName, "Exception"));
         });
 
-        Assert.Contains("null value", ex.Message);
-        Assert.Contains("GreaterThan", ex.Message);
+        Assert.Contains("non-analyzed", ex.Message);
+        Assert.Contains("FieldNotEquals", ex.Message);
     }
 
-    [Fact]
-    public async Task FieldRange_WithCollectionValue_ThrowsQueryValidationException()
-    {
-        // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
-
-        // Act & Assert
-        var ex = await Assert.ThrowsAsync<FieldQueryValidationException>(async () =>
-        {
-            await _employeeRepository.FindAsync(q => q.FieldCondition(e => e.Age, ComparisonOperator.GreaterThan, new object[] { 1, 2 }));
-        });
-
-        Assert.Contains("collection value", ex.Message);
-    }
-
-    [Fact]
-    public async Task FieldContains_WithSingleToken_MatchesAnalyzedField()
-    {
-        // Arrange
-        await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(name: "Eric J. Smith"),
-            EmployeeGenerator.Generate(name: "Blake Niemyjski")
-        ], o => o.ImmediateConsistency());
-
-        // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldContains(e => e.Name, "Eric"));
-
-        // Assert
-        Assert.Single(result.Documents);
-        Assert.Equal("Eric J. Smith", result.Documents.First().Name);
-    }
-
-    [Fact]
-    public async Task FieldContains_WithMultipleTokens_MatchesAllTokensOrderIndependent()
-    {
-        // Arrange
-        await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(name: "Eric J. Smith"),
-            EmployeeGenerator.Generate(name: "Blake Niemyjski")
-        ], o => o.ImmediateConsistency());
-
-        // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldContains(e => e.Name, "Smith Eric"));
-
-        // Assert
-        Assert.Single(result.Documents);
-        Assert.Equal("Eric J. Smith", result.Documents.First().Name);
-    }
-
-    [Fact]
-    public async Task FieldContains_WithPartialToken_DoesNotMatch()
-    {
-        // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith"), o => o.ImmediateConsistency());
-
-        // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldContains(e => e.Name, "Er"));
-
-        // Assert
-        Assert.Empty(result.Documents);
-    }
 
     [Fact]
     public async Task FieldNotContains_WithMatchingToken_ExcludesDocuments()
@@ -1202,168 +1590,45 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal("Blake Niemyjski", result.Documents.First().Name);
     }
 
+
     [Fact]
-    public async Task FieldContainsIf_WhenConditionFalse_ReturnsAllDocuments()
+    public async Task FieldNotEqualsIf_WhenConditionTrue_ExcludesMatchingDocuments()
     {
         // Arrange
         await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(name: "Eric J. Smith"),
-            EmployeeGenerator.Generate(name: "Blake Niemyjski")
+            EmployeeGenerator.Generate(age: 18, companyName: "Acme"),
+            EmployeeGenerator.Generate(age: 25, companyName: "Globex")
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldContainsIf(e => e.Name, "Eric", false));
-
-        // Assert
-        Assert.Equal(2, result.Total);
-    }
-
-    [Fact]
-    public async Task FieldContains_OnKeywordField_ThrowsQueryValidationException()
-    {
-        // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyName: "Exceptionless"), o => o.ImmediateConsistency());
-
-        // Act & Assert
-        var ex = await Assert.ThrowsAsync<FieldQueryValidationException>(async () =>
-        {
-            await _employeeRepository.FindAsync(q => q.FieldContains(e => e.CompanyName, "Exception"));
-        });
-
-        Assert.Contains("non-analyzed", ex.Message);
-        Assert.Contains("FieldEquals", ex.Message);
-    }
-
-    [Fact]
-    public async Task FieldHasValueIf_WhenConditionTrue_FiltersToDocumentsWithValue()
-    {
-        // Arrange
-        await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(name: "Eric"),
-            EmployeeGenerator.Generate(age: 20)
-        ], o => o.ImmediateConsistency());
-
-        // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldHasValueIf(e => e.Name, true));
-
-        // Assert
-        Assert.Single(result.Documents);
-        Assert.NotNull(result.Documents.First().Name);
-    }
-
-    [Fact]
-    public async Task FieldHasValueIf_WhenConditionFalse_ReturnsAllDocuments()
-    {
-        // Arrange
-        await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(name: "Eric"),
-            EmployeeGenerator.Generate(age: 20)
-        ], o => o.ImmediateConsistency());
-
-        // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldHasValueIf(e => e.Name, false));
-
-        // Assert
-        Assert.Equal(2, result.Total);
-    }
-
-    [Fact]
-    public async Task FieldEmptyIf_WhenConditionTrue_FiltersToDocumentsWithoutValue()
-    {
-        // Arrange
-        await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(name: "Eric"),
-            EmployeeGenerator.Generate(age: 20)
-        ], o => o.ImmediateConsistency());
-
-        // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldEmptyIf(e => e.Name, true));
-
-        // Assert
-        Assert.Single(result.Documents);
-        Assert.Null(result.Documents.First().Name);
-    }
-
-    [Fact]
-    public async Task FieldEmptyIf_WhenConditionFalse_ReturnsAllDocuments()
-    {
-        // Arrange
-        await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(name: "Eric"),
-            EmployeeGenerator.Generate(age: 20)
-        ], o => o.ImmediateConsistency());
-
-        // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldEmptyIf(e => e.Name, false));
-
-        // Assert
-        Assert.Equal(2, result.Total);
-    }
-
-    [Fact]
-    public async Task FieldOr_WithTwoConditions_MatchesEitherCondition()
-    {
-        // Arrange
-        await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(age: 18, companyId: "company1"),
-            EmployeeGenerator.Generate(age: 25, companyId: "company2"),
-            EmployeeGenerator.Generate(age: 30, companyId: "company3")
-        ], o => o.ImmediateConsistency());
-
-        // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => g
-            .FieldEquals(f => f.Age, 18)
-            .FieldEquals(f => f.Age, 25)
-        ));
-
-        // Assert
-        Assert.Equal(2, result.Total);
-        Assert.True(result.Documents.All(d => d.Age is 18 or 25));
-    }
-
-    [Fact]
-    public async Task FieldOr_WithNestedFieldAnd_ProducesCorrectBoolQuery()
-    {
-        // Arrange
-        var companyId = "test-company";
-        await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(age: 18, companyId: companyId, companyName: "TestCo"),
-            EmployeeGenerator.Generate(age: 25, companyId: companyId, companyName: "OtherCo"),
-            EmployeeGenerator.Generate(age: 30, companyId: "other-company")
-        ], o => o.ImmediateConsistency());
-
-        // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => g
-            .FieldEquals(f => f.Age, 30)
-            .FieldAnd(g2 => g2
-                .FieldEquals(f => f.CompanyId, companyId)
-                .FieldEquals(f => f.CompanyName, "TestCo")
-            )
-        ));
-
-        // Assert
-        Assert.Equal(2, result.Total);
-    }
-
-    [Fact]
-    public async Task FieldNot_WithSingleCondition_ExcludesMatchingDocuments()
-    {
-        // Arrange
-        await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(age: 18, companyName: "Active"),
-            EmployeeGenerator.Generate(age: 25, companyName: "Inactive"),
-            EmployeeGenerator.Generate(age: 30, companyName: "Active")
-        ], o => o.ImmediateConsistency());
-
-        // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldNot(g => g
-            .FieldEquals(f => f.CompanyName, "Active")
-        ));
+        var result = await _employeeRepository.FindAsync(q => q
+            .FieldNotEqualsIf(e => e.CompanyName, "Acme", true));
 
         // Assert
         Assert.Equal(1, result.Total);
-        Assert.Equal("Inactive", result.Documents.First().CompanyName);
+        Assert.Equal("Globex", result.Documents.First().CompanyName);
     }
+
+
+    [Fact]
+    public async Task FieldNotEquals_WithNonNullValue_ExcludesMatchingDocuments()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18, companyName: "Acme"),
+            EmployeeGenerator.Generate(age: 25, companyName: "Globex"),
+            EmployeeGenerator.Generate(age: 30, companyName: "Acme")
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q
+            .FieldNotEquals(e => e.CompanyName, "Acme"));
+
+        // Assert
+        Assert.Equal(1, result.Total);
+        Assert.Equal("Globex", result.Documents.First().CompanyName);
+    }
+
 
     [Fact]
     public async Task FieldNot_WithMultipleConditions_ExcludesDocumentsMatchingAny()
@@ -1386,39 +1651,27 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal("Pending", result.Documents.First().CompanyName);
     }
 
+
     [Fact]
-    public async Task FieldOr_WithEmptyLambda_ReturnsAllDocuments()
+    public async Task FieldNot_WithSingleCondition_ExcludesMatchingDocuments()
     {
         // Arrange
         await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(age: 18),
-            EmployeeGenerator.Generate(age: 25)
+            EmployeeGenerator.Generate(age: 18, companyName: "Active"),
+            EmployeeGenerator.Generate(age: 25, companyName: "Inactive"),
+            EmployeeGenerator.Generate(age: 30, companyName: "Active")
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => { }));
-
-        // Assert
-        Assert.Equal(2, result.Total);
-    }
-
-    [Fact]
-    public async Task FieldOr_WithSingleCondition_UnwrapsWithoutBoolQuery()
-    {
-        // Arrange
-        await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(age: 18),
-            EmployeeGenerator.Generate(age: 25)
-        ], o => o.ImmediateConsistency());
-
-        // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => g
-            .FieldEquals(f => f.Age, 18)
+        var result = await _employeeRepository.FindAsync(q => q.FieldNot(g => g
+            .FieldEquals(f => f.CompanyName, "Active")
         ));
 
         // Assert
         Assert.Equal(1, result.Total);
+        Assert.Equal("Inactive", result.Documents.First().CompanyName);
     }
+
 
     [Fact]
     public async Task FieldOr_WithBuilderApi_SupportsDynamicConditionalGroups()
@@ -1444,6 +1697,24 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(2, result.Total);
     }
 
+
+    [Fact]
+    public async Task FieldOr_WithEmptyLambda_ReturnsAllDocuments()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18),
+            EmployeeGenerator.Generate(age: 25)
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => { }));
+
+        // Assert
+        Assert.Equal(2, result.Total);
+    }
+
+
     [Fact]
     public async Task FieldOr_WithFieldEmpty_MatchesDocumentsWithOrWithoutValue()
     {
@@ -1463,6 +1734,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Assert
         Assert.Equal(2, result.Total);
     }
+
 
     [Fact]
     public async Task FieldOr_WithMixedRangeAndEquals_MatchesBothConditions()
@@ -1484,8 +1756,34 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(2, result.Total);
     }
 
+
     [Fact]
-    public async Task FieldEquals_OnIsDeletedWithActiveOnlyMode_ThrowsQueryValidationException()
+    public async Task FieldOr_WithNestedFieldAnd_ProducesCorrectBoolQuery()
+    {
+        // Arrange
+        var companyId = "test-company";
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(age: 18, companyId: companyId, companyName: "TestCo"),
+            EmployeeGenerator.Generate(age: 25, companyId: companyId, companyName: "OtherCo"),
+            EmployeeGenerator.Generate(age: 30, companyId: "other-company")
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => g
+            .FieldEquals(f => f.Age, 30)
+            .FieldAnd(g2 => g2
+                .FieldEquals(f => f.CompanyId, companyId)
+                .FieldEquals(f => f.CompanyName, "TestCo")
+            )
+        ));
+
+        // Assert
+        Assert.Equal(2, result.Total);
+    }
+
+
+    [Fact]
+    public async Task FieldOr_WithNullRangeInsideGroup_ThrowsQueryValidationException()
     {
         // Arrange
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
@@ -1493,98 +1791,129 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Act & Assert
         var ex = await Assert.ThrowsAsync<FieldQueryValidationException>(async () =>
         {
-            await _employeeRepository.FindAsync(q => q.FieldEquals(e => e.IsDeleted, true));
+            await _employeeRepository.FindAsync(q => q.FieldOr(g => g
+                .FieldEquals(f => f.CompanyName, "Acme")
+                .FieldCondition(f => f.Age, ComparisonOperator.GreaterThan, (object)null)
+            ));
         });
 
-        Assert.Contains("isDeleted", ex.Message);
-        Assert.Contains("ActiveOnly", ex.Message);
-        Assert.Contains("IncludeSoftDeletes", ex.Message);
+        Assert.Contains("null value", ex.Message);
+        Assert.Contains("GreaterThan", ex.Message);
     }
 
-    [Fact]
-    public async Task FieldEquals_OnIsDeletedWithSoftDeleteModeAll_DoesNotThrow()
-    {
-        // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
-
-        // Act
-        var result = await _employeeRepository.FindAsync(q => q
-            .FieldEquals(e => e.IsDeleted, false),
-            o => o.SoftDeleteMode(SoftDeleteQueryMode.All));
-
-        // Assert
-        Assert.Equal(1, result.Total);
-    }
 
     [Fact]
-    public async Task FieldEquals_OnIsDeletedFalseWithActiveOnlyMode_DoesNotThrow()
-    {
-        // Arrange — isDeleted=false with ActiveOnly is redundant but not contradictory
-        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
-
-        // Act
-        var result = await _employeeRepository.FindAsync(q => q
-            .FieldEquals(e => e.IsDeleted, false));
-
-        // Assert
-        Assert.Equal(1, result.Total);
-    }
-
-    [Fact]
-    public async Task FieldGreaterThan_WithStringOnKeywordField_ReturnsMatchingDocuments()
+    public async Task FieldOr_WithSingleCondition_UnwrapsWithoutBoolQuery()
     {
         // Arrange
         await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(companyName: "Alpha"),
-            EmployeeGenerator.Generate(companyName: "Beta"),
-            EmployeeGenerator.Generate(companyName: "Gamma")
+            EmployeeGenerator.Generate(age: 18),
+            EmployeeGenerator.Generate(age: 25)
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(
-            q => q.FieldGreaterThan(e => e.CompanyName, "Beta"));
+        var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => g
+            .FieldEquals(f => f.Age, 18)
+        ));
 
         // Assert
         Assert.Equal(1, result.Total);
-        Assert.Equal("Gamma", result.Documents.First().CompanyName);
     }
 
+
     [Fact]
-    public async Task FieldLessThanOrEqual_WithStringOnKeywordField_ReturnsMatchingDocuments()
+    public async Task FieldOr_WithTwoConditions_MatchesEitherCondition()
     {
         // Arrange
         await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(companyName: "Alpha"),
-            EmployeeGenerator.Generate(companyName: "Beta"),
-            EmployeeGenerator.Generate(companyName: "Gamma")
+            EmployeeGenerator.Generate(age: 18, companyId: "company1"),
+            EmployeeGenerator.Generate(age: 25, companyId: "company2"),
+            EmployeeGenerator.Generate(age: 30, companyId: "company3")
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(
-            q => q.FieldLessThanOrEqual(e => e.CompanyName, "Beta"));
+        var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => g
+            .FieldEquals(f => f.Age, 18)
+            .FieldEquals(f => f.Age, 25)
+        ));
 
         // Assert
         Assert.Equal(2, result.Total);
-        Assert.True(result.Documents.All(d => String.Compare(d.CompanyName, "Beta", StringComparison.Ordinal) <= 0));
+        Assert.True(result.Documents.All(d => d.Age is 18 or 25));
     }
 
+
     [Fact]
-    public async Task FieldGreaterThan_WithStringOnAnalyzedFieldWithKeyword_ResolvesToKeyword()
+    public async Task FieldRange_WithCollectionValue_ThrowsQueryValidationException()
     {
-        // Arrange — Name is text with .keyword sub-field; string range should auto-resolve to keyword
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<FieldQueryValidationException>(async () =>
+        {
+            await _employeeRepository.FindAsync(q => q.FieldCondition(e => e.Age, ComparisonOperator.GreaterThan, new object[] { 1, 2 }));
+        });
+
+        Assert.Contains("collection value", ex.Message);
+    }
+
+
+    [Fact]
+    public async Task FieldRange_WithCombinedBounds_ReturnsDocumentsInRange()
+    {
+        // Arrange
         await _employeeRepository.AddAsync([
-            EmployeeGenerator.Generate(name: "Alpha"),
-            EmployeeGenerator.Generate(name: "Beta"),
-            EmployeeGenerator.Generate(name: "Gamma")
+            EmployeeGenerator.Generate(age: 15),
+            EmployeeGenerator.Generate(age: 20),
+            EmployeeGenerator.Generate(age: 25),
+            EmployeeGenerator.Generate(age: 30)
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(
-            q => q.FieldGreaterThan(e => e.Name, "Beta"));
+        var result = await _employeeRepository.FindAsync(q => q
+            .FieldGreaterThanOrEqual(e => e.Age, 20)
+            .FieldLessThan(e => e.Age, 30));
 
         // Assert
-        Assert.Equal(1, result.Total);
-        Assert.Equal("Gamma", result.Documents.First().Name);
+        Assert.Equal(2, result.Total);
+        Assert.True(result.Documents.All(d => d.Age >= 20 && d.Age < 30));
     }
+
+
+    [Fact]
+    public async Task FieldRange_WithNullValue_ThrowsQueryValidationException()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<FieldQueryValidationException>(async () =>
+        {
+            await _employeeRepository.FindAsync(q => q.FieldGreaterThan(e => e.Age, null));
+        });
+
+        Assert.Contains("null value", ex.Message);
+        Assert.Contains("GreaterThan", ex.Message);
+    }
+
+
+    [Fact]
+    public async Task FieldRange_WithUnsupportedType_ThrowsQueryValidationException()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<FieldQueryValidationException>(async () =>
+        {
+            await _employeeRepository.FindAsync(q => q
+                .FieldGreaterThan(e => e.Age, new Guid("00000000-0000-0000-0000-000000000001")));
+        });
+
+        Assert.Contains("unsupported type", ex.Message);
+        Assert.Contains("Guid", ex.Message);
+    }
+
 }
 
