@@ -943,7 +943,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThan(e => e.Age, 18), o => o.QueryLogLevel(LogLevel.Trace));
+        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThan(e => e.Age, 18));
 
         // Assert
         Assert.Equal(2, result.Total);
@@ -961,7 +961,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThanOrEqual(e => e.Age, 18), o => o.QueryLogLevel(LogLevel.Trace));
+        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThanOrEqual(e => e.Age, 18));
 
         // Assert
         Assert.Equal(2, result.Total);
@@ -979,7 +979,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldLessThan(e => e.Age, 25), o => o.QueryLogLevel(LogLevel.Trace));
+        var result = await _employeeRepository.FindAsync(q => q.FieldLessThan(e => e.Age, 25));
 
         // Assert
         Assert.Equal(1, result.Total);
@@ -997,7 +997,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldLessThanOrEqual(e => e.Age, 25), o => o.QueryLogLevel(LogLevel.Trace));
+        var result = await _employeeRepository.FindAsync(q => q.FieldLessThanOrEqual(e => e.Age, 25));
 
         // Assert
         Assert.Equal(2, result.Total);
@@ -1015,7 +1015,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThan(e => e.CreatedUtc, cutoff), o => o.QueryLogLevel(LogLevel.Trace));
+        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThan(e => e.CreatedUtc, cutoff));
 
         // Assert
         Assert.Equal(1, result.Total);
@@ -1032,7 +1032,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldLessThanOrEqual(e => e.NextReview, cutoff), o => o.QueryLogLevel(LogLevel.Trace));
+        var result = await _employeeRepository.FindAsync(q => q.FieldLessThanOrEqual(e => e.NextReview, cutoff));
 
         // Assert
         Assert.Equal(1, result.Total);
@@ -1048,7 +1048,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThanOrEqual(e => e.DecimalAge, 25.0), o => o.QueryLogLevel(LogLevel.Trace));
+        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThanOrEqual(e => e.DecimalAge, 25.0));
 
         // Assert
         Assert.Equal(1, result.Total);
@@ -1068,8 +1068,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Act
         var result = await _employeeRepository.FindAsync(q => q
             .FieldGreaterThanOrEqual(e => e.Age, 20)
-            .FieldLessThan(e => e.Age, 30),
-            o => o.QueryLogLevel(LogLevel.Trace));
+            .FieldLessThan(e => e.Age, 30));
 
         // Assert
         Assert.Equal(2, result.Total);
@@ -1102,7 +1101,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThanIf(e => e.Age, 18, true), o => o.QueryLogLevel(LogLevel.Trace));
+        var result = await _employeeRepository.FindAsync(q => q.FieldGreaterThanIf(e => e.Age, 18, true));
 
         // Assert
         Assert.Equal(1, result.Total);
@@ -1149,7 +1148,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldContains(e => e.Name, "Eric"), o => o.QueryLogLevel(LogLevel.Trace));
+        var result = await _employeeRepository.FindAsync(q => q.FieldContains(e => e.Name, "Eric"));
 
         // Assert
         Assert.Single(result.Documents);
@@ -1166,7 +1165,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldContains(e => e.Name, "Smith Eric"), o => o.QueryLogLevel(LogLevel.Trace));
+        var result = await _employeeRepository.FindAsync(q => q.FieldContains(e => e.Name, "Smith Eric"));
 
         // Assert
         Assert.Single(result.Documents);
@@ -1180,7 +1179,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric J. Smith"), o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldContains(e => e.Name, "Er"), o => o.QueryLogLevel(LogLevel.Trace));
+        var result = await _employeeRepository.FindAsync(q => q.FieldContains(e => e.Name, "Er"));
 
         // Assert
         Assert.Empty(result.Documents);
@@ -1196,7 +1195,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldNotContains(e => e.Name, "Eric"), o => o.QueryLogLevel(LogLevel.Trace));
+        var result = await _employeeRepository.FindAsync(q => q.FieldNotContains(e => e.Name, "Eric"));
 
         // Assert
         Assert.Single(result.Documents);
@@ -1245,7 +1244,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldHasValueIf(e => e.Name, true), o => o.QueryLogLevel(LogLevel.Trace));
+        var result = await _employeeRepository.FindAsync(q => q.FieldHasValueIf(e => e.Name, true));
 
         // Assert
         Assert.Single(result.Documents);
@@ -1278,7 +1277,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldEmptyIf(e => e.Name, true), o => o.QueryLogLevel(LogLevel.Trace));
+        var result = await _employeeRepository.FindAsync(q => q.FieldEmptyIf(e => e.Name, true));
 
         // Assert
         Assert.Single(result.Documents);
@@ -1315,7 +1314,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => g
             .FieldEquals(f => f.Age, 18)
             .FieldEquals(f => f.Age, 25)
-        ), o => o.QueryLogLevel(LogLevel.Trace));
+        ));
 
         // Assert
         Assert.Equal(2, result.Total);
@@ -1340,7 +1339,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
                 .FieldEquals(f => f.CompanyId, companyId)
                 .FieldEquals(f => f.CompanyName, "TestCo")
             )
-        ), o => o.QueryLogLevel(LogLevel.Trace));
+        ));
 
         // Assert
         Assert.Equal(2, result.Total);
@@ -1359,7 +1358,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldNot(g => g
             .FieldEquals(f => f.CompanyName, "Active")
-        ), o => o.QueryLogLevel(LogLevel.Trace));
+        ));
 
         // Assert
         Assert.Equal(1, result.Total);
@@ -1380,7 +1379,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         var result = await _employeeRepository.FindAsync(q => q.FieldNot(g => g
             .FieldEquals(f => f.CompanyName, "Active")
             .FieldEquals(f => f.CompanyName, "Inactive")
-        ), o => o.QueryLogLevel(LogLevel.Trace));
+        ));
 
         // Assert
         Assert.Equal(1, result.Total);
@@ -1415,7 +1414,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Act
         var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => g
             .FieldEquals(f => f.Age, 18)
-        ), o => o.QueryLogLevel(LogLevel.Trace));
+        ));
 
         // Assert
         Assert.Equal(1, result.Total);
@@ -1439,7 +1438,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
             group.FieldEquals(f => f.Age, 25);
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldOr(group), o => o.QueryLogLevel(LogLevel.Trace));
+        var result = await _employeeRepository.FindAsync(q => q.FieldOr(group));
 
         // Assert
         Assert.Equal(2, result.Total);
@@ -1459,7 +1458,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => g
             .FieldEquals(f => f.CompanyName, "TestCo")
             .FieldEmpty(f => f.CompanyName)
-        ), o => o.QueryLogLevel(LogLevel.Trace));
+        ));
 
         // Assert
         Assert.Equal(2, result.Total);
@@ -1479,7 +1478,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         var result = await _employeeRepository.FindAsync(q => q.FieldOr(g => g
             .FieldGreaterThan(f => f.Age, 28)
             .FieldEquals(f => f.CompanyName, "Special")
-        ), o => o.QueryLogLevel(LogLevel.Trace));
+        ));
 
         // Assert
         Assert.Equal(2, result.Total);
@@ -1511,7 +1510,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Act
         var result = await _employeeRepository.FindAsync(q => q
             .FieldEquals(e => e.IsDeleted, false),
-            o => o.SoftDeleteMode(SoftDeleteQueryMode.All).QueryLogLevel(LogLevel.Trace));
+            o => o.SoftDeleteMode(SoftDeleteQueryMode.All));
 
         // Assert
         Assert.Equal(1, result.Total);
@@ -1543,8 +1542,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
 
         // Act
         var result = await _employeeRepository.FindAsync(
-            q => q.FieldGreaterThan(e => e.CompanyName, "Beta"),
-            o => o.QueryLogLevel(LogLevel.Trace));
+            q => q.FieldGreaterThan(e => e.CompanyName, "Beta"));
 
         // Assert
         Assert.Equal(1, result.Total);
@@ -1563,8 +1561,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
 
         // Act
         var result = await _employeeRepository.FindAsync(
-            q => q.FieldLessThanOrEqual(e => e.CompanyName, "Beta"),
-            o => o.QueryLogLevel(LogLevel.Trace));
+            q => q.FieldLessThanOrEqual(e => e.CompanyName, "Beta"));
 
         // Assert
         Assert.Equal(2, result.Total);
@@ -1583,8 +1580,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
 
         // Act
         var result = await _employeeRepository.FindAsync(
-            q => q.FieldGreaterThan(e => e.Name, "Beta"),
-            o => o.QueryLogLevel(LogLevel.Trace));
+            q => q.FieldGreaterThan(e => e.Name, "Beta"));
 
         // Assert
         Assert.Equal(1, result.Total);

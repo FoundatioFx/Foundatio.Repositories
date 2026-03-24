@@ -69,11 +69,9 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         {
             if (condition.Value is null)
             {
-                var resolver = ctx.GetMappingResolver();
-                string fieldName = resolver.GetResolvedField(condition.Field);
                 throw new QueryValidationException(
                     $"""
-                    Range operator '{condition.Operator}' cannot be used with a null value on field '{fieldName}'.
+                    Range operator '{condition.Operator}' cannot be used with a null value on field '{condition.Field}'.
                     A null range bound is meaningless — there is no "greater than nothing".
 
                     To fix this:
@@ -81,22 +79,20 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
                       - Use FieldEmpty() to check if the field is missing
                       - Use the *If variant to conditionally add the range, for example:
                         .Field{condition.Operator}If(f => f.Property, value, value is not null)
-                    """, fieldName, condition.Operator.ToString());
+                    """, condition.Field?.ToString(), condition.Operator.ToString());
             }
 
             if (condition.Value is IEnumerable and not string)
             {
-                var resolver = ctx.GetMappingResolver();
-                string fieldName = resolver.GetResolvedField(condition.Field);
                 throw new QueryValidationException(
                     $"""
-                    Range operator '{condition.Operator}' cannot be used with a collection value on field '{fieldName}'.
+                    Range operator '{condition.Operator}' cannot be used with a collection value on field '{condition.Field}'.
                     Range operators compare a single scalar value against the field.
 
                     To fix this:
                       - Use a single scalar value: .Field{condition.Operator}(f => f.Property, singleValue)
                       - For multiple value matching: .FieldEquals(f => f.Property, value1, value2, value3)
-                    """, fieldName, condition.Operator.ToString());
+                    """, condition.Field?.ToString(), condition.Operator.ToString());
             }
         }
     }
