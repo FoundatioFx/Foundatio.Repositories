@@ -1,19 +1,23 @@
-﻿using System.Text;
-using System.Text.Json;
-using Nest;
+using System;
+using Elastic.Transport.Products.Elasticsearch;
+using Foundatio.Serializer;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 internal static class IBodyWithApiCallDetailsExtensions
 {
-    private static readonly JsonSerializerOptions _options = new() { PropertyNameCaseInsensitive = true, };
-
-    public static T DeserializeRaw<T>(this IResponse call) where T : class, new()
+    public static T DeserializeRaw<T>(this ElasticsearchResponse call, ITextSerializer serializer) where T : class, new()
     {
-        if (call?.ApiCall?.ResponseBodyInBytes == null)
+        ArgumentNullException.ThrowIfNull(serializer);
+
+        if (call?.ApiCallDetails?.ResponseBodyInBytes == null)
             return default;
 
-        string rawResponse = Encoding.UTF8.GetString(call.ApiCall.ResponseBodyInBytes);
-        return JsonSerializer.Deserialize<T>(rawResponse, _options);
+        return serializer.Deserialize<T>(call.ApiCallDetails.ResponseBodyInBytes);
+    }
+
+    public static Exception OriginalException(this ElasticsearchResponse response)
+    {
+        return response?.ApiCallDetails?.OriginalException;
     }
 }

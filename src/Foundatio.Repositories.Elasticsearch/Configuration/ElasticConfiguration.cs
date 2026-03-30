@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Elasticsearch.Net;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Serialization;
+using Elastic.Transport;
 using Foundatio.Caching;
 using Foundatio.Jobs;
 using Foundatio.Lock;
@@ -13,11 +15,12 @@ using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Extensions;
+using Foundatio.Repositories.Serialization;
 using Foundatio.Resilience;
+using Foundatio.Serializer;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
@@ -29,18 +32,27 @@ public class ElasticConfiguration : IElasticConfiguration
     protected readonly ILockProvider _lockProvider;
     private readonly List<IIndex> _indexes = new();
     private readonly Lazy<IReadOnlyCollection<IIndex>> _frozenIndexes;
-    private readonly Lazy<IElasticClient> _client;
+    private readonly Lazy<ElasticsearchClient> _client;
     private readonly Lazy<ICustomFieldDefinitionRepository> _customFieldDefinitionRepository;
     protected readonly bool _shouldDisposeCache;
     private readonly bool _shouldDisposeMessageBus;
     private int _disposed;
 
-    public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, TimeProvider timeProvider = null, IResiliencePolicyProvider resiliencePolicyProvider = null, ILoggerFactory loggerFactory = null)
+    public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, ITextSerializer serializer = null, TimeProvider timeProvider = null, IResiliencePolicyProvider resiliencePolicyProvider = null, ILoggerFactory loggerFactory = null)
     {
         _workItemQueue = workItemQueue;
         TimeProvider = timeProvider ?? TimeProvider.System;
         LoggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         _logger = LoggerFactory.CreateLogger(GetType());
+
+        if (serializer is null)
+        {
+            _logger.LogWarning("No serializer configured, using default System.Text.Json serializer");
+            serializer = new Foundatio.Serializer.SystemTextJsonSerializer(
+                new System.Text.Json.JsonSerializerOptions().ConfigureFoundatioRepositoryDefaults());
+        }
+
+        Serializer = serializer;
         ResiliencePolicyProvider = resiliencePolicyProvider ?? cacheClient?.GetResiliencePolicyProvider() ?? new ResiliencePolicyProvider();
         ResiliencePolicy = ResiliencePolicyProvider.GetPolicy<ElasticConfiguration>(_logger, TimeProvider);
         Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { CloneValues = true, ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
@@ -51,37 +63,40 @@ public class ElasticConfiguration : IElasticConfiguration
         MessageBus = messageBus ?? new InMemoryMessageBus(new InMemoryMessageBusOptions { ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
         _frozenIndexes = new Lazy<IReadOnlyCollection<IIndex>>(() => _indexes.AsReadOnly());
         _customFieldDefinitionRepository = new Lazy<ICustomFieldDefinitionRepository>(CreateCustomFieldDefinitionRepository);
-        _client = new Lazy<IElasticClient>(CreateElasticClient);
+        _client = new Lazy<ElasticsearchClient>(CreateElasticClient);
     }
 
-    protected virtual IElasticClient CreateElasticClient()
+    protected virtual ElasticsearchClient CreateElasticClient()
     {
-        var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")));
-        settings.EnableApiVersioningHeader();
+        var settings = new ElasticsearchClientSettings(
+            CreateConnectionPool() ?? new SingleNodePool(new Uri("http://localhost:9200")),
+            sourceSerializer: (_, clientSettings) =>
+                new DefaultSourceSerializer(clientSettings, options => options.ConfigureFoundatioRepositoryDefaults()));
         ConfigureSettings(settings);
         foreach (var index in Indexes)
             index.ConfigureSettings(settings);
 
-        return new ElasticClient(settings);
+        return new ElasticsearchClient(settings);
     }
 
     public virtual void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder) { }
 
     public virtual void ConfigureGlobalQueryParsers(ElasticQueryParserConfiguration config) { }
 
-    protected virtual void ConfigureSettings(ConnectionSettings settings)
+    protected virtual void ConfigureSettings(ElasticsearchClientSettings settings)
     {
         settings.EnableTcpKeepAlive(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2));
     }
 
-    protected virtual IConnectionPool CreateConnectionPool()
+    protected virtual NodePool CreateConnectionPool()
     {
         return null;
     }
 
-    public IElasticClient Client => _client.Value;
+    public ElasticsearchClient Client => _client.Value;
     public ICacheClient Cache { get; }
     public IMessageBus MessageBus { get; }
+    public ITextSerializer Serializer { get; }
     public ILoggerFactory LoggerFactory { get; }
     public IResiliencePolicyProvider ResiliencePolicyProvider { get; }
     public IResiliencePolicy ResiliencePolicy { get; }
@@ -227,6 +242,11 @@ public class ElasticConfiguration : IElasticConfiguration
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
+
+        // ElasticsearchClientSettings implements IDisposable internally but doesn't expose it
+        // on its public API, so we must cast to IDisposable to release its underlying resources.
+        if (_client.IsValueCreated)
+            (_client.Value.ElasticsearchClientSettings as IDisposable)?.Dispose();
 
         if (_shouldDisposeCache)
             Cache.Dispose();

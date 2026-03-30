@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using System.Diagnostics;
-using Foundatio.Repositories.Utility;
+using Foundatio.Repositories.Serialization;
 
 namespace Foundatio.Repositories.Models;
 
@@ -16,7 +16,7 @@ public class KeyedBucket<T> : BucketBase
     {
     }
 
-    [System.Text.Json.Serialization.JsonConverter(typeof(ObjectToInferredTypesConverter))]
+    [System.Text.Json.Serialization.JsonConverter(typeof(InferredTypesConverterFactory))]
     public T Key { get; set; }
     public string KeyAsString { get; set; }
     public long? Total { get; set; }

@@ -1,9 +1,10 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Parsers;
 using Foundatio.Parsers.ElasticQueries;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -12,8 +13,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Serializer;
 using Microsoft.Extensions.Logging.Abstractions;
-using Nest;
-
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 
 public sealed class EmployeeIndex : Index<Employee>
@@ -26,48 +25,47 @@ public sealed class EmployeeIndex : Index<Employee>
         AddCustomFieldType(new CalculatedIntegerFieldType(new ScriptService(new SystemTextJsonSerializer(), NullLogger<ScriptService>.Instance)));
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        return base.ConfigureIndex(idx.Settings(s => s
-            .Setting("index.mapping.ignore_malformed", "true")
+        base.ConfigureIndex(idx.Settings(s => s
+            .AddOtherSetting("index.mapping.ignore_malformed", "true")
             .NumberOfReplicas(0)
             .NumberOfShards(1)
             .Analysis(a => a.AddSortNormalizer())));
     }
 
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
     {
-        return map
-            .Dynamic(false)
+        map
+            .Dynamic(DynamicMapping.False)
             .Properties(p => p
                 .SetupDefaults()
-                .Text(f => f.Name("_all"))
-                .Keyword(f => f.Name(e => e.Id))
-                .Keyword(f => f.Name(e => e.EmailAddress))
-                .Keyword(f => f.Name(e => e.CompanyId))
-                .Keyword(f => f.Name(e => e.EmploymentType))
-                .Keyword(f => f.Name(e => e.CompanyName))
-                .Text(f => f.Name(e => e.Name).AddKeywordAndSortFields().CopyTo(c => c.Field("_all")))
-                .Scalar(f => f.Age, f => f.Name(e => e.Age))
-                .FieldAlias(a => a.Name("aliasedage").Path(f => f.Age))
-                .Scalar(f => f.DecimalAge, f => f.Name(e => e.DecimalAge))
-                .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
-                .FieldAlias(a => a.Name("next").Path(f => f.NextReview))
-                .GeoPoint(f => f.Name(e => e.Location))
-                .FieldAlias(a => a.Name("phone").Path(f => f.PhoneNumbers.First().Number))
-                .Object<PhoneInfo>(f => f
-                    .Name(u => u.PhoneNumbers.First()).Properties(mp => mp
-                        .Text(fu => fu.Name(m => m.Number).CopyTo(c => c.Field("_all")))))
-                .FieldAlias(a => a.Name("twitter").Path("data.@user_meta.twitter_id"))
-                .FieldAlias(a => a.Name("followers").Path("data.@user_meta.twitter_followers"))
-                .Object<Dictionary<string, object>>(f => f.Name(e => e.Data).Properties(p1 => p1
-                    .Object<object>(f2 => f2.Name("@user_meta").Properties(p2 => p2
-                        .Keyword(f3 => f3.Name("twitter_id").CopyTo(c => c.Field("_all")))
-                        .Number(f3 => f3.Name("twitter_followers"))
-                    ))))
-                .Nested<PeerReview>(f => f.Name(e => e.PeerReviews).Properties(p1 => p1
-                    .Keyword(f2 => f2.Name(p2 => p2.ReviewerEmployeeId))
-                    .Scalar(p3 => p3.Rating, f2 => f2.Name(p3 => p3.Rating))))
+                .Text("_all")
+                .Keyword(e => e.EmailAddress)
+                .Keyword(e => e.CompanyId)
+                .Keyword(e => e.EmploymentType)
+                .Keyword(e => e.CompanyName)
+                .Text(e => e.Name, t => t.AddKeywordAndSortFields().CopyTo("_all"))
+                .IntegerNumber(e => e.Age)
+                .FieldAlias("aliasedage", a => a.Path(e => e.Age))
+                .DoubleNumber(e => e.DecimalAge)
+                .Date(e => e.NextReview)
+                .FieldAlias("next", a => a.Path(e => e.NextReview))
+                .GeoPoint(e => e.Location)
+                .FieldAlias("phone", a => a.Path("phoneNumbers.number"))
+                .Object(e => e.PhoneNumbers, mp => mp
+                    .Properties(p => p.Text("number", t => t.CopyTo("_all"))))
+                .FieldAlias("twitter", a => a.Path("data.@user_meta.twitter_id"))
+                .FieldAlias("followers", a => a.Path("data.@user_meta.twitter_followers"))
+                .Object(e => e.Data, p1 => p1
+                    .Properties(p => p.Object("@user_meta", p2 => p2
+                        .Properties(p3 => p3
+                            .Keyword("twitter_id", f3 => f3.CopyTo("_all"))
+                            .LongNumber("twitter_followers")))))
+                .Nested(e => e.PeerReviews, p1 => p1
+                    .Properties(p => p
+                        .Keyword("reviewerEmployeeId")
+                        .IntegerNumber("rating")))
                 );
     }
 
@@ -110,38 +108,37 @@ public sealed class EmployeeIndexWithYearsEmployed : Index<Employee>
 {
     public EmployeeIndexWithYearsEmployed(IElasticConfiguration configuration) : base(configuration, "employees") { }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+        base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
 
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
     {
-        return base.ConfigureIndexMapping(map
-            .Dynamic(false)
+        map
+            .Dynamic(DynamicMapping.False)
             .Properties(p => p
                 .SetupDefaults()
-                .Keyword(f => f.Name(e => e.Id))
-                .Keyword(f => f.Name(e => e.CompanyId))
-                .Keyword(f => f.Name(e => e.CompanyName))
-                .Text(f => f.Name(e => e.Name).AddKeywordField())
-                .Scalar(f => f.Age, f => f.Name(e => e.Age))
-                .Scalar(f => f.YearsEmployed, f => f.Name(e => e.YearsEmployed))
-                .Date(f => f.Name(e => e.LastReview))
-                .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
-                .FieldAlias(a => a.Name("next").Path(f2 => f2.NextReview))
-            ));
+                .Keyword(e => e.CompanyId)
+                .Keyword(e => e.CompanyName)
+                .Text(e => e.Name, t => t.AddKeywordField())
+                .IntegerNumber(e => e.Age)
+                .IntegerNumber(e => e.YearsEmployed)
+                .Date(e => e.LastReview)
+                .Date(e => e.NextReview)
+                .FieldAlias("next", a => a.Path(e => e.NextReview))
+            );
     }
 }
 
 public sealed class VersionedEmployeeIndex : VersionedIndex<Employee>
 {
-    private readonly Func<CreateIndexDescriptor, CreateIndexDescriptor> _createIndex;
-    private readonly Func<TypeMappingDescriptor<Employee>, TypeMappingDescriptor<Employee>> _createMappings;
+    private readonly Action<CreateIndexRequestDescriptor> _createIndex;
+    private readonly Action<TypeMappingDescriptor<Employee>> _createMappings;
 
     public VersionedEmployeeIndex(IElasticConfiguration configuration, int version,
-        Func<CreateIndexDescriptor, CreateIndexDescriptor> createIndex = null,
-        Func<TypeMappingDescriptor<Employee>, TypeMappingDescriptor<Employee>> createMappings = null) : base(configuration, "employees", version)
+        Action<CreateIndexRequestDescriptor> createIndex = null,
+        Action<TypeMappingDescriptor<Employee>> createMappings = null) : base(configuration, "employees", version)
     {
         _createIndex = createIndex;
         _createMappings = createMappings;
@@ -150,20 +147,26 @@ public sealed class VersionedEmployeeIndex : VersionedIndex<Employee>
         AddReindexScript(22, "ctx._source.FAIL = 'should not work");
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
         if (_createIndex != null)
-            return _createIndex(idx);
+        {
+            _createIndex(idx);
+            return;
+        }
 
-        return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+        base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
 
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
     {
         if (_createMappings != null)
-            return _createMappings(map);
+        {
+            _createMappings(map);
+            return;
+        }
 
-        return base.ConfigureIndexMapping(map);
+        base.ConfigureIndexMapping(map);
     }
 }
 
@@ -176,26 +179,63 @@ public sealed class DailyEmployeeIndex : DailyIndex<Employee>
         AddAlias($"{Name}-last30days", TimeSpan.FromDays(30));
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+        base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
 
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
     {
-        return base.ConfigureIndexMapping(map
-            .Dynamic(false)
+        map
+            .Dynamic(DynamicMapping.False)
             .Properties(p => p
                 .SetupDefaults()
-                .Keyword(f => f.Name(e => e.Id))
-                .Keyword(f => f.Name(e => e.CompanyId))
-                .Keyword(f => f.Name(e => e.CompanyName))
-                .Text(f => f.Name(e => e.Name).AddKeywordField())
-                .Scalar(f => f.Age, f => f.Name(e => e.Age))
-                .Date(f => f.Name(e => e.LastReview))
-                .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
-                .FieldAlias(a => a.Name("next").Path(f2 => f2.NextReview))
-            ));
+                .Keyword(e => e.CompanyId)
+                .Keyword(e => e.CompanyName)
+                .Text(e => e.Name, t => t.AddKeywordField())
+                .IntegerNumber(e => e.Age)
+                .Date(e => e.LastReview)
+                .Date(e => e.NextReview)
+                .FieldAlias("next", a => a.Path(e => e.NextReview))
+            );
+    }
+
+    protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder)
+    {
+        builder.Register<AgeQueryBuilder>();
+        builder.Register<CompanyQueryBuilder>();
+    }
+}
+
+public sealed class DailyEmployeeIndexWithReindexScripts : DailyIndex<Employee>
+{
+    public DailyEmployeeIndexWithReindexScripts(IElasticConfiguration configuration, int version) : base(configuration, "daily-employees", version)
+    {
+        AddAlias($"{Name}-today", TimeSpan.FromDays(1));
+        AddAlias($"{Name}-last7days", TimeSpan.FromDays(7));
+        AddAlias($"{Name}-last30days", TimeSpan.FromDays(30));
+        AddReindexScript(2, "ctx._source.companyName = 'daily-scripted';");
+    }
+
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
+    {
+        base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+    }
+
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
+    {
+        map
+            .Dynamic(DynamicMapping.False)
+            .Properties(p => p
+                .SetupDefaults()
+                .Keyword(e => e.CompanyId)
+                .Keyword(e => e.CompanyName)
+                .Text(e => e.Name, t => t.AddKeywordField())
+                .IntegerNumber(e => e.Age)
+                .Date(e => e.LastReview)
+                .Date(e => e.NextReview)
+                .FieldAlias("next", a => a.Path(e => e.NextReview))
+            );
     }
 
     protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder)
@@ -210,39 +250,6 @@ public sealed class DailyEmployeeIndexWithWrongEmployeeType : DailyIndex<Employe
     public DailyEmployeeIndexWithWrongEmployeeType(IElasticConfiguration configuration, int version) : base(configuration, "daily-employees", version) { }
 }
 
-public sealed class DailyEmployeeIndexWithReindexScript : DailyIndex<Employee>
-{
-    public DailyEmployeeIndexWithReindexScript(IElasticConfiguration configuration, int version) : base(configuration, "daily-employees", version)
-    {
-        AddAlias($"{Name}-today", TimeSpan.FromDays(1));
-        AddAlias($"{Name}-last7days", TimeSpan.FromDays(7));
-        AddAlias($"{Name}-last30days", TimeSpan.FromDays(30));
-        AddReindexScript(2, "ctx._source.companyName = 'daily-reindex-script';");
-    }
-
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
-    {
-        return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
-    }
-
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
-    {
-        return base.ConfigureIndexMapping(map
-            .Dynamic(false)
-            .Properties(p => p
-                .SetupDefaults()
-                .Keyword(f => f.Name(e => e.Id))
-                .Keyword(f => f.Name(e => e.CompanyId))
-                .Keyword(f => f.Name(e => e.CompanyName))
-                .Text(f => f.Name(e => e.Name).AddKeywordField())
-                .Scalar(f => f.Age, f => f.Name(e => e.Age))
-                .Date(f => f.Name(e => e.LastReview))
-                .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
-                .FieldAlias(a => a.Name("next").Path(f2 => f2.NextReview))
-            ));
-    }
-}
-
 public sealed class MonthlyEmployeeIndex : MonthlyIndex<Employee>
 {
     public MonthlyEmployeeIndex(IElasticConfiguration configuration, int version) : base(configuration, "monthly-employees", version)
@@ -253,26 +260,63 @@ public sealed class MonthlyEmployeeIndex : MonthlyIndex<Employee>
         AddAlias($"{Name}-last60days", TimeSpan.FromDays(60));
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+        base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
 
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
     {
-        return base.ConfigureIndexMapping(map
-            .Dynamic(false)
+        map
+            .Dynamic(DynamicMapping.False)
             .Properties(p => p
                 .SetupDefaults()
-                .Keyword(f => f.Name(e => e.Id))
-                .Keyword(f => f.Name(e => e.CompanyId))
-                .Keyword(f => f.Name(e => e.CompanyName))
-                .Text(f => f.Name(e => e.Name).AddKeywordField())
-                .Scalar(f => f.Age, f => f.Name(e => e.Age))
-                .Date(f => f.Name(e => e.LastReview))
-                .Scalar(f => f.NextReview, f => f.Name(e => e.NextReview))
-                .FieldAlias(a => a.Name("next").Path(f => f.NextReview))
-            ));
+                .Keyword(e => e.CompanyId)
+                .Keyword(e => e.CompanyName)
+                .Text(e => e.Name, t => t.AddKeywordField())
+                .IntegerNumber(e => e.Age)
+                .Date(e => e.LastReview)
+                .Date(e => e.NextReview)
+                .FieldAlias("next", a => a.Path(e => e.NextReview))
+            );
+    }
+
+    protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder)
+    {
+        builder.Register<AgeQueryBuilder>();
+        builder.Register<CompanyQueryBuilder>();
+    }
+}
+
+public sealed class DailyEmployeeIndexWithReindexScript : DailyIndex<Employee>
+{
+    public DailyEmployeeIndexWithReindexScript(IElasticConfiguration configuration, int version) : base(configuration, "daily-employees", version)
+    {
+        AddAlias($"{Name}-today", TimeSpan.FromDays(1));
+        AddAlias($"{Name}-last7days", TimeSpan.FromDays(7));
+        AddAlias($"{Name}-last30days", TimeSpan.FromDays(30));
+        AddReindexScript(2, "ctx._source.companyName = 'daily-reindex-script';");
+    }
+
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
+    {
+        base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+    }
+
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
+    {
+        map
+            .Dynamic(DynamicMapping.False)
+            .Properties(p => p
+                .SetupDefaults()
+                .Keyword(e => e.CompanyId)
+                .Keyword(e => e.CompanyName)
+                .Text(e => e.Name, t => t.AddKeywordField())
+                .IntegerNumber(e => e.Age)
+                .Date(e => e.LastReview)
+                .Date(e => e.NextReview)
+                .FieldAlias("next", a => a.Path(e => e.NextReview))
+            );
     }
 
     protected override void ConfigureQueryBuilder(ElasticQueryBuilder builder)
@@ -290,9 +334,9 @@ public sealed class VersionedEmployeeIndexWithFieldRename : VersionedIndex<Emplo
         RenameFieldScript(2, "companyName", "companyNameRenamed");
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+        base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
 }
 
@@ -304,9 +348,9 @@ public sealed class VersionedEmployeeIndexWithNestedFieldRename : VersionedIndex
         RenameFieldScript(2, "data.oldField", "data.newField");
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+        base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
 }
 
@@ -318,9 +362,9 @@ public sealed class VersionedEmployeeIndexWithFieldRemove : VersionedIndex<Emplo
         RemoveFieldScript(2, "companyName");
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+        base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
 }
 
@@ -332,8 +376,8 @@ public sealed class VersionedEmployeeIndexWithNestedFieldRemove : VersionedIndex
         RemoveFieldScript(2, "data.oldField");
     }
 
-    public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
     {
-        return base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
+        base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
     }
 }

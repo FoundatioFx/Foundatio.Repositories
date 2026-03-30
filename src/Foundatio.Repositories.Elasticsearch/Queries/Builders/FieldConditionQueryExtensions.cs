@@ -2,14 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using Foundatio.Repositories.Options;
-using Nest;
+using Elastic.Clients.Elasticsearch;
 
 namespace Foundatio.Repositories
 {
     /// <summary>
     /// Extension methods for adding field conditions to repository queries.
     /// These are the primary API for building type-safe Elasticsearch filter clauses without
-    /// dropping to raw NEST <c>QueryContainer</c> objects.
+    /// dropping to raw Elasticsearch <c>Query</c> objects.
     /// </summary>
     public static class FieldConditionQueryExtensions
     {

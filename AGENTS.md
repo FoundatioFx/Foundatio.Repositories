@@ -88,7 +88,7 @@ samples
 - **Guard clauses**: Use `ArgumentNullException.ThrowIfNull(param)` instead of manual `if (param == null) throw`
 - **Lambda bodies**: Prefer multi-line bodies for lambda expressions—no single-line `{ action(); return true; }` patterns
 - **Raw string literals**: Use `"""..."""` for multi-line strings. Never use string concatenation (`+`) to build script or query strings
-- **Domain-correct syntax in scripts**: Verify operator syntax for the target language (e.g., Painless uses `==` not `===`; NEST uses specific query DSL methods)
+- **Domain-correct syntax in scripts**: Verify operator syntax for the target language (e.g., Painless uses `==` not `===`; Elasticsearch client uses specific query DSL methods)
 
 ### Architecture Patterns
 

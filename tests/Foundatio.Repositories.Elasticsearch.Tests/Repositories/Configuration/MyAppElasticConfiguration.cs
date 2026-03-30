@@ -1,9 +1,7 @@
 using System;
-using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
-using System.Net.NetworkInformation;
-using Elasticsearch.Net;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Transport;
 using Foundatio.Caching;
 using Foundatio.Jobs;
 using Foundatio.Messaging;
@@ -12,14 +10,13 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Microsoft.Extensions.Logging;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 
 public class MyAppElasticConfiguration : ElasticConfiguration
 {
     public MyAppElasticConfiguration(IQueue<WorkItemData> workItemQueue, ICacheClient cacheClient, IMessageBus messageBus, ILoggerFactory loggerFactory)
-        : base(workItemQueue, cacheClient, messageBus, null, null, loggerFactory)
+        : base(workItemQueue, cacheClient, messageBus, loggerFactory: loggerFactory)
     {
         AddIndex(Identities = new IdentityIndex(this));
         AddIndex(Employees = new EmployeeIndex(this));
@@ -34,57 +31,24 @@ public class MyAppElasticConfiguration : ElasticConfiguration
         CustomFields = AddCustomFieldIndex(replicas: 0);
     }
 
-    protected override IConnectionPool CreateConnectionPool()
+    protected override NodePool CreateConnectionPool()
     {
-        string connectionString = null;
-        bool fiddlerIsRunning = Process.GetProcessesByName("fiddler").Length > 0;
+        string connectionString = Environment.GetEnvironmentVariable("ELASTICSEARCH_URL");
+        bool fiddlerIsRunning = String.Equals(Environment.GetEnvironmentVariable("USE_FIDDLER_PROXY"), "true", StringComparison.OrdinalIgnoreCase);
 
-        var servers = new List<Uri>();
         if (!String.IsNullOrEmpty(connectionString))
         {
-            servers.AddRange(
-                connectionString.Split(',')
-                    .Select(url => new Uri(fiddlerIsRunning ? url.Replace("localhost", "ipv4.fiddler") : url)));
-        }
-        else
-        {
-            servers.Add(new Uri($"http://{(fiddlerIsRunning ? "ipv4.fiddler" : "elastic.localtest.me")}:9200"));
-            if (IsPortOpen(9201))
-                servers.Add(new Uri($"http://{(fiddlerIsRunning ? "ipv4.fiddler" : "localhost")}:9201"));
-            if (IsPortOpen(9202))
-                servers.Add(new Uri($"http://{(fiddlerIsRunning ? "ipv4.fiddler" : "localhost")}:9202"));
+            var servers = connectionString.Split(',')
+                .Select(url => new Uri(fiddlerIsRunning ? url.Replace("localhost", "ipv4.fiddler") : url))
+                .ToList();
+            return new StaticNodePool(servers);
         }
 
-        return new StaticConnectionPool(servers);
+        var host = fiddlerIsRunning ? "ipv4.fiddler" : "elastic.localtest.me";
+        return new SingleNodePool(new Uri($"http://{host}:9200"));
     }
 
-    private static bool IsPortOpen(int port)
-    {
-        var ipGlobalProperties = IPGlobalProperties.GetIPGlobalProperties();
-        var tcpConnInfoArray = ipGlobalProperties.GetActiveTcpListeners();
-
-        foreach (var endpoint in tcpConnInfoArray)
-        {
-            if (endpoint.Port == port)
-                return true;
-        }
-
-        return false;
-    }
-
-    protected override IElasticClient CreateElasticClient()
-    {
-        //var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")), sourceSerializer: (serializer, values) => new ElasticsearchJsonNetSerializer(serializer, values));
-        var settings = new ConnectionSettings(CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200")));
-        settings.EnableApiVersioningHeader();
-        ConfigureSettings(settings);
-        foreach (var index in Indexes)
-            index.ConfigureSettings(settings);
-
-        return new ElasticClient(settings);
-    }
-
-    protected override void ConfigureSettings(ConnectionSettings settings)
+    protected override void ConfigureSettings(ElasticsearchClientSettings settings)
     {
         // only do this in test and dev mode
         settings.DisableDirectStreaming().PrettyJson();

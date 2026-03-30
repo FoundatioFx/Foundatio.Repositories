@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -99,25 +100,25 @@ public sealed class ParentChildTests : ElasticRepositoryTestBase
 
         parent.IsDeleted = false;
         await _parentRepository.SaveAsync(parent, o => o.ImmediateConsistency());
-        Assert.Equal(1, await _childRepository.GetAllAsync());
+        Assert.Equal(1, await _childRepository.CountAsync());
     }
 
     [Fact]
     public async Task CanQueryByParent()
     {
         var parent = ParentGenerator.Default;
-        parent = await _parentRepository.AddAsync(parent);
+        parent = await _parentRepository.AddAsync(parent, o => o.ImmediateConsistency());
         Assert.NotNull(parent);
         Assert.NotNull(parent.Id);
 
-        await _parentRepository.AddAsync(ParentGenerator.Generate());
+        await _parentRepository.AddAsync(ParentGenerator.Generate(), o => o.ImmediateConsistency());
 
         var child = ChildGenerator.Default;
         child = await _childRepository.AddAsync(child, o => o.ImmediateConsistency());
         Assert.NotNull(child);
         Assert.NotNull(child.Id);
 
-        var childResults = await _childRepository.FindAsync(q => q.ParentQuery(p => p.Id(parent.Id)));
+        var childResults = await _childRepository.FindAsync(q => q.ParentQuery(p => p.Id(parent.Id)), o => o.QueryLogLevel(LogLevel.Warning));
         Assert.Equal(1, childResults.Total);
     }
 

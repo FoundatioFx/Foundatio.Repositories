@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.Diagnostics;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Foundatio.Serializer;
-using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Models;
 
@@ -10,18 +11,19 @@ public class ObjectValueAggregate : MetricAggregateBase
 {
     public object Value { get; set; }
 
-    public T ValueAs<T>(ITextSerializer serializer = null)
+    public T ValueAs<T>(ITextSerializer serializer)
     {
-        if (serializer != null)
-        {
-            if (Value is string stringValue)
-                return serializer.Deserialize<T>(stringValue);
-            else if (Value is JToken jTokenValue)
-                return serializer.Deserialize<T>(jTokenValue.ToString());
-        }
+        ArgumentNullException.ThrowIfNull(serializer);
 
-        return Value is JToken jToken
-            ? jToken.ToObject<T>()
-            : (T)Convert.ChangeType(Value, typeof(T));
+        if (Value is string stringValue)
+            return serializer.Deserialize<T>(stringValue);
+
+        if (Value is JsonNode jNode)
+            return serializer.Deserialize<T>(jNode.ToJsonString());
+
+        if (Value is JsonElement jElement)
+            return serializer.Deserialize<T>(jElement.GetRawText());
+
+        return (T)Convert.ChangeType(Value, typeof(T));
     }
 }

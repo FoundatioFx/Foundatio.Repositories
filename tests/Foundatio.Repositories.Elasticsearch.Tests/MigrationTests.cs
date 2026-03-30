@@ -69,7 +69,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         Assert.False(migrationStatus.NeedsMigration);
         Assert.Equal(3, migrationStatus.CurrentVersion);
 
-        await _client.Indices.RefreshAsync(ct: TestCancellationToken);
+        await _client.Indices.RefreshAsync(cancellationToken: TestCancellationToken);
 
         var migrations = await _migrationStateRepository.GetAllAsync();
         Assert.Single(migrations.Documents);
@@ -103,7 +103,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         var result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
         Assert.Equal(MigrationResult.Success, result);
 
-        await _client.Indices.RefreshAsync(ct: TestCancellationToken);
+        await _client.Indices.RefreshAsync(cancellationToken: TestCancellationToken);
 
         var migrations = await _migrationStateRepository.GetAllAsync();
         Assert.Equal(2, migrations.Documents.Count);
@@ -137,7 +137,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         var result = await _migrationManager.RunMigrationsAsync(TestCancellationToken);
         Assert.Equal(MigrationResult.Success, result);
 
-        await _client.Indices.RefreshAsync(ct: TestCancellationToken);
+        await _client.Indices.RefreshAsync(cancellationToken: TestCancellationToken);
 
         var migrations = await _migrationStateRepository.GetAllAsync();
         Assert.Equal(2, migrations.Documents.Count);
@@ -204,7 +204,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         var failingMigration = _serviceProvider.GetRequiredService<FailingMigration>();
         Assert.Equal(1, failingMigration.Attempts);
 
-        await _client.Indices.RefreshAsync(ct: TestCancellationToken);
+        await _client.Indices.RefreshAsync(cancellationToken: TestCancellationToken);
 
         var migrations = await _migrationStateRepository.GetAllAsync();
         Assert.Equal(2, migrations.Documents.Count);
@@ -241,7 +241,7 @@ public sealed class MigrationTests : ElasticRepositoryTestBase
         var failingMigration = _serviceProvider.GetRequiredService<FailingResumableMigration>();
         Assert.Equal(3, failingMigration.Attempts);
 
-        await _client.Indices.RefreshAsync(ct: TestCancellationToken);
+        await _client.Indices.RefreshAsync(cancellationToken: TestCancellationToken);
 
         var migrations = await _migrationStateRepository.GetAllAsync();
         Assert.Equal(2, migrations.Documents.Count);
@@ -327,10 +327,8 @@ public class FailingMigration : MigrationBase
 
     public int Attempts { get; set; }
 
-#pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
-    public override async Task RunAsync(MigrationContext context)
+    public override Task RunAsync(MigrationContext context)
     {
-#pragma warning restore CS1998 // Async method lacks 'await' operators and will run synchronously
         Attempts++;
         throw new ApplicationException("Boom");
     }
@@ -346,13 +344,13 @@ public class FailingResumableMigration : MigrationBase
 
     public int Attempts { get; set; }
 
-#pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
-    public override async Task RunAsync(MigrationContext context)
+    public override Task RunAsync(MigrationContext context)
     {
-#pragma warning restore CS1998 // Async method lacks 'await' operators and will run synchronously
         Attempts++;
         if (Attempts <= 3)
             throw new ApplicationException("Boom");
+
+        return Task.CompletedTask;
     }
 }
 
