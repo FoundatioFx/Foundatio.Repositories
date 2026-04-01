@@ -20,7 +20,7 @@ services:
     depends_on:
       elasticsearch:
         condition: service_healthy
-    image: docker.elastic.co/kibana/kibana:8.19.11
+    image: docker.elastic.co/kibana/kibana:8.19.13
     environment:
       xpack.security.enabled: "false"
     ports:
