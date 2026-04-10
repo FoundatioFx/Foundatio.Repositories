@@ -35,9 +35,10 @@ public class Index : IIndex
     private int _disposed;
     protected readonly ILogger _logger;
 
-    public Index(IElasticConfiguration configuration, string? name = null)
+    public Index(IElasticConfiguration configuration, string name)
     {
-        Name = name!;
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        Name = name;
         Configuration = configuration;
         _queryBuilder = new Lazy<IElasticQueryBuilder>(CreateQueryBuilder);
         _queryParser = new Lazy<ElasticQueryParser>(CreateQueryParser);
@@ -107,7 +108,7 @@ public class Index : IIndex
 
     protected virtual void ConfigureQueryParser(ElasticQueryParserConfiguration config) { }
 
-    public string Name { get; init; } = null!;
+    public string Name { get; init; }
     public bool HasMultipleIndexes { get; init; } = false;
     public ISet<string> AllowedQueryFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     public ISet<string> AllowedAggregationFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

@@ -85,7 +85,7 @@ public class EmployeeWithCustomFieldsRepository : ElasticRepositoryBase<Employee
 
     public Task<FindResults<EmployeeWithCustomFields>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<EmployeeWithCustomFields>? options = null)
     {
-        var commandOptions = options!.Configure();
+        var commandOptions = (options ?? (_ => _)).Configure();
         if (commandOptions.ShouldUseCache())
             commandOptions.CacheKey(company);
 

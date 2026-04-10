@@ -98,7 +98,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
 
     public Task<FindResults<Employee>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<Employee>? options = null)
     {
-        var commandOptions = options!.Configure();
+        var commandOptions = (options ?? (_ => _)).Configure();
         if (commandOptions.ShouldUseCache())
             commandOptions.CacheKey(company);
 
