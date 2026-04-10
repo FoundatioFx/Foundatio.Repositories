@@ -96,7 +96,7 @@ public class JsonPatcher : AbstractPatcher<JToken>
     protected override void Test(TestOperation operation, JToken target)
     {
         var existingValue = target.SelectPatchToken(operation.Path!);
-        if (existingValue is null || !existingValue.Equals(operation.Value))
+        if (existingValue is null || !JToken.DeepEquals(existingValue, operation.Value))
         {
             throw new InvalidOperationException("Value at " + operation.Path + " does not match.");
         }
