@@ -140,7 +140,7 @@ public class ElasticConfiguration : IElasticConfiguration
             if (await Cache.ExistsAsync(ConfigureIndexesCacheKey).AnyContext())
                 return;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Error checking configure-indexes cache marker, will configure indexes");
         }
@@ -151,7 +151,7 @@ public class ElasticConfiguration : IElasticConfiguration
             configLock = await _lockProvider.AcquireAsync(ConfigureIndexesCacheKey,
                 TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1)).AnyContext();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Error acquiring configure-indexes lock, continuing without lock");
         }
@@ -165,7 +165,7 @@ public class ElasticConfiguration : IElasticConfiguration
                     if (await Cache.ExistsAsync(ConfigureIndexesCacheKey).AnyContext())
                         return;
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     _logger.LogWarning(ex, "Error checking configure-indexes cache marker after lock, will configure indexes");
                 }
@@ -185,7 +185,7 @@ public class ElasticConfiguration : IElasticConfiguration
             {
                 await Cache.SetAsync(ConfigureIndexesCacheKey, true, TimeSpan.FromMinutes(5)).AnyContext();
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex, "Error setting configure-indexes cache marker");
             }
@@ -303,7 +303,7 @@ public class ElasticConfiguration : IElasticConfiguration
         {
             await Cache.RemoveAsync(ConfigureIndexesCacheKey).AnyContext();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Error removing configure-indexes cache marker");
         }
