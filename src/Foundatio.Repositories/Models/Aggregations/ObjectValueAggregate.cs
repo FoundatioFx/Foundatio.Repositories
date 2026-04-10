@@ -12,6 +12,9 @@ public class ObjectValueAggregate : MetricAggregateBase
 
     public T? ValueAs<T>(ITextSerializer? serializer = null)
     {
+        if (Value is null)
+            return default;
+
         if (serializer != null)
         {
             if (Value is string stringValue)
