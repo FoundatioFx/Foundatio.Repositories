@@ -381,11 +381,10 @@ public class Index : IIndex
 
 public class Index<T> : Index, IIndex<T> where T : class
 {
-    private readonly string _typeName = typeof(T).Name.ToLower();
+    private static readonly string _typeName = typeof(T).Name.ToLower();
 
-    public Index(IElasticConfiguration configuration, string? name = null) : base(configuration, name!)
+    public Index(IElasticConfiguration configuration, string? name = null) : base(configuration, name ?? _typeName)
     {
-        Name = name ?? _typeName;
     }
 
     protected override ElasticMappingResolver CreateMappingResolver()

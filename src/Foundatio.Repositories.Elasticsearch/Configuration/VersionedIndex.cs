@@ -386,11 +386,10 @@ public class VersionedIndex : Index, IVersionedIndex
 
 public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class
 {
-    private readonly string _typeName = typeof(T).Name.ToLower();
+    private static readonly string _typeName = typeof(T).Name.ToLower();
 
-    public VersionedIndex(IElasticConfiguration configuration, string? name = null, int version = 1) : base(configuration, name!, version)
+    public VersionedIndex(IElasticConfiguration configuration, string? name = null, int version = 1) : base(configuration, name ?? _typeName, version)
     {
-        Name = name ?? _typeName;
     }
 
     protected override ElasticMappingResolver CreateMappingResolver()

@@ -533,11 +533,10 @@ public class DailyIndex : VersionedIndex
 
 public class DailyIndex<T> : DailyIndex, IIndex<T> where T : class
 {
-    private readonly string _typeName = typeof(T).Name.ToLower();
+    private static readonly string _typeName = typeof(T).Name.ToLower();
 
-    public DailyIndex(IElasticConfiguration configuration, string? name = null, int version = 1, Func<object, DateTime>? getDocumentDateUtc = null) : base(configuration, name!, version, getDocumentDateUtc)
+    public DailyIndex(IElasticConfiguration configuration, string? name = null, int version = 1, Func<object, DateTime>? getDocumentDateUtc = null) : base(configuration, name ?? _typeName, version, getDocumentDateUtc)
     {
-        Name = name ?? _typeName;
     }
 
     protected override ElasticMappingResolver CreateMappingResolver()
