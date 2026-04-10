@@ -144,7 +144,7 @@ public class ElasticReindexer
             }
         }
 
-        await progressCallbackAsync(100, null!).AnyContext();
+        await progressCallbackAsync(100, "Completed").AnyContext();
     }
 
     private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync, int startProgress = 0, int endProgress = 100, DateTime? startTime = null, CancellationToken cancellationToken = default)

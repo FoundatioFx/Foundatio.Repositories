@@ -817,7 +817,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         await _identityRepository.RemoveQueryAsync(asyncQueryId);
 
         // getting query that doesn't exist returns empty (don't love it, but other things are doing similar)
-        results = await _identityRepository.CountAsync(o => o.AsyncQueryId(asyncQueryId!));
+        await _identityRepository.CountAsync(o => o.AsyncQueryId(asyncQueryId!));
 
         // removing query that does not exist to make sure it doesn't throw
         await _identityRepository.RemoveQueryAsync(asyncQueryId);

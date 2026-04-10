@@ -10,11 +10,13 @@ public static class DictionaryExtensions
 {
     public static string? GetString(this IEnumerable<KeyValuePair<string, object>> data, string name)
     {
-        return data.GetString(name, null);
+        return data.GetString(name, String.Empty);
     }
 
     public static string? GetString(this IEnumerable<KeyValuePair<string, object>> data, string name, string? @default)
     {
+        if (data is null)
+            return @default;
         object? value;
         if (data is IDictionary<string, object> dictionary)
         {

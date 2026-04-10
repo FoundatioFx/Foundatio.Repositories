@@ -31,7 +31,7 @@ public class DailyIndex : VersionedIndex
     private TimeSpan? _maxIndexAge;
     protected readonly Func<object, DateTime> _getDocumentDateUtc;
     protected readonly string[] _defaultIndexes;
-    private readonly ConcurrentDictionary<DateTime, object?> _ensuredDates = new();
+    private readonly ConcurrentDictionary<DateTime, byte> _ensuredDates = new();
 
     public DailyIndex(IElasticConfiguration configuration, string name, int version = 1, Func<object, DateTime>? getDocumentDateUtc = null)
         : base(configuration, name, version)
@@ -149,13 +149,13 @@ public class DailyIndex : VersionedIndex
         string unversionedIndexAlias = GetIndexByDate(utcDate);
         if (await _aliasCache.ExistsAsync(unversionedIndexAlias).AnyContext())
         {
-        _ensuredDates[utcDate] = null;
-        return;
+            _ensuredDates[utcDate] = 0;
+            return;
         }
 
         if (await AliasExistsAsync(unversionedIndexAlias).AnyContext())
         {
-            _ensuredDates[utcDate] = null;
+            _ensuredDates[utcDate] = 0;
             await _aliasCache.SetAsync(unversionedIndexAlias, unversionedIndexAlias, expires).AnyContext();
             return;
         }
@@ -171,7 +171,7 @@ public class DailyIndex : VersionedIndex
             return ConfigureIndex(descriptor).Aliases(a => aliasesDescriptor);
         }).AnyContext();
 
-        _ensuredDates[utcDate] = null;
+        _ensuredDates[utcDate] = 0;
         await _aliasCache.SetAsync(unversionedIndexAlias, unversionedIndexAlias, expires).AnyContext();
     }
 

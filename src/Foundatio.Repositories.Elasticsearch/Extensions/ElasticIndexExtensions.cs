@@ -375,7 +375,7 @@ public static class ElasticIndexExtensions
             var hits = _getHits.Value(topHitsAggregate);
             var docs = hits?.Select(h => new ElasticLazyDocument(h)).Cast<ILazyDocument>().ToList();
 
-            return new TopHitsAggregate(docs!)
+            return new TopHitsAggregate(docs ?? [])
             {
                 Total = topHitsAggregate.Total.Value,
                 MaxScore = topHitsAggregate.MaxScore,

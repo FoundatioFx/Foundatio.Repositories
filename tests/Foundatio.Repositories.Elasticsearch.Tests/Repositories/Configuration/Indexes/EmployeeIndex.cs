@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.Parsers;
 using Foundatio.Parsers.ElasticQueries;
@@ -93,13 +92,13 @@ public sealed class EmployeeIndex : Index<Employee>
 
     private async Task<string> ResolveIncludeAsync(string name)
     {
-       await Task.Delay(100, TestContext.Current.CancellationToken);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
         return "aliasedage:10";
     }
 
     private async Task<ElasticRuntimeField?> ResolveRuntimeFieldAsync(string name)
     {
-       await Task.Delay(100, TestContext.Current.CancellationToken);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
 
         if (name.Equals("unmappedEmailAddress", StringComparison.OrdinalIgnoreCase))
             return new ElasticRuntimeField { Name = "unmappedEmailAddress" };
