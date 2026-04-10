@@ -454,9 +454,9 @@ public class JsonPatchTests
         new JsonPatcher().Patch(ref sample, patchDocument);
 
         // Assert
-        var list = sample["tags"] as System.Text.Json.Nodes.JsonArray;
-        Assert.NotNull(list);
-        Assert.Equal(2, list.Count);
+        var list = sample["tags"];
+        var jsonArray = Assert.IsType<System.Text.Json.Nodes.JsonArray>(list);
+        Assert.Equal(2, jsonArray.Count);
     }
 
     [Fact]

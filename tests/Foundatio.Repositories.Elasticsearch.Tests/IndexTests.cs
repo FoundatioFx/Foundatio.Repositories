@@ -1080,7 +1080,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var baseDate = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         // Act
-        Employee lastEmployee = null;
+        Employee lastEmployee = null!;
         for (int i = 0; i < UNIQUE_DATES; i++)
         {
             var testDate = baseDate.AddDays(i);
@@ -1090,7 +1090,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         // Assert
         Assert.NotNull(lastEmployee);
-        Assert.NotNull(lastEmployee!.Id);
+        Assert.NotNull(lastEmployee.Id);
         var retrieved = await repository.GetByIdAsync(lastEmployee.Id);
         Assert.NotNull(retrieved);
         Assert.Equal(lastEmployee.Id, retrieved.Id);
