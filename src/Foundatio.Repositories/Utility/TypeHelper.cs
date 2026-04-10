@@ -13,7 +13,7 @@ public static class TypeHelper
         {
             try
             {
-                return (T)Convert.ChangeType(value, targetType);
+                return (T)Convert.ChangeType(value, targetType)!;
             }
             catch
             {
@@ -31,9 +31,9 @@ public static class TypeHelper
         if (targetTypeInfo.IsEnum && (value is string || valueType.GetTypeInfo().IsEnum))
         {
             // attempt to match enum by name.
-            if (TryEnumIsDefined<T>(targetType, value.ToString()))
+            if (TryEnumIsDefined<T>(targetType, value.ToString()!))
             {
-                object parsedValue = Enum.Parse(targetType, value.ToString(), false);
+                object parsedValue = Enum.Parse(targetType, value.ToString()!, false);
                 return (T)parsedValue;
             }
 
@@ -46,7 +46,7 @@ public static class TypeHelper
 
         if (converter.CanConvertFrom(valueType))
         {
-            object convertedValue = converter.ConvertFrom(value);
+            object convertedValue = converter.ConvertFrom(value)!;
             return (T)convertedValue;
         }
 
@@ -54,7 +54,7 @@ public static class TypeHelper
             throw new ArgumentException($"An incompatible value specified.  Target Type: {targetType.FullName} Value Type: {value.GetType().FullName}", nameof(value));
         try
         {
-            object convertedValue = Convert.ChangeType(value, targetType);
+            object convertedValue = Convert.ChangeType(value, targetType)!;
             return (T)convertedValue;
         }
         catch (Exception e)

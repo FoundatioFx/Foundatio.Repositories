@@ -103,7 +103,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19, companyId: EmployeeGenerator.DefaultCompanyId), o => o.ImmediateConsistency());
 
         query = new RepositoryQuery<Employee>();
-        query.FieldEquals(e => e.Name, null);
+        query.FieldEquals(e => e.Name, null!);
         result = await _employeeRepository.FindAsync(q => query);
         Assert.Single(result.Documents);
         Assert.Null(result.Documents.Single().Name);
@@ -115,7 +115,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Null(result.Documents.Single().Name);
 
         query = new RepositoryQuery<Employee>();
-        query.FieldNotEquals(e => e.Name, null);
+        query.FieldNotEquals(e => e.Name, null!);
         result = await _employeeRepository.FindAsync(q => query);
         Assert.Single(result.Documents);
         Assert.NotNull(result.Documents.Single().Name);
@@ -137,7 +137,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldCondition(e => e.Name, ComparisonOperator.Contains, (object)null));
+        var result = await _employeeRepository.FindAsync(q => q.FieldCondition(e => e.Name, ComparisonOperator.Contains, (object)null!));
 
         // Assert — null Contains rewrites to IsEmpty, so finds the employee without a name
         Assert.Single(result.Documents);
@@ -154,7 +154,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         ], o => o.ImmediateConsistency());
 
         // Act
-        var result = await _employeeRepository.FindAsync(q => q.FieldCondition(e => e.Name, ComparisonOperator.NotContains, (object)null));
+        var result = await _employeeRepository.FindAsync(q => q.FieldCondition(e => e.Name, ComparisonOperator.NotContains, (object)null!));
 
         // Assert — null NotContains rewrites to HasValue, so finds the employee with a name
         Assert.Single(result.Documents);
@@ -290,6 +290,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.NotNull(log.Id);
 
         var companyLog = await _dailyRepository.GetByIdAsync(log!.Id, o => o.QueryLogLevel(LogLevel.Warning).Exclude(e => e.Date).Include(e => e.Id).Include("createdUtc"));
+        Assert.NotNull(companyLog);
         Assert.Equal(log.Id, companyLog.Id);
         Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
         Assert.Equal(default, companyLog.Date);
@@ -312,6 +313,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
 
         const string cacheKey = "company:1234567890";
         var companyLog = await _dailyRepository.GetByIdAsync(log!.Id, o => o.QueryLogLevel(LogLevel.Warning).Exclude(e => e.Date).Include(e => e.Id).Include("createdUtc").Cache(cacheKey));
+        Assert.NotNull(companyLog);
         Assert.Equal(log.Id, companyLog.Id);
         Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
         Assert.Equal(default, companyLog.Date);
@@ -326,6 +328,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
 
         // Ensure cache hit by cache key.
         companyLog = await _dailyRepository.GetByIdAsync(log!.Id, o => o.QueryLogLevel(LogLevel.Warning).Exclude(e => e.Date).Include(e => e.Id).Include("createdUtc").Cache(cacheKey));
+        Assert.NotNull(companyLog);
         Assert.Equal(log.Id, companyLog.Id);
         Assert.Equal(log.CreatedUtc, companyLog.CreatedUtc);
         Assert.Equal(default, companyLog.Date);
@@ -964,7 +967,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         ], o => o.ImmediateConsistency());
 
         // Act
-        string nullValue = null;
+        string? nullValue = null;
         var result = await _employeeRepository.FindAsync(q => q
             .FieldEqualsIf(e => e.CompanyName, nullValue, condition: v => v is not null));
 
@@ -1747,7 +1750,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         {
             await _employeeRepository.FindAsync(q => q.FieldOr(g => g
                 .FieldEquals(f => f.CompanyName, "Acme")
-                .FieldCondition(f => f.Age, ComparisonOperator.GreaterThan, (object)null)
+                .FieldCondition(f => f.Age, ComparisonOperator.GreaterThan, (object)null!)
             ));
         });
 
@@ -1839,7 +1842,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // Act & Assert
         var ex = await Assert.ThrowsAsync<FieldQueryValidationException>(async () =>
         {
-            await _employeeRepository.FindAsync(q => q.FieldGreaterThan(e => e.Age, null));
+            await _employeeRepository.FindAsync(q => q.FieldGreaterThan(e => e.Age, null!));
         });
 
         Assert.Contains("null value", ex.Message);

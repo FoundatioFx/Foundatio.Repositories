@@ -15,7 +15,7 @@ public abstract class ElasticMigrationJobBase : JobBase
     protected readonly IElasticConfiguration _configuration;
     protected readonly Lazy<MigrationManager> _migrationManager;
 
-    public ElasticMigrationJobBase(MigrationManager migrationManager, IElasticConfiguration configuration, ILoggerFactory loggerFactory = null)
+    public ElasticMigrationJobBase(MigrationManager migrationManager, IElasticConfiguration configuration, ILoggerFactory? loggerFactory = null)
         : base(loggerFactory)
     {
         _migrationManager = new Lazy<MigrationManager>(() =>

@@ -33,7 +33,7 @@ public class ChildRepository : ElasticRepositoryBase<Child>, IChildRepository
         return Task.CompletedTask;
     }
 
-    protected override ICommandOptions<Child> ConfigureOptions(ICommandOptions<Child> options)
+    protected override ICommandOptions<Child> ConfigureOptions(ICommandOptions<Child>? options)
     {
         return base.ConfigureOptions(options).ParentDocumentType(typeof(Parent));
     }

@@ -5,15 +5,15 @@ namespace Foundatio.Repositories.Utility;
 
 public class MoveOperation : Operation
 {
-    public string FromPath { get; set; }
+    public string? FromPath { get; set; }
 
     public override void Write(JsonWriter writer)
     {
         writer.WriteStartObject();
 
         WriteOp(writer, "move");
-        WritePath(writer, Path);
-        WriteFromPath(writer, FromPath);
+        WritePath(writer, Path!);
+        WriteFromPath(writer, FromPath!);
 
         writer.WriteEndObject();
     }

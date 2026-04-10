@@ -6,7 +6,7 @@ namespace Foundatio.Repositories.Utility;
 
 public abstract class Operation
 {
-    public string Path { get; set; }
+    public string? Path { get; set; }
 
     public abstract void Write(JsonWriter writer);
 
@@ -45,7 +45,7 @@ public abstract class Operation
     {
         ArgumentNullException.ThrowIfNull(jOperation);
 
-        var opName = (string)jOperation["op"];
+        var opName = (string?)jOperation["op"];
         ArgumentException.ThrowIfNullOrWhiteSpace(opName, "op");
 
         var op = PatchDocument.CreateOperation(opName)

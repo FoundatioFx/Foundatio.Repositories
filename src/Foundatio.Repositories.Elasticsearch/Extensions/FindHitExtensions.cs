@@ -19,21 +19,21 @@ public static class FindHitExtensions
         _options.Converters.Add(new ObjectConverter());
     }
 
-    public static string GetIndex<T>(this FindHit<T> hit)
+    public static string? GetIndex<T>(this FindHit<T> hit)
     {
         return hit?.Data?.GetString(ElasticDataKeys.Index);
     }
 
-    public static object[] GetSorts<T>(this FindHit<T> hit)
+    public static object[]? GetSorts<T>(this FindHit<T> hit)
     {
-        if (hit == null || !hit.Data.TryGetValue(ElasticDataKeys.Sorts, out object sorts))
+        if (hit == null || !hit.Data.TryGetValue(ElasticDataKeys.Sorts, out object? sorts))
             return Array.Empty<object>();
 
-        object[] sortsArray = sorts as object[];
+        object[]? sortsArray = sorts as object[];
         return sortsArray;
     }
 
-    public static string GetSearchBeforeToken<T>(this FindResults<T> results) where T : class
+    public static string? GetSearchBeforeToken<T>(this FindResults<T> results) where T : class
     {
         if (results == null || results.Hits.Count == 0)
             return null;
@@ -41,7 +41,7 @@ public static class FindHitExtensions
         return results.Data.GetString(ElasticDataKeys.SearchBeforeToken, null);
     }
 
-    public static string GetSearchAfterToken<T>(this FindResults<T> results) where T : class
+    public static string? GetSearchAfterToken<T>(this FindResults<T> results) where T : class
     {
         if (results == null || results.Hits.Count == 0)
             return null;
@@ -54,7 +54,7 @@ public static class FindHitExtensions
         if (results == null || results.Hits.Count == 0)
             return;
 
-        string token = results.Hits.First().GetSortToken();
+        string? token = results.Hits.First().GetSortToken();
         if (!String.IsNullOrEmpty(token))
             results.Data[ElasticDataKeys.SearchBeforeToken] = token;
     }
@@ -64,21 +64,21 @@ public static class FindHitExtensions
         if (results == null || results.Hits.Count == 0)
             return;
 
-        string token = results.Hits.Last().GetSortToken();
+        string? token = results.Hits.Last().GetSortToken();
         if (!String.IsNullOrEmpty(token))
             results.Data[ElasticDataKeys.SearchAfterToken] = token;
     }
 
-    public static string GetSortToken<T>(this FindHit<T> hit)
+    public static string? GetSortToken<T>(this FindHit<T> hit)
     {
-        object[] sorts = hit?.GetSorts();
+        object[]? sorts = hit?.GetSorts();
         if (sorts == null || sorts.Length == 0)
             return null;
 
         return Encode(JsonSerializer.Serialize(sorts));
     }
 
-    public static ISort ReverseOrder(this ISort sort)
+    public static ISort? ReverseOrder(this ISort? sort)
     {
         if (sort == null)
             return null;
@@ -87,7 +87,7 @@ public static class FindHitExtensions
         return sort;
     }
 
-    public static IEnumerable<ISort> ReverseOrder(this IEnumerable<ISort> sorts)
+    public static IEnumerable<ISort>? ReverseOrder(this IEnumerable<ISort>? sorts)
     {
         if (sorts == null)
             return null;
@@ -99,8 +99,8 @@ public static class FindHitExtensions
 
     public static object[] DecodeSortToken(string sortToken)
     {
-        object[] tokens = JsonSerializer.Deserialize<object[]>(Decode(sortToken), _options);
-        return tokens;
+        object[]? tokens = JsonSerializer.Deserialize<object[]>(Decode(sortToken), _options);
+        return tokens!;
     }
 
     private static string Encode(string text)
@@ -145,10 +145,10 @@ public class ObjectConverter : JsonConverter<object>
         return reader.TokenType switch
         {
             JsonTokenType.Number => GetNumber(reader),
-            JsonTokenType.String => reader.GetString(),
+            JsonTokenType.String => reader.GetString()!,
             JsonTokenType.True => reader.GetBoolean(),
             JsonTokenType.False => reader.GetBoolean(),
-            _ => null
+            _ => null!
         };
     }
 

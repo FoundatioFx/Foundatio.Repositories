@@ -13,13 +13,13 @@ public class AggregationsNewtonsoftJsonConverter : JsonConverter
         return typeof(IAggregate).IsAssignableFrom(objectType);
     }
 
-    public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+    public override object? ReadJson(JsonReader reader, Type objectType, object? existingValue, JsonSerializer serializer)
     {
         var item = JObject.Load(reader);
         var typeToken = item.SelectToken("Data.@type") ?? item.SelectToken("data.@type");
-        string type = typeToken?.Value<string>();
+        string? type = typeToken?.Value<string>();
 
-        IAggregate value = type switch
+        IAggregate? value = type switch
         {
             "bucket" => new BucketAggregate(),
             "exstats" => new ExtendedStatsAggregate(),
@@ -57,7 +57,7 @@ public class AggregationsNewtonsoftJsonConverter : JsonConverter
 
     public override bool CanWrite => false;
 
-    public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+    public override void WriteJson(JsonWriter writer, object? value, JsonSerializer serializer)
     {
         throw new NotImplementedException();
     }

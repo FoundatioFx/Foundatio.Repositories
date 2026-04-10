@@ -43,7 +43,7 @@ public class VersionedIndex : Index, IVersionedIndex
     private class ReindexScript
     {
         public int Version { get; set; }
-        public string Script { get; set; }
+        public string Script { get; set; } = null!;
     }
 
     protected virtual void AddReindexScript(int versionNumber, string script)
@@ -223,7 +223,7 @@ public class VersionedIndex : Index, IVersionedIndex
         return reindexWorkItem;
     }
 
-    protected string GetReindexScripts(int currentVersion)
+    protected string? GetReindexScripts(int currentVersion)
     {
         var scripts = ReindexScripts.Where(s => s.Version > currentVersion && Version >= s.Version).OrderBy(s => s.Version).ToList();
         if (scripts.Count == 0)
@@ -244,7 +244,7 @@ public class VersionedIndex : Index, IVersionedIndex
         return sb.ToString();
     }
 
-    public override async Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null)
+    public override async Task ReindexAsync(Func<int, string, Task>? progressCallbackAsync = null)
     {
         int currentVersion = await GetCurrentVersionAsync().AnyContext();
         if (currentVersion < 0 || currentVersion >= Version)
@@ -377,7 +377,7 @@ public class VersionedIndex : Index, IVersionedIndex
     [DebuggerDisplay("{Index} (Date: {DateUtc} Version: {Version} CurrentVersion: {CurrentVersion})")]
     protected class IndexInfo
     {
-        public string Index { get; set; }
+        public string Index { get; set; } = null!;
         public int Version { get; set; }
         public int CurrentVersion { get; set; } = -1;
         public DateTime DateUtc { get; set; }
@@ -388,7 +388,7 @@ public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class
 {
     private readonly string _typeName = typeof(T).Name.ToLower();
 
-    public VersionedIndex(IElasticConfiguration configuration, string name = null, int version = 1) : base(configuration, name, version)
+    public VersionedIndex(IElasticConfiguration configuration, string? name = null, int version = 1) : base(configuration, name!, version)
     {
         Name = name ?? _typeName;
     }
@@ -423,7 +423,7 @@ public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class
         });
     }
 
-    protected override async Task UpdateIndexAsync(string name, Func<UpdateIndexSettingsDescriptor, UpdateIndexSettingsDescriptor> descriptor = null)
+    protected override async Task UpdateIndexAsync(string name, Func<UpdateIndexSettingsDescriptor, UpdateIndexSettingsDescriptor>? descriptor = null)
     {
         await base.UpdateIndexAsync(name, descriptor).AnyContext();
 
@@ -461,7 +461,7 @@ public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class
         settings.DefaultMappingFor<T>(d => d.IndexName(Name));
     }
 
-    protected override string GetTimeStampField()
+    protected override string? GetTimeStampField()
     {
         if (typeof(IHaveDates).IsAssignableFrom(typeof(T)))
             return InferField(f => ((IHaveDates)f).UpdatedUtc);

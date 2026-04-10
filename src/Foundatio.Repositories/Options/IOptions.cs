@@ -16,7 +16,7 @@ public interface IOptionsDictionary : IEnumerable<KeyValuePair<string, object>>
     void Set(string name, object value);
     bool Contains(string name);
     bool Remove(string name);
-    T Get<T>(string name, T defaultValue = default);
+    T Get<T>(string name, T defaultValue = default!);
 }
 
 public class OptionsDictionary : IOptionsDictionary
@@ -86,7 +86,7 @@ public static class OptionsExtensions
         return options;
     }
 
-    public static T SafeGetOption<T>(this IOptions options, string name, T defaultValue = default)
+    public static T SafeGetOption<T>(this IOptions? options, string name, T defaultValue = default!)
     {
         if (options == null)
             return defaultValue;
@@ -94,7 +94,7 @@ public static class OptionsExtensions
         return options.Values.Get(name, defaultValue);
     }
 
-    public static bool SafeHasOption(this IOptions options, string name)
+    public static bool SafeHasOption(this IOptions? options, string name)
     {
         if (options == null)
             return false;
@@ -102,7 +102,7 @@ public static class OptionsExtensions
         return options.Values.Contains(name);
     }
 
-    public static ICollection<T> SafeGetCollection<T>(this IOptions options, string name)
+    public static ICollection<T> SafeGetCollection<T>(this IOptions? options, string name)
     {
         if (options == null)
             return new List<T>();

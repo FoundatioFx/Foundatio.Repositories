@@ -22,12 +22,12 @@ public interface IHaveDateMetaData
 
 public class EmployeeWithDateMetaData : IIdentity, IVersioned, IHaveDateMetaData
 {
-    public string Id { get; set; }
-    public string Name { get; set; }
+    public string Id { get; set; } = null!;
+    public string Name { get; set; } = null!;
     public int Age { get; set; }
-    public string CompanyName { get; set; }
-    public string CompanyId { get; set; }
-    public string Version { get; set; }
+    public string CompanyName { get; set; } = null!;
+    public string CompanyId { get; set; } = null!;
+    public string Version { get; set; } = null!;
     public DateMetaData MetaData { get; set; } = new DateMetaData();
     IDateMetaData IHaveDateMetaData.MetaData { get => MetaData; set => MetaData = value as DateMetaData ?? new DateMetaData { DateCreatedUtc = value?.DateCreatedUtc, DateUpdatedUtc = value?.DateUpdatedUtc }; }
 }
@@ -42,11 +42,11 @@ public static class EmployeeWithDateMetaDataGenerator
         CompanyId = "default-company"
     };
 
-    public static EmployeeWithDateMetaData Generate(string id = null, string name = null, int? age = null, string companyName = null)
+    public static EmployeeWithDateMetaData Generate(string? id = null, string? name = null, int? age = null, string? companyName = null)
     {
         return new EmployeeWithDateMetaData
         {
-            Id = id,
+            Id = id!,
             Name = name ?? "Test",
             Age = age ?? 25,
             CompanyName = companyName ?? "TestCo",

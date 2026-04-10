@@ -254,7 +254,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
             case ComparisonOperator.GreaterThanOrEqual:
             case ComparisonOperator.LessThan:
             case ComparisonOperator.LessThanOrEqual:
-                return BuildRangeQuery(resolvedField, condition.Operator, condition.Value);
+                return BuildRangeQuery(resolvedField, condition.Operator, condition.Value!);
             default:
                 throw new ArgumentOutOfRangeException(nameof(condition.Operator), condition.Operator, "Unknown comparison operator.");
         }
@@ -402,7 +402,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         return query;
     }
 
-    private static async Task<QueryContainer> TranslateGroupAsync<T>(
+    private static async Task<QueryContainer?> TranslateGroupAsync<T>(
         FieldConditionGroup group, ElasticMappingResolver resolver, QueryBuilderContext<T> ctx) where T : class, new()
     {
         var clauses = new List<QueryContainer>();

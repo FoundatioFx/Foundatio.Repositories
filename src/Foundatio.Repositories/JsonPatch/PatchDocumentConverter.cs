@@ -11,7 +11,7 @@ public class PatchDocumentConverter : JsonConverter
         return true;
     }
 
-    public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+    public override object? ReadJson(JsonReader reader, Type objectType, object? existingValue, JsonSerializer serializer)
     {
         if (objectType != typeof(PatchDocument))
             throw new ArgumentException("Object must be of type PatchDocument", nameof(objectType));
@@ -30,7 +30,7 @@ public class PatchDocumentConverter : JsonConverter
         }
     }
 
-    public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+    public override void WriteJson(JsonWriter writer, object? value, JsonSerializer serializer)
     {
         if (!(value is PatchDocument))
             return;

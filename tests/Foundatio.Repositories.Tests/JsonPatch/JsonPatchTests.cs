@@ -22,7 +22,7 @@ public class JsonPatchTests
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
 
-        var list = sample["books"] as JArray;
+        var list = (sample["books"] as JArray)!;
 
         Assert.Equal(3, list.Count);
     }
@@ -40,7 +40,7 @@ public class JsonPatchTests
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
 
-        var list = sample["someobject"]["somearray"] as JArray;
+        var list = (sample["someobject"]!["somearray"] as JArray)!;
 
         Assert.Single(list);
     }
@@ -72,7 +72,7 @@ public class JsonPatchTests
 
         new JsonPatcher().Patch(ref sample, patchDocument);
 
-        var list = sample["books"] as JArray;
+        var list = (sample["books"] as JArray)!;
 
         Assert.Single(list);
     }
@@ -89,7 +89,7 @@ public class JsonPatchTests
 
         new JsonPatcher().Patch(ref sample, patchDocument);
 
-        var list = sample["tags"] as JArray;
+        var list = (sample["tags"] as JArray)!;
 
         Assert.Equal(2, list.Count);
     }
@@ -107,7 +107,7 @@ public class JsonPatchTests
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
 
-        string result = sample.SelectPatchToken(pointer).Value<string>();
+        string result = sample.SelectPatchToken(pointer)!.Value<string>()!;
         Assert.Equal("Little Red Riding Hood", result);
     }
 
@@ -124,7 +124,7 @@ public class JsonPatchTests
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
 
-        string result = sample.SelectPatchToken(pointer).Value<string>();
+        string result = sample.SelectPatchToken(pointer)!.Value<string>()!;
         Assert.Equal("213324234343", result);
     }
 
@@ -179,7 +179,7 @@ public class JsonPatchTests
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
 
-        string result = sample.SelectPatchToken(topointer).Value<string>();
+        string result = sample.SelectPatchToken(topointer)!.Value<string>()!;
         Assert.Equal("F. Scott Fitzgerald", result);
     }
 
@@ -323,7 +323,7 @@ public class JsonPatchTests
 
         new JsonPatcher().Patch(ref sample, patchDocument);
 
-        Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer).Value<string>());
+        Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer)!.Value<string>());
     }
 
     [Fact]
@@ -338,7 +338,7 @@ public class JsonPatchTests
 
         new JsonPatcher().Patch(ref sample, patchDocument);
 
-        Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer).Value<string>());
+        Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer)!.Value<string>());
 
         sample = JToken.Parse("{}");
 
@@ -349,7 +349,7 @@ public class JsonPatchTests
 
         new JsonPatcher().Patch(ref sample, patchDocument);
 
-        Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer).Value<string>());
+        Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer)!.Value<string>());
 
         sample = JToken.Parse("{}");
 
@@ -360,7 +360,7 @@ public class JsonPatchTests
 
         new JsonPatcher().Patch(ref sample, patchDocument);
 
-        Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer).Value<string>());
+        Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer)!.Value<string>());
 
         sample = JToken.Parse("{}");
 
@@ -387,7 +387,7 @@ public class JsonPatchTests
         new JsonPatcher().Patch(ref sample, patchDocument);
 
         string newPointer = "/books/0/author/hello";
-        Assert.Equal("world", sample.SelectPatchToken(newPointer).Value<string>());
+        Assert.Equal("world", sample.SelectPatchToken(newPointer)!.Value<string>());
     }
 
     [Fact]
@@ -418,10 +418,10 @@ public class JsonPatchTests
         new JsonPatcher().Patch(ref sample, patchDocument);
 
         string newPointer = "/books/1/author";
-        Assert.Equal("Eric", sample.SelectPatchToken(newPointer).Value<string>());
+        Assert.Equal("Eric", sample.SelectPatchToken(newPointer)!.Value<string>());
 
         newPointer = "/books/2/author";
-        Assert.Equal("Eric", sample.SelectPatchToken(newPointer).Value<string>());
+        Assert.Equal("Eric", sample.SelectPatchToken(newPointer)!.Value<string>());
     }
 
     [Fact]
@@ -432,7 +432,7 @@ public class JsonPatchTests
         var patchDocument = JsonConvert.DeserializeObject<PatchDocument>(operations);
         var token = JToken.Parse("{ \"data\": { \"Address\": { \"address1\": null, \"address2\": null, \"city\": \"e\", \"state\": null, \"postal_code\": null, \"country\": null, \"geo\": null, \"geo_hash\": null, \"normalized_geo_hash\": null, \"geo_country\": null, \"geo_level1\": null, \"geo_level2\": null, \"geo_locality\": null, \"latitude\": null, \"longitude\": null, \"full_address\": null } } }");
 
-        new JsonPatcher().Patch(ref token, patchDocument);
+        new JsonPatcher().Patch(ref token, patchDocument!);
 
         Assert.Equal("{\"data\":{\"Address\":{\"address1\":\"100 Main Street\",\"city\":\"Suamico\",\"state\":\"Wi\",\"postal_code\":\"54173\",\"country\":\"US\"}}}", token.ToString(Formatting.None));
     }
@@ -465,7 +465,7 @@ public class JsonPatchTests
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
 
-        Assert.False(sample.ToObject<MyConfigClass>().RequiresConfiguration);
+        Assert.False(sample.ToObject<MyConfigClass>()!.RequiresConfiguration);
     }
 
     public static JToken GetSample2()

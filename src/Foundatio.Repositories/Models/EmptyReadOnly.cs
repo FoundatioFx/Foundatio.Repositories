@@ -8,7 +8,7 @@ public static class EmptyReadOnly<T>
     public static readonly IReadOnlyCollection<T> Collection = new ReadOnlyCollection<T>(new List<T>());
 }
 
-public static class EmptyReadOnly<TKey, TValue>
+public static class EmptyReadOnly<TKey, TValue> where TKey : notnull
 {
     public static readonly IReadOnlyDictionary<TKey, TValue> Dictionary = new ReadOnlyDictionary<TKey, TValue>(new Dictionary<TKey, TValue>());
 }

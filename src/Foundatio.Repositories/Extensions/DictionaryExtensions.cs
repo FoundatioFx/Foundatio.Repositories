@@ -8,14 +8,14 @@ namespace Foundatio.Repositories.Extensions;
 
 public static class DictionaryExtensions
 {
-    public static string GetString(this IEnumerable<KeyValuePair<string, object>> data, string name)
+    public static string? GetString(this IEnumerable<KeyValuePair<string, object>> data, string name)
     {
-        return data.GetString(name, String.Empty);
+        return data.GetString(name, null);
     }
 
-    public static string GetString(this IEnumerable<KeyValuePair<string, object>> data, string name, string @default)
+    public static string? GetString(this IEnumerable<KeyValuePair<string, object>> data, string name, string? @default)
     {
-        object value = null;
+        object? value;
         if (data is IDictionary<string, object> dictionary)
         {
             if (!dictionary.TryGetValue(name, out value))
@@ -46,7 +46,7 @@ public static class DictionaryExtensions
 
     public static bool GetBoolean(this IEnumerable<KeyValuePair<string, object>> data, string name, bool @default)
     {
-        object value = null;
+        object? value = null;
         if (data is IDictionary<string, object> dictionary)
         {
             if (!dictionary.TryGetValue(name, out value))
@@ -67,34 +67,35 @@ public static class DictionaryExtensions
         if (value is bool b)
             return b;
 
-        if (Boolean.TryParse(value.ToString(), out var result))
+        if (Boolean.TryParse(value.ToString()!, out bool result))
             return result;
 
         return @default;
     }
 
-    public static IDictionary<string, object> ToData<T>(this IEnumerable<KeyValuePair<string, object>> dictionary) where T : IAggregate
+    public static IDictionary<string, object>? ToData<T>(this IEnumerable<KeyValuePair<string, object>> dictionary) where T : IAggregate
     {
         var dict = dictionary?
             .Where(kvp => kvp.Key != "@field_type" && kvp.Key != "@timezone")
             .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
 
-        string type = GetAggregateType(typeof(T));
+        string? type = GetAggregateType(typeof(T));
         if (dict == null && type != null)
             dict = new Dictionary<string, object>();
 
         if (type != null)
-            dict["@type"] = type;
+            dict!["@type"] = type;
 
         return dict?.Count > 0 ? dict : null;
     }
 
-    public static IReadOnlyDictionary<string, object> ToReadOnlyData<T>(this IEnumerable<KeyValuePair<string, object>> dictionary) where T : IAggregate
+    public static IReadOnlyDictionary<string, object>? ToReadOnlyData<T>(this IEnumerable<KeyValuePair<string, object>> dictionary) where T : IAggregate
     {
-        return new ReadOnlyDictionary<string, object>(dictionary.ToData<T>());
+        var data = dictionary.ToData<T>();
+        return data is not null ? new ReadOnlyDictionary<string, object>(data) : null;
     }
 
-    private static string GetAggregateType(Type type)
+    private static string? GetAggregateType(Type type)
     {
         if (type == typeof(BucketAggregate))
             return "bucket";

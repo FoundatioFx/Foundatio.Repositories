@@ -10,7 +10,7 @@ public class RemoveOperation : Operation
         writer.WriteStartObject();
 
         WriteOp(writer, "remove");
-        WritePath(writer, Path);
+        WritePath(writer, Path!);
 
         writer.WriteEndObject();
     }

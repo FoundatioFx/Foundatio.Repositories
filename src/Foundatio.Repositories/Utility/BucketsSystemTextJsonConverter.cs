@@ -15,20 +15,20 @@ public class BucketsSystemTextJsonConverter : System.Text.Json.Serialization.Jso
 
     public override IBucket Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        IBucket value = null;
+        IBucket? value = null;
 
         var element = JsonElement.ParseValue(ref reader);
-        string typeToken = GetDataToken(element, "@type");
+        string? typeToken = GetDataToken(element, "@type");
         if (typeToken != null)
         {
             switch (typeToken)
             {
                 case "datehistogram":
                     // First deserialize as KeyedBucket<double> to get all properties
-                    var tempBucket = element.Deserialize<KeyedBucket<double>>(options);
+                    var tempBucket = element.Deserialize<KeyedBucket<double>>(options)!;
 
                     // Calculate date from Key (epoch milliseconds)
-                    string timeZoneToken = GetDataToken(element, "@timezone");
+                    string? timeZoneToken = GetDataToken(element, "@timezone");
                     var kind = timeZoneToken != null ? DateTimeKind.Unspecified : DateTimeKind.Utc;
                     long keyAsLong = (long)tempBucket.Key;
                     var date = new DateTime(_epochTicks + (keyAsLong * TimeSpan.TicksPerMillisecond), kind);
@@ -61,7 +61,7 @@ public class BucketsSystemTextJsonConverter : System.Text.Json.Serialization.Jso
         if (value is null)
             value = element.Deserialize<KeyedBucket<object>>(options);
 
-        return value;
+        return value!;
     }
 
     public override void Write(Utf8JsonWriter writer, IBucket value, JsonSerializerOptions options)
@@ -80,7 +80,7 @@ public class BucketsSystemTextJsonConverter : System.Text.Json.Serialization.Jso
         return null;
     }
 
-    private string GetDataToken(JsonElement element, string key)
+    private string? GetDataToken(JsonElement element, string key)
     {
         var dataPropertyElement = GetProperty(element, "Data");
         if (dataPropertyElement != null && dataPropertyElement.Value.TryGetProperty(key, out var typeElement))

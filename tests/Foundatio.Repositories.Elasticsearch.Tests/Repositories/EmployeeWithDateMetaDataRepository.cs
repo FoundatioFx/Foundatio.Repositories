@@ -26,7 +26,7 @@ public class EmployeeWithDateMetaDataRepository : ElasticRepositoryBase<Employee
 
     protected override string GetUpdatedUtcFieldPath()
     {
-        return InferField(d => ((IHaveDateMetaData)d).MetaData.DateUpdatedUtc);
+        return InferField(d => (object)((IHaveDateMetaData)d).MetaData.DateUpdatedUtc!);
     }
 
     protected override void SetDocumentDates(EmployeeWithDateMetaData document, TimeProvider timeProvider)

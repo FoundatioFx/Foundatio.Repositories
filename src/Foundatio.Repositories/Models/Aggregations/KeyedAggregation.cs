@@ -2,5 +2,5 @@
 
 public class KeyedAggregation<T> : ValueAggregate
 {
-    public T Key { get; set; }
+    public T Key { get; set; } = default!;
 }

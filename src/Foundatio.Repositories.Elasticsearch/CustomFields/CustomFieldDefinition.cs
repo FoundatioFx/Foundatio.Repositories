@@ -7,28 +7,28 @@ namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
 public record CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes, IHaveData
 {
-    public string Id { get; set; }
+    public string Id { get; set; } = null!;
 
     /// <summary>
     /// The entity type that this custom field is for.
     /// </summary>
-    public string EntityType { get; set; }
+    public string EntityType { get; set; } = null!;
 
     /// <summary>
     /// The tenant key which could be a composite key that this custom field belongs to. Each tenant can have it's own
     /// set of custom fields for an entity.
     /// </summary>
-    public string TenantKey { get; set; }
+    public string TenantKey { get; set; } = null!;
 
     /// <summary>
     /// The friendly custom field name.
     /// </summary>
-    public string Name { get; set; }
+    public string Name { get; set; } = null!;
 
     /// <summary>
     /// The custom field description.
     /// </summary>
-    public string Description { get; set; }
+    public string? Description { get; set; }
 
     /// <summary>
     /// Gets or sets the display order.
@@ -51,7 +51,7 @@ public record CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes
     /// <summary>
     /// The type of index this custom field value should be stored in. (ie. string, number, float, address)
     /// </summary>
-    public string IndexType { get; set; }
+    public string IndexType { get; set; } = null!;
 
     /// <summary>
     /// The reserved indexing slot for this custom field. This name will be pooled across tenants for the same index
@@ -79,7 +79,7 @@ public record CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes
     /// </summary>
     public bool IsDeleted { get; set; }
 
-    private string _idxName = null;
+    private string? _idxName = null;
     /// <summary>
     /// Returns the Elasticsearch sub-field name used under the <c>idx</c> object for this definition.
     /// The format is <c>{IndexType}-{IndexSlot}</c> (e.g., <c>"string-1"</c>, <c>"int-3"</c>).

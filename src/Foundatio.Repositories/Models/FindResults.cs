@@ -39,7 +39,7 @@ public class FindResults<T> : CountResult, IFindResults<T> where T : class
     /// <param name="getNextPageFunc">A function to retrieve the next page of results.</param>
     /// <param name="data">Additional metadata.</param>
     [Newtonsoft.Json.JsonConstructor]
-    public FindResults(IEnumerable<FindHit<T>> hits = null, long total = 0, IReadOnlyDictionary<string, IAggregate> aggregations = null, Func<FindResults<T>, Task<FindResults<T>>> getNextPageFunc = null, IDictionary<string, object> data = null)
+    public FindResults(IEnumerable<FindHit<T>>? hits = null, long total = 0, IReadOnlyDictionary<string, IAggregate>? aggregations = null, Func<FindResults<T>, Task<FindResults<T>>>? getNextPageFunc = null, IDictionary<string, object>? data = null)
         : base(total, aggregations, data)
     {
         ((IFindResults<T>)this).GetNextPageFunc = getNextPageFunc;
@@ -66,7 +66,7 @@ public class FindResults<T> : CountResult, IFindResults<T> where T : class
             if (value is { Count: > 0 })
             {
                 field = value;
-                Documents = field.Where(r => r.Document is not null).Select(r => r.Document).ToList().AsReadOnly();
+                Documents = field.Where(r => r.Document is not null).Select(r => r.Document!).ToList().AsReadOnly();
             }
             else
             {
@@ -102,7 +102,7 @@ public class FindResults<T> : CountResult, IFindResults<T> where T : class
         set { HasMore = value; }
     }
 
-    Func<FindResults<T>, Task<FindResults<T>>> IFindResults<T>.GetNextPageFunc { get; set; }
+    Func<FindResults<T>, Task<FindResults<T>>>? IFindResults<T>.GetNextPageFunc { get; set; }
 
     void IFindResults<T>.Reverse()
     {
@@ -175,7 +175,7 @@ public interface IFindResults<T> where T : class
     /// <summary>
     /// Gets or sets the function used to retrieve the next page of results.
     /// </summary>
-    Func<FindResults<T>, Task<FindResults<T>>> GetNextPageFunc { get; set; }
+    Func<FindResults<T>, Task<FindResults<T>>>? GetNextPageFunc { get; set; }
 
     /// <summary>
     /// Reverses the order of the results.
@@ -201,7 +201,7 @@ public class CountResult : IHaveData
     /// <param name="data">Additional metadata.</param>
     [JsonConstructor]
     [Newtonsoft.Json.JsonConstructor]
-    public CountResult(long total = 0, IReadOnlyDictionary<string, IAggregate> aggregations = null, IDictionary<string, object> data = null)
+    public CountResult(long total = 0, IReadOnlyDictionary<string, IAggregate>? aggregations = null, IDictionary<string, object>? data = null)
     {
         Aggregations = aggregations ?? EmptyReadOnly<string, IAggregate>.Dictionary;
         Total = total;
@@ -224,7 +224,7 @@ public class CountResult : IHaveData
         set
         {
             field = value ?? EmptyReadOnly<string, IAggregate>.Dictionary;
-            Aggs = null;
+            Aggs = null!;
         }
     }
 
@@ -286,7 +286,7 @@ public class FindHit<T> : IHaveData
     /// <param name="data">Additional metadata.</param>
     [JsonConstructor]
     [Newtonsoft.Json.JsonConstructor]
-    public FindHit(string id, T document, double score, string version = null, string routing = null, IDictionary<string, object> data = null)
+    public FindHit(string? id, T? document, double score, string? version = null, string? routing = null, IDictionary<string, object>? data = null)
     {
         Id = id;
         Document = document;
@@ -299,7 +299,7 @@ public class FindHit<T> : IHaveData
     /// <summary>
     /// Gets the document.
     /// </summary>
-    public T Document { get; }
+    public T? Document { get; }
 
     /// <summary>
     /// Gets the relevance score for this hit.
@@ -309,17 +309,17 @@ public class FindHit<T> : IHaveData
     /// <summary>
     /// Gets the document version.
     /// </summary>
-    public string Version { get; }
+    public string? Version { get; }
 
     /// <summary>
     /// Gets the document identifier.
     /// </summary>
-    public string Id { get; }
+    public string? Id { get; }
 
     /// <summary>
     /// Gets the routing value used for this document.
     /// </summary>
-    public string Routing { get; }
+    public string? Routing { get; }
 
     /// <summary>
     /// Gets additional metadata associated with this hit.

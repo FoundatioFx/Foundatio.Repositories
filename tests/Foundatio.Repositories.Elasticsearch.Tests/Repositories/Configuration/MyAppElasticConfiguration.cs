@@ -36,7 +36,7 @@ public class MyAppElasticConfiguration : ElasticConfiguration
 
     protected override IConnectionPool CreateConnectionPool()
     {
-        string connectionString = null;
+        string? connectionString = null;
         bool fiddlerIsRunning = Process.GetProcessesByName("fiddler").Length > 0;
 
         var servers = new List<Uri>();

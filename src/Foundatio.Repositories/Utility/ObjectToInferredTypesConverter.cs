@@ -11,7 +11,7 @@ public class ObjectToInferredTypesConverter : JsonConverterFactory
     public override JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options)
     {
         var converterType = typeof(ObjectToInferredTypesConverterInner<>).MakeGenericType(typeToConvert);
-        return (JsonConverter)Activator.CreateInstance(converterType);
+        return (JsonConverter)Activator.CreateInstance(converterType)!;
     }
 
     private class ObjectToInferredTypesConverterInner<T> : JsonConverter<T>

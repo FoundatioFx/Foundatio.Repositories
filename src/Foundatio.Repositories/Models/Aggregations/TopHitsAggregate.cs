@@ -17,6 +17,6 @@ public class TopHitsAggregate : MetricAggregateBase
 
     public IReadOnlyCollection<T> Documents<T>() where T : class
     {
-        return _hits.Select(h => h.As<T>()).ToList();
+        return _hits.Select(h => h.As<T>()).Where(d => d is not null).ToList()!;
     }
 }

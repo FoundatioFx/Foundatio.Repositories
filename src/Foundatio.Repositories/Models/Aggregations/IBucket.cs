@@ -17,5 +17,5 @@ public interface IBucket
     /// <summary>
     /// Gets or sets the bucket data, including document count and nested aggregations.
     /// </summary>
-    IReadOnlyDictionary<string, object> Data { get; set; }
+    IReadOnlyDictionary<string, object>? Data { get; set; }
 }

@@ -61,7 +61,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             {
                 var childOptions = ctx.Options.Clone();
                 childOptions.DocumentType(childQuery.GetDocumentType());
-                var childContext = new QueryBuilderContext<object>(childQuery, childOptions, null);
+                var childContext = new QueryBuilderContext<object>(childQuery, childOptions);
 
                 await index.QueryBuilder.BuildAsync(childContext);
 

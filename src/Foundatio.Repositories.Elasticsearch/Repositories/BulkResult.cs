@@ -20,8 +20,8 @@ internal sealed record BulkResult
 
     public long ModifiedCount => SuccessfulIds.Count - NoopIds.Count;
 
-    public string TransportError { get; init; }
-    public Exception TransportException { get; init; }
+    public string? TransportError { get; init; }
+    public Exception? TransportException { get; init; }
 
     public bool HasTransportError => TransportError is not null;
 

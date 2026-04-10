@@ -12,7 +12,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders;
 public class ElasticQueryBuilder : IElasticQueryBuilder
 {
     private readonly List<ElasticQueryBuilderRegistration> _registrations = new();
-    private IElasticQueryBuilder[] _queryBuilders = null;
+    private IElasticQueryBuilder[]? _queryBuilders = null;
 
     public ElasticQueryBuilder(bool registerDefaultBuilders = true)
     {

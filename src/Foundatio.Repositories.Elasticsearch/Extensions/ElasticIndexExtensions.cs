@@ -59,7 +59,7 @@ public static class ElasticIndexExtensions
         return asyncSearchDescriptor;
     }
 
-    public static FindResults<T> ToFindResults<T>(this Nest.ISearchResponse<T> response, ICommandOptions options, ILogger logger = null) where T : class, new()
+    public static FindResults<T> ToFindResults<T>(this Nest.ISearchResponse<T> response, ICommandOptions options, ILogger? logger = null) where T : class, new()
     {
         if (!response.IsValid)
         {
@@ -107,7 +107,7 @@ public static class ElasticIndexExtensions
         return results;
     }
 
-    public static FindResults<T> ToFindResults<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options, ILogger logger = null) where T : class, new()
+    public static FindResults<T> ToFindResults<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options, ILogger? logger = null) where T : class, new()
     {
         if (!response.IsValid)
         {
@@ -166,7 +166,7 @@ public static class ElasticIndexExtensions
         return hits.Select(h => h.ToFindHit());
     }
 
-    public static CountResult ToCountResult<T>(this Nest.ISearchResponse<T> response, ICommandOptions options, ILogger logger = null) where T : class, new()
+    public static CountResult ToCountResult<T>(this Nest.ISearchResponse<T> response, ICommandOptions options, ILogger? logger = null) where T : class, new()
     {
         if (!response.IsValid)
         {
@@ -183,7 +183,7 @@ public static class ElasticIndexExtensions
         return new CountResult(response.Total, response.ToAggregations(logger), data);
     }
 
-    public static CountResult ToCountResult<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options, ILogger logger = null) where T : class, new()
+    public static CountResult ToCountResult<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options, ILogger? logger = null) where T : class, new()
     {
         if (!response.IsValid)
         {
@@ -306,20 +306,20 @@ public static class ElasticIndexExtensions
 
     private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
 
-    private static readonly Lazy<Func<Nest.TopHitsAggregate, IList<Nest.LazyDocument>>> _getHits =
+    private static readonly Lazy<Func<Nest.TopHitsAggregate, IList<Nest.LazyDocument>?>> _getHits =
         new(() =>
         {
             var hitsField = typeof(Nest.TopHitsAggregate).GetField("_hits", BindingFlags.GetField | BindingFlags.NonPublic | BindingFlags.Instance);
             return agg => hitsField?.GetValue(agg) as IList<Nest.LazyDocument>;
         });
 
-    public static IAggregate ToAggregate(this Nest.IAggregate aggregate, string name = null, ILogger logger = null)
+    public static IAggregate? ToAggregate(this Nest.IAggregate aggregate, string? name = null, ILogger? logger = null)
     {
         if (aggregate is Nest.ValueAggregate valueAggregate)
         {
-            if (valueAggregate.Meta != null && valueAggregate.Meta.TryGetValue("@field_type", out object value))
+            if (valueAggregate.Meta != null && valueAggregate.Meta.TryGetValue("@field_type", out object? value))
             {
-                string type = value.ToString();
+                string? type = value.ToString();
                 if (type == "date" && valueAggregate.Value.HasValue)
                 {
                     return new ValueAggregate<DateTime>
@@ -330,7 +330,7 @@ public static class ElasticIndexExtensions
                 }
             }
 
-            return new ValueAggregate { Value = valueAggregate.Value, Data = valueAggregate.Meta.ToReadOnlyData<ValueAggregate>() };
+            return new ValueAggregate { Value = valueAggregate.Value, Data = valueAggregate.Meta?.ToReadOnlyData<ValueAggregate>() };
         }
 
         if (aggregate is Nest.ScriptedMetricAggregate scriptedAggregate)
@@ -375,7 +375,7 @@ public static class ElasticIndexExtensions
             var hits = _getHits.Value(topHitsAggregate);
             var docs = hits?.Select(h => new ElasticLazyDocument(h)).Cast<ILazyDocument>().ToList();
 
-            return new TopHitsAggregate(docs)
+            return new TopHitsAggregate(docs!)
             {
                 Total = topHitsAggregate.Total.Value,
                 MaxScore = topHitsAggregate.MaxScore,
@@ -402,14 +402,14 @@ public static class ElasticIndexExtensions
             if (bucketAggregation.DocCountErrorUpperBound.GetValueOrDefault() > 0)
             {
                 logger?.LogWarning("Terms aggregation {AggregationName} has doc_count_error_upper_bound of {DocCountErrorUpperBound}. Results may be inaccurate. Consider increasing shard_size.", name, bucketAggregation.DocCountErrorUpperBound);
-                data.Add(nameof(bucketAggregation.DocCountErrorUpperBound), bucketAggregation.DocCountErrorUpperBound);
+                data.Add(nameof(bucketAggregation.DocCountErrorUpperBound), bucketAggregation.DocCountErrorUpperBound!);
             }
             if (bucketAggregation.SumOtherDocCount.GetValueOrDefault() > 0)
-                data.Add(nameof(bucketAggregation.SumOtherDocCount), bucketAggregation.SumOtherDocCount);
+                data.Add(nameof(bucketAggregation.SumOtherDocCount), bucketAggregation.SumOtherDocCount!);
 
             return new BucketAggregate
             {
-                Items = bucketAggregation.Items.Select(i => i.ToBucket(data, logger)).ToList(),
+                Items = bucketAggregation.Items.Select(i => i.ToBucket(data, logger)).ToList()!,
                 Data = new ReadOnlyDictionary<string, object>(data).ToReadOnlyData<BucketAggregate>(),
                 Total = bucketAggregation.DocCount
             };
@@ -426,10 +426,10 @@ public static class ElasticIndexExtensions
         var kind = DateTimeKind.Utc;
         long ticks = _epochTicks + ((long)valueAggregate.Value * TimeSpan.TicksPerMillisecond);
 
-        if (valueAggregate.Meta.TryGetValue("@timezone", out object value) && value != null)
+        if (valueAggregate.Meta.TryGetValue("@timezone", out object? value) && value != null)
         {
             kind = DateTimeKind.Unspecified;
-            ticks -= Exceptionless.DateTimeExtensions.TimeUnit.Parse(value.ToString()).Ticks;
+            ticks -= Exceptionless.DateTimeExtensions.TimeUnit.Parse(value.ToString()!).Ticks;
         }
 
         return GetDate(ticks, kind);
@@ -446,7 +446,7 @@ public static class ElasticIndexExtensions
         return new DateTime(ticks, kind);
     }
 
-    public static IBucket ToBucket(this Nest.IBucket bucket, IDictionary<string, object> parentData = null, ILogger logger = null)
+    public static IBucket? ToBucket(this Nest.IBucket bucket, IDictionary<string, object>? parentData = null, ILogger? logger = null)
     {
         if (bucket is Nest.DateHistogramBucket dateHistogramBucket)
         {
@@ -457,7 +457,7 @@ public static class ElasticIndexExtensions
             var data = new Dictionary<string, object> { { "@type", "datehistogram" } };
 
             if (hasTimezone)
-                data.Add("@timezone", parentData["@timezone"]);
+                data.Add("@timezone", parentData!["@timezone"]);
 
             return new DateHistogramBucket(date, dateHistogramBucket.ToAggregations(logger))
             {
@@ -510,19 +510,19 @@ public static class ElasticIndexExtensions
         return null;
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations(this IReadOnlyDictionary<string, Nest.IAggregate> aggregations, ILogger logger = null)
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations(this IReadOnlyDictionary<string, Nest.IAggregate> aggregations, ILogger? logger = null)
     {
-        return aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, logger));
+        return aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, logger)!);
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this Nest.ISearchResponse<T> res, ILogger logger = null) where T : class
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this Nest.ISearchResponse<T> res, ILogger? logger = null) where T : class
     {
-        return res.Aggregations.ToAggregations(logger);
+        return res.Aggregations.ToAggregations(logger)!;
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this Nest.IAsyncSearchResponse<T> res, ILogger logger = null) where T : class
+    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this Nest.IAsyncSearchResponse<T> res, ILogger? logger = null) where T : class
     {
-        return res.Response.Aggregations.ToAggregations(logger);
+        return res.Response.Aggregations.ToAggregations(logger)!;
     }
 
     public static Nest.PropertiesDescriptor<T> SetupDefaults<T>(this Nest.PropertiesDescriptor<T> pd) where T : class

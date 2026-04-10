@@ -4,10 +4,11 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>$(NoWarn);NU1603</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Foundatio.Extensions.Hosting" Version="13.0.0-beta3.32" />
+    <PackageReference Include="Foundatio.Extensions.Hosting" Version="13.0.0-beta3.35" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.5" />
   </ItemGroup>
 

@@ -28,30 +28,30 @@ public static class LoggerExtensions
         var apiCall = elasticResponse?.ApiCall;
         if (apiCall?.RequestBodyInBytes != null)
         {
-            string body = Encoding.UTF8.GetString(apiCall?.RequestBodyInBytes);
+            string body = Encoding.UTF8.GetString(apiCall.RequestBodyInBytes);
             body = JsonUtility.Normalize(body);
 
             logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}\r\n{HttpBody}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri.PathAndQuery, body);
         }
         else
         {
-            logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri.PathAndQuery);
+            logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}", apiCall?.HttpStatusCode, apiCall?.HttpMethod, apiCall?.Uri.PathAndQuery);
         }
     }
 
-    public static void LogErrorRequest(this ILogger logger, IElasticsearchResponse elasticResponse, string message, params object[] args)
+    public static void LogErrorRequest(this ILogger logger, IElasticsearchResponse? elasticResponse, string message, params object[] args)
     {
         LogErrorRequest(logger, null, elasticResponse, message, args);
     }
 
-    public static void LogErrorRequest(this ILogger logger, Exception ex, IElasticsearchResponse elasticResponse, string message, params object[] args)
+    public static void LogErrorRequest(this ILogger logger, Exception? ex, IElasticsearchResponse? elasticResponse, string message, params object[] args)
     {
         if (elasticResponse == null || !logger.IsEnabled(LogLevel.Error))
             return;
 
         var response = elasticResponse as IResponse;
 
-        AggregateException aggEx = null;
+        AggregateException? aggEx = null;
         if (ex != null && response?.OriginalException != null)
             aggEx = new AggregateException(ex, response.OriginalException);
 

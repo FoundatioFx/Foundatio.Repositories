@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.Parsers;
 using Foundatio.Parsers.ElasticQueries;
@@ -13,6 +14,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Serializer;
 using Microsoft.Extensions.Logging.Abstractions;
 using Nest;
+using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 
@@ -84,13 +86,13 @@ public sealed class EmployeeWithCustomFieldsIndex : VersionedIndex<EmployeeWithC
 
     private async Task<string> ResolveIncludeAsync(string name)
     {
-        await Task.Delay(100);
+       await Task.Delay(100, TestContext.Current.CancellationToken);
         return "aliasedage:10";
     }
 
-    private async Task<ElasticRuntimeField> ResolveRuntimeFieldAsync(string name)
+    private async Task<ElasticRuntimeField?> ResolveRuntimeFieldAsync(string name)
     {
-        await Task.Delay(100);
+       await Task.Delay(100, TestContext.Current.CancellationToken);
 
         if (name.Equals("unmappedEmailAddress", StringComparison.OrdinalIgnoreCase))
             return new ElasticRuntimeField { Name = "unmappedEmailAddress" };

@@ -186,7 +186,7 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
     {
         if (s != null && s.Length == 24)
         {
-            if (Utils.TryParseHexString(s, out byte[] bytes))
+            if (Utils.TryParseHexString(s, out byte[]? bytes) && bytes is not null)
             {
                 objectId = new ObjectId(bytes);
                 return true;
@@ -266,7 +266,7 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
         return _timestamp == rhs._timestamp && _machine == rhs._machine && _pid == rhs._pid && _increment == rhs._increment;
     }
 
-    public override bool Equals(object obj)
+    public override bool Equals(object? obj)
     {
         if (obj is ObjectId id)
         {
@@ -319,67 +319,67 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
         return TypeCode.Object;
     }
 
-    bool IConvertible.ToBoolean(IFormatProvider provider)
+    bool IConvertible.ToBoolean(IFormatProvider? provider)
     {
         throw new InvalidCastException();
     }
 
-    byte IConvertible.ToByte(IFormatProvider provider)
+    byte IConvertible.ToByte(IFormatProvider? provider)
     {
         throw new InvalidCastException();
     }
 
-    char IConvertible.ToChar(IFormatProvider provider)
+    char IConvertible.ToChar(IFormatProvider? provider)
     {
         throw new InvalidCastException();
     }
 
-    DateTime IConvertible.ToDateTime(IFormatProvider provider)
+    DateTime IConvertible.ToDateTime(IFormatProvider? provider)
     {
         throw new InvalidCastException();
     }
 
-    decimal IConvertible.ToDecimal(IFormatProvider provider)
+    decimal IConvertible.ToDecimal(IFormatProvider? provider)
     {
         throw new InvalidCastException();
     }
 
-    double IConvertible.ToDouble(IFormatProvider provider)
+    double IConvertible.ToDouble(IFormatProvider? provider)
     {
         throw new InvalidCastException();
     }
 
-    short IConvertible.ToInt16(IFormatProvider provider)
+    short IConvertible.ToInt16(IFormatProvider? provider)
     {
         throw new InvalidCastException();
     }
 
-    int IConvertible.ToInt32(IFormatProvider provider)
+    int IConvertible.ToInt32(IFormatProvider? provider)
     {
         throw new InvalidCastException();
     }
 
-    long IConvertible.ToInt64(IFormatProvider provider)
+    long IConvertible.ToInt64(IFormatProvider? provider)
     {
         throw new InvalidCastException();
     }
 
-    sbyte IConvertible.ToSByte(IFormatProvider provider)
+    sbyte IConvertible.ToSByte(IFormatProvider? provider)
     {
         throw new InvalidCastException();
     }
 
-    float IConvertible.ToSingle(IFormatProvider provider)
+    float IConvertible.ToSingle(IFormatProvider? provider)
     {
         throw new InvalidCastException();
     }
 
-    string IConvertible.ToString(IFormatProvider provider)
+    string IConvertible.ToString(IFormatProvider? provider)
     {
         return ToString();
     }
 
-    object IConvertible.ToType(Type conversionType, IFormatProvider provider)
+    object IConvertible.ToType(Type conversionType, IFormatProvider? provider)
     {
         switch (Type.GetTypeCode(conversionType))
         {
@@ -396,17 +396,17 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
         throw new InvalidCastException();
     }
 
-    ushort IConvertible.ToUInt16(IFormatProvider provider)
+    ushort IConvertible.ToUInt16(IFormatProvider? provider)
     {
         throw new InvalidCastException();
     }
 
-    uint IConvertible.ToUInt32(IFormatProvider provider)
+    uint IConvertible.ToUInt32(IFormatProvider? provider)
     {
         throw new InvalidCastException();
     }
 
-    ulong IConvertible.ToUInt64(IFormatProvider provider)
+    ulong IConvertible.ToUInt64(IFormatProvider? provider)
     {
         throw new InvalidCastException();
     }
@@ -473,7 +473,7 @@ public struct ObjectId : IComparable<ObjectId>, IEquatable<ObjectId>, IConvertib
             }
         }
 
-        public static bool TryParseHexString(string s, out byte[] bytes)
+        public static bool TryParseHexString(string s, out byte[]? bytes)
         {
             try
             {

@@ -157,7 +157,7 @@ public class CleanupSnapshotJob : IJob
         return Task.CompletedTask;
     }
 
-    public virtual Task<bool> OnSnapshotDeleteFailure(string snapshotName, TimeSpan duration, DeleteSnapshotResponse response, Exception ex)
+    public virtual Task<bool> OnSnapshotDeleteFailure(string snapshotName, TimeSpan duration, DeleteSnapshotResponse? response, Exception? ex)
     {
         _logger.LogErrorRequest(ex, response, "Failed to delete snapshot(s) {SnapshotName} after {Duration:g}", snapshotName, duration);
         return Task.FromResult(true);
@@ -171,14 +171,14 @@ public class CleanupSnapshotJob : IJob
     [DebuggerDisplay("{Name}")]
     private class RepositoryMaxAge
     {
-        public string Name { get; set; }
+        public string Name { get; set; } = null!;
         public TimeSpan MaxAge { get; set; }
     }
 
     [DebuggerDisplay("{Name} ({Date})")]
     private class SnapshotDate
     {
-        public string Name { get; set; }
+        public string Name { get; set; } = null!;
         public DateTime Date { get; set; }
     }
 }

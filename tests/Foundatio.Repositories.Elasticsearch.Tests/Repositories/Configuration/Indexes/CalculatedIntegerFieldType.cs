@@ -24,17 +24,17 @@ public class CalculatedIntegerFieldType : IntegerFieldType
 
     public override async Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class
     {
-        if (!fieldDefinition.Data.TryGetValue("Expression", out object expression))
+        if (!fieldDefinition.Data.TryGetValue("Expression", out object? expression))
             return await base.ProcessValueAsync(document, value, fieldDefinition);
 
-        var calculatedValue = await _scriptService.EvaluateForSourceAsync(document, expression.ToString());
+        var calculatedValue = await _scriptService.EvaluateForSourceAsync(document, expression!.ToString()!);
 
         // TODO: Implement a consecutive errors counter that disables badly behaving expressions
         if (calculatedValue.IsCancelled)
-            return new ProcessFieldValueResult { Value = null };
+            return new ProcessFieldValueResult { Value = null! };
 
         if (calculatedValue.Value is Double.NaN)
-            return new ProcessFieldValueResult { Value = null };
+            return new ProcessFieldValueResult { Value = null! };
 
         return new ProcessFieldValueResult { Value = calculatedValue.Value };
     }
@@ -81,7 +81,7 @@ public class ScriptService : IDisposable
 
     private string EnsureExpressionFunctionInternal(string expression)
     {
-        if (_registeredExpressions.TryGetValue(expression, out string functionName))
+        if (_registeredExpressions.TryGetValue(expression, out string? functionName))
             return functionName;
 
         functionName = "_" + ComputeSha256Hash(expression);
@@ -164,7 +164,7 @@ public class ScriptService : IDisposable
             if (completionValue == JsValue.Undefined)
                 return ScriptValueResult.Cancelled;
 
-            return new ScriptValueResult(completionValue.ToObject());
+            return new ScriptValueResult(completionValue.ToObject()!);
         }
         finally
         {
@@ -187,7 +187,7 @@ public class ScriptService : IDisposable
 
         try
         {
-            return Engine.Evaluate(expression).ToObject();
+            return Engine.Evaluate(expression).ToObject()!;
         }
         finally
         {
@@ -256,7 +256,7 @@ public class ScriptValueResult
     public object Value { get; }
     public bool IsCancelled { get; }
 
-    public static readonly ScriptValueResult Cancelled = new(null, true);
+    public static readonly ScriptValueResult Cancelled = new(null!, true);
 }
 
 public class JintEnumConverter : IObjectConverter
@@ -269,7 +269,7 @@ public class JintEnumConverter : IObjectConverter
             return true;
         }
 
-        result = null;
+        result = null!;
         return false;
     }
 }
@@ -284,7 +284,7 @@ public class JintGuidConverter : IObjectConverter
             return true;
         }
 
-        result = null;
+        result = null!;
         return false;
     }
 }
@@ -305,7 +305,7 @@ public class JintDateTimeConverter : IObjectConverter
             return true;
         }
 
-        result = null;
+        result = null!;
         return false;
     }
 }

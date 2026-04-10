@@ -19,7 +19,7 @@ public interface IEmployeeRepository : ISearchableRepository<Employee>
 
     Task<FindHit<Employee>> GetByEmailAddressAsync(string emailAddress);
     Task<FindResults<Employee>> GetAllByAgeAsync(int age);
-    Task<FindResults<Employee>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<Employee> options = null);
+    Task<FindResults<Employee>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<Employee>? options = null);
 
     Task<FindResults<Employee>> GetAllByCompaniesWithFieldEqualsAsync(string[] companies);
     Task<CountResult> GetCountByCompanyAsync(string company);
@@ -74,7 +74,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
         });
     }
 
-    protected override string GetTenantKey(IRepositoryQuery query)
+    protected override string? GetTenantKey(IRepositoryQuery query)
     {
         var companies = query.GetCompanies();
         if (companies.Count != 1)
@@ -96,9 +96,9 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
         return FindOneAsync(q => q.EmailAddress(emailAddress), o => o.Cache($"email:{emailAddress.ToLowerInvariant()}"));
     }
 
-    public Task<FindResults<Employee>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<Employee> options = null)
+    public Task<FindResults<Employee>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<Employee>? options = null)
     {
-        var commandOptions = options.Configure();
+        var commandOptions = options!.Configure();
         if (commandOptions.ShouldUseCache())
             commandOptions.CacheKey(company);
 
@@ -141,7 +141,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
     {
         string script = $"ctx._source.yearsEmployed += {years};";
         if (ids.Length == 0)
-            return await PatchAllAsync(null, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
+            return await PatchAllAsync(null!, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
 
         await ((IRepository<Employee>)this).PatchAsync(ids, new ScriptPatch(script), o => o.ImmediateConsistency(true));
         return ids.Length;
@@ -161,8 +161,8 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
         await base.AddDocumentsToCacheAsync(findHits, options, isDirtyRead);
 
         var cacheEntries = new Dictionary<string, FindHit<Employee>>();
-        foreach (var hit in findHits.Where(d => !String.IsNullOrEmpty(d.Document.EmailAddress)))
-            cacheEntries.Add($"email:{hit.Document.EmailAddress.ToLowerInvariant()}", hit);
+        foreach (var hit in findHits.Where(d => !String.IsNullOrEmpty(d.Document?.EmailAddress)))
+            cacheEntries.Add($"email:{hit.Document!.EmailAddress!.ToLowerInvariant()}", hit);
 
         await AddDocumentsToCacheWithKeyAsync(cacheEntries, options.GetExpiresIn());
     }

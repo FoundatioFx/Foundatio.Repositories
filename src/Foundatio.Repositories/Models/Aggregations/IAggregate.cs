@@ -17,5 +17,5 @@ public interface IAggregate
     /// <summary>
     /// Gets or sets the aggregation data.
     /// </summary>
-    IReadOnlyDictionary<string, object> Data { get; set; }
+    IReadOnlyDictionary<string, object>? Data { get; set; }
 }

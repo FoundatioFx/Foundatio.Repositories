@@ -5,15 +5,15 @@ namespace Foundatio.Repositories.Utility;
 
 public class TestOperation : Operation
 {
-    public JToken Value { get; set; }
+    public JToken? Value { get; set; }
 
     public override void Write(JsonWriter writer)
     {
         writer.WriteStartObject();
 
         WriteOp(writer, "test");
-        WritePath(writer, Path);
-        WriteValue(writer, Value);
+        WritePath(writer, Path!);
+        WriteValue(writer, Value!);
 
         writer.WriteEndObject();
     }

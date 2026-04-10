@@ -37,8 +37,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     private readonly List<Lazy<Field>> _defaultExcludes = new();
     private readonly List<Lazy<Field>> _requiredFields = new();
     protected IReadOnlyList<Lazy<Field>> RequiredFields => _requiredFields;
-    protected readonly Lazy<string> _idField;
-    protected readonly Lazy<string> _updatedUtcField;
+    protected readonly Lazy<string>? _idField;
+    protected readonly Lazy<string>? _updatedUtcField;
 
     protected readonly ILogger _logger;
     protected readonly Lazy<IElasticClient> _lazyClient;
@@ -46,7 +46,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected readonly IResiliencePolicyProvider _resiliencePolicyProvider;
     protected readonly IResiliencePolicy _resiliencePolicy;
 
-    private ScopedCacheClient _scopedCacheClient;
+    private ScopedCacheClient _scopedCacheClient = null!;
     private readonly CancellationTokenSource _disposedCancellationTokenSource = new();
     private int _disposed;
     protected CancellationToken DisposedCancellationToken => _disposedCancellationTokenSource.Token;
@@ -68,7 +68,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     }
 
     protected IIndex ElasticIndex { get; private set; }
-    protected Func<T, string> GetParentIdFunc { get; set; }
+    protected Func<T, string>? GetParentIdFunc { get; set; }
 
     protected Inferrer Infer => ElasticIndex.Configuration.Client.Infer;
     protected string InferField(Expression<Func<T, object>> objectPath) => Infer.Field(objectPath);
@@ -81,17 +81,17 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected int MaxPageLimit { get; set; } = 10000;
     protected Microsoft.Extensions.Logging.LogLevel DefaultQueryLogLevel { get; set; } = Microsoft.Extensions.Logging.LogLevel.Trace;
 
-    public Task<T> GetByIdAsync(Id id, CommandOptionsDescriptor<T> options)
+    public Task<T?> GetByIdAsync(Id id, CommandOptionsDescriptor<T>? options)
     {
-        return GetByIdAsync(id, options.Configure());
+        return GetByIdAsync(id, options?.Configure());
     }
 
-    public virtual async Task<T> GetByIdAsync(Id id, ICommandOptions options = null)
+    public virtual async Task<T?> GetByIdAsync(Id id, ICommandOptions? options = null)
     {
         if (String.IsNullOrEmpty(id.Value))
             return null;
 
-        options = ConfigureOptions(options.As<T>());
+        options = ConfigureOptions(options?.As<T>());
 
         await OnBeforeGetAsync(new Ids(id), options, typeof(T));
 
@@ -131,15 +131,16 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (IsCacheEnabled && options.ShouldUseCache())
             await AddDocumentsToCacheAsync(findHit ?? new FindHit<T>(id, null, 0), options, false).AnyContext();
 
-        return ShouldReturnDocument(findHit?.Document, options) ? findHit?.Document : null;
+        var doc = findHit?.Document;
+        return doc != null && ShouldReturnDocument(doc, options) ? doc : null;
     }
 
-    public Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, CommandOptionsDescriptor<T> options)
+    public Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, CommandOptionsDescriptor<T>? options)
     {
-        return GetByIdsAsync(ids, options.Configure());
+        return GetByIdsAsync(ids, options?.Configure());
     }
 
-    public virtual async Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, ICommandOptions options = null)
+    public virtual async Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, ICommandOptions? options = null)
     {
         var idList = ids?.Distinct().Where(i => !String.IsNullOrEmpty(i)).ToList();
         if (idList == null || idList.Count == 0)
@@ -148,7 +149,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (!HasIdentity)
             throw new NotSupportedException("Model type must implement IIdentity.");
 
-        options = ConfigureOptions(options.As<T>());
+        options = ConfigureOptions(options?.As<T>());
 
         await OnBeforeGetAsync(new Ids(idList), options, typeof(T));
 
@@ -156,9 +157,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (IsCacheEnabled && options.ShouldReadCache())
             hits.AddRange(await GetCachedFindHit(idList, options.GetCacheKey()).AnyContext());
 
-        var itemsToFind = idList.Except(hits.Select(i => (Id)i.Id)).ToList();
+        var itemsToFind = idList.Except(hits.Select(i => (Id)i.Id!)).ToList();
         if (itemsToFind.Count == 0)
-            return hits.Where(h => h.Document != null && ShouldReturnDocument(h.Document, options)).Select(h => h.Document).ToList().AsReadOnly();
+            return hits.Where(h => h.Document != null && ShouldReturnDocument(h.Document, options)).Select(h => h.Document!).ToList().AsReadOnly();
 
         var multiGet = new MultiGetDescriptor();
         foreach (var id in itemsToFind.Where(i => i.Routing != null || !HasParent))
@@ -189,7 +190,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         // fallback to doing a find
         if (itemsToFind.Count > 0 && (HasParent || ElasticIndex.HasMultipleIndexes))
         {
-            var response = await FindAsync(q => q.Id(itemsToFind.Select(id => id.Value)), o => o.PageLimit(1000)).AnyContext();
+            var response = await FindAsync(q => q.Id(itemsToFind.Select(id => id.Value)!), o => o.PageLimit(1000)).AnyContext();
             do
             {
                 if (response.Hits.Count > 0)
@@ -200,30 +201,31 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (IsCacheEnabled && options.ShouldUseCache())
             await AddDocumentsToCacheAsync(hits, options, false).AnyContext();
 
-        return hits.Where(h => h.Document != null && ShouldReturnDocument(h.Document, options)).Select(h => h.Document).ToList().AsReadOnly();
+        return hits.Where(h => h.Document != null && ShouldReturnDocument(h.Document, options)).Select(h => h.Document!).ToList().AsReadOnly();
     }
 
-    public Task<FindResults<T>> GetAllAsync(CommandOptionsDescriptor<T> options)
+    public Task<FindResults<T>> GetAllAsync(CommandOptionsDescriptor<T>? options)
     {
-        return GetAllAsync(options.Configure());
+        return GetAllAsync(options?.Configure());
     }
 
-    public virtual Task<FindResults<T>> GetAllAsync(ICommandOptions options = null)
+    public virtual Task<FindResults<T>> GetAllAsync(ICommandOptions? options = null)
     {
         return FindAsync(NewQuery(), options);
     }
 
-    public Task<bool> ExistsAsync(Id id, CommandOptionsDescriptor<T> options)
+    public Task<bool> ExistsAsync(Id id, CommandOptionsDescriptor<T>? options)
     {
-        return ExistsAsync(id, options.Configure());
+        return ExistsAsync(id, options?.Configure());
     }
 
-    public virtual async Task<bool> ExistsAsync(Id id, ICommandOptions options = null)
+    public virtual async Task<bool> ExistsAsync(Id id, ICommandOptions? options = null)
     {
         if (String.IsNullOrEmpty(id.Value))
             return false;
 
-        // documents that use soft deletes or have parents without a routing id need to use search for exists
+        options ??= new CommandOptions();
+
         if (!SupportsSoftDeletes && (!HasParent || id.Routing != null))
         {
             var response = await _client.DocumentExistsAsync(new DocumentPath<T>(id.Value), d =>
@@ -245,12 +247,12 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return await ExistsAsync(q => q.Id(id), o => options.As<T>()).AnyContext();
     }
 
-    public Task<CountResult> CountAsync(CommandOptionsDescriptor<T> options)
+    public Task<CountResult> CountAsync(CommandOptionsDescriptor<T>? options)
     {
-        return CountAsync(options.Configure());
+        return CountAsync(options?.Configure());
     }
 
-    public virtual async Task<CountResult> CountAsync(ICommandOptions options = null)
+    public virtual async Task<CountResult> CountAsync(ICommandOptions? options = null)
     {
         var result = await CountAsync(NewQuery(), options).AnyContext();
         return result;
@@ -328,24 +330,24 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         await AfterQuery.InvokeAsync(this, new AfterQueryEventArgs<T>(query, options, this, result.GetType(), result)).AnyContext();
     }
 
-    public virtual Task<FindResults<T>> FindAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null)
+    public virtual Task<FindResults<T>> FindAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null)
     {
-        return FindAsync(query.Configure(), options.Configure());
+        return FindAsync(query.Configure(), options?.Configure());
     }
 
-    public Task<FindResults<T>> FindAsync(IRepositoryQuery query, ICommandOptions options = null)
+    public Task<FindResults<T>> FindAsync(IRepositoryQuery query, ICommandOptions? options = null)
     {
         return FindAsAsync<T>(query, options);
     }
 
-    public Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null) where TResult : class, new()
+    public Task<FindResults<TResult>> FindAsAsync<TResult>(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null) where TResult : class, new()
     {
-        return FindAsAsync<TResult>(query.Configure(), options.Configure());
+        return FindAsAsync<TResult>(query.Configure(), options?.Configure());
     }
 
-    public virtual async Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions options = null) where TResult : class, new()
+    public virtual async Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions? options = null) where TResult : class, new()
     {
-        options = ConfigureOptions(options.As<T>());
+        options = ConfigureOptions(options?.As<T>());
         bool useSnapshotPaging = options.ShouldUseSnapshotPaging();
         // don't use caching with snapshot paging.
         bool allowCaching = IsCacheEnabled && useSnapshotPaging == false;
@@ -354,15 +356,15 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         await RefreshForConsistency(query, options).AnyContext();
 
-        string cacheSuffix = options?.HasPageLimit() == true ? String.Concat(options.GetPage().ToString(), ":", options.GetLimit().ToString()) : null;
+        string? cacheSuffix = options.HasPageLimit() == true ? String.Concat(options.GetPage().ToString(), ":", options.GetLimit().ToString()) : null;
 
-        FindResults<TResult> result;
+        FindResults<TResult>? result;
         if (allowCaching)
         {
-            result = await GetCachedQueryResultAsync<FindResults<TResult>>(options, cacheSuffix: cacheSuffix).AnyContext();
+            result = await GetCachedQueryResultAsync<FindResults<TResult>>(options!, cacheSuffix: cacheSuffix).AnyContext();
             if (result != null)
             {
-                ((IFindResults<TResult>)result).GetNextPageFunc = async previousResults => await GetNextPageFunc(previousResults, query, options).AnyContext();
+                ((IFindResults<TResult>)result).GetNextPageFunc = async previousResults => await GetNextPageFunc(previousResults, query, options!).AnyContext();
                 return result;
             }
         }
@@ -427,7 +429,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (useSnapshotPaging && !result.HasMore)
         {
             // clear the scroll
-            string scrollId = result.GetScrollId();
+            string? scrollId = result.GetScrollId();
             if (!String.IsNullOrEmpty(scrollId))
             {
                 var response = await _client.ClearScrollAsync(s => s.ScrollId(result.GetScrollId())).AnyContext();
@@ -453,7 +455,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     {
         ArgumentNullException.ThrowIfNull(previousResults);
 
-        string scrollId = previousResults.GetScrollId();
+        string? scrollId = previousResults.GetScrollId();
         if (!String.IsNullOrEmpty(scrollId))
         {
             var scrollResponse = await _client.ScrollAsync<TResult>(options.GetSnapshotLifetime(), scrollId).AnyContext();
@@ -473,7 +475,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
 
         if (options.ShouldUseSearchAfterPaging())
-            options.SearchAfterToken(previousResults.GetSearchAfterToken());
+            options.SearchAfterToken(previousResults.GetSearchAfterToken()!);
 
         if (options == null)
             return new FindResults<TResult>();
@@ -482,20 +484,20 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return await FindAsAsync<TResult>(query, options).AnyContext();
     }
 
-    public Task<FindHit<T>> FindOneAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null)
+    public Task<FindHit<T>> FindOneAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null)
     {
-        return FindOneAsync(query.Configure(), options.Configure());
+        return FindOneAsync(query.Configure(), options?.Configure());
     }
 
-    public virtual async Task<FindHit<T>> FindOneAsync(IRepositoryQuery query, ICommandOptions options = null)
+    public virtual async Task<FindHit<T>> FindOneAsync(IRepositoryQuery query, ICommandOptions? options = null)
     {
-        options = ConfigureOptions(options.As<T>());
+        options = ConfigureOptions(options?.As<T>());
         if (IsCacheEnabled && (options.ShouldUseCache() || options.ShouldReadCache()) && !options.HasCacheKey())
             throw new ArgumentException("Cache key is required when enabling cache.", nameof(options));
 
         var result = IsCacheEnabled && options.ShouldReadCache() && options.HasCacheKey() ? await GetCachedFindHit(options).AnyContext() : null;
         if (result != null)
-            return result.FirstOrDefault();
+            return result.FirstOrDefault()!;
 
         await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
@@ -519,19 +521,19 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (IsCacheEnabled && options.ShouldUseCache())
             await AddDocumentsToCacheAsync(result, options, options.GetConsistency(DefaultConsistency) == Consistency.Eventual).AnyContext();
 
-        return result.FirstOrDefault();
+        return result.FirstOrDefault()!;
     }
 
-    public Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null)
+    public Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null)
     {
-        return CountAsync(query.Configure(), options.Configure());
+        return CountAsync(query.Configure(), options?.Configure());
     }
 
-    public virtual async Task<CountResult> CountAsync(IRepositoryQuery query, ICommandOptions options = null)
+    public virtual async Task<CountResult> CountAsync(IRepositoryQuery query, ICommandOptions? options = null)
     {
-        options = ConfigureOptions(options.As<T>());
+        options = ConfigureOptions(options?.As<T>());
 
-        CountResult result;
+        CountResult? result;
         if (IsCacheEnabled && options.ShouldReadCache())
         {
             result = await GetCachedQueryResultAsync<CountResult>(options, "count").AnyContext();
@@ -590,20 +592,20 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return result;
     }
 
-    public Task<bool> ExistsAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null)
+    public Task<bool> ExistsAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null)
     {
-        return ExistsAsync(query.Configure(), options.Configure());
+        return ExistsAsync(query.Configure(), options?.Configure());
     }
 
-    public virtual async Task<bool> ExistsAsync(IRepositoryQuery query, ICommandOptions options = null)
+    public virtual async Task<bool> ExistsAsync(IRepositoryQuery query, ICommandOptions? options = null)
     {
-        options = ConfigureOptions(options.As<T>());
+        options = ConfigureOptions(options?.As<T>());
         await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
         await RefreshForConsistency(query, options).AnyContext();
 
         var searchDescriptor = (await CreateSearchDescriptorAsync(query, options).AnyContext()).Size(0);
-        searchDescriptor.DocValueFields(_idField.Value);
+        searchDescriptor.DocValueFields(_idField!.Value);
         var response = await _client.SearchAsync<T>(searchDescriptor).AnyContext();
         _logger.LogRequest(response, options.GetQueryLogLevel());
 
@@ -618,14 +620,14 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return response.Total > 0;
     }
 
-    public virtual Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string filter = null, string criteria = null, string sort = null, string aggregations = null, ICommandOptions options = null)
+    public virtual Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string? filter = null, string? criteria = null, string? sort = null, string? aggregations = null, ICommandOptions? options = null)
     {
-        return FindAsAsync<T>(q => q.SystemFilter(systemFilter).FilterExpression(filter).SearchExpression(criteria).SortExpression(sort).AggregationsExpression(aggregations), o => options.As<T>());
+        return FindAsAsync<T>(q => q.SystemFilter(systemFilter).FilterExpression(filter!).SearchExpression(criteria!).SortExpression(sort!).AggregationsExpression(aggregations!), o => options?.As<T>()!);
     }
 
-    public virtual Task<CountResult> CountBySearchAsync(ISystemFilter systemFilter, string filter = null, string aggregations = null, ICommandOptions options = null)
+    public virtual Task<CountResult> CountBySearchAsync(ISystemFilter systemFilter, string? filter = null, string? aggregations = null, ICommandOptions? options = null)
     {
-        return CountAsync(q => q.SystemFilter(systemFilter).FilterExpression(filter).AggregationsExpression(aggregations), o => options.As<T>());
+        return CountAsync(q => q.SystemFilter(systemFilter).FilterExpression(filter!).AggregationsExpression(aggregations!), o => options?.As<T>()!);
     }
 
     protected virtual IRepositoryQuery<T> NewQuery()
@@ -742,8 +744,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             foreach (var document in documents)
             {
                 keysToRemove.Add(((IIdentity)document.Value).Id);
-                if (((IIdentity)document.Original)?.Id != null)
-                    keysToRemove.Add(((IIdentity)document.Original).Id);
+                if (((IIdentity)document.Original!)?.Id != null)
+                    keysToRemove.Add(((IIdentity)document.Original!).Id);
             }
         }
 
@@ -758,7 +760,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return ConfigureSearchDescriptorAsync(null, query, options);
     }
 
-    protected virtual async Task<SearchDescriptor<T>> ConfigureSearchDescriptorAsync(SearchDescriptor<T> search, IRepositoryQuery query, ICommandOptions options)
+    protected virtual async Task<SearchDescriptor<T>> ConfigureSearchDescriptorAsync(SearchDescriptor<T>? search, IRepositoryQuery query, ICommandOptions options)
     {
         search ??= new SearchDescriptor<T>();
 
@@ -780,7 +782,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return search;
     }
 
-    protected virtual ICommandOptions<T> ConfigureOptions(ICommandOptions<T> options)
+    protected virtual ICommandOptions<T> ConfigureOptions(ICommandOptions<T>? options)
     {
         options ??= new CommandOptions<T>();
 
@@ -842,10 +844,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return GetResolvedIncludesAndExcludes(null, options);
     }
 
-    protected (Field[] Includes, Field[] Excludes) GetResolvedIncludesAndExcludes(IRepositoryQuery query, ICommandOptions options)
+    protected (Field[] Includes, Field[] Excludes) GetResolvedIncludesAndExcludes(IRepositoryQuery? query, ICommandOptions options)
     {
         var includes = new HashSet<Field>();
-        includes.AddRange(query.GetIncludes());
+        if (query is not null)
+            includes.AddRange(query.GetIncludes());
         includes.AddRange(options.GetIncludes());
 
         string optionIncludeMask = options.GetIncludeMask();
@@ -853,7 +856,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             includes.AddRange(FieldIncludeParser.ParseFieldPaths(optionIncludeMask).Select(f => (Field)f));
 
         var excludes = new HashSet<Field>();
-        excludes.AddRange(query.GetExcludes());
+        if (query is not null)
+            excludes.AddRange(query.GetExcludes());
         excludes.AddRange(options.GetExcludes());
 
         string optionExcludeMask = options.GetExcludeMask();
@@ -909,7 +913,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
     }
 
-    protected async Task<TResult> GetCachedQueryResultAsync<TResult>(ICommandOptions options, string cachePrefix = null, string cacheSuffix = null)
+    protected async Task<TResult?> GetCachedQueryResultAsync<TResult>(ICommandOptions options, string? cachePrefix = null, string? cacheSuffix = null)
     {
         if (IsCacheEnabled && (options.ShouldUseCache() || options.ShouldReadCache()) && !options.HasCacheKey())
             throw new ArgumentException("Cache key is required when enabling cache.", nameof(options));
@@ -917,17 +921,17 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (!IsCacheEnabled || !options.ShouldReadCache() || !options.HasCacheKey())
             return default;
 
-        string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey();
+        string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey()!;
         if (!String.IsNullOrEmpty(cacheSuffix))
             cacheKey += ":" + cacheSuffix;
 
-        var result = await Cache.GetAsync<TResult>(cacheKey, default).AnyContext();
+        var result = await Cache.GetAsync<TResult>(cacheKey, default!).AnyContext();
         _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey);
 
         return result;
     }
 
-    protected async Task SetCachedQueryResultAsync<TResult>(ICommandOptions options, TResult result, string cachePrefix = null, string cacheSuffix = null)
+    protected async Task SetCachedQueryResultAsync<TResult>(ICommandOptions options, TResult result, string? cachePrefix = null, string? cacheSuffix = null)
     {
         if (!IsCacheEnabled || result == null || !options.ShouldUseCache())
             return;
@@ -935,7 +939,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (!options.HasCacheKey())
             throw new ArgumentException("Cache key is required when enabling cache.", nameof(options));
 
-        string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey();
+        string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey()!;
         if (!String.IsNullOrEmpty(cacheSuffix))
             cacheKey += ":" + cacheSuffix;
 
@@ -943,9 +947,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         _logger.LogTrace("Set cache: type={EntityType} key={CacheKey}", EntityTypeName, cacheKey);
     }
 
-    protected async Task<ICollection<FindHit<T>>> GetCachedFindHit(ICommandOptions options)
+    protected async Task<ICollection<FindHit<T>>?> GetCachedFindHit(ICommandOptions options)
     {
-        string cacheKey = options.GetCacheKey();
+        string cacheKey = options.GetCacheKey()!;
         try
         {
             var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
@@ -964,7 +968,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
     }
 
-    protected async Task<FindHit<T>> GetCachedFindHit(Id id, string cacheKey = null)
+    protected async Task<FindHit<T>?> GetCachedFindHit(Id id, string? cacheKey = null)
     {
         try
         {
@@ -985,7 +989,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
     }
 
-    protected async Task<ICollection<FindHit<T>>> GetCachedFindHit(ICollection<Id> ids, string cacheKey = null)
+    protected async Task<ICollection<FindHit<T>>> GetCachedFindHit(ICollection<Id> ids, string? cacheKey = null)
     {
         var idList = ids.Select(id => id.Value).ToList();
         IEnumerable<FindHit<T>> result;
@@ -998,13 +1002,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 result = cacheHitsById
                     .Where(kvp => kvp.Value.HasValue && !kvp.Value.IsNull)
                     .SelectMany(kvp => kvp.Value.Value)
-                    .Where(v => v?.Document != null && idList.Contains(v.Id));
+                    .Where(v => v?.Document != null && idList.Contains(v.Id!));
             }
             else
             {
                 var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
                 result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull
-                    ? cacheKeyHits.Value.Where(v => v?.Document != null && idList.Contains(v.Id))
+                    ? cacheKeyHits.Value.Where(v => v?.Document != null && idList.Contains(v.Id!))
                     : Enumerable.Empty<FindHit<T>>();
             }
 
@@ -1025,10 +1029,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     protected FindHit<T> ToFindHit(T document)
     {
-        string version = HasVersion ? ((IVersioned)document)?.Version : null;
-        string routing = GetParentIdFunc?.Invoke(document);
+        string? version = HasVersion ? ((IVersioned)document)?.Version : null;
+        string? routing = GetParentIdFunc?.Invoke(document!);
         var idDocument = document as IIdentity;
-        return new FindHit<T>(idDocument?.Id, document, 0, version, routing);
+        return new FindHit<T>(idDocument?.Id, document!, 0, version, routing);
     }
 
     protected Task AddDocumentsToCacheAsync(T document, ICommandOptions options, bool isDirtyRead)
@@ -1050,7 +1054,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     {
         if (options.HasCacheKey())
         {
-            await Cache.SetAsync(options.GetCacheKey(), findHits, options.GetExpiresIn()).AnyContext();
+            await Cache.SetAsync(options.GetCacheKey()!, findHits, options.GetExpiresIn()).AnyContext();
 
             // NOTE: Custom cache keys store the complete filtered result, but ID-based caching is skipped when includes/excludes are present to avoid incomplete data.
             // This method also doesn't take into account any query includes or excludes but GetById(s) requests don't specify a query.
@@ -1064,7 +1068,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         var findHitsById = findHits
             .Where(hit => hit?.Id != null)
-            .GroupBy(hit => hit.Id)
+            .GroupBy(hit => hit.Id!)
             .ToDictionary(g => g.Key, g => (ICollection<FindHit<T>>)g.ToList());
 
         if (findHitsById.Count == 0)
@@ -1117,21 +1121,21 @@ internal class SearchResponse<TDocument> : IResponse, IElasticsearchResponse whe
 
     public ServerError ServerError => throw new NotImplementedException();
 
-    AggregateDictionary Aggregations { get; }
+    AggregateDictionary Aggregations { get; } = null!;
     bool TimedOut { get; }
     bool TerminatedEarly { get; }
-    ISuggestDictionary<TDocument> Suggest { get; }
-    ShardStatistics Shards { get; }
-    string ScrollId { get; }
-    Profile Profile { get; }
+    ISuggestDictionary<TDocument> Suggest { get; } = null!;
+    ShardStatistics Shards { get; } = null!;
+    string ScrollId { get; } = null!;
+    Profile Profile { get; } = null!;
     long Took { get; }
-    string PointInTimeId { get; }
+    string PointInTimeId { get; } = null!;
     double MaxScore { get; }
-    IHitsMetadata<TDocument> HitsMetadata { get; }
-    IReadOnlyCollection<IHit<TDocument>> Hits { get; }
-    IReadOnlyCollection<FieldValues> Fields { get; }
-    IReadOnlyCollection<TDocument> Documents { get; }
-    ClusterStatistics Clusters { get; }
+    IHitsMetadata<TDocument> HitsMetadata { get; } = null!;
+    IReadOnlyCollection<IHit<TDocument>> Hits { get; } = null!;
+    IReadOnlyCollection<FieldValues> Fields { get; } = null!;
+    IReadOnlyCollection<TDocument> Documents { get; } = null!;
+    ClusterStatistics Clusters { get; } = null!;
     long NumberOfReducePhases { get; }
     long Total { get; }
 

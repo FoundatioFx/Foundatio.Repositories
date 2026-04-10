@@ -70,7 +70,7 @@ public class CleanupIndexesJob : IJob
 
         var indexes = new List<IndexDate>();
         if (result.IsValid && result.Records != null)
-            indexes = result.Records?.Select(r => GetIndexDate(r.Index)).Where(r => r != null).ToList();
+            indexes = result.Records?.Select(r => GetIndexDate(r.Index)).Where(r => r != null).ToList()!;
 
         if (indexes == null || indexes.Count == 0)
             return JobResult.Success;
@@ -135,7 +135,7 @@ public class CleanupIndexesJob : IJob
         return Task.CompletedTask;
     }
 
-    public virtual Task<bool> OnIndexDeleteFailure(string indexName, TimeSpan duration, DeleteIndexResponse response, Exception ex)
+    public virtual Task<bool> OnIndexDeleteFailure(string indexName, TimeSpan duration, DeleteIndexResponse? response, Exception? ex)
     {
         _logger.LogErrorRequest(ex, response, "Failed to delete index {IndexName} after {Duration:g}", indexName, duration);
         return Task.FromResult(true);
@@ -147,7 +147,7 @@ public class CleanupIndexesJob : IJob
         return Task.CompletedTask;
     }
 
-    private IndexDate GetIndexDate(string name)
+    private IndexDate? GetIndexDate(string name)
     {
         if (_indexes.Count == 0)
         {
@@ -181,7 +181,7 @@ public class CleanupIndexesJob : IJob
 
     private class IndexDate
     {
-        public string Index { get; set; }
+        public string Index { get; set; } = null!;
         public DateTime Date { get; set; }
         public TimeSpan MaxAge { get; set; }
     }

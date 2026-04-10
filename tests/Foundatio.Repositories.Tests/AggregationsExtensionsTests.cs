@@ -76,7 +76,7 @@ public sealed class AggregationsExtensionsTests
         };
 
         // Act
-        var result = aggs.Terms<string>("test");
+        var result = aggs.Terms<string>("test")!;
         var resultBuckets = result.Buckets.ToList();
 
         // Assert

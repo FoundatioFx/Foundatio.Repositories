@@ -72,10 +72,10 @@ public class PatchDocument
     {
         var root = JToken.Parse(jsondocument) as JArray;
 
-        return Load(root);
+        return Load(root!);
     }
 
-    public static Operation CreateOperation(string op)
+    public static Operation? CreateOperation(string op)
     {
         switch (op)
         {

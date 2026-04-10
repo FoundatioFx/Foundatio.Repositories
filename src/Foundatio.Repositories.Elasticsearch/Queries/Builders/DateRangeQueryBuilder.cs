@@ -17,8 +17,8 @@ namespace Foundatio.Repositories
     {
         public DateTime? StartDate { get; set; }
         public DateTime? EndDate { get; set; }
-        public string TimeZone { get; set; }
-        public Field Field { get; set; }
+        public string? TimeZone { get; set; }
+        public Field Field { get; set; } = null!;
 
         public bool UseStartDate => StartDate.HasValue && StartDate.Value > DateTime.MinValue;
 
@@ -41,7 +41,7 @@ namespace Foundatio.Repositories
     {
         internal const string DateRangesKey = "@DateRanges";
 
-        public static T DateRange<T>(this T query, DateTime? utcStart, DateTime? utcEnd, Field field, string timeZone = null) where T : IRepositoryQuery
+        public static T DateRange<T>(this T query, DateTime? utcStart, DateTime? utcEnd, Field field, string? timeZone = null) where T : IRepositoryQuery
         {
             if (field == null)
                 throw new ArgumentNullException(nameof(field));
@@ -61,7 +61,7 @@ namespace Foundatio.Repositories
             });
         }
 
-        public static T DateRange<T, TModel>(this T query, DateTime? utcStart, DateTime? utcEnd, Expression<Func<TModel, object>> objectPath, string timeZone = null) where T : IRepositoryQuery
+        public static T DateRange<T, TModel>(this T query, DateTime? utcStart, DateTime? utcEnd, Expression<Func<TModel, object>> objectPath, string? timeZone = null) where T : IRepositoryQuery
         {
             if (objectPath == null)
                 throw new ArgumentNullException(nameof(objectPath));

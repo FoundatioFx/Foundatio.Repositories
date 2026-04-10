@@ -15,16 +15,16 @@ public class BucketsNewtonsoftJsonConverter : JsonConverter
         return typeof(IBucket).IsAssignableFrom(objectType);
     }
 
-    public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+    public override object? ReadJson(JsonReader reader, Type objectType, object? existingValue, JsonSerializer serializer)
     {
         var item = JObject.Load(reader);
         var typeToken = item.SelectToken("Data.@type") ?? item.SelectToken("data.@type");
 
-        IBucket value = null;
+        IBucket? value = null;
         if (typeToken != null)
         {
-            string type = typeToken.Value<string>();
-            IReadOnlyDictionary<string, IAggregate> aggregations = null;
+            string? type = typeToken.Value<string>();
+            IReadOnlyDictionary<string, IAggregate>? aggregations = null;
             var aggregationsToken = item.SelectToken("Aggregations") ?? item.SelectToken("aggregations");
             aggregations = aggregationsToken?.ToObject<IReadOnlyDictionary<string, IAggregate>>();
 
@@ -34,7 +34,7 @@ public class BucketsNewtonsoftJsonConverter : JsonConverter
                     var timeZoneToken = item.SelectToken("Data.@timezone") ?? item.SelectToken("data.@timezone");
                     var kind = timeZoneToken != null ? DateTimeKind.Unspecified : DateTimeKind.Utc;
                     var key = item.SelectToken("Key") ?? item.SelectToken("key");
-                    var date = new DateTime(_epochTicks + ((long)key * TimeSpan.TicksPerMillisecond), kind);
+                    var date = new DateTime(_epochTicks + ((long)key! * TimeSpan.TicksPerMillisecond), kind);
 
                     value = new DateHistogramBucket(date, aggregations);
                     break;
@@ -63,7 +63,7 @@ public class BucketsNewtonsoftJsonConverter : JsonConverter
 
     public override bool CanWrite => false;
 
-    public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+    public override void WriteJson(JsonWriter writer, object? value, JsonSerializer serializer)
     {
         throw new NotImplementedException();
     }

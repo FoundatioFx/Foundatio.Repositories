@@ -15,9 +15,9 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
     public override IAggregate Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         var element = JsonElement.ParseValue(ref reader);
-        string typeToken = GetTokenType(element);
+        string? typeToken = GetTokenType(element);
 
-        IAggregate value = typeToken switch
+        IAggregate? value = typeToken switch
         {
             "bucket" => element.Deserialize<BucketAggregate>(options),
             "exstats" => element.Deserialize<ExtendedStatsAggregate>(options),
@@ -31,7 +31,7 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
             _ => null
         };
 
-        return value ?? element.Deserialize<ValueAggregate>(options);
+        return value ?? element.Deserialize<ValueAggregate>(options)!;
     }
 
     public override void Write(Utf8JsonWriter writer, IAggregate value, JsonSerializerOptions options)
@@ -80,7 +80,7 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
         return null;
     }
 
-    private static string GetTokenType(JsonElement element)
+    private static string? GetTokenType(JsonElement element)
     {
         var dataPropertyElement = GetProperty(element, "Data");
 
