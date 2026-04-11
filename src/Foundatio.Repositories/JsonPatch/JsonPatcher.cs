@@ -25,12 +25,15 @@ public class JsonPatcher : AbstractPatcher<JToken>
             return target;
         }
 
+        if (operation.Value is null)
+            throw new InvalidOperationException("Replace operation requires a value.");
+
         foreach (var token in tokens)
         {
             if (token.Parent != null)
-                token.Replace(operation.Value!);
+                token.Replace(operation.Value);
             else // root object
-                return operation.Value!;
+                return operation.Value;
         }
 
         return target;
@@ -38,6 +41,9 @@ public class JsonPatcher : AbstractPatcher<JToken>
 
     protected override void Add(AddOperation operation, JToken target)
     {
+        if (operation.Value is null)
+            throw new InvalidOperationException("Add operation requires a value.");
+
         string[] parts = operation.Path!.Split('/');
         string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
         string? propertyName = parts.LastOrDefault();
@@ -45,22 +51,22 @@ public class JsonPatcher : AbstractPatcher<JToken>
         if (propertyName == "-")
         {
             var array = target.SelectOrCreatePatchArrayToken(parentPath) as JArray;
-            array?.Add(operation.Value!);
+            array?.Add(operation.Value);
         }
         else if (propertyName!.IsNumeric())
         {
             var array = target.SelectOrCreatePatchArrayToken(parentPath) as JArray;
             if (Int32.TryParse(propertyName, out int index))
-                array?.Insert(index, operation.Value!);
+                array?.Insert(index, operation.Value);
         }
         else
         {
             var parent = target.SelectOrCreatePatchToken(parentPath) as JObject;
             var property = parent?.Property(propertyName!);
             if (property == null)
-                parent?.Add(propertyName!, operation.Value!);
+                parent?.Add(propertyName!, operation.Value);
             else
-                property.Value = operation.Value!;
+                property.Value = operation.Value;
         }
     }
 
@@ -89,6 +95,9 @@ public class JsonPatcher : AbstractPatcher<JToken>
             throw new ArgumentException("To path cannot be below from path");
 
         var token = target.SelectPatchToken(operation.FromPath!);
+        if (token is null)
+            throw new InvalidOperationException($"Move source path '{operation.FromPath}' does not exist.");
+
         Remove(new RemoveOperation { Path = operation.FromPath }, target);
         Add(new AddOperation { Path = operation.Path, Value = token }, target);
     }
@@ -104,7 +113,10 @@ public class JsonPatcher : AbstractPatcher<JToken>
 
     protected override void Copy(CopyOperation operation, JToken target)
     {
-        var token = target.SelectPatchToken(operation.FromPath!);  // Do I need to clone this?
+        var token = target.SelectPatchToken(operation.FromPath!);
+        if (token is null)
+            throw new InvalidOperationException($"Copy source path '{operation.FromPath}' does not exist.");
+
         Add(new AddOperation { Path = operation.Path, Value = token }, target);
     }
 }
