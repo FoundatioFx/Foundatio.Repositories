@@ -69,8 +69,8 @@ public class CleanupIndexesJob : IJob
         }
 
         var indexes = new List<IndexDate>();
-        if (result.IsValid && result.Records != null)
-            indexes = result.Records?.Select(r => GetIndexDate(r.Index)).Where(r => r != null).ToList()!;
+        if (result.IsValid && result.Records is not null)
+            indexes = result.Records.Select(r => GetIndexDate(r.Index)).Where(r => r is not null).ToList()!;
 
         if (indexes == null || indexes.Count == 0)
             return JobResult.Success;
