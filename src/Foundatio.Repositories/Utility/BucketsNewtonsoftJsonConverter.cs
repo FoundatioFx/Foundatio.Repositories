@@ -34,7 +34,10 @@ public class BucketsNewtonsoftJsonConverter : JsonConverter
                     var timeZoneToken = item.SelectToken("Data.@timezone") ?? item.SelectToken("data.@timezone");
                     var kind = timeZoneToken != null ? DateTimeKind.Unspecified : DateTimeKind.Utc;
                     var key = item.SelectToken("Key") ?? item.SelectToken("key");
-                    var date = new DateTime(_epochTicks + ((long)key! * TimeSpan.TicksPerMillisecond), kind);
+                    if (key is null)
+                        break;
+
+                    var date = new DateTime(_epochTicks + ((long)key * TimeSpan.TicksPerMillisecond), kind);
 
                     value = new DateHistogramBucket(date, aggregations);
                     break;

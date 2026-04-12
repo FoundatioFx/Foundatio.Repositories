@@ -31,10 +31,10 @@ public class CalculatedIntegerFieldType : IntegerFieldType
 
         // TODO: Implement a consecutive errors counter that disables badly behaving expressions
         if (calculatedValue.IsCancelled)
-            return new ProcessFieldValueResult { Value = null! };
+            return new ProcessFieldValueResult { Value = null };
 
         if (calculatedValue.Value is Double.NaN)
-            return new ProcessFieldValueResult { Value = null! };
+            return new ProcessFieldValueResult { Value = null };
 
         return new ProcessFieldValueResult { Value = calculatedValue.Value };
     }
@@ -247,16 +247,16 @@ public class ScriptService : IDisposable
 
 public class ScriptValueResult
 {
-    public ScriptValueResult(object value, bool isCancelled = false)
+    public ScriptValueResult(object? value, bool isCancelled = false)
     {
         Value = value;
         IsCancelled = isCancelled;
     }
 
-    public object Value { get; }
+    public object? Value { get; }
     public bool IsCancelled { get; }
 
-    public static readonly ScriptValueResult Cancelled = new(null!, true);
+    public static readonly ScriptValueResult Cancelled = new(null, true);
 }
 
 public class JintEnumConverter : IObjectConverter

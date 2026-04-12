@@ -284,9 +284,9 @@ public enum MigrationResult
 }
 
 [DebuggerDisplay("Type: {Migration.MigrationType} Version {Migration.Version}")]
-public class MigrationInfo
+public record MigrationInfo
 {
-    public IMigration Migration { get; set; } = null!;
+    public required IMigration Migration { get; set; }
     public MigrationState? State { get; set; }
 }
 

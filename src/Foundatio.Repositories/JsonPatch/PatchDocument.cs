@@ -70,9 +70,10 @@ public class PatchDocument
 
     public static PatchDocument Parse(string jsondocument)
     {
-        var root = JToken.Parse(jsondocument) as JArray;
+        if (JToken.Parse(jsondocument) is not JArray root)
+            throw new ArgumentException("JSON patch document must be a JSON array.", nameof(jsondocument));
 
-        return Load(root!);
+        return Load(root);
     }
 
     public static Operation? CreateOperation(string op)

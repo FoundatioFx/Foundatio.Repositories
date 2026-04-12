@@ -72,7 +72,7 @@ namespace Foundatio.Repositories
         /// </summary>
         public static T IncludeMask<T>(this T options, string? maskExpression) where T : IRepositoryQuery
         {
-            if (maskExpression is null)
+            if (String.IsNullOrEmpty(maskExpression))
             {
                 options.Values.Remove(IncludesMaskKey);
                 return options;

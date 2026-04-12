@@ -17,6 +17,7 @@ public static class DictionaryExtensions
     {
         if (data is null)
             return @default;
+
         object? value;
         if (data is IDictionary<string, object> dictionary)
         {

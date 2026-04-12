@@ -1,4 +1,5 @@
-﻿using Newtonsoft.Json;
+﻿using System;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Utility;
@@ -12,8 +13,9 @@ public class TestOperation : Operation
         writer.WriteStartObject();
 
         WriteOp(writer, "test");
-        WritePath(writer, Path!);
-        WriteValue(writer, Value!);
+        WritePath(writer, Path ?? String.Empty);
+        if (Value is not null)
+            WriteValue(writer, Value);
 
         writer.WriteEndObject();
     }

@@ -24,7 +24,7 @@ public class ElasticLazyDocument : ILazyDocument
             return lazyDocument =>
             {
                 var d = lazyDocument as Nest.LazyDocument;
-                if (d == null)
+                if (d is null)
                     return null;
 
                 var serializer = serializerField?.GetValue(d) as IElasticsearchSerializer;
@@ -39,7 +39,7 @@ public class ElasticLazyDocument : ILazyDocument
             return lazyDocument =>
             {
                 var d = lazyDocument as Nest.LazyDocument;
-                if (d == null)
+                if (d is null)
                     return null;
 
                 var bytes = bytesProperty?.GetValue(d) as byte[];

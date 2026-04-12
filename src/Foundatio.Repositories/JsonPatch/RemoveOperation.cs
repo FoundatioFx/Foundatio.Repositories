@@ -1,4 +1,5 @@
-﻿using Newtonsoft.Json;
+﻿using System;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Utility;
@@ -10,7 +11,7 @@ public class RemoveOperation : Operation
         writer.WriteStartObject();
 
         WriteOp(writer, "remove");
-        WritePath(writer, Path!);
+        WritePath(writer, Path ?? String.Empty);
 
         writer.WriteEndObject();
     }

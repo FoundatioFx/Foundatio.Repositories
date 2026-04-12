@@ -37,7 +37,7 @@ namespace Foundatio.Repositories
         /// </summary>
         public static T FilterExpression<T>(this T query, string? filter) where T : IRepositoryQuery
         {
-            if (filter is null)
+            if (String.IsNullOrEmpty(filter))
             {
                 query.Values.Remove(FilterKey);
                 return query;
@@ -54,7 +54,7 @@ namespace Foundatio.Repositories
         /// </summary>
         public static T SearchExpression<T>(this T query, string? search, SearchOperator defaultOperator = SearchOperator.Or) where T : IRepositoryQuery
         {
-            if (search is null)
+            if (String.IsNullOrEmpty(search))
             {
                 query.Values.Remove(SearchKey);
                 query.Values.Remove(CriteriaDefaultOperatorKey);
@@ -69,7 +69,7 @@ namespace Foundatio.Repositories
 
         public static T SortExpression<T>(this T query, string? sort) where T : IRepositoryQuery
         {
-            if (sort is null)
+            if (String.IsNullOrEmpty(sort))
             {
                 query.Values.Remove(SortKey);
                 return query;

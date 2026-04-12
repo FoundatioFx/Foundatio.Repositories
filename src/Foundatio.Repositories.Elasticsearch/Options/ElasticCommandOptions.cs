@@ -4,6 +4,7 @@ using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Options;
 using Foundatio.Utility;
 
@@ -46,7 +47,7 @@ namespace Foundatio.Repositories
         public static T SnapshotPagingScrollId<T>(this T options, IHaveData target) where T : ICommandOptions
         {
             string scrollId = target.GetScrollId()
-                ?? throw new InvalidOperationException("ScrollId is required for snapshot paging but was not found in the target data.");
+                ?? throw new RepositoryException("ScrollId is required for snapshot paging but was not found in the target data.");
 
             options.Values.Set(SnapshotPagingKey, true);
             options.Values.Set(SnapshotPagingScrollIdKey, scrollId);

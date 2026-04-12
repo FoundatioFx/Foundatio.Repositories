@@ -139,15 +139,15 @@ public static class ElasticDataKeys
 
 public class ObjectConverter : JsonConverter<object>
 {
-    public override object Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    public override object? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         return reader.TokenType switch
         {
             JsonTokenType.Number => GetNumber(reader),
-            JsonTokenType.String => reader.GetString()!,
+            JsonTokenType.String => reader.GetString() ?? String.Empty,
             JsonTokenType.True => reader.GetBoolean(),
             JsonTokenType.False => reader.GetBoolean(),
-            _ => null!
+            _ => throw new JsonException($"Unexpected token type: {reader.TokenType}")
         };
     }
 

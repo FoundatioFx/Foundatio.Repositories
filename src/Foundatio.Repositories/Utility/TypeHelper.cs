@@ -31,7 +31,7 @@ public static class TypeHelper
         if (targetTypeInfo.IsEnum && (value is string || valueType.GetTypeInfo().IsEnum))
         {
             // attempt to match enum by name.
-            if (TryEnumIsDefined<T>(targetType, value.ToString()!))
+            if (TryEnumIsDefined<T>(targetType, value.ToString() ?? String.Empty))
             {
                 object parsedValue = Enum.Parse(targetType, value.ToString()!, false);
                 return (T)parsedValue;

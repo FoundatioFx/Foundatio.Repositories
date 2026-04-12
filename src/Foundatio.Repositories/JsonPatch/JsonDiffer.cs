@@ -31,7 +31,7 @@ public class JsonDiffer
 
     internal static Operation Remove(string path, string key)
     {
-        return Build("remove", path, key, null!);
+        return Build("remove", path, key, null);
     }
 
     internal static Operation Replace(string path, string key, JToken? value)
@@ -55,7 +55,7 @@ public class JsonDiffer
             {
                 if (prev is RemoveOperation prevRemove && operation is AddOperation add && add.Path == prevRemove.Path)
                 {
-                    yield return Replace(add.Path!, "", add.Value);
+                    yield return Replace(add.Path ?? String.Empty, "", add.Value);
                     prev = null;
                 }
                 else

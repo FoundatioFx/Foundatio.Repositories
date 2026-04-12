@@ -113,7 +113,7 @@ public class JsonPatcher : AbstractPatcher<JToken>
 
     protected override void Copy(CopyOperation operation, JToken target)
     {
-        var token = target.SelectPatchToken(operation.FromPath!);
+        var token = target.SelectPatchToken(operation.FromPath!);  // Do I need to clone this?
         if (token is null)
             throw new InvalidOperationException($"Copy source path '{operation.FromPath}' does not exist.");
 

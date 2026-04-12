@@ -20,5 +20,5 @@ public class PercentilesAggregate : MetricAggregateBase
             Items = new List<PercentileItem>(items).AsReadOnly();
     }
 
-    public IReadOnlyCollection<PercentileItem>? Items { get; internal set; }
+    public IReadOnlyCollection<PercentileItem> Items { get; internal set; } = [];
 }

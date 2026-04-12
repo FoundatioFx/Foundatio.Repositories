@@ -1672,7 +1672,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return;
 
         if (result.HasTransportError)
-            throw new DocumentException(result.TransportError!, result.TransportException!);
+        {
+            if (result.TransportException is not null)
+                throw new DocumentException(result.TransportError ?? "Unknown transport error", result.TransportException);
+
+            throw new DocumentException(result.TransportError ?? "Unknown transport error");
+        }
 
         string label = operationLabel ?? (isCreateOperation ? "adding" : "saving");
         int totalErrors = result.ConflictIds.Count + result.RetryableIds.Count + result.FatalIds.Count;

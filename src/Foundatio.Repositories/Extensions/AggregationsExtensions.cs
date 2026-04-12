@@ -146,7 +146,7 @@ public static class AggregationsExtensions
             {
                 Key = (TKey)Convert.ChangeType(key, typeof(TKey))!,
                 KeyAsString = keyAsString,
-                Aggregations = aggregations!,
+                Aggregations = aggregations ?? EmptyReadOnly<string, IAggregate>.Dictionary,
                 Total = total,
                 Data = data
             };

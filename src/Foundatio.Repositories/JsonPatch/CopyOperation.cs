@@ -1,4 +1,5 @@
-﻿using Newtonsoft.Json;
+﻿using System;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Utility;
@@ -12,8 +13,8 @@ public class CopyOperation : Operation
         writer.WriteStartObject();
 
         WriteOp(writer, "copy");
-        WritePath(writer, Path!);
-        WriteFromPath(writer, FromPath!);
+        WritePath(writer, Path ?? String.Empty);
+        WriteFromPath(writer, FromPath ?? String.Empty);
 
         writer.WriteEndObject();
     }
