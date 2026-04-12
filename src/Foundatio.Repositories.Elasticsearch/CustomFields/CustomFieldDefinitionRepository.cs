@@ -253,7 +253,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
             foreach (var doc in args.Documents)
             {
                 if (doc.Original is null)
-                    continue;
+                    throw new InvalidOperationException("Original document should not be null when originals are enabled.");
 
                 if (doc.Original.EntityType != doc.Value.EntityType)
                     throw new DocumentValidationException("EntityType can't be changed.");

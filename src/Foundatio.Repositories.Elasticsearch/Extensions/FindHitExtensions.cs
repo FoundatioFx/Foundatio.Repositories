@@ -144,9 +144,10 @@ public class ObjectConverter : JsonConverter<object>
         return reader.TokenType switch
         {
             JsonTokenType.Number => GetNumber(reader),
-            JsonTokenType.String => reader.GetString() ?? String.Empty,
+            JsonTokenType.String => reader.GetString(),
             JsonTokenType.True => reader.GetBoolean(),
             JsonTokenType.False => reader.GetBoolean(),
+            JsonTokenType.Null => null,
             _ => throw new JsonException($"Unexpected token type: {reader.TokenType}")
         };
     }
