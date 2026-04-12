@@ -75,7 +75,7 @@ public class MigrationManager
             throw new ArgumentException($"Type '{migrationType.Name}' must implement interface '{nameof(IMigration)}'.", nameof(migrationType));
 
         var versionedMigrations = _migrations.Where(m => m.MigrationType != MigrationType.Repeatable && m.Version.HasValue);
-        if (migration.Version.HasValue && versionedMigrations.Any(m => m.Version!.Value == migration.Version))
+        if (migration.Version.HasValue && versionedMigrations.Any(m => m.Version is { } v && v == migration.Version))
             throw new ArgumentException($"Duplicate migration version detected for '{migrationType.Name}'", nameof(migrationType));
 
         _migrations.Add(migration);

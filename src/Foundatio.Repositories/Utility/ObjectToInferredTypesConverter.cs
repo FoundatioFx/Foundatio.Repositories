@@ -11,26 +11,27 @@ public class ObjectToInferredTypesConverter : JsonConverterFactory
     public override JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options)
     {
         var converterType = typeof(ObjectToInferredTypesConverterInner<>).MakeGenericType(typeToConvert);
-        return (JsonConverter)Activator.CreateInstance(converterType)!;
+        return Activator.CreateInstance(converterType) as JsonConverter
+            ?? throw new InvalidOperationException($"Failed to create converter for type {typeToConvert}");
     }
 
     private class ObjectToInferredTypesConverterInner<T> : JsonConverter<T>
     {
         public override T Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
-            object result = reader.TokenType switch
+            object? result = reader.TokenType switch
             {
                 JsonTokenType.Number when reader.TryGetInt64(out long l) => l,
                 JsonTokenType.Number => reader.GetDouble(),
                 JsonTokenType.String when reader.TryGetDateTime(out DateTime datetime) => datetime,
-                JsonTokenType.String => reader.GetString()!,
+                JsonTokenType.String => reader.GetString() ?? (object)String.Empty,
                 JsonTokenType.True => true,
                 JsonTokenType.False => false,
-                JsonTokenType.Null => null!,
+                JsonTokenType.Null => null,
                 _ => JsonDocument.ParseValue(ref reader).RootElement.Clone()
             };
 
-            if (result == null)
+            if (result is null)
                 return default!;
 
             if (result is T typedResult)
@@ -38,7 +39,6 @@ public class ObjectToInferredTypesConverter : JsonConverterFactory
 
             try
             {
-                // Special case for JsonElement
                 if (result is JsonElement element)
                 {
                     return JsonSerializer.Deserialize<T>(element.GetRawText(), options)!;

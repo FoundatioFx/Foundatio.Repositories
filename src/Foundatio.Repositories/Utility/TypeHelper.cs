@@ -33,7 +33,7 @@ public static class TypeHelper
             // attempt to match enum by name.
             if (TryEnumIsDefined<T>(targetType, value.ToString() ?? String.Empty))
             {
-                object parsedValue = Enum.Parse(targetType, value.ToString()!, false);
+                object parsedValue = Enum.Parse(targetType, value.ToString() ?? String.Empty, false);
                 return (T)parsedValue;
             }
 

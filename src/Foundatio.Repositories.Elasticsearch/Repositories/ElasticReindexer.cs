@@ -397,7 +397,7 @@ public class ElasticReindexer
         return startProgress + (int)((100 * (double)completed / total) * (((double)endProgress - startProgress) / 100));
     }
 
-    private class ReindexResult
+    private record ReindexResult
     {
         public long Total { get; set; }
         public long Completed { get; set; }
@@ -405,28 +405,28 @@ public class ElasticReindexer
         public bool Succeeded { get; set; }
     }
 
-    private class TaskWithReindexResponse
+    private record TaskWithReindexResponse
     {
-        public TaskReindexResult Response { get; set; } = null!;
-        public TaskReindexError Error { get; set; } = null!;
+        public TaskReindexResult Response { get; set; } = new();
+        public TaskReindexError Error { get; set; } = new();
     }
 
-    private class TaskReindexError
+    private record TaskReindexError
     {
-        public string Type { get; set; } = null!;
-        public string Reason { get; set; } = null!;
-        public List<string> Script_Stack { get; set; } = null!;
+        public string Type { get; set; } = String.Empty;
+        public string Reason { get; set; } = String.Empty;
+        public List<string> Script_Stack { get; set; } = [];
 
-        public TaskCause Caused_By { get; set; } = null!;
+        public TaskCause Caused_By { get; set; } = new();
     }
 
-    private class TaskCause
+    private record TaskCause
     {
-        public string Type { get; set; } = null!;
-        public string Reason { get; set; } = null!;
+        public string Type { get; set; } = String.Empty;
+        public string Reason { get; set; } = String.Empty;
     }
 
-    private class TaskReindexResult
+    private record TaskReindexResult
     {
         public long Total { get; set; }
         public long Created { get; set; }
@@ -434,15 +434,15 @@ public class ElasticReindexer
         public long Noops { get; set; }
         public long VersionConflicts { get; set; }
 
-        public IReadOnlyCollection<BulkIndexByScrollFailure> Failures { get; set; } = null!;
+        public IReadOnlyCollection<BulkIndexByScrollFailure> Failures { get; set; } = [];
     }
 
-    private class BulkIndexByScrollFailure
+    private record BulkIndexByScrollFailure
     {
-        public Error Cause { get; set; } = null!;
-        public string Id { get; set; } = null!;
-        public string Index { get; set; } = null!;
+        public Error Cause { get; set; } = new();
+        public string Id { get; set; } = String.Empty;
+        public string Index { get; set; } = String.Empty;
         public int Status { get; set; }
-        public string Type { get; set; } = null!;
+        public string Type { get; set; } = String.Empty;
     }
 }

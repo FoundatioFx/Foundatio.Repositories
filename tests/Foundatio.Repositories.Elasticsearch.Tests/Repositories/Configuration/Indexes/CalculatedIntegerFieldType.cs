@@ -24,10 +24,11 @@ public class CalculatedIntegerFieldType : IntegerFieldType
 
     public override async Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class
     {
-        if (!fieldDefinition.Data.TryGetValue("Expression", out object? expression))
+        if (!fieldDefinition.Data.TryGetValue("Expression", out object? expression) || expression is null)
             return await base.ProcessValueAsync(document, value, fieldDefinition);
 
-        var calculatedValue = await _scriptService.EvaluateForSourceAsync(document, expression!.ToString()!);
+        string expressionText = expression.ToString() ?? String.Empty;
+        var calculatedValue = await _scriptService.EvaluateForSourceAsync(document, expressionText);
 
         // TODO: Implement a consecutive errors counter that disables badly behaving expressions
         if (calculatedValue.IsCancelled)
@@ -164,7 +165,7 @@ public class ScriptService : IDisposable
             if (completionValue == JsValue.Undefined)
                 return ScriptValueResult.Cancelled;
 
-            return new ScriptValueResult(completionValue.ToObject()!);
+            return new ScriptValueResult(completionValue.ToObject());
         }
         finally
         {
@@ -187,7 +188,8 @@ public class ScriptService : IDisposable
 
         try
         {
-            return Engine.Evaluate(expression).ToObject()!;
+            return Engine.Evaluate(expression).ToObject()
+                ?? throw new InvalidOperationException("Expression evaluated to null");
         }
         finally
         {
@@ -269,7 +271,7 @@ public class JintEnumConverter : IObjectConverter
             return true;
         }
 
-        result = null!;
+        result = JsValue.Undefined;
         return false;
     }
 }
@@ -284,7 +286,7 @@ public class JintGuidConverter : IObjectConverter
             return true;
         }
 
-        result = null!;
+        result = JsValue.Undefined;
         return false;
     }
 }
@@ -305,7 +307,7 @@ public class JintDateTimeConverter : IObjectConverter
             return true;
         }
 
-        result = null!;
+        result = JsValue.Undefined;
         return false;
     }
 }
