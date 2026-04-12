@@ -40,10 +40,10 @@ public class VersionedIndex : Index, IVersionedIndex
     public bool DiscardIndexesOnReindex { get; set; } = true;
     private List<ReindexScript> ReindexScripts { get; } = new List<ReindexScript>();
 
-    private class ReindexScript
+    private record ReindexScript
     {
         public int Version { get; set; }
-        public string Script { get; set; } = null!;
+        public required string Script { get; set; }
     }
 
     protected virtual void AddReindexScript(int versionNumber, string script)
@@ -375,9 +375,9 @@ public class VersionedIndex : Index, IVersionedIndex
     }
 
     [DebuggerDisplay("{Index} (Date: {DateUtc} Version: {Version} CurrentVersion: {CurrentVersion})")]
-    protected class IndexInfo
+    protected record IndexInfo
     {
-        public string Index { get; set; } = null!;
+        public required string Index { get; set; }
         public int Version { get; set; }
         public int CurrentVersion { get; set; } = -1;
         public DateTime DateUtc { get; set; }

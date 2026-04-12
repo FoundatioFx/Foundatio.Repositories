@@ -45,8 +45,11 @@ namespace Foundatio.Repositories
 
         public static T SnapshotPagingScrollId<T>(this T options, IHaveData target) where T : ICommandOptions
         {
+            string scrollId = target.GetScrollId()
+                ?? throw new InvalidOperationException("ScrollId is required for snapshot paging but was not found in the target data.");
+
             options.Values.Set(SnapshotPagingKey, true);
-            options.Values.Set(SnapshotPagingScrollIdKey, target.GetScrollId()!);
+            options.Values.Set(SnapshotPagingScrollIdKey, scrollId);
 
             return options;
         }

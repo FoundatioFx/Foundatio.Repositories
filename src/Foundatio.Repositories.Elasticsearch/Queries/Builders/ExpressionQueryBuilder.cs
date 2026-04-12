@@ -35,8 +35,14 @@ namespace Foundatio.Repositories
         /// <summary>
         /// Default Search operator is AND. Does boolean matching and no scoring will occur.
         /// </summary>
-        public static T FilterExpression<T>(this T query, string filter) where T : IRepositoryQuery
+        public static T FilterExpression<T>(this T query, string? filter) where T : IRepositoryQuery
         {
+            if (filter is null)
+            {
+                query.Values.Remove(FilterKey);
+                return query;
+            }
+
             return query.BuildOption(FilterKey, filter);
         }
 
@@ -46,16 +52,29 @@ namespace Foundatio.Repositories
         /// <summary>
         /// Default Search operator is OR and scoring will occur.
         /// </summary>
-        public static T SearchExpression<T>(this T query, string search, SearchOperator defaultOperator = SearchOperator.Or) where T : IRepositoryQuery
+        public static T SearchExpression<T>(this T query, string? search, SearchOperator defaultOperator = SearchOperator.Or) where T : IRepositoryQuery
         {
+            if (search is null)
+            {
+                query.Values.Remove(SearchKey);
+                query.Values.Remove(CriteriaDefaultOperatorKey);
+                return query;
+            }
+
             query.Values.Set(SearchKey, search);
             return query.BuildOption(CriteriaDefaultOperatorKey, defaultOperator);
         }
 
         internal const string SortKey = "@SortExpression";
 
-        public static T SortExpression<T>(this T query, string sort) where T : IRepositoryQuery
+        public static T SortExpression<T>(this T query, string? sort) where T : IRepositoryQuery
         {
+            if (sort is null)
+            {
+                query.Values.Remove(SortKey);
+                return query;
+            }
+
             return query.BuildOption(SortKey, sort);
         }
     }

@@ -97,10 +97,9 @@ public static class FindHitExtensions
         return sortList;
     }
 
-    public static object[] DecodeSortToken(string sortToken)
+    public static object[]? DecodeSortToken(string sortToken)
     {
-        object[]? tokens = JsonSerializer.Deserialize<object[]>(Decode(sortToken), _options);
-        return tokens!;
+        return JsonSerializer.Deserialize<object[]>(Decode(sortToken), _options);
     }
 
     private static string Encode(string text)

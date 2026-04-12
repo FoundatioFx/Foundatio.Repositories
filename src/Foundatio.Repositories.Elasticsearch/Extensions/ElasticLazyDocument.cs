@@ -52,7 +52,7 @@ public class ElasticLazyDocument : ILazyDocument
         _requestResponseSerializer ??= _getSerializer.Value(_inner);
 
         var bytes = _getBytes.Value(_inner);
-        if (bytes == null || _requestResponseSerializer == null)
+        if (bytes is null || _requestResponseSerializer is null)
             return null;
 
         var hit = _requestResponseSerializer.Deserialize<IHit<T>>(new MemoryStream(bytes));

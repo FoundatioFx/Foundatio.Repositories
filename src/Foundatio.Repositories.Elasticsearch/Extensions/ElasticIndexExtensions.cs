@@ -515,14 +515,14 @@ public static class ElasticIndexExtensions
         return aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, logger)!);
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this Nest.ISearchResponse<T> res, ILogger? logger = null) where T : class
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations<T>(this Nest.ISearchResponse<T> res, ILogger? logger = null) where T : class
     {
-        return res.Aggregations.ToAggregations(logger)!;
+        return res.Aggregations.ToAggregations(logger);
     }
 
-    public static IReadOnlyDictionary<string, IAggregate> ToAggregations<T>(this Nest.IAsyncSearchResponse<T> res, ILogger? logger = null) where T : class
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations<T>(this Nest.IAsyncSearchResponse<T> res, ILogger? logger = null) where T : class
     {
-        return res.Response.Aggregations.ToAggregations(logger)!;
+        return res.Response.Aggregations.ToAggregations(logger);
     }
 
     public static Nest.PropertiesDescriptor<T> SetupDefaults<T>(this Nest.PropertiesDescriptor<T> pd) where T : class

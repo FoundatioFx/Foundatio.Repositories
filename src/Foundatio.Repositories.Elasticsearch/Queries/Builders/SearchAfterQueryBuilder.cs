@@ -38,8 +38,9 @@ namespace Foundatio.Repositories
             options.SearchAfterPaging();
             if (!String.IsNullOrEmpty(searchAfterToken))
             {
-                object[] values = FindHitExtensions.DecodeSortToken(searchAfterToken);
-                options.Values.Set(SearchAfterKey, values);
+                object[]? values = FindHitExtensions.DecodeSortToken(searchAfterToken);
+                if (values is not null)
+                    options.Values.Set(SearchAfterKey, values);
             }
             else
             {
@@ -69,8 +70,9 @@ namespace Foundatio.Repositories
             options.SearchAfterPaging();
             if (!String.IsNullOrEmpty(searchBeforeToken))
             {
-                object[] values = FindHitExtensions.DecodeSortToken(searchBeforeToken);
-                options.Values.Set(SearchBeforeKey, values);
+                object[]? values = FindHitExtensions.DecodeSortToken(searchBeforeToken);
+                if (values is not null)
+                    options.Values.Set(SearchBeforeKey, values);
             }
             else
             {

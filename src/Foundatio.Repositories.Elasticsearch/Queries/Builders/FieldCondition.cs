@@ -15,9 +15,9 @@ namespace Foundatio.Repositories;
 /// translates these into the appropriate Elasticsearch query (TermQuery, TermsQuery,
 /// MatchQuery, ExistsQuery, DateRangeQuery, NumericRangeQuery, etc.) at build time.
 /// </remarks>
-public class FieldCondition
+public record FieldCondition
 {
-    public Field Field { get; set; } = null!;
+    public required Field Field { get; set; }
     public object? Value { get; set; }
     public ComparisonOperator Operator { get; set; }
 }

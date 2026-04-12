@@ -72,7 +72,7 @@ public class CleanupIndexesJob : IJob
         if (result.IsValid && result.Records is not null)
             indexes = result.Records.Select(r => GetIndexDate(r.Index)).OfType<IndexDate>().ToList();
 
-        if (indexes.Count == 0)
+        if (indexes.Count is 0)
             return JobResult.Success;
 
         var now = _timeProvider.GetUtcNow().UtcDateTime;
@@ -179,9 +179,9 @@ public class CleanupIndexesJob : IJob
         public ExtractDateFunc GetDate { get; }
     }
 
-    private class IndexDate
+    private record IndexDate
     {
-        public string Index { get; set; } = null!;
+        public required string Index { get; set; }
         public DateTime Date { get; set; }
         public TimeSpan MaxAge { get; set; }
     }

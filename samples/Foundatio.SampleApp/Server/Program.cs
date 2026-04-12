@@ -50,10 +50,10 @@ app.UseWaitForStartupActionsBeforeServingRequests();
 app.MapGet("GameReviews", async (IGameReviewRepository gameReviewRepository, string? search, string? filter, string? sort, int? page, int? limit, string? fields, string? aggs) =>
 {
     var reviews = await gameReviewRepository.FindAsync(q => q
-        .FilterExpression(filter ?? String.Empty)
-        .SortExpression(sort ?? String.Empty)
-        .SearchExpression(search ?? String.Empty)
-        .IncludeMask(fields ?? String.Empty)
+        .FilterExpression(filter)
+        .SortExpression(sort)
+        .SearchExpression(search)
+        .IncludeMask(fields)
         .AggregationsExpression(aggs ?? "terms:category terms:tags"),
         o => o.PageNumber(page).PageLimit(limit).QueryLogLevel(LogLevel.Warning));
 

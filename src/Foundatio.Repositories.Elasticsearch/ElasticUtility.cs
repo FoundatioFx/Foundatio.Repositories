@@ -155,9 +155,9 @@ public class ElasticUtility
 
 public delegate DateTime? ExtractDateFunc(string name);
 
-public class CreateSnapshotOptions
+public record CreateSnapshotOptions
 {
-    public string Repository { get; set; } = null!;
+    public required string Repository { get; set; }
     public string? Name { get; set; }
     public ICollection<string>? Indices { get; set; }
     public bool IgnoreUnavailable { get; set; } = false;

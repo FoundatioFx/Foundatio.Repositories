@@ -2,10 +2,10 @@
 
 namespace Foundatio.Repositories.Elasticsearch.Jobs;
 
-public class ReindexWorkItem
+public record ReindexWorkItem
 {
-    public string OldIndex { get; set; } = null!;
-    public string NewIndex { get; set; } = null!;
+    public required string OldIndex { get; set; }
+    public required string NewIndex { get; set; }
     public string? Alias { get; set; }
     public string? Script { get; set; }
     public bool DeleteOld { get; set; }

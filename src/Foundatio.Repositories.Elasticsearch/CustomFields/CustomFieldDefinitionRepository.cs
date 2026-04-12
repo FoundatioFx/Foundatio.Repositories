@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Caching;
@@ -252,6 +253,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         {
             foreach (var doc in args.Documents)
             {
+                Debug.Assert(doc.Original is not null, "Original should always be populated when OriginalsEnabled is true.");
                 if (doc.Original is null)
                     continue;
 

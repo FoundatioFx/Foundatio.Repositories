@@ -100,13 +100,13 @@ public static class QueryBuilderContextExtensions
         elasticContext.DefaultTimeZone = () => Task.FromResult(timeZone);
     }
 
-    public static Task<string?> GetTimeZoneAsync(this IQueryBuilderContext context)
+    public static async Task<string?> GetTimeZoneAsync(this IQueryBuilderContext context)
     {
         var elasticContext = context as IElasticQueryVisitorContext;
-        if (elasticContext?.DefaultTimeZone != null)
-            return elasticContext.DefaultTimeZone.Invoke()!;
+        if (elasticContext?.DefaultTimeZone is not null)
+            return await elasticContext.DefaultTimeZone.Invoke();
 
-        return Task.FromResult<string?>(null);
+        return null;
     }
 }
 

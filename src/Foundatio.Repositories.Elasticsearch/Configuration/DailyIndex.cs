@@ -39,16 +39,13 @@ public class DailyIndex : VersionedIndex
         AddAlias(Name);
         _frozenAliases = new Lazy<IReadOnlyCollection<IndexAliasAge>>(() => _aliases.AsReadOnly());
         _aliasCache = new ScopedCacheClient(configuration.Cache, "alias");
-#pragma warning disable CS8601 // getDocumentDateUtc is nullable but field is always set to non-null by end of constructor
-        _getDocumentDateUtc = getDocumentDateUtc;
-#pragma warning restore CS8601
         _defaultIndexes = new[] { Name };
         HasMultipleIndexes = true;
 
-        if (_getDocumentDateUtc != null)
+        if (getDocumentDateUtc != null)
             _getDocumentDateUtc = document =>
             {
-                var date = getDocumentDateUtc!(document);
+                var date = getDocumentDateUtc(document);
                 return date != DateTime.MinValue ? date : DefaultDocumentDateFunc(document);
             };
         else

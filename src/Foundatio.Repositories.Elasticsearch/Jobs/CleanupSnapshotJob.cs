@@ -169,16 +169,16 @@ public class CleanupSnapshotJob : IJob
     }
 
     [DebuggerDisplay("{Name}")]
-    private class RepositoryMaxAge
+    private record RepositoryMaxAge
     {
-        public string Name { get; set; } = null!;
+        public required string Name { get; set; }
         public TimeSpan MaxAge { get; set; }
     }
 
     [DebuggerDisplay("{Name} ({Date})")]
-    private class SnapshotDate
+    private record SnapshotDate
     {
-        public string Name { get; set; } = null!;
+        public required string Name { get; set; }
         public DateTime Date { get; set; }
     }
 }

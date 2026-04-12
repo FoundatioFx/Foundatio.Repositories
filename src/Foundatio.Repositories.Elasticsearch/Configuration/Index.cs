@@ -38,6 +38,7 @@ public class Index : IIndex
     public Index(IElasticConfiguration configuration, string name)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
+
         Name = name;
         Configuration = configuration;
         _queryBuilder = new Lazy<IElasticQueryBuilder>(CreateQueryBuilder);
