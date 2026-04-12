@@ -55,7 +55,7 @@ public class JsonDiffer
             {
                 if (prev is RemoveOperation prevRemove && operation is AddOperation add && add.Path == prevRemove.Path)
                 {
-                    yield return Replace(add.Path ?? String.Empty, "", add.Value);
+                    yield return Replace(add.Path, "", add.Value);
                     prev = null;
                 }
                 else

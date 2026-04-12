@@ -6,7 +6,7 @@ namespace Foundatio.Repositories.Utility;
 
 public abstract class Operation
 {
-    public string? Path { get; set; }
+    public string Path { get; set; } = String.Empty;
 
     public abstract void Write(JsonWriter writer);
 

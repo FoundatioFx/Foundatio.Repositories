@@ -144,7 +144,7 @@ public static class AggregationsExtensions
 
             yield return new KeyedBucket<TKey>
             {
-                Key = (TKey)Convert.ChangeType(key, typeof(TKey))!,
+                Key = (TKey)(Convert.ChangeType(key, typeof(TKey)) ?? throw new InvalidOperationException($"Failed to convert key '{key}' to {typeof(TKey).Name}")),
                 KeyAsString = keyAsString,
                 Aggregations = aggregations ?? EmptyReadOnly<string, IAggregate>.Dictionary,
                 Total = total,

@@ -1656,10 +1656,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             _logger.LogRequest(bulkResponse, options.GetQueryLogLevel());
             _logger.LogInformation("Bulk {PatchType} had {ConflictCount} version conflicts, re-fetching and retrying", patchType, result.ConflictIds.Count);
 
-            foreach (var hit in results.Hits.Where(h => result.ConflictIds.Contains(h.Id!)))
+            foreach (var hit in results.Hits)
             {
-                if (await PatchAsync(new Id(hit.Id!, hit.Routing), operation, options).AnyContext())
-                    retriedIds.Add(hit.Id!);
+                if (hit.Id is null || !result.ConflictIds.Contains(hit.Id))
+                    continue;
+
+                if (await PatchAsync(new Id(hit.Id, hit.Routing), operation, options).AnyContext())
+                    retriedIds.Add(hit.Id);
             }
         }
 

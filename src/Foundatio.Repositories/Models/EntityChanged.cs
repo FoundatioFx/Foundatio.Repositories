@@ -12,6 +12,9 @@ public class EntityChanged : IHaveData
         Data = new DataDictionary();
     }
 
+    /// <summary>
+    /// The entity type name. May be null for non-entity-specific change notifications.
+    /// </summary>
     public string? Type { get; set; }
 
     /// <summary>

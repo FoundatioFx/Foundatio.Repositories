@@ -13,7 +13,7 @@ public class TestOperation : Operation
         writer.WriteStartObject();
 
         WriteOp(writer, "test");
-        WritePath(writer, Path ?? String.Empty);
+        WritePath(writer, Path);
         if (Value is not null)
             WriteValue(writer, Value);
 
@@ -22,7 +22,7 @@ public class TestOperation : Operation
 
     public override void Read(JObject jOperation)
     {
-        Path = jOperation.Value<string>("path");
+        Path = jOperation.Value<string>("path") ?? String.Empty;
         Value = jOperation.GetValue("value");
     }
 }

@@ -11,13 +11,13 @@ public class RemoveOperation : Operation
         writer.WriteStartObject();
 
         WriteOp(writer, "remove");
-        WritePath(writer, Path ?? String.Empty);
+        WritePath(writer, Path);
 
         writer.WriteEndObject();
     }
 
     public override void Read(JObject jOperation)
     {
-        Path = jOperation.Value<string>("path");
+        Path = jOperation.Value<string>("path") ?? String.Empty;
     }
 }
