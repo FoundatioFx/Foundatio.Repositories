@@ -41,6 +41,7 @@ public static class TypeHelper
             object? convertedValue = converter.ConvertFrom(value);
             if (convertedValue is T typedValue)
                 return typedValue;
+
             return default;
         }
 

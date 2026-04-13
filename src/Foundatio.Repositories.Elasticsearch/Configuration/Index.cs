@@ -152,7 +152,7 @@ public class Index : IIndex
     }
 
     private bool _isEnsured = false;
-    public virtual async Task EnsureIndexAsync(object target)
+    public virtual async Task EnsureIndexAsync(object? target)
     {
         if (_isEnsured)
             return;

@@ -582,7 +582,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
         else
         {
-            await ElasticIndex.EnsureIndexAsync(null!).AnyContext();
+            await ElasticIndex.EnsureIndexAsync(null).AnyContext();
         }
 
         options = ConfigureOptions(options?.As<T>());
@@ -682,7 +682,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             return 0;
 
         if (!ElasticIndex.HasMultipleIndexes)
-            await ElasticIndex.EnsureIndexAsync(null!).AnyContext();
+            await ElasticIndex.EnsureIndexAsync(null).AnyContext();
 
         options = ConfigureOptions(options?.As<T>());
 
@@ -1104,7 +1104,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             throw new ArgumentNullException(nameof(processFunc));
 
         if (!ElasticIndex.HasMultipleIndexes)
-            await ElasticIndex.EnsureIndexAsync(null!).AnyContext();
+            await ElasticIndex.EnsureIndexAsync(null).AnyContext();
 
         options = ConfigureOptions(options?.As<T>());
         if (!options.ShouldUseSnapshotPaging())
@@ -1487,7 +1487,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
         else
         {
-            await ElasticIndex.EnsureIndexAsync(null!).AnyContext();
+            await ElasticIndex.EnsureIndexAsync(null).AnyContext();
         }
 
         if (documents.Count == 1)

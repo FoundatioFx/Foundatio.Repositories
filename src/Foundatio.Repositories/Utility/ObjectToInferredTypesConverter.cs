@@ -14,6 +14,7 @@ public class ObjectToInferredTypesConverter : JsonConverterFactory
         var converter = Activator.CreateInstance(converterType) as JsonConverter;
         if (converter is null)
             throw new InvalidOperationException($"Failed to create converter for type {typeToConvert}");
+
         return converter;
     }
 

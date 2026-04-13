@@ -39,20 +39,47 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         var result = await _employeeRepository.CountAsync(q => q.AggregationsExpression(aggregations));
         Assert.Equal(10, result.Total);
         Assert.Equal(7, result.Aggregations.Count);
-        Assert.Equal(19, result.Aggregations.Min("min_age")!.Value);
-        Assert.Equal(60, result.Aggregations.Max("max_age")!.Value);
-        Assert.Equal(34.7, result.Aggregations.Average("avg_age")!.Value);
-        Assert.Equal(347, result.Aggregations.Sum("sum_age")!.Value);
-        var percentiles = result.Aggregations.Percentiles("percentiles_age")!;
-        Assert.Equal(DateTime.UtcNow.Date.SubtractYears(10), result.Aggregations.Min<DateTime>("min_createdUtc")!.Value);
-        Assert.Equal(DateTime.UtcNow.Date.SubtractYears(1), result.Aggregations.Max<DateTime>("max_createdUtc")!.Value);
-        Assert.Equal(19.27, percentiles.GetPercentile(1)!.Value);
-        Assert.Equal(20.35, percentiles.GetPercentile(5)!.Value);
-        Assert.Equal(26d, percentiles.GetPercentile(25)!.Value);
-        Assert.Equal(30.5, percentiles.GetPercentile(50)!.Value);
-        Assert.Equal(42.5, percentiles.GetPercentile(75)!.Value);
-        Assert.Equal(55.95d, Math.Round((double)percentiles!.GetPercentile(95)!.Value!, 2));
-        Assert.Equal(59.19, percentiles.GetPercentile(99)!.Value);
+        var minAge = result.Aggregations.Min("min_age");
+        Assert.NotNull(minAge);
+        Assert.Equal(19, minAge.Value);
+        var maxAge = result.Aggregations.Max("max_age");
+        Assert.NotNull(maxAge);
+        Assert.Equal(60, maxAge.Value);
+        var avgAge = result.Aggregations.Average("avg_age");
+        Assert.NotNull(avgAge);
+        Assert.Equal(34.7, avgAge.Value);
+        var sumAge = result.Aggregations.Sum("sum_age");
+        Assert.NotNull(sumAge);
+        Assert.Equal(347, sumAge.Value);
+        var percentiles = result.Aggregations.Percentiles("percentiles_age");
+        Assert.NotNull(percentiles);
+        var minCreatedUtc = result.Aggregations.Min<DateTime>("min_createdUtc");
+        Assert.NotNull(minCreatedUtc);
+        Assert.Equal(DateTime.UtcNow.Date.SubtractYears(10), minCreatedUtc.Value);
+        var maxCreatedUtc = result.Aggregations.Max<DateTime>("max_createdUtc");
+        Assert.NotNull(maxCreatedUtc);
+        Assert.Equal(DateTime.UtcNow.Date.SubtractYears(1), maxCreatedUtc.Value);
+        var p1 = percentiles.GetPercentile(1);
+        Assert.NotNull(p1);
+        Assert.Equal(19.27, p1.Value);
+        var p5 = percentiles.GetPercentile(5);
+        Assert.NotNull(p5);
+        Assert.Equal(20.35, p5.Value);
+        var p25 = percentiles.GetPercentile(25);
+        Assert.NotNull(p25);
+        Assert.Equal(26d, p25.Value);
+        var p50 = percentiles.GetPercentile(50);
+        Assert.NotNull(p50);
+        Assert.Equal(30.5, p50.Value);
+        var p75 = percentiles.GetPercentile(75);
+        Assert.NotNull(p75);
+        Assert.Equal(42.5, p75.Value);
+        var p95 = percentiles.GetPercentile(95);
+        Assert.NotNull(p95);
+        Assert.Equal(55.95d, Math.Round((double)p95.Value!, 2));
+        var p99 = percentiles.GetPercentile(99);
+        Assert.NotNull(p99);
+        Assert.Equal(59.19, p99.Value);
     }
 
     [Fact]
@@ -64,10 +91,18 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         var result = await _employeeRepository.CountAsync(q => q.FilterExpression("age: <40").AggregationsExpression(aggregations));
         Assert.Equal(7, result.Total);
         Assert.Equal(4, result.Aggregations.Count);
-        Assert.Equal(19, result.Aggregations.Min("min_age")!.Value);
-        Assert.Equal(35, result.Aggregations.Min("max_age")!.Value);
-        Assert.Equal(Math.Round(27.2857142857143, 5), Math.Round(result.Aggregations.Average("avg_age")!.Value.GetValueOrDefault(), 5));
-        Assert.Equal(191, result.Aggregations.Sum("sum_age")!.Value);
+        var minAge = result.Aggregations.Min("min_age");
+        Assert.NotNull(minAge);
+        Assert.Equal(19, minAge.Value);
+        var maxAge = result.Aggregations.Min("max_age");
+        Assert.NotNull(maxAge);
+        Assert.Equal(35, maxAge.Value);
+        var avgAge = result.Aggregations.Average("avg_age");
+        Assert.NotNull(avgAge);
+        Assert.Equal(Math.Round(27.2857142857143, 5), Math.Round(avgAge.Value.GetValueOrDefault(), 5));
+        var sumAge = result.Aggregations.Sum("sum_age");
+        Assert.NotNull(sumAge);
+        Assert.Equal(191, sumAge.Value);
     }
 
     [Fact]
@@ -79,10 +114,18 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         var result = await _employeeRepository.CountAsync(q => q.FilterExpression("aliasedage: <40").AggregationsExpression(aggregations));
         Assert.Equal(7, result.Total);
         Assert.Equal(4, result.Aggregations.Count);
-        Assert.Equal(19, result.Aggregations.Min("min_aliasedage")!.Value);
-        Assert.Equal(35, result.Aggregations.Min("max_aliasedage")!.Value);
-        Assert.Equal(Math.Round(27.2857142857143, 5), Math.Round(result.Aggregations.Average("avg_aliasedage")!.Value.GetValueOrDefault(), 5));
-        Assert.Equal(191, result.Aggregations.Sum("sum_aliasedage")!.Value);
+        var minAliasedAge = result.Aggregations.Min("min_aliasedage");
+        Assert.NotNull(minAliasedAge);
+        Assert.Equal(19, minAliasedAge.Value);
+        var maxAliasedAge = result.Aggregations.Min("max_aliasedage");
+        Assert.NotNull(maxAliasedAge);
+        Assert.Equal(35, maxAliasedAge.Value);
+        var avgAliasedAge = result.Aggregations.Average("avg_aliasedage");
+        Assert.NotNull(avgAliasedAge);
+        Assert.Equal(Math.Round(27.2857142857143, 5), Math.Round(avgAliasedAge.Value.GetValueOrDefault(), 5));
+        var sumAliasedAge = result.Aggregations.Sum("sum_aliasedage");
+        Assert.NotNull(sumAliasedAge);
+        Assert.Equal(191, sumAliasedAge.Value);
     }
 
     [Fact]

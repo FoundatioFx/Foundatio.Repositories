@@ -486,7 +486,7 @@ public class DailyIndex : VersionedIndex
         return base.CreateDocumentId(document);
     }
 
-    public override Task EnsureIndexAsync(object target)
+    public override Task EnsureIndexAsync(object? target)
     {
         if (target == null)
             throw new ArgumentNullException(nameof(target));

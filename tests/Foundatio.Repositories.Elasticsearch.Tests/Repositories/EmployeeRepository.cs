@@ -98,7 +98,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
 
     public Task<FindResults<Employee>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<Employee>? options = null)
     {
-        var commandOptions = (options ?? (_ => _)).Configure();
+        var commandOptions = options.Configure();
         if (commandOptions.ShouldUseCache())
             commandOptions.CacheKey(company);
 
@@ -141,7 +141,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
     {
         string script = $"ctx._source.yearsEmployed += {years};";
         if (ids.Length == 0)
-            return await PatchAllAsync(NewQuery(), new ScriptPatch(script), new CommandOptions().Notifications(false).ImmediateConsistency(true));
+            return await PatchAllAsync(q => q, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
 
         await ((IRepository<Employee>)this).PatchAsync(ids, new ScriptPatch(script), o => o.ImmediateConsistency(true));
         return ids.Length;

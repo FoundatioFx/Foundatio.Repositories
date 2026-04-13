@@ -21,7 +21,7 @@ public interface IIndex : IDisposable
 
     void ConfigureSettings(ConnectionSettings settings);
     Task ConfigureAsync();
-    Task EnsureIndexAsync(object target);
+    Task EnsureIndexAsync(object? target);
     Task MaintainAsync(bool includeOptionalTasks = true);
     Task DeleteAsync();
     Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null);

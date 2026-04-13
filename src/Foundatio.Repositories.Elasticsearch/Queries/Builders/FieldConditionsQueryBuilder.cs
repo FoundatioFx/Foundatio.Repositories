@@ -256,6 +256,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
             case ComparisonOperator.LessThanOrEqual:
                 if (condition.Value is null)
                     throw new ArgumentException($"Value is required for {condition.Operator} operator on field '{resolvedField}'.");
+
                 return BuildRangeQuery(resolvedField, condition.Operator, condition.Value);
             default:
                 throw new ArgumentOutOfRangeException(nameof(condition.Operator), condition.Operator, "Unknown comparison operator.");
