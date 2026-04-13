@@ -102,14 +102,14 @@ namespace Foundatio.Repositories.Options
             return options.SafeHasOption(SetCacheOptionsExtensions.CacheKeyKey) || options.SafeHasOption(SetCacheOptionsExtensions.DefaultCacheKeyKey);
         }
 
-        public static string GetCacheKey(this ICommandOptions options, string defaultCacheKey = null)
+        public static string? GetCacheKey(this ICommandOptions options, string? defaultCacheKey = null)
         {
-            return options.SafeGetOption<string>(SetCacheOptionsExtensions.CacheKeyKey, defaultCacheKey ?? options.GetDefaultCacheKey());
+            return options.SafeGetOption<string>(SetCacheOptionsExtensions.CacheKeyKey, defaultCacheKey ?? options.GetDefaultCacheKey()!);
         }
 
-        public static string GetDefaultCacheKey(this ICommandOptions options)
+        public static string? GetDefaultCacheKey(this ICommandOptions options)
         {
-            return options.SafeGetOption<string>(SetCacheOptionsExtensions.DefaultCacheKeyKey, null);
+            return options.SafeGetOption<string?>(SetCacheOptionsExtensions.DefaultCacheKeyKey, null);
         }
 
         private static TimeSpan DefaultCacheExpiration { get; set; } = TimeSpan.FromSeconds(60 * 5);

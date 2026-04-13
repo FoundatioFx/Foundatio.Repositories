@@ -14,10 +14,11 @@ public class PercentilesAggregate : MetricAggregateBase
 {
     public PercentilesAggregate() { }
 
-    public PercentilesAggregate(IEnumerable<PercentileItem> items)
+    public PercentilesAggregate(IEnumerable<PercentileItem>? items)
     {
-        Items = new List<PercentileItem>(items).AsReadOnly();
+        if (items is not null)
+            Items = new List<PercentileItem>(items).AsReadOnly();
     }
 
-    public IReadOnlyCollection<PercentileItem> Items { get; internal set; }
+    public IReadOnlyCollection<PercentileItem> Items { get; internal set; } = [];
 }

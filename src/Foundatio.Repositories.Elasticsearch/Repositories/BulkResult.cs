@@ -21,8 +21,8 @@ internal sealed record BulkResult
 
     public long ModifiedCount => SuccessfulIds.Count - NoopIds.Count;
 
-    public string TransportError { get; init; }
-    public Exception TransportException { get; init; }
+    public string? TransportError { get; init; }
+    public Exception? TransportException { get; init; }
 
     public bool HasTransportError => TransportError is not null;
 
@@ -47,14 +47,14 @@ internal sealed record BulkResult
         }
 
         var errors = response.ItemsWithErrors.ToList();
-        var validItems = response.Items.Where(i => i.IsValid).ToList();
+        var validItems = response.Items.Where(i => i.IsValid && i.Id is not null).ToList();
         return new BulkResult
         {
-            SuccessfulIds = validItems.Select(i => i.Id).ToHashSet(),
-            NoopIds = validItems.Where(i => String.Equals(i.Result, "noop", StringComparison.Ordinal)).Select(i => i.Id).ToHashSet(),
-            ConflictIds = errors.Where(e => e.Status is 409).Select(e => e.Id).ToHashSet(),
-            RetryableIds = errors.Where(e => e.Status is 429 or 503).Select(e => e.Id).ToHashSet(),
-            FatalIds = errors.Where(e => e.Status is not 409 and not 429 and not 503).Select(e => e.Id).ToHashSet()
+            SuccessfulIds = validItems.Select(i => i.Id).OfType<string>().ToHashSet(),
+            NoopIds = validItems.Where(i => String.Equals(i.Result, "noop", StringComparison.Ordinal)).Select(i => i.Id).OfType<string>().ToHashSet(),
+            ConflictIds = errors.Where(e => e.Status is 409 && e.Id is not null).Select(e => e.Id).OfType<string>().ToHashSet(),
+            RetryableIds = errors.Where(e => e.Status is 429 or 503 && e.Id is not null).Select(e => e.Id).OfType<string>().ToHashSet(),
+            FatalIds = errors.Where(e => e.Status is not 409 and not 429 and not 503 && e.Id is not null).Select(e => e.Id).OfType<string>().ToHashSet()
         };
     }
 }

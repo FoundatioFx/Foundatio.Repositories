@@ -87,7 +87,7 @@ public sealed class EmployeeWithCustomFieldsIndex : VersionedIndex<EmployeeWithC
         return "aliasedage:10";
     }
 
-    private async Task<ElasticRuntimeField> ResolveRuntimeFieldAsync(string name)
+    private async Task<ElasticRuntimeField?> ResolveRuntimeFieldAsync(string name)
     {
         await Task.Delay(100);
 

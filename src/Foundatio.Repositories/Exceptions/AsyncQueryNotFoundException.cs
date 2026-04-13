@@ -10,5 +10,5 @@ public class AsyncQueryNotFoundException : RepositoryException
         Id = id;
     }
 
-    public string Id { get; private set; }
+    public string? Id { get; private set; }
 }

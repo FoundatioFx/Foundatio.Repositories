@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Text.Json;
 using Elastic.Clients.Elasticsearch.Core.Search;
 using Foundatio.Serializer;
@@ -17,7 +17,7 @@ public class ElasticLazyDocument : ILazyDocument
         _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
     }
 
-    public T As<T>() where T : class
+    public T? As<T>() where T : class
     {
         if (_hit?.Source is null)
             return null;
@@ -31,7 +31,7 @@ public class ElasticLazyDocument : ILazyDocument
         return _serializer.Deserialize<T>(_serializer.SerializeToString(_hit.Source));
     }
 
-    public object As(Type objectType)
+    public object? As(Type objectType)
     {
         if (_hit?.Source is null)
             return null;

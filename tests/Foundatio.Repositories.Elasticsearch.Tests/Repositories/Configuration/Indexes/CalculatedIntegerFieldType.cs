@@ -24,16 +24,20 @@ public class CalculatedIntegerFieldType : IntegerFieldType
 
     public override async Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class
     {
-        if (!fieldDefinition.Data.TryGetValue("Expression", out object expression))
+        if (!fieldDefinition.Data.TryGetValue("Expression", out object? expression) || expression is null)
             return await base.ProcessValueAsync(document, value, fieldDefinition);
 
-        var calculatedValue = await _scriptService.EvaluateForSourceAsync(document, expression.ToString());
+        string? expressionText = expression.ToString();
+        if (String.IsNullOrEmpty(expressionText))
+            return await base.ProcessValueAsync(document, value, fieldDefinition);
+
+        var calculatedValue = await _scriptService.EvaluateForSourceAsync(document, expressionText);
 
         // TODO: Implement a consecutive errors counter that disables badly behaving expressions
         if (calculatedValue.IsCancelled)
             return new ProcessFieldValueResult { Value = null };
 
-        if (calculatedValue.Value is Double.NaN)
+        if (calculatedValue.Value is double d && Double.IsNaN(d))
             return new ProcessFieldValueResult { Value = null };
 
         return new ProcessFieldValueResult { Value = calculatedValue.Value };
@@ -81,7 +85,7 @@ public class ScriptService : IDisposable
 
     private string EnsureExpressionFunctionInternal(string expression)
     {
-        if (_registeredExpressions.TryGetValue(expression, out string functionName))
+        if (_registeredExpressions.TryGetValue(expression, out string? functionName))
             return functionName;
 
         functionName = "_" + ComputeSha256Hash(expression);
@@ -187,7 +191,8 @@ public class ScriptService : IDisposable
 
         try
         {
-            return Engine.Evaluate(expression).ToObject();
+            return Engine.Evaluate(expression).ToObject()
+                ?? throw new InvalidOperationException("Expression evaluated to null");
         }
         finally
         {
@@ -247,13 +252,13 @@ public class ScriptService : IDisposable
 
 public class ScriptValueResult
 {
-    public ScriptValueResult(object value, bool isCancelled = false)
+    public ScriptValueResult(object? value, bool isCancelled = false)
     {
         Value = value;
         IsCancelled = isCancelled;
     }
 
-    public object Value { get; }
+    public object? Value { get; }
     public bool IsCancelled { get; }
 
     public static readonly ScriptValueResult Cancelled = new(null, true);
@@ -269,7 +274,7 @@ public class JintEnumConverter : IObjectConverter
             return true;
         }
 
-        result = null;
+        result = JsValue.Undefined;
         return false;
     }
 }
@@ -284,7 +289,7 @@ public class JintGuidConverter : IObjectConverter
             return true;
         }
 
-        result = null;
+        result = JsValue.Undefined;
         return false;
     }
 }
@@ -305,7 +310,7 @@ public class JintDateTimeConverter : IObjectConverter
             return true;
         }
 
-        result = null;
+        result = JsValue.Undefined;
         return false;
     }
 }

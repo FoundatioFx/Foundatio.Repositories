@@ -60,8 +60,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
             _logger.LogRequest(aliasesResponse);
             Assert.True(aliasesResponse.IsValidResponse);
 #if ELASTICSEARCH9
+            Assert.NotNull(aliasesResponse.Aliases);
             var indices = aliasesResponse.Aliases;
 #else
+            Assert.NotNull(aliasesResponse.Values);
             var indices = aliasesResponse.Values;
 #endif
             Assert.Single(indices);
@@ -101,8 +103,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
             _logger.LogRequest(aliasesResponse);
             Assert.True(aliasesResponse.IsValidResponse);
 #if ELASTICSEARCH9
+            Assert.NotNull(aliasesResponse.Aliases);
             var indices = aliasesResponse.Aliases;
 #else
+            Assert.NotNull(aliasesResponse.Values);
             var indices = aliasesResponse.Values;
 #endif
             Assert.Single(indices);
@@ -150,8 +154,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         _logger.LogRequest(alias);
         Assert.True(alias.IsValidResponse);
 #if ELASTICSEARCH9
+        Assert.NotNull(alias.Aliases);
         var aliasIndices = alias.Aliases;
 #else
+        Assert.NotNull(alias.Values);
         var aliasIndices = alias.Values;
 #endif
         Assert.Equal(2, aliasIndices.Count);
@@ -195,8 +201,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await _client.Indices.RefreshAsync(Elastic.Clients.Elasticsearch.Indices.All, cancellationToken: TestCancellationToken);
         var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)$"{version1Index.VersionedName},{version2Index.VersionedName}", cancellationToken: TestCancellationToken);
 #if ELASTICSEARCH9
+        Assert.NotNull(aliasesResponse.Aliases);
         var indices = aliasesResponse.Aliases;
 #else
+        Assert.NotNull(aliasesResponse.Values);
         var indices = aliasesResponse.Values;
 #endif
         Assert.Empty(indices.Values.SelectMany(i => i.Aliases));
@@ -208,15 +216,19 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await version1Index.MaintainAsync();
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)version1Index.VersionedName, cancellationToken: TestCancellationToken);
 #if ELASTICSEARCH9
+        Assert.NotNull(aliasesResponse.Aliases);
         indices = aliasesResponse.Aliases;
 #else
+        Assert.NotNull(aliasesResponse.Values);
         indices = aliasesResponse.Values;
 #endif
         Assert.Single(indices.Single().Value.Aliases);
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.VersionedName, cancellationToken: TestCancellationToken);
 #if ELASTICSEARCH9
+        Assert.NotNull(aliasesResponse.Aliases);
         indices = aliasesResponse.Aliases;
 #else
+        Assert.NotNull(aliasesResponse.Values);
         indices = aliasesResponse.Values;
 #endif
         Assert.Empty(indices.Single().Value.Aliases);
@@ -263,8 +275,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await _client.Indices.RefreshAsync(Elastic.Clients.Elasticsearch.Indices.All, cancellationToken: TestCancellationToken);
         var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)$"{version1Index.GetVersionedIndex(utcNow.UtcDateTime)},{version2Index.GetVersionedIndex(utcNow.UtcDateTime)}", cancellationToken: TestCancellationToken);
 #if ELASTICSEARCH9
+        Assert.NotNull(aliasesResponse.Aliases);
         var indices = aliasesResponse.Aliases;
 #else
+        Assert.NotNull(aliasesResponse.Values);
         var indices = aliasesResponse.Values;
 #endif
         Assert.Empty(indices.Values.SelectMany(i => i.Aliases));
@@ -276,15 +290,19 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await version1Index.MaintainAsync();
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)version1Index.GetVersionedIndex(utcNow.UtcDateTime), cancellationToken: TestCancellationToken);
 #if ELASTICSEARCH9
+        Assert.NotNull(aliasesResponse.Aliases);
         indices = aliasesResponse.Aliases;
 #else
+        Assert.NotNull(aliasesResponse.Values);
         indices = aliasesResponse.Values;
 #endif
         Assert.Equal(version1Index.Aliases.Count + 1, indices.Single().Value.Aliases.Count);
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.GetVersionedIndex(utcNow.UtcDateTime), cancellationToken: TestCancellationToken);
 #if ELASTICSEARCH9
+        Assert.NotNull(aliasesResponse.Aliases);
         indices = aliasesResponse.Aliases;
 #else
+        Assert.NotNull(aliasesResponse.Values);
         indices = aliasesResponse.Values;
 #endif
         Assert.Empty(indices.Single().Value.Aliases);
@@ -297,8 +315,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
     {
         var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index, cancellationToken: TestCancellationToken);
 #if ELASTICSEARCH9
+        Assert.NotNull(aliasesResponse.Aliases);
         var indices = aliasesResponse.Aliases;
 #else
+        Assert.NotNull(aliasesResponse.Values);
         var indices = aliasesResponse.Values;
 #endif
         var aliases = indices.Single(a => a.Key == index).Value.Aliases.Select(s => s.Key).ToList();
@@ -335,8 +355,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
 #if ELASTICSEARCH9
+        Assert.NotNull(aliasesResponse.Aliases);
         var indices = aliasesResponse.Aliases;
 #else
+        Assert.NotNull(aliasesResponse.Values);
         var indices = aliasesResponse.Values;
 #endif
         Assert.Single(indices);
@@ -356,8 +378,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
 #if ELASTICSEARCH9
+        Assert.NotNull(aliasesResponse.Aliases);
         indices = aliasesResponse.Aliases;
 #else
+        Assert.NotNull(aliasesResponse.Values);
         indices = aliasesResponse.Values;
 #endif
         Assert.Single(indices);
@@ -410,8 +434,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
             _logger.LogRequest(aliasesResponse);
             Assert.True(aliasesResponse.IsValidResponse);
 #if ELASTICSEARCH9
+            Assert.NotNull(aliasesResponse.Aliases);
             var indices = aliasesResponse.Aliases;
 #else
+            Assert.NotNull(aliasesResponse.Values);
             var indices = aliasesResponse.Values;
 #endif
             Assert.Single(indices);
@@ -441,8 +467,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
             _logger.LogRequest(aliasesResponse);
             Assert.True(aliasesResponse.IsValidResponse);
 #if ELASTICSEARCH9
+            Assert.NotNull(aliasesResponse.Aliases);
             var indices = aliasesResponse.Aliases;
 #else
+            Assert.NotNull(aliasesResponse.Values);
             var indices = aliasesResponse.Values;
 #endif
             Assert.Single(indices);
@@ -510,16 +538,19 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         await index1.ConfigureAsync();
         var settings = await _client.Indices.GetSettingsAsync((Indices)index1.VersionedName, cancellationToken: TestCancellationToken);
-        var indexSettings = settings.Settings[index1.VersionedName].Settings;
-        // NumberOfReplicas is Union<int, string> - need to extract the actual value
+        Assert.NotNull(settings.Settings);
+        var indexSettingsEntry = settings.Settings[index1.VersionedName];
+        Assert.NotNull(indexSettingsEntry.Settings);
+        var indexSettings = indexSettingsEntry.Settings;
         var replicas = indexSettings.Index?.NumberOfReplicas ?? indexSettings.NumberOfReplicas;
         Assert.NotNull(replicas);
-        // Match returns the value from either side of the union
-        var replicaCount = replicas.Match(i => i, s => int.Parse(s));
+        var replicaCount = replicas.Match(i => i, s => int.Parse(s!));
         Assert.Equal(0, replicaCount);
         Assert.NotNull(indexSettings.Index);
-        Assert.NotNull(indexSettings.Index.Analysis);
-        Assert.NotNull(indexSettings.Index.Analysis.Analyzers["custom1"]);
+        var indexSection = indexSettings.Index;
+        Assert.NotNull(indexSection.Analysis);
+        Assert.NotNull(indexSection.Analysis.Analyzers);
+        Assert.NotNull(indexSection.Analysis.Analyzers["custom1"]);
 
         var index2 = new VersionedEmployeeIndex(_configuration, 1, i => i.Settings(s => s
             .NumberOfReplicas(1)
@@ -529,15 +560,20 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         await index2.ConfigureAsync();
         settings = await _client.Indices.GetSettingsAsync((Indices)index1.VersionedName, cancellationToken: TestCancellationToken);
-        indexSettings = settings.Settings[index1.VersionedName].Settings;
+        Assert.NotNull(settings.Settings);
+        indexSettingsEntry = settings.Settings[index1.VersionedName];
+        Assert.NotNull(indexSettingsEntry.Settings);
+        indexSettings = indexSettingsEntry.Settings;
         replicas = indexSettings.Index?.NumberOfReplicas ?? indexSettings.NumberOfReplicas;
         Assert.NotNull(replicas);
-        replicaCount = replicas.Match(i => i, s => int.Parse(s));
+        replicaCount = replicas.Match(i => i, s => int.Parse(s!));
         Assert.Equal(1, replicaCount);
         Assert.NotNull(indexSettings.Index);
-        Assert.NotNull(indexSettings.Index.Analysis);
-        Assert.NotNull(indexSettings.Index.Analysis.Analyzers["custom1"]);
-        Assert.NotNull(indexSettings.Index.Analysis.Analyzers["custom2"]);
+        indexSection = indexSettings.Index;
+        Assert.NotNull(indexSection.Analysis);
+        Assert.NotNull(indexSection.Analysis.Analyzers);
+        Assert.NotNull(indexSection.Analysis.Analyzers["custom1"]);
+        Assert.NotNull(indexSection.Analysis.Analyzers["custom2"]);
     }
 
     [Fact]
@@ -723,8 +759,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
 #if ELASTICSEARCH9
+        Assert.NotNull(aliasesResponse.Aliases);
         var indices = aliasesResponse.Aliases;
 #else
+        Assert.NotNull(aliasesResponse.Values);
         var indices = aliasesResponse.Values;
 #endif
         Assert.Single(indices);
@@ -745,8 +783,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
 #if ELASTICSEARCH9
+        Assert.NotNull(aliasesResponse.Aliases);
         indices = aliasesResponse.Aliases;
 #else
+        Assert.NotNull(aliasesResponse.Values);
         indices = aliasesResponse.Values;
 #endif
         Assert.Single(indices);
@@ -767,8 +807,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
 #if ELASTICSEARCH9
+        Assert.NotNull(aliasesResponse.Aliases);
         indices = aliasesResponse.Aliases;
 #else
+        Assert.NotNull(aliasesResponse.Values);
         indices = aliasesResponse.Values;
 #endif
         Assert.Single(indices);
@@ -806,8 +848,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
 #if ELASTICSEARCH9
+        Assert.NotNull(aliasesResponse.Aliases);
         var indices = aliasesResponse.Aliases;
 #else
+        Assert.NotNull(aliasesResponse.Values);
         var indices = aliasesResponse.Values;
 #endif
         Assert.Single(indices);
@@ -828,8 +872,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
 #if ELASTICSEARCH9
+        Assert.NotNull(aliasesResponse.Aliases);
         indices = aliasesResponse.Aliases;
 #else
+        Assert.NotNull(aliasesResponse.Values);
         indices = aliasesResponse.Values;
 #endif
         Assert.Single(indices);
@@ -850,8 +896,10 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
 #if ELASTICSEARCH9
+        Assert.NotNull(aliasesResponse.Aliases);
         indices = aliasesResponse.Aliases;
 #else
+        Assert.NotNull(aliasesResponse.Values);
         indices = aliasesResponse.Values;
 #endif
         Assert.Single(indices);
@@ -1080,7 +1128,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var baseDate = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         // Act
-        Employee lastEmployee = null!;
+        Employee? lastEmployee = null;
         for (int i = 0; i < UNIQUE_DATES; i++)
         {
             var testDate = baseDate.AddDays(i);
@@ -1088,7 +1136,6 @@ public sealed class IndexTests : ElasticRepositoryTestBase
             lastEmployee = await repository.AddAsync(employee);
         }
 
-        // Assert
         Assert.NotNull(lastEmployee);
         Assert.NotNull(lastEmployee.Id);
         var retrieved = await repository.GetByIdAsync(lastEmployee.Id);

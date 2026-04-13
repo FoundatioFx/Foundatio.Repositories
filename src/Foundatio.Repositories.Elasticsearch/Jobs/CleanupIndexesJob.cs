@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -71,16 +71,16 @@ public class CleanupIndexesJob : IJob
         }
 
         var indexes = new List<IndexDate>();
-        if (result.IsValidResponse && result.Indices != null)
-            indexes = result.Indices?.Keys.Select(k => GetIndexDate(k.ToString())).Where(r => r != null).ToList();
+        if (result.IsValidResponse && result.Indices is not null)
+            indexes = result.Indices?.Keys.Select(k => GetIndexDate(k.ToString())).OfType<IndexDate>().ToList() ?? [];
 
-        if (indexes == null || indexes.Count == 0)
+        if (indexes.Count is 0)
             return JobResult.Success;
 
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var indexesToDelete = indexes.Where(r => r.Date < now.Subtract(r.MaxAge)).ToList();
 
-        if (indexesToDelete.Count == 0)
+        if (indexesToDelete.Count is 0)
         {
             _logger.LogInformation("No indexes selected for deletion.");
             return JobResult.Success;
@@ -137,7 +137,7 @@ public class CleanupIndexesJob : IJob
         return Task.CompletedTask;
     }
 
-    public virtual Task<bool> OnIndexDeleteFailure(string indexName, TimeSpan duration, DeleteIndexResponse response, Exception ex)
+    public virtual Task<bool> OnIndexDeleteFailure(string indexName, TimeSpan duration, DeleteIndexResponse? response, Exception? ex)
     {
         _logger.LogErrorRequest(ex, response, "Failed to delete index {IndexName} after {Duration:g}", indexName, duration);
         return Task.FromResult(true);
@@ -149,9 +149,9 @@ public class CleanupIndexesJob : IJob
         return Task.CompletedTask;
     }
 
-    private IndexDate GetIndexDate(string name)
+    private IndexDate? GetIndexDate(string name)
     {
-        if (_indexes.Count == 0)
+        if (_indexes.Count is 0)
         {
             AddIndex("logstash", TimeSpan.FromDays(7));
             AddIndex(".marvel", TimeSpan.FromDays(7));
@@ -181,10 +181,10 @@ public class CleanupIndexesJob : IJob
         public ExtractDateFunc GetDate { get; }
     }
 
-    private class IndexDate
+    private record IndexDate
     {
-        public string Index { get; set; }
-        public DateTime Date { get; set; }
-        public TimeSpan MaxAge { get; set; }
+        public required string Index { get; init; }
+        public DateTime Date { get; init; }
+        public TimeSpan MaxAge { get; init; }
     }
 }

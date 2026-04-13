@@ -6,7 +6,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
 public class DynamicIndex<T> : Index<T> where T : class
 {
-    public DynamicIndex(IElasticConfiguration configuration, string name = null) : base(configuration, name) { }
+    public DynamicIndex(IElasticConfiguration configuration, string? name = null) : base(configuration, name) { }
 
     protected override ElasticMappingResolver CreateMappingResolver()
     {

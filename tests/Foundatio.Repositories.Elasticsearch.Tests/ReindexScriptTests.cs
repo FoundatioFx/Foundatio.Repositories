@@ -14,7 +14,8 @@ public sealed class ReindexScriptTests
         index.TestRenameFieldScript(2, "companyName", "companyNameRenamed");
 
         // Act
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert -- produces 2 scripts (copy + remove), wrapped in functions
         Assert.Contains("void f000(def ctx) { if (ctx._source.containsKey('companyName')) { ctx._source.companyNameRenamed = ctx._source.companyName; } }", result);
@@ -30,7 +31,8 @@ public sealed class ReindexScriptTests
         index.TestRenameFieldScript(2, "oldName", "newName", remove: false);
 
         // Act
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert -- single script returned directly (no function wrapping)
         Assert.Equal(
@@ -46,7 +48,8 @@ public sealed class ReindexScriptTests
         index.TestRenameFieldScript(2, "data.oldField", "data.newField");
 
         // Act
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert -- copy script with null-safety + remove script
         Assert.Contains(
@@ -66,7 +69,8 @@ public sealed class ReindexScriptTests
         index.TestRenameFieldScript(2, "data.oldField", "data.newField", remove: false);
 
         // Act
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert -- single copy script with null-safety guards
         Assert.Equal(
@@ -82,7 +86,8 @@ public sealed class ReindexScriptTests
         index.TestRenameFieldScript(2, "metadata.author.name", "metadata.author.displayName");
 
         // Act
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert -- copy script with chained null-safety for each parent level
         Assert.Contains(
@@ -107,7 +112,8 @@ public sealed class ReindexScriptTests
         index.TestRenameFieldScript(2, "data.oldField", "meta.newField");
 
         // Act
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert -- copy guards data.oldField, assigns to meta.newField
         Assert.Contains(
@@ -130,7 +136,8 @@ public sealed class ReindexScriptTests
         index.TestRenameFieldScript(2, "data.oldField", "promoted");
 
         // Act
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert -- guard checks nested, assignment is top-level (no parent init needed)
         Assert.Contains(
@@ -151,7 +158,8 @@ public sealed class ReindexScriptTests
         index.TestRenameFieldScript(2, "companyName", "data.company");
 
         // Act
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert -- guard checks top-level, assignment creates nested parent
         Assert.Contains(
@@ -172,7 +180,8 @@ public sealed class ReindexScriptTests
         index.TestRemoveFieldScript(2, "companyName");
 
         // Act
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert -- single script, returned directly
         Assert.Equal(
@@ -188,7 +197,8 @@ public sealed class ReindexScriptTests
         index.TestRemoveFieldScript(2, "data.oldField");
 
         // Act
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert -- null guard on parent, parent-scoped remove
         Assert.Equal(
@@ -204,7 +214,8 @@ public sealed class ReindexScriptTests
         index.TestRemoveFieldScript(2, "metadata.author.name");
 
         // Act
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert -- chained null checks, parent-scoped remove
         Assert.Equal(
@@ -220,7 +231,7 @@ public sealed class ReindexScriptTests
         var index = new TestableVersionedIndex(5);
 
         // Act
-        string result = index.TestGetReindexScripts(0);
+        string? result = index.TestGetReindexScripts(0);
 
         // Assert
         Assert.Null(result);
@@ -234,7 +245,8 @@ public sealed class ReindexScriptTests
         index.TestAddReindexScript(2, "ctx._source.name = 'test';");
 
         // Act
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert
         Assert.Equal("ctx._source.name = 'test';", result);
@@ -249,7 +261,8 @@ public sealed class ReindexScriptTests
         index.TestAddReindexScript(3, "ctx._source.b = 2;");
 
         // Act
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert
         Assert.Contains("void f000(def ctx) { ctx._source.a = 1; }", result);
@@ -268,7 +281,8 @@ public sealed class ReindexScriptTests
         index.TestAddReindexScript(4, "ctx._source.v4 = true;");
 
         // Act -- upgrading from v1, index version is 3, so only v2 and v3 scripts apply
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert
         Assert.DoesNotContain("v1", result);
@@ -285,7 +299,8 @@ public sealed class ReindexScriptTests
         index.TestRenameFieldScript(2, "oldName", "newName");
 
         // Act
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert -- contains both the copy and the remove
         Assert.Contains("newName", result);
@@ -295,37 +310,37 @@ public sealed class ReindexScriptTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    public void RenameFieldScript_WithNullOrEmptyOriginalName_ThrowsArgumentException(string originalName)
+    public void RenameFieldScript_WithNullOrEmptyOriginalName_ThrowsArgumentException(string? originalName)
     {
         // Arrange
         var index = new TestableVersionedIndex(2);
 
         // Act / Assert
-        Assert.ThrowsAny<ArgumentException>(() => index.TestRenameFieldScript(2, originalName, "newName"));
+        Assert.ThrowsAny<ArgumentException>(() => index.TestRenameFieldScript(2, originalName!, "newName"));
     }
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    public void RenameFieldScript_WithNullOrEmptyCurrentName_ThrowsArgumentException(string currentName)
+    public void RenameFieldScript_WithNullOrEmptyCurrentName_ThrowsArgumentException(string? currentName)
     {
         // Arrange
         var index = new TestableVersionedIndex(2);
 
         // Act / Assert
-        Assert.ThrowsAny<ArgumentException>(() => index.TestRenameFieldScript(2, "oldName", currentName));
+        Assert.ThrowsAny<ArgumentException>(() => index.TestRenameFieldScript(2, "oldName", currentName!));
     }
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    public void RemoveFieldScript_WithNullOrEmptyFieldName_ThrowsArgumentException(string fieldName)
+    public void RemoveFieldScript_WithNullOrEmptyFieldName_ThrowsArgumentException(string? fieldName)
     {
         // Arrange
         var index = new TestableVersionedIndex(2);
 
         // Act / Assert
-        Assert.ThrowsAny<ArgumentException>(() => index.TestRemoveFieldScript(2, fieldName));
+        Assert.ThrowsAny<ArgumentException>(() => index.TestRemoveFieldScript(2, fieldName!));
     }
 
     [Theory]
@@ -419,7 +434,8 @@ public sealed class ReindexScriptTests
         index.TestRenameFieldScript(2, "a", "b");
 
         // Act
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert
         Assert.Contains("containsKey('a')", result);
@@ -435,7 +451,8 @@ public sealed class ReindexScriptTests
         index.TestRenameFieldScript(2, "a.b.c.d.e", "a.b.c.d.f", remove: false);
 
         // Act
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert
         Assert.Contains("ctx._source.a != null", result);
@@ -456,7 +473,8 @@ public sealed class ReindexScriptTests
         index.TestAddReindexScript(4, "ctx._source.migrated = true;");
 
         // Act
-        string result = index.TestGetReindexScripts(1);
+        string? result = index.TestGetReindexScripts(1);
+        Assert.NotNull(result);
 
         // Assert
         Assert.Contains("newName", result);
@@ -483,7 +501,8 @@ public sealed class ReindexScriptTests
 
         // Act
         index.TestRenameFieldScript(2, fieldPath, "target");
-        string script = index.TestGetReindexScripts(1);
+        string? script = index.TestGetReindexScripts(1);
+        Assert.NotNull(script);
 
         // Assert
         Assert.Contains(expectedGuard, script);
@@ -500,7 +519,8 @@ public sealed class ReindexScriptTests
 
         // Act
         index.TestRenameFieldScript(2, fieldPath, "target");
-        string script = index.TestGetReindexScripts(1);
+        string? script = index.TestGetReindexScripts(1);
+        Assert.NotNull(script);
 
         // Assert
         Assert.Contains(expectedGuard, script);
@@ -530,7 +550,8 @@ public sealed class ReindexScriptTests
 
         // Act
         index.TestRenameFieldScript(2, fieldPath, "target");
-        string script = index.TestGetReindexScripts(1);
+        string? script = index.TestGetReindexScripts(1);
+        Assert.NotNull(script);
 
         // Assert
         Assert.Contains(expectedGuard, script);
@@ -548,7 +569,8 @@ public sealed class ReindexScriptTests
 
         // Act
         index.TestRemoveFieldScript(2, fieldPath);
-        string script = index.TestGetReindexScripts(1);
+        string? script = index.TestGetReindexScripts(1);
+        Assert.NotNull(script);
 
         // Assert
         Assert.Contains(expectedGuard, script);
@@ -566,7 +588,7 @@ public sealed class ReindexScriptTests
         public void TestRemoveFieldScript(int v, string field)
             => RemoveFieldScript(v, field);
 
-        public string TestGetReindexScripts(int currentVersion)
+        public string? TestGetReindexScripts(int currentVersion)
             => GetReindexScripts(currentVersion);
 
         public void TestAddReindexScript(int v, string script)

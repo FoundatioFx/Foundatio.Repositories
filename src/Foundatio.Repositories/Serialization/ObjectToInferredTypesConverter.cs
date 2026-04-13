@@ -29,7 +29,7 @@ namespace Foundatio.Repositories.Serialization;
 /// <seealso href="https://learn.microsoft.com/en-us/dotnet/standard/serialization/system-text-json/converters-how-to#deserialize-inferred-types-to-object-properties"/>
 public sealed class ObjectToInferredTypesConverter : JsonConverter<object>
 {
-    public override object Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    public override object? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         return reader.TokenType switch
         {
@@ -99,7 +99,7 @@ public sealed class ObjectToInferredTypesConverter : JsonConverter<object>
                 return dt;
         }
 
-        return reader.GetString();
+        return reader.GetString()!;
     }
 
     private Dictionary<string, object> ReadObject(ref Utf8JsonReader reader, JsonSerializerOptions options)
@@ -119,7 +119,7 @@ public sealed class ObjectToInferredTypesConverter : JsonConverter<object>
             if (!reader.Read())
                 continue;
 
-            dictionary[propertyName] = ReadValue(ref reader, options);
+            dictionary[propertyName] = ReadValue(ref reader, options)!;
         }
 
         return dictionary;
@@ -134,13 +134,13 @@ public sealed class ObjectToInferredTypesConverter : JsonConverter<object>
             if (reader.TokenType == JsonTokenType.EndArray)
                 return list;
 
-            list.Add(ReadValue(ref reader, options));
+            list.Add(ReadValue(ref reader, options)!);
         }
 
         return list;
     }
 
-    private object ReadValue(ref Utf8JsonReader reader, JsonSerializerOptions options)
+    private object? ReadValue(ref Utf8JsonReader reader, JsonSerializerOptions options)
     {
         return reader.TokenType switch
         {

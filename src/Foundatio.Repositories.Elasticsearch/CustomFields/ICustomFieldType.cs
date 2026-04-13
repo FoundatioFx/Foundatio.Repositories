@@ -42,13 +42,13 @@ public class ProcessFieldValueResult
     /// <summary>
     /// The processed value to store back in the document's <c>Data</c> dictionary.
     /// </summary>
-    public object Value { get; set; }
+    public object? Value { get; set; }
 
     /// <summary>
     /// An optional separate value to store in the <c>Idx</c> dictionary for indexing.
     /// When <c>null</c>, <see cref="Value"/> is used for both storage and indexing.
     /// </summary>
-    public object Idx { get; set; }
+    public object? Idx { get; set; }
 
     /// <summary>
     /// Set to <c>true</c> if the processor modified the <see cref="CustomFieldDefinition"/> itself

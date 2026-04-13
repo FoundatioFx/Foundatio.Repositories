@@ -6,7 +6,7 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 internal static class IBodyWithApiCallDetailsExtensions
 {
-    public static T DeserializeRaw<T>(this ElasticsearchResponse call, ITextSerializer serializer) where T : class, new()
+    public static T? DeserializeRaw<T>(this ElasticsearchResponse call, ITextSerializer serializer) where T : class, new()
     {
         ArgumentNullException.ThrowIfNull(serializer);
 
@@ -16,7 +16,7 @@ internal static class IBodyWithApiCallDetailsExtensions
         return serializer.Deserialize<T>(call.ApiCallDetails.ResponseBodyInBytes);
     }
 
-    public static Exception OriginalException(this ElasticsearchResponse response)
+    public static Exception? OriginalException(this ElasticsearchResponse response)
     {
         return response?.ApiCallDetails?.OriginalException;
     }

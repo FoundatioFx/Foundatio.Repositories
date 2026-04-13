@@ -62,7 +62,7 @@ public enum MigrationType
 
 public static class MigrationExtensions
 {
-    public static string GetId(this IMigration migration)
+    public static string? GetId(this IMigration migration)
     {
         return migration.MigrationType != MigrationType.Repeatable ? migration.Version.ToString() : migration.GetType().FullName;
     }

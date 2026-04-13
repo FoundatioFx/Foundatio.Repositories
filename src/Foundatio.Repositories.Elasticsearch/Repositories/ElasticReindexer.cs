@@ -33,15 +33,15 @@ public class ElasticReindexer
     private const string ID_FIELD = "id";
     private const int MAX_STATUS_FAILS = 10;
 
-    public ElasticReindexer(ElasticsearchClient client, ITextSerializer serializer, ILogger logger = null) : this(client, serializer, TimeProvider.System, logger)
+    public ElasticReindexer(ElasticsearchClient client, ITextSerializer serializer, ILogger? logger = null) : this(client, serializer, TimeProvider.System, logger)
     {
     }
 
-    public ElasticReindexer(ElasticsearchClient client, ITextSerializer serializer, TimeProvider timeProvider, ILogger logger = null) : this(client, serializer, timeProvider ?? TimeProvider.System, new ResiliencePolicyProvider(), logger ?? NullLogger.Instance)
+    public ElasticReindexer(ElasticsearchClient client, ITextSerializer serializer, TimeProvider timeProvider, ILogger? logger = null) : this(client, serializer, timeProvider ?? TimeProvider.System, new ResiliencePolicyProvider(), logger ?? NullLogger.Instance)
     {
     }
 
-    public ElasticReindexer(ElasticsearchClient client, ITextSerializer serializer, TimeProvider timeProvider, IResiliencePolicyProvider resiliencePolicyProvider, ILogger logger = null)
+    public ElasticReindexer(ElasticsearchClient client, ITextSerializer serializer, TimeProvider timeProvider, IResiliencePolicyProvider resiliencePolicyProvider, ILogger? logger = null)
     {
         _client = client;
         _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
@@ -52,7 +52,7 @@ public class ElasticReindexer
         _resiliencePolicy = _resiliencePolicyProvider.GetPolicy<ElasticReindexer>(fallback => fallback.WithMaxAttempts(5).WithDelay(TimeSpan.FromSeconds(10)), _logger, _timeProvider);
     }
 
-    public async Task ReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync = null)
+    public async Task ReindexAsync(ReindexWorkItem workItem, Func<int, string?, Task>? progressCallbackAsync = null)
     {
         if (String.IsNullOrEmpty(workItem.OldIndex))
             throw new ArgumentNullException(nameof(workItem.OldIndex));
@@ -117,7 +117,7 @@ public class ElasticReindexer
         if (!refreshResponse.IsValidResponse)
             _logger.LogWarning("Failed to refresh indices before second reindex pass: {Error}", refreshResponse.ElasticsearchServerError);
 
-        ReindexResult secondPassResult = null;
+        ReindexResult? secondPassResult = null;
         if (!String.IsNullOrEmpty(workItem.TimestampField))
         {
             secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime).AnyContext();
@@ -166,7 +166,7 @@ public class ElasticReindexer
         await progressCallbackAsync(100, null).AnyContext();
     }
 
-    private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string, Task> progressCallbackAsync, int startProgress = 0, int endProgress = 100, DateTime? startTime = null, CancellationToken cancellationToken = default)
+    private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, int startProgress = 0, int endProgress = 100, DateTime? startTime = null, CancellationToken cancellationToken = default)
     {
         var query = await GetResumeQueryAsync(workItem.NewIndex, workItem.TimestampField, startTime).AnyContext();
 
@@ -192,7 +192,7 @@ public class ElasticReindexer
             return response;
         }, cancellationToken).AnyContext();
 
-        if (result.Task == null)
+        if (result.Task is null)
         {
             _logger.LogError("Reindex failed to start - no task returned. Response valid: {IsValid}, Reason: {Reason}",
                 result.IsValidResponse, result.ElasticsearchServerError?.Error?.Reason ?? "Unknown");
@@ -205,7 +205,7 @@ public class ElasticReindexer
         long totalDocs = result.Total ?? 0;
 
         bool taskSuccess = false;
-        TaskReindexResult lastReindexResponse = null;
+        TaskReindexResult? lastReindexResponse = null;
         int statusGetFails = 0;
         long lastProgress = 0;
         var sw = Stopwatch.StartNew();
@@ -243,7 +243,7 @@ public class ElasticReindexer
 
             // Extract status values from the raw JSON. The Status property is object? and may be
             // deserialized as JsonElement or IDictionary<string, object> depending on serializer config.
-            TaskStatusValues taskStatus = null;
+            TaskStatusValues? taskStatus = null;
             if (status.Task.Status is JsonElement jsonElement)
             {
                 taskStatus = new TaskStatusValues
@@ -347,7 +347,14 @@ public class ElasticReindexer
 
     private async Task HandleFailureAsync(ReindexWorkItem workItem, BulkIndexByScrollFailure failure)
     {
-        _logger.LogError("Error reindexing document {Index}/{Id}: [{Status}] {Message}", workItem.OldIndex, failure.Id, failure.Status, failure.Cause.Reason);
+        _logger.LogError("Error reindexing document {Index}/{Id}: [{Status}] {Message}", workItem.OldIndex, failure.Id, failure.Status, failure.Cause?.Reason);
+
+        if (String.IsNullOrEmpty(failure.Id))
+        {
+            _logger.LogWarning("Skipping error document fetch: failure has no document Id");
+            return;
+        }
+
         var gr = await _client.GetAsync<object>(request: new GetRequest(workItem.OldIndex, failure.Id)).AnyContext();
 
         if (!gr.IsValidResponse)
@@ -411,7 +418,7 @@ public class ElasticReindexer
         return [];
     }
 
-    private async Task<Query> GetResumeQueryAsync(string newIndex, string timestampField, DateTime? startTime)
+    private async Task<Query?> GetResumeQueryAsync(string newIndex, string? timestampField, DateTime? startTime)
     {
         var descriptor = new QueryDescriptor<object>();
         if (startTime.HasValue)
@@ -425,7 +432,7 @@ public class ElasticReindexer
         return null;
     }
 
-    private Query CreateRangeQuery(QueryDescriptor<object> descriptor, string timestampField, DateTime? startTime)
+    private Query? CreateRangeQuery(QueryDescriptor<object> descriptor, string? timestampField, DateTime? startTime)
     {
         if (!startTime.HasValue)
             return descriptor;
@@ -493,61 +500,61 @@ public class ElasticReindexer
         return startProgress + (int)((100 * (double)completed / total) * (((double)endProgress - startProgress) / 100));
     }
 
-    private class ReindexResult
+    private record ReindexResult
     {
-        public long Total { get; set; }
-        public long Completed { get; set; }
-        public long Failures { get; set; }
-        public bool Succeeded { get; set; }
+        public long Total { get; init; }
+        public long Completed { get; init; }
+        public long Failures { get; init; }
+        public bool Succeeded { get; init; }
     }
 
-    private class TaskWithReindexResponse
+    private record TaskWithReindexResponse
     {
-        public TaskReindexResult Response { get; set; }
-        public TaskReindexError Error { get; set; }
+        public TaskReindexResult? Response { get; init; }
+        public TaskReindexError? Error { get; init; }
     }
 
-    private class TaskReindexError
+    private record TaskReindexError
     {
-        public string Type { get; set; }
-        public string Reason { get; set; }
-        public List<string> Script_Stack { get; set; }
+        public string? Type { get; init; }
+        public string? Reason { get; init; }
+        public List<string>? Script_Stack { get; init; }
 
-        public TaskCause Caused_By { get; set; }
+        public TaskCause? Caused_By { get; init; }
     }
 
-    private class TaskCause
+    private record TaskCause
     {
-        public string Type { get; set; }
-        public string Reason { get; set; }
+        public string? Type { get; init; }
+        public string? Reason { get; init; }
     }
 
-    private class TaskReindexResult
+    private record TaskReindexResult
     {
-        public long Total { get; set; }
-        public long Created { get; set; }
-        public long Updated { get; set; }
-        public long Noops { get; set; }
-        public long VersionConflicts { get; set; }
+        public long Total { get; init; }
+        public long Created { get; init; }
+        public long Updated { get; init; }
+        public long Noops { get; init; }
+        public long VersionConflicts { get; init; }
 
-        public IReadOnlyCollection<BulkIndexByScrollFailure> Failures { get; set; }
+        public IReadOnlyCollection<BulkIndexByScrollFailure>? Failures { get; init; }
     }
 
-    private class TaskStatusValues
+    private record TaskStatusValues
     {
-        public long Total { get; set; }
-        public long Created { get; set; }
-        public long Updated { get; set; }
-        public long Noops { get; set; }
-        public long VersionConflicts { get; set; }
+        public long Total { get; init; }
+        public long Created { get; init; }
+        public long Updated { get; init; }
+        public long Noops { get; init; }
+        public long VersionConflicts { get; init; }
     }
 
-    private class BulkIndexByScrollFailure
+    private record BulkIndexByScrollFailure
     {
-        public Error Cause { get; set; }
-        public string Id { get; set; }
-        public string Index { get; set; }
-        public int Status { get; set; }
-        public string Type { get; set; }
+        public Error? Cause { get; init; }
+        public string? Id { get; init; }
+        public string? Index { get; init; }
+        public int Status { get; init; }
+        public string? Type { get; init; }
     }
 }

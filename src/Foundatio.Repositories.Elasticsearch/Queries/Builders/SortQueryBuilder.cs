@@ -29,17 +29,17 @@ namespace Foundatio.Repositories
             return query.Sort(field, SortOrder.Asc);
         }
 
-        public static IRepositoryQuery<T> Sort<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, SortOrder? order = null) where T : class
+        public static IRepositoryQuery<T> Sort<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath, SortOrder? order = null) where T : class
         {
             return query.AddCollectionOptionValue<IRepositoryQuery<T>, SortOptions>(SortsKey, new FieldSort { Field = objectPath, Order = order });
         }
 
-        public static IRepositoryQuery<T> SortDescending<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath) where T : class
+        public static IRepositoryQuery<T> SortDescending<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath) where T : class
         {
             return query.Sort(objectPath, SortOrder.Desc);
         }
 
-        public static IRepositoryQuery<T> SortAscending<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath) where T : class
+        public static IRepositoryQuery<T> SortAscending<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath) where T : class
         {
             return query.Sort(objectPath, SortOrder.Asc);
         }

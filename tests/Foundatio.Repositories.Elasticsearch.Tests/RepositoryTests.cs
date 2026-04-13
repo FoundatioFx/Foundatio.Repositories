@@ -97,14 +97,14 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
 
-        var allEmployees = await _employeeRepository.FindAsync(null, o => o.IncludeSoftDeletes());
+        var allEmployees = await _employeeRepository.FindAsync(q => q, o => o.IncludeSoftDeletes());
         Assert.Equal(2, allEmployees.Total);
 
-        var onlyDeleted = await _employeeRepository.FindAsync(null, o => o.SoftDeleteMode(SoftDeleteQueryMode.DeletedOnly));
+        var onlyDeleted = await _employeeRepository.FindAsync(q => q, o => o.SoftDeleteMode(SoftDeleteQueryMode.DeletedOnly));
         Assert.Equal(1, onlyDeleted.Total);
         Assert.Equal(employee1.Id, onlyDeleted.Documents.First().Id);
 
-        var nonDeletedEmployees = await _employeeRepository.FindAsync(null, o => o.SoftDeleteMode(SoftDeleteQueryMode.ActiveOnly));
+        var nonDeletedEmployees = await _employeeRepository.FindAsync(q => q, o => o.SoftDeleteMode(SoftDeleteQueryMode.ActiveOnly));
         Assert.Equal(1, nonDeletedEmployees.Total);
         Assert.NotEqual(employee1.Id, nonDeletedEmployees.Documents.First().Id);
     }
@@ -120,7 +120,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         await _employeeRepository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
 
-        var allEmployees = await _employeeRepository.FindAsync(null, o => o.IncludeSoftDeletes());
+        var allEmployees = await _employeeRepository.FindAsync(q => q, o => o.IncludeSoftDeletes());
         Assert.Equal(2, allEmployees.Total);
 
         var onlyDeleted = await _employeeRepository.FindAsync(q => q.FilterExpression("isDeleted:true"), o => o.IncludeSoftDeletes());
@@ -552,7 +552,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         Assert.NotNull(dateAgg);
         Assert.Single(dateAgg.Buckets);
         Assert.Equal(utcNow.AddDays(-1).Date, dateAgg.Buckets.First().Date);
-        Assert.Equal(utcNow.AddDays(-1).Floor(TimeSpan.FromMilliseconds(1)), dateAgg.Buckets.First().Aggregations.Min<DateTime>("min_createdUtc").Value.Floor(TimeSpan.FromMilliseconds(1)));
+        var minAgg = dateAgg.Buckets.First().Aggregations.Min<DateTime>("min_createdUtc");
+        Assert.NotNull(minAgg);
+        Assert.Equal(utcNow.AddDays(-1).Floor(TimeSpan.FromMilliseconds(1)), minAgg.Value.Floor(TimeSpan.FromMilliseconds(1)));
 
         result = await _dailyRepository.CountAsync(q => q.AggregationsExpression("date:(createdUtc~1h^-3h min:createdUtc)"));
         Assert.Single(result.Aggregations);
@@ -788,6 +790,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         // Assert
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal("Patched", employee.Name);
         Assert.Equal(originalCreatedUtc, employee.CreatedUtc);
         Assert.Equal(expectedUpdatedUtc, employee.UpdatedUtc);
@@ -842,6 +845,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         // Assert
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal("Patched", employee.Name);
         Assert.Equal(originalCreatedUtc, employee.CreatedUtc);
         Assert.Equal(expectedUpdatedUtc, employee.UpdatedUtc);
@@ -895,6 +899,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         // Assert
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal("Patched", employee.Name);
         Assert.Equal(originalCreatedUtc, employee.CreatedUtc);
         Assert.Equal(expectedUpdatedUtc, employee.UpdatedUtc);
@@ -920,6 +925,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         // Assert
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal("Patched", employee.Name);
         Assert.Equal(originalCreatedUtc, employee.CreatedUtc);
         Assert.Equal(expectedUpdatedUtc, employee.UpdatedUtc);
@@ -947,6 +953,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         // Assert
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal("Patched", employee.Name);
         Assert.Equal(originalCreatedUtc, employee.CreatedUtc);
         Assert.Equal(callerProvidedTime, employee.UpdatedUtc);
@@ -970,6 +977,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         // Assert
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal("Patched", employee.Name);
         Assert.Equal(originalCreatedUtc, employee.CreatedUtc);
         Assert.Equal(callerProvidedTime, employee.UpdatedUtc);
@@ -988,6 +996,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         // Assert
         employee = await _employeeWithDateMetaDataRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.NotNull(employee.MetaData);
         Assert.Equal(expectedTime, employee.MetaData.DateCreatedUtc);
         Assert.Equal(expectedTime, employee.MetaData.DateUpdatedUtc);
@@ -1001,6 +1010,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeWithDateMetaDataRepository.AddAsync(EmployeeWithDateMetaDataGenerator.Default);
+        Assert.NotNull(employee.MetaData);
         var originalCreated = employee.MetaData.DateCreatedUtc;
 
         timeProvider.Advance(TimeSpan.FromSeconds(5));
@@ -1012,7 +1022,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         // Assert
         employee = await _employeeWithDateMetaDataRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal("Saved", employee.Name);
+        Assert.NotNull(employee.MetaData);
         Assert.Equal(originalCreated, employee.MetaData.DateCreatedUtc);
         Assert.Equal(expectedUpdated, employee.MetaData.DateUpdatedUtc);
     }
@@ -1025,6 +1037,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeWithDateMetaDataRepository.AddAsync(EmployeeWithDateMetaDataGenerator.Default);
+        Assert.NotNull(employee.MetaData);
         var originalCreated = employee.MetaData.DateCreatedUtc;
 
         timeProvider.Advance(TimeSpan.FromSeconds(5));
@@ -1036,7 +1049,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         // Assert
         employee = await _employeeWithDateMetaDataRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal("JsonPatched", employee.Name);
+        Assert.NotNull(employee.MetaData);
         Assert.Equal(originalCreated, employee.MetaData.DateCreatedUtc);
         Assert.Equal(expectedUpdated, employee.MetaData.DateUpdatedUtc);
     }
@@ -1049,6 +1064,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeWithDateMetaDataRepository.AddAsync(EmployeeWithDateMetaDataGenerator.Default);
+        Assert.NotNull(employee.MetaData);
         var originalCreated = employee.MetaData.DateCreatedUtc;
 
         timeProvider.Advance(TimeSpan.FromSeconds(5));
@@ -1060,7 +1076,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         // Assert
         employee = await _employeeWithDateMetaDataRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal("ActionPatched", employee.Name);
+        Assert.NotNull(employee.MetaData);
         Assert.Equal(originalCreated, employee.MetaData.DateCreatedUtc);
         Assert.Equal(expectedUpdated, employee.MetaData.DateUpdatedUtc);
     }
@@ -1073,6 +1091,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeWithDateMetaDataRepository.AddAsync(EmployeeWithDateMetaDataGenerator.Default);
+        Assert.NotNull(employee.MetaData);
         var originalCreated = employee.MetaData.DateCreatedUtc;
 
         timeProvider.Advance(TimeSpan.FromSeconds(5));
@@ -1084,7 +1103,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         // Assert
         employee = await _employeeWithDateMetaDataRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal("ScriptPatched", employee.Name);
+        Assert.NotNull(employee.MetaData);
         Assert.Equal(originalCreated, employee.MetaData.DateCreatedUtc);
         Assert.Equal(expectedUpdated, employee.MetaData.DateUpdatedUtc);
     }
@@ -1097,6 +1118,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeWithDateMetaDataRepository.AddAsync(EmployeeWithDateMetaDataGenerator.Default);
+        Assert.NotNull(employee.MetaData);
         var originalCreated = employee.MetaData.DateCreatedUtc;
 
         timeProvider.Advance(TimeSpan.FromSeconds(5));
@@ -1108,7 +1130,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         // Assert
         employee = await _employeeWithDateMetaDataRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal("PartialPatched", employee.Name);
+        Assert.NotNull(employee.MetaData);
         Assert.Equal(originalCreated, employee.MetaData.DateCreatedUtc);
         Assert.Equal(expectedUpdated, employee.MetaData.DateUpdatedUtc);
     }
@@ -1121,6 +1145,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeWithDateMetaDataRepository.AddAsync(EmployeeWithDateMetaDataGenerator.Default);
+        Assert.NotNull(employee.MetaData);
         var originalCreated = employee.MetaData.DateCreatedUtc;
 
         timeProvider.Advance(TimeSpan.FromSeconds(5));
@@ -1135,7 +1160,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         // Assert
         employee = await _employeeWithDateMetaDataRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal("CallerScript", employee.Name);
+        Assert.NotNull(employee.MetaData);
         Assert.Equal(originalCreated, employee.MetaData.DateCreatedUtc);
         Assert.Equal(callerProvidedTime, employee.MetaData.DateUpdatedUtc);
     }
@@ -1148,6 +1175,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeWithDateMetaDataRepository.AddAsync(EmployeeWithDateMetaDataGenerator.Default);
+        Assert.NotNull(employee.MetaData);
         var originalCreated = employee.MetaData.DateCreatedUtc;
 
         timeProvider.Advance(TimeSpan.FromSeconds(5));
@@ -1159,7 +1187,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         // Assert
         employee = await _employeeWithDateMetaDataRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal("CallerPartial", employee.Name);
+        Assert.NotNull(employee.MetaData);
         Assert.Equal(originalCreated, employee.MetaData.DateCreatedUtc);
         Assert.Equal(callerProvidedTime, employee.MetaData.DateUpdatedUtc);
     }
@@ -1173,6 +1203,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         await _employeeRepository.PatchAsync(employee.Id, new JsonPatch(patch));
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
         Assert.Equal("Patched", employee.Name);
         Assert.Equal("1:1", employee.Version);
@@ -1201,6 +1232,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (iteration, ct) =>
         {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
+            Assert.NotNull(e);
             resetEvent.Set();
             e.CompanyName = $"Company {iteration}";
             try
@@ -1217,6 +1249,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _logger.LogInformation("Saving name");
         resetEvent.WaitOne();
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        Assert.NotNull(employee);
         resetEvent.WaitOne();
         employee.Name = "Saved";
         try
@@ -1239,6 +1272,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         await Task.Delay(100, TestCancellationToken);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        Assert.NotNull(employee);
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
         Assert.Equal("Patched", employee.Name);
         _logger.LogInformation("Got employee with company {CompanyName}", employee.CompanyName);
@@ -1256,6 +1290,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (iteration, ct) =>
         {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
+            Assert.NotNull(e);
             resetEvent.Set();
             e.CompanyName = $"Company {iteration}";
             try
@@ -1272,6 +1307,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _logger.LogInformation("Saving name");
         resetEvent.WaitOne();
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        Assert.NotNull(employee);
         resetEvent.WaitOne();
         employee.Name = "Saved";
         try
@@ -1294,6 +1330,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         await Task.Delay(100, TestCancellationToken);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        Assert.NotNull(employee);
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
         Assert.Equal("Patched", employee.Name);
         _logger.LogInformation("Got employee with company {CompanyName}", employee.CompanyName);
@@ -1307,6 +1344,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         await _employeeRepository.PatchAsync(employee.Id, new PartialPatch(new { name = "Patched" }));
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
         Assert.Equal("Patched", employee.Name);
         Assert.Equal("1:1", employee.Version);
@@ -1325,10 +1363,11 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         Assert.Equal("OriginalCompany", employee.CompanyName);
 
         // Act
-        await _employeeRepository.PatchAsync(employee.Id, new PartialPatch(new { companyName = (string)null }));
+        await _employeeRepository.PatchAsync(employee.Id, new PartialPatch(new { companyName = (string?)null }));
 
         // Assert
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         // TODO: This should be null once elastic/elasticsearch-net#8763 is fixed.
         // Currently the null value is silently dropped, so the field retains its original value.
         Assert.Equal("OriginalCompany", employee.CompanyName);
@@ -1341,6 +1380,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'Patched';"));
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
         Assert.Equal("Patched", employee.Name);
         Assert.Equal("1:1", employee.Version);
@@ -1357,6 +1397,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (iteration, ct) =>
         {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
+            Assert.NotNull(e);
             resetEvent.Set();
             e.CompanyName = $"Company {iteration}";
             try
@@ -1373,6 +1414,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _logger.LogInformation("Saving name");
         resetEvent.WaitOne();
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        Assert.NotNull(employee);
         resetEvent.WaitOne();
         employee.Name = "Saved";
         try
@@ -1394,6 +1436,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         await Task.Delay(100, TestCancellationToken);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        Assert.NotNull(employee);
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
         Assert.Equal("Patched", employee.Name);
         _logger.LogInformation("Got employee with company {CompanyName}", employee.CompanyName);
@@ -1407,6 +1450,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => e.Name = "Patched"));
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
         Assert.Equal("Patched", employee.Name);
         Assert.Equal("1:1", employee.Version);
@@ -1434,6 +1478,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _ = Parallel.ForEachAsync(Enumerable.Range(1, 100), new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = cts.Token }, async (iteration, ct) =>
         {
             var e = await _employeeRepository.GetByIdAsync(employeeId, o => o.Cache(false));
+            Assert.NotNull(e);
             resetEvent.Set();
             e.CompanyName = $"Company {iteration}";
             try
@@ -1450,6 +1495,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _logger.LogInformation("Saving name");
         resetEvent.WaitOne();
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        Assert.NotNull(employee);
         resetEvent.WaitOne();
         employee.Name = "Saved";
         try
@@ -1471,6 +1517,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         await Task.Delay(100, TestCancellationToken);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        Assert.NotNull(employee);
         Assert.Equal(EmployeeGenerator.Default.Age, employee.Age);
         Assert.Equal("Patched", employee.Name);
         _logger.LogInformation("Got employee with company {CompanyName}", employee.CompanyName);
@@ -1943,6 +1990,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         await Task.WhenAll(ids.Select(async id =>
         {
             var emp = await _employeeRepository.GetByIdAsync(id);
+            Assert.NotNull(emp);
             Assert.Equal("ActionPatched", emp.CompanyName);
         }));
     }
@@ -2033,6 +2081,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Assert
         Assert.True(modified);
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal("Changed", employee.Name);
     }
 
@@ -2062,6 +2111,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Assert
         Assert.True(modified);
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal("Changed", employee.Name);
     }
 
@@ -2245,6 +2295,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Arrange
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         var original = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(original);
         string originalVersion = original.Version;
 
         // Act — noop action should NOT write to Elasticsearch
@@ -2253,6 +2304,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Assert
         Assert.False(modified);
         var after = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(after);
         Assert.Equal(originalVersion, after.Version);
     }
 
@@ -2315,6 +2367,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Assert
         Assert.True(modified);
         var after = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(after);
         Assert.Equal("Changed", after.Name);
     }
 
@@ -2434,6 +2487,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Assert
         Assert.True(modified);
         var after = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(after);
         Assert.Equal("Changed", after.Name);
         Assert.Equal(99, after.Age);
     }

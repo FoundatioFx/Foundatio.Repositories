@@ -11,7 +11,7 @@ namespace Foundatio.Repositories.Utility;
 /// </summary>
 public abstract class Operation
 {
-    public string Path { get; set; }
+    public string? Path { get; set; }
 
     public abstract void Write(Utf8JsonWriter writer);
 
@@ -20,23 +20,23 @@ public abstract class Operation
         writer.WriteString("op", op);
     }
 
-    protected static void WritePath(Utf8JsonWriter writer, string path)
+    protected static void WritePath(Utf8JsonWriter writer, string? path)
     {
         writer.WriteString("path", path);
     }
 
-    protected static void WriteFromPath(Utf8JsonWriter writer, string path)
+    protected static void WriteFromPath(Utf8JsonWriter writer, string? path)
     {
         writer.WriteString("from", path);
     }
 
-    protected static void WriteValue(Utf8JsonWriter writer, JsonNode value)
+    protected static void WriteValue(Utf8JsonWriter writer, JsonNode? value)
     {
         writer.WritePropertyName("value");
-        if (value == null)
-            writer.WriteNullValue();
-        else
+        if (value is not null)
             value.WriteTo(writer);
+        else
+            writer.WriteNullValue();
     }
 
     public abstract void Read(JsonObject jOperation);
@@ -46,7 +46,7 @@ public abstract class Operation
         return Build(JsonNode.Parse(json)?.AsObject());
     }
 
-    public static Operation Build(JsonObject jOperation)
+    public static Operation Build(JsonObject? jOperation)
     {
         ArgumentNullException.ThrowIfNull(jOperation);
 

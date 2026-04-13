@@ -12,12 +12,12 @@ public class KeyedBucket<T> : BucketBase
     }
 
     [System.Text.Json.Serialization.JsonConstructor]
-    public KeyedBucket(IReadOnlyDictionary<string, IAggregate> aggregations) : base(aggregations)
+    public KeyedBucket(IReadOnlyDictionary<string, IAggregate>? aggregations) : base(aggregations)
     {
     }
 
     [System.Text.Json.Serialization.JsonConverter(typeof(InferredTypesConverterFactory))]
-    public T Key { get; set; }
-    public string KeyAsString { get; set; }
+    public T Key { get; set; } = default!;
+    public string? KeyAsString { get; set; }
     public long? Total { get; set; }
 }

@@ -101,6 +101,7 @@ public class JsonSerializerOptionsExtensionsTests
         var result = serializer.Deserialize<Dictionary<string, object>>(json);
 
         // Assert
+        Assert.NotNull(result);
         Assert.IsType<string>(result["name"]);
         Assert.IsType<long>(result["count"]);
         Assert.IsType<bool>(result["active"]);

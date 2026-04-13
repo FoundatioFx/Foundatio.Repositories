@@ -16,7 +16,7 @@ public class TopHitsAggregate : MetricAggregateBase
     /// <summary>
     /// Raw JSON sources for each hit, used for serialization/deserialization round-tripping (e.g., caching).
     /// </summary>
-    public IReadOnlyList<string> Hits { get; set; }
+    public IReadOnlyList<string> Hits { get; set; } = [];
 
     public TopHitsAggregate(IList<ILazyDocument> hits)
     {
@@ -30,10 +30,10 @@ public class TopHitsAggregate : MetricAggregateBase
     /// Can be omitted when reading directly from an Elasticsearch response where <c>_hits</c> are populated from
     /// the live response.
     /// </param>
-    public IReadOnlyCollection<T> Documents<T>(ITextSerializer serializer = null) where T : class
+    public IReadOnlyCollection<T> Documents<T>(ITextSerializer? serializer = null) where T : class
     {
         if (_hits.Count > 0)
-            return _hits.Select(h => h.As<T>()).ToList();
+            return _hits.Select(h => h.As<T>()).OfType<T>().ToList().AsReadOnly();
 
         if (Hits is { Count: > 0 })
         {
@@ -47,8 +47,9 @@ public class TopHitsAggregate : MetricAggregateBase
                     var lazy = new LazyDocument(Encoding.UTF8.GetBytes(json), serializer);
                     return lazy.As<T>();
                 })
-                .Where(d => d != null)
-                .ToList();
+                .OfType<T>()
+                .ToList()
+                .AsReadOnly();
         }
 
         return new List<T>();

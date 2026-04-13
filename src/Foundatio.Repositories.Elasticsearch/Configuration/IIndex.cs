@@ -22,10 +22,10 @@ public interface IIndex : IDisposable
 
     void ConfigureSettings(ElasticsearchClientSettings settings);
     Task ConfigureAsync();
-    Task EnsureIndexAsync(object target);
+    Task EnsureIndexAsync(object? target);
     Task MaintainAsync(bool includeOptionalTasks = true);
     Task DeleteAsync();
-    Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null);
+    Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null);
     string CreateDocumentId(object document);
     string[] GetIndexesByQuery(IRepositoryQuery query);
     string GetIndex(object target);
@@ -35,6 +35,6 @@ public interface IIndex<T> : IIndex where T : class
 {
     void ConfigureIndexMapping(TypeMappingDescriptor<T> map);
     Inferrer Infer { get; }
-    string InferField(Expression<Func<T, object>> objectPath);
-    string InferPropertyName(Expression<Func<T, object>> objectPath);
+    string InferField(Expression<Func<T, object?>> objectPath);
+    string InferPropertyName(Expression<Func<T, object?>> objectPath);
 }

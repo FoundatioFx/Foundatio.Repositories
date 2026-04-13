@@ -12,7 +12,7 @@ namespace Foundatio.Repositories.Utility;
 /// </summary>
 public class PatchDocumentConverter : JsonConverter<PatchDocument>
 {
-    public override PatchDocument Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    public override PatchDocument? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         if (typeToConvert != typeof(PatchDocument))
             throw new ArgumentException("Object must be of type PatchDocument", nameof(typeToConvert));
@@ -38,9 +38,9 @@ public class PatchDocumentConverter : JsonConverter<PatchDocument>
         }
     }
 
-    public override void Write(Utf8JsonWriter writer, PatchDocument value, JsonSerializerOptions options)
+    public override void Write(Utf8JsonWriter writer, PatchDocument? value, JsonSerializerOptions options)
     {
-        if (value == null)
+        if (value is null)
         {
             writer.WriteNullValue();
             return;

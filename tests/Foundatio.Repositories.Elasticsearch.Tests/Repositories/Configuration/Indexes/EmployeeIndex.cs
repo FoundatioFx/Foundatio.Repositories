@@ -13,6 +13,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Serializer;
 using Microsoft.Extensions.Logging.Abstractions;
+
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 
 public sealed class EmployeeIndex : Index<Employee>
@@ -93,7 +94,7 @@ public sealed class EmployeeIndex : Index<Employee>
         return "aliasedage:10";
     }
 
-    private async Task<ElasticRuntimeField> ResolveRuntimeFieldAsync(string name)
+    private async Task<ElasticRuntimeField?> ResolveRuntimeFieldAsync(string name)
     {
         await Task.Delay(100);
 
@@ -133,12 +134,12 @@ public sealed class EmployeeIndexWithYearsEmployed : Index<Employee>
 
 public sealed class VersionedEmployeeIndex : VersionedIndex<Employee>
 {
-    private readonly Action<CreateIndexRequestDescriptor> _createIndex;
-    private readonly Action<TypeMappingDescriptor<Employee>> _createMappings;
+    private readonly Action<CreateIndexRequestDescriptor>? _createIndex;
+    private readonly Action<TypeMappingDescriptor<Employee>>? _createMappings;
 
     public VersionedEmployeeIndex(IElasticConfiguration configuration, int version,
-        Action<CreateIndexRequestDescriptor> createIndex = null,
-        Action<TypeMappingDescriptor<Employee>> createMappings = null) : base(configuration, "employees", version)
+        Action<CreateIndexRequestDescriptor>? createIndex = null,
+        Action<TypeMappingDescriptor<Employee>>? createMappings = null) : base(configuration, "employees", version)
     {
         _createIndex = createIndex;
         _createMappings = createMappings;

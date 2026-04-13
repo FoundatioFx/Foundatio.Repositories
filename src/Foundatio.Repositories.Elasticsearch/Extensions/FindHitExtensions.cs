@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -11,14 +11,14 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 public static class FindHitExtensions
 {
-    public static string GetIndex<T>(this FindHit<T> hit)
+    public static string? GetIndex<T>(this FindHit<T> hit)
     {
         return hit?.Data?.GetString(ElasticDataKeys.Index);
     }
 
-    public static object[] GetSorts<T>(this FindHit<T> hit)
+    public static object[]? GetSorts<T>(this FindHit<T> hit)
     {
-        if (hit == null || !hit.Data.TryGetValue(ElasticDataKeys.Sorts, out object sorts))
+        if (hit is null || !hit.Data.TryGetValue(ElasticDataKeys.Sorts, out object? sorts))
             return Array.Empty<object>();
 
         // Handle different collection types - new ES client returns IReadOnlyCollection<FieldValue>
@@ -28,7 +28,7 @@ public static class FindHitExtensions
         if (sorts is IEnumerable<FieldValue> fieldValues)
         {
             // Extract actual values from FieldValue objects
-            return fieldValues.Select(GetFieldValueAsObject).ToArray();
+            return fieldValues.Select(GetFieldValueAsObject).ToArray()!;
         }
 
         if (sorts is IEnumerable<object> sortsList)
@@ -37,7 +37,7 @@ public static class FindHitExtensions
         return Array.Empty<object>();
     }
 
-    private static object GetFieldValueAsObject(FieldValue fv)
+    private static object? GetFieldValueAsObject(FieldValue fv)
     {
         // FieldValue is a tagged union in the new ES client
         // We need to extract the actual value based on the variant
@@ -56,7 +56,7 @@ public static class FindHitExtensions
         return fv;
     }
 
-    public static string GetSearchBeforeToken<T>(this FindResults<T> results) where T : class
+    public static string? GetSearchBeforeToken<T>(this FindResults<T> results) where T : class
     {
         if (results == null || results.Hits.Count == 0)
             return null;
@@ -64,7 +64,7 @@ public static class FindHitExtensions
         return results.Data.GetString(ElasticDataKeys.SearchBeforeToken, null);
     }
 
-    public static string GetSearchAfterToken<T>(this FindResults<T> results) where T : class
+    public static string? GetSearchAfterToken<T>(this FindResults<T> results) where T : class
     {
         if (results == null || results.Hits.Count == 0)
             return null;
@@ -77,7 +77,7 @@ public static class FindHitExtensions
         if (results == null || results.Hits.Count == 0)
             return;
 
-        string token = results.Hits.First().GetSortToken(serializer);
+        string? token = results.Hits.First().GetSortToken(serializer);
         if (!String.IsNullOrEmpty(token))
             results.Data[ElasticDataKeys.SearchBeforeToken] = token;
     }
@@ -87,21 +87,21 @@ public static class FindHitExtensions
         if (results == null || results.Hits.Count == 0)
             return;
 
-        string token = results.Hits.Last().GetSortToken(serializer);
+        string? token = results.Hits.Last().GetSortToken(serializer);
         if (!String.IsNullOrEmpty(token))
             results.Data[ElasticDataKeys.SearchAfterToken] = token;
     }
 
-    public static string GetSortToken<T>(this FindHit<T> hit, ITextSerializer serializer)
+    public static string? GetSortToken<T>(this FindHit<T> hit, ITextSerializer serializer)
     {
-        object[] sorts = hit?.GetSorts();
+        object[]? sorts = hit?.GetSorts();
         if (sorts == null || sorts.Length == 0)
             return null;
 
         return Encode(serializer.SerializeToString(sorts));
     }
 
-    public static SortOptions ReverseOrder(this SortOptions sort)
+    public static SortOptions? ReverseOrder(this SortOptions? sort)
     {
         if (sort == null)
             return null;
@@ -131,7 +131,7 @@ public static class FindHitExtensions
         return sort;
     }
 
-    public static IEnumerable<SortOptions> ReverseOrder(this IEnumerable<SortOptions> sorts)
+    public static IEnumerable<SortOptions>? ReverseOrder(this IEnumerable<SortOptions>? sorts)
     {
         if (sorts == null)
             return null;
@@ -141,7 +141,7 @@ public static class FindHitExtensions
         return sortList;
     }
 
-    public static object[] DecodeSortToken(string sortToken, ITextSerializer serializer)
+    public static object[]? DecodeSortToken(string sortToken, ITextSerializer serializer)
     {
         return serializer.Deserialize<object[]>(Decode(sortToken));
     }

@@ -27,7 +27,7 @@ public class PatchDocument
 
     public List<Operation> Operations => _operations;
 
-    public void Add(string path, JsonNode value)
+    public void Add(string path, JsonNode? value)
     {
         Operations.Add(new AddOperation { Path = path, Value = value });
     }
@@ -38,7 +38,7 @@ public class PatchDocument
     public void Add(string path, double value) => Add(path, JsonValue.Create(value));
     public void Add(string path, bool value) => Add(path, JsonValue.Create(value));
 
-    public void Replace(string path, JsonNode value)
+    public void Replace(string path, JsonNode? value)
     {
         Operations.Add(new ReplaceOperation { Path = path, Value = value });
     }
@@ -70,7 +70,7 @@ public class PatchDocument
     {
         var root = new PatchDocument();
 
-        if (document == null)
+        if (document is null)
             return root;
 
         foreach (var item in document)
@@ -94,7 +94,7 @@ public class PatchDocument
         return Load(root);
     }
 
-    public static Operation CreateOperation(string op)
+    public static Operation? CreateOperation(string op)
     {
         switch (op)
         {

@@ -28,6 +28,7 @@ public class JsonPatchTests
         patcher.Patch(ref sample, patchDocument);
 
         var list = sample["books"] as JsonArray;
+        Assert.NotNull(list);
 
         Assert.Equal(3, list.Count);
     }
@@ -45,7 +46,10 @@ public class JsonPatchTests
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
 
-        var list = sample["someobject"]["somearray"] as JsonArray;
+        var someobject = sample["someobject"];
+        Assert.NotNull(someobject);
+        var list = someobject["somearray"] as JsonArray;
+        Assert.NotNull(list);
 
         Assert.Single(list);
     }
@@ -63,7 +67,10 @@ public class JsonPatchTests
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
 
-        string result = sample.SelectPatchToken(pointer)?.GetValue<string>();
+        var token = sample.SelectPatchToken(pointer);
+        Assert.NotNull(token);
+        string? result = token.GetValue<string>();
+        Assert.NotNull(result);
         Assert.Equal("Little Red Riding Hood", result);
     }
 
@@ -80,7 +87,10 @@ public class JsonPatchTests
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
 
-        string result = sample.SelectPatchToken(pointer)?.GetValue<string>();
+        var token = sample.SelectPatchToken(pointer);
+        Assert.NotNull(token);
+        string? result = token.GetValue<string>();
+        Assert.NotNull(result);
         Assert.Equal("213324234343", result);
     }
 
@@ -135,7 +145,10 @@ public class JsonPatchTests
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
 
-        string result = sample.SelectPatchToken(topointer)?.GetValue<string>();
+        var token = sample.SelectPatchToken(topointer);
+        Assert.NotNull(token);
+        string? result = token.GetValue<string>();
+        Assert.NotNull(result);
         Assert.Equal("F. Scott Fitzgerald", result);
     }
 
@@ -173,6 +186,7 @@ public class JsonPatchTests
     public void TestExample1()
     {
         var targetDoc = JsonNode.Parse(@"{ ""foo"": ""bar""}");
+        Assert.NotNull(targetDoc);
         var patchDoc = PatchDocument.Parse(@"[
                                                     { ""op"": ""add"", ""path"": ""/baz"", ""value"": ""qux"" }
                                                 ]");
@@ -205,6 +219,7 @@ public class JsonPatchTests
         string output = streamReader.ReadToEnd();
 
         var jOutput = JsonNode.Parse(output);
+        Assert.NotNull(jOutput);
 
         Assert.Equal(@"[{""op"":""test"",""path"":""/a/b/c"",""value"":""foo""},{""op"":""remove"",""path"":""/a/b/c""},{""op"":""add"",""path"":""/a/b/c"",""value"":[""foo"",""bar""]},{""op"":""replace"",""path"":""/a/b/c"",""value"":42},{""op"":""move"",""path"":""/a/b/d"",""from"":""/a/b/c""},{""op"":""copy"",""path"":""/a/b/e"",""from"":""/a/b/d""}]",
             jOutput.ToJsonString());
@@ -254,6 +269,7 @@ public class JsonPatchTests
         ""2018Properties"" : [""First value from 2018"",""Second value from 2018""]
     }
 }");
+        Assert.NotNull(sample);
 
         Assert.NotNull(sample.SelectPatchToken("/data/2017Properties/1"));
 
@@ -280,13 +296,16 @@ public class JsonPatchTests
 
         new JsonPatcher().Patch(ref sample, patchDocument);
 
-        Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer)?.GetValue<string>());
+        var token = sample.SelectPatchToken(pointer);
+        Assert.NotNull(token);
+        Assert.Equal("Bob Brown", token.GetValue<string>());
     }
 
     [Fact]
     public void Replace_non_existant_property()
     {
         var sample = JsonNode.Parse(@"{ ""data"": {} }");
+        Assert.NotNull(sample);
 
         var patchDocument = new PatchDocument();
         string pointer = "/data/author";
@@ -295,9 +314,12 @@ public class JsonPatchTests
 
         new JsonPatcher().Patch(ref sample, patchDocument);
 
-        Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer)?.GetValue<string>());
+        var token = sample.SelectPatchToken(pointer);
+        Assert.NotNull(token);
+        Assert.Equal("Bob Brown", token.GetValue<string>());
 
         sample = JsonNode.Parse("{}");
+        Assert.NotNull(sample);
 
         patchDocument = new PatchDocument();
         pointer = "/data/author";
@@ -306,9 +328,12 @@ public class JsonPatchTests
 
         new JsonPatcher().Patch(ref sample, patchDocument);
 
-        Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer)?.GetValue<string>());
+        token = sample.SelectPatchToken(pointer);
+        Assert.NotNull(token);
+        Assert.Equal("Bob Brown", token.GetValue<string>());
 
         sample = JsonNode.Parse("{}");
+        Assert.NotNull(sample);
 
         patchDocument = new PatchDocument();
         pointer = "/";
@@ -317,9 +342,12 @@ public class JsonPatchTests
 
         new JsonPatcher().Patch(ref sample, patchDocument);
 
-        Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer)?.GetValue<string>());
+        token = sample.SelectPatchToken(pointer);
+        Assert.NotNull(token);
+        Assert.Equal("Bob Brown", token.GetValue<string>());
 
         sample = JsonNode.Parse("{}");
+        Assert.NotNull(sample);
 
         patchDocument = new PatchDocument();
         pointer = "/hey/now/0/you";
@@ -344,7 +372,9 @@ public class JsonPatchTests
         new JsonPatcher().Patch(ref sample, patchDocument);
 
         string newPointer = "/books/0/author/hello";
-        Assert.Equal("world", sample.SelectPatchToken(newPointer)?.GetValue<string>());
+        var token = sample.SelectPatchToken(newPointer);
+        Assert.NotNull(token);
+        Assert.Equal("world", token.GetValue<string>());
     }
 
     [Fact]
@@ -354,7 +384,9 @@ public class JsonPatchTests
 
         var patchDocument = JsonSerializer.Deserialize<PatchDocument>(operations);
         var token = JsonNode.Parse("{ \"data\": { \"Address\": { \"address1\": null, \"address2\": null, \"city\": \"e\", \"state\": null, \"postal_code\": null, \"country\": null, \"geo\": null, \"geo_hash\": null, \"normalized_geo_hash\": null, \"geo_country\": null, \"geo_level1\": null, \"geo_level2\": null, \"geo_locality\": null, \"latitude\": null, \"longitude\": null, \"full_address\": null } } }");
+        Assert.NotNull(token);
 
+        Assert.NotNull(patchDocument);
         new JsonPatcher().Patch(ref token, patchDocument);
 
         Assert.Equal("{\"data\":{\"Address\":{\"address1\":\"100 Main Street\",\"city\":\"Suamico\",\"state\":\"Wi\",\"postal_code\":\"54173\",\"country\":\"US\"}}}", token.ToJsonString());
@@ -381,6 +413,7 @@ public class JsonPatchTests
     public void Can_replace_existing_boolean()
     {
         var sample = JsonSerializer.SerializeToNode(new MyConfigClass { RequiresConfiguration = true });
+        Assert.NotNull(sample);
 
         var patchDocument = new PatchDocument();
         patchDocument.AddOperation(new ReplaceOperation { Path = "/RequiresConfiguration", Value = JsonValue.Create(false) });
@@ -388,12 +421,14 @@ public class JsonPatchTests
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
 
-        Assert.False(sample.Deserialize<MyConfigClass>().RequiresConfiguration);
+        var config = sample.Deserialize<MyConfigClass>();
+        Assert.NotNull(config);
+        Assert.False(config.RequiresConfiguration);
     }
 
     public static JsonNode GetSample2()
     {
-        return JsonNode.Parse(@"{
+        var result = JsonNode.Parse(@"{
     ""books"": [
         {
           ""title"" : ""The Great Gatsby"",
@@ -405,6 +440,8 @@ public class JsonPatchTests
         }
     ]
 }");
+        Assert.NotNull(result);
+        return result;
     }
 
     [Fact]
@@ -427,6 +464,7 @@ public class JsonPatchTests
         }
     ]
 }");
+        Assert.NotNull(sample);
 
         var patchDocument = new PatchDocument();
         string pointer = "$.books[?(@.author == 'John Steinbeck')]";
@@ -437,6 +475,7 @@ public class JsonPatchTests
 
         // Assert
         var list = sample["books"] as System.Text.Json.Nodes.JsonArray;
+        Assert.NotNull(list);
         Assert.Single(list);
     }
 
@@ -445,6 +484,7 @@ public class JsonPatchTests
     {
         // Arrange
         var sample = JsonNode.Parse(@"{ ""tags"": [ ""tag1"", ""tag2"", ""tag3"" ] }");
+        Assert.NotNull(sample);
 
         var patchDocument = new PatchDocument();
         string pointer = "$.tags[?(@ == 'tag2')]";
@@ -479,6 +519,7 @@ public class JsonPatchTests
         }
     ]
 }");
+        Assert.NotNull(sample);
 
         var patchDocument = new PatchDocument();
         string pointer = "$.books[?(@.author == 'John Steinbeck')].author";
