@@ -252,15 +252,15 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         {
             foreach (var doc in args.Documents)
             {
-                if (doc.Original is null)
-                    throw new InvalidOperationException("Original document should not be null when originals are enabled.");
-
-                if (doc.Original.EntityType != doc.Value.EntityType)
-                    throw new DocumentValidationException("EntityType can't be changed.");
-                if (doc.Original.TenantKey != doc.Value.TenantKey)
-                    throw new DocumentValidationException("TenantKey can't be changed.");
-                if (doc.Original.IndexSlot != doc.Value.IndexSlot)
-                    throw new DocumentValidationException("IndexSlot can't be changed.");
+                if (doc.Original is not null)
+                {
+                    if (doc.Original.EntityType != doc.Value.EntityType)
+                        throw new DocumentValidationException("EntityType can't be changed.");
+                    if (doc.Original.TenantKey != doc.Value.TenantKey)
+                        throw new DocumentValidationException("TenantKey can't be changed.");
+                    if (doc.Original.IndexSlot != doc.Value.IndexSlot)
+                        throw new DocumentValidationException("IndexSlot can't be changed.");
+                }
 
                 if (doc.Value.IsDeleted)
                 {

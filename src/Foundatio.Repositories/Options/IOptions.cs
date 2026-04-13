@@ -44,7 +44,10 @@ public class OptionsDictionary : IOptionsDictionary
             return defaultValue;
 
         object data = _options[name];
-        if (!(data is T))
+        if (data is null)
+            return defaultValue;
+
+        if (data is not T)
         {
             try
             {

@@ -359,7 +359,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         await RefreshForConsistency(query, options).AnyContext();
 
-        string? cacheSuffix = options.HasPageLimit() == true ? String.Concat(options.GetPage().ToString(), ":", options.GetLimit().ToString()) : null;
+        string? cacheSuffix = options.HasPageLimit() ? String.Concat(options.GetPage().ToString(), ":", options.GetLimit().ToString()) : null;
 
         FindResults<TResult>? result;
         if (allowCaching)
@@ -1006,13 +1006,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 result = cacheHitsById
                     .Where(kvp => kvp.Value.HasValue && !kvp.Value.IsNull)
                     .SelectMany(kvp => kvp.Value.Value)
-                    .Where(v => v?.Document is not null && v.Id is not null && idList.Contains(v.Id));
+                    .Where(v => v is not null && v.Document is not null && v.Id is not null && idList.Contains(v.Id));
             }
             else
             {
                 var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
                 result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull
-                    ? cacheKeyHits.Value.Where(v => v?.Document is not null && v.Id is not null && idList.Contains(v.Id))
+                    ? cacheKeyHits.Value.Where(v => v is not null && v.Document is not null && v.Id is not null && idList.Contains(v.Id))
                     : Enumerable.Empty<FindHit<T>>();
             }
 

@@ -11,7 +11,7 @@ public class JsonPatcher : AbstractPatcher<JToken>
     protected override JToken Replace(ReplaceOperation operation, JToken target)
     {
         if (operation.Path is null)
-            return operation.Value ?? JValue.CreateNull();
+            throw new ArgumentException("Replace operation requires a 'path' property.");
 
         var tokens = target.SelectPatchTokens(operation.Path).ToList();
         if (tokens.Count == 0)
@@ -42,7 +42,7 @@ public class JsonPatcher : AbstractPatcher<JToken>
     protected override void Add(AddOperation operation, JToken target)
     {
         if (operation.Path is null)
-            return;
+            throw new ArgumentException("Add operation requires a 'path' property.");
 
         string[] parts = operation.Path.Split('/');
         string parentPath = String.Join("/", parts.Take(parts.Length - 1));
@@ -75,7 +75,7 @@ public class JsonPatcher : AbstractPatcher<JToken>
     protected override void Remove(RemoveOperation operation, JToken target)
     {
         if (operation.Path is null)
-            return;
+            throw new ArgumentException("Remove operation requires a 'path' property.");
 
         var tokens = target.SelectPatchTokens(operation.Path).ToList();
         if (tokens.Count == 0)

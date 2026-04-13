@@ -31,11 +31,11 @@ public static class LoggerExtensions
             string body = Encoding.UTF8.GetString(apiCall.RequestBodyInBytes);
             body = JsonUtility.Normalize(body);
 
-            logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}\r\n{HttpBody}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri.PathAndQuery, body);
+            logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}\r\n{HttpBody}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri?.PathAndQuery, body);
         }
         else
         {
-            logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}", apiCall?.HttpStatusCode, apiCall?.HttpMethod, apiCall?.Uri.PathAndQuery);
+            logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}", apiCall?.HttpStatusCode, apiCall?.HttpMethod, apiCall?.Uri?.PathAndQuery);
         }
     }
 
