@@ -31,7 +31,9 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
             _ => null
         };
 
-        return value ?? element.Deserialize<ValueAggregate>(options)!;
+        return value
+            ?? element.Deserialize<ValueAggregate>(options)
+            ?? throw new JsonException("Failed to deserialize aggregate.");
     }
 
     public override void Write(Utf8JsonWriter writer, IAggregate value, JsonSerializerOptions options)

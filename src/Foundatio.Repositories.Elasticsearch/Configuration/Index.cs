@@ -345,7 +345,7 @@ public class Index : IIndex
         throw new RepositoryException(response.GetErrorMessage($"Error checking to see if index {name} exists"), response.OriginalException);
     }
 
-    public virtual Task ReindexAsync(Func<int, string, Task>? progressCallbackAsync = null)
+    public virtual Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null)
     {
         var reindexWorkItem = new ReindexWorkItem
         {

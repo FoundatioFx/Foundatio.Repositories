@@ -6,7 +6,7 @@ namespace Foundatio.Repositories.Utility;
 
 public abstract class Operation
 {
-    public string Path { get; set; } = String.Empty;
+    public string? Path { get; set; }
 
     public abstract void Write(JsonWriter writer);
 
@@ -16,22 +16,25 @@ public abstract class Operation
         writer.WriteValue(op);
     }
 
-    protected static void WritePath(JsonWriter writer, string path)
+    protected static void WritePath(JsonWriter writer, string? path)
     {
         writer.WritePropertyName("path");
         writer.WriteValue(path);
     }
 
-    protected static void WriteFromPath(JsonWriter writer, string path)
+    protected static void WriteFromPath(JsonWriter writer, string? path)
     {
         writer.WritePropertyName("from");
         writer.WriteValue(path);
     }
 
-    protected static void WriteValue(JsonWriter writer, JToken value)
+    protected static void WriteValue(JsonWriter writer, JToken? value)
     {
         writer.WritePropertyName("value");
-        value.WriteTo(writer);
+        if (value is not null)
+            value.WriteTo(writer);
+        else
+            JValue.CreateNull().WriteTo(writer);
     }
 
     public abstract void Read(JObject jOperation);

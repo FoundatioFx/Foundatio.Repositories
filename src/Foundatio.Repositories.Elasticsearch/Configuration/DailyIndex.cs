@@ -222,7 +222,7 @@ public class DailyIndex : VersionedIndex
         return DeleteIndexAsync($"{Name}-v*");
     }
 
-    public override async Task ReindexAsync(Func<int, string, Task>? progressCallbackAsync = null)
+    public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null)
     {
         int currentVersion = await GetCurrentVersionAsync().AnyContext();
         if (currentVersion < 0 || currentVersion >= Version)

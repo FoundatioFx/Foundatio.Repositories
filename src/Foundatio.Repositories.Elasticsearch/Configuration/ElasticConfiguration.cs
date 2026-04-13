@@ -188,7 +188,7 @@ public class ElasticConfiguration : IElasticConfiguration
         return Task.WhenAll(tasks);
     }
 
-    public async Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string, Task>? progressCallbackAsync = null)
+    public async Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null)
     {
         if (indexes == null)
             indexes = Indexes;

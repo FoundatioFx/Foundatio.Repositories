@@ -22,12 +22,12 @@ public interface IHaveDateMetaData
 
 public class EmployeeWithDateMetaData : IIdentity, IVersioned, IHaveDateMetaData
 {
-    public string Id { get; set; } = String.Empty;
-    public string Name { get; set; } = String.Empty;
+    public string Id { get; set; } = null!;
+    public string Name { get; set; } = null!;
     public int Age { get; set; }
-    public string CompanyName { get; set; } = String.Empty;
-    public string CompanyId { get; set; } = String.Empty;
-    public string Version { get; set; } = String.Empty;
+    public string CompanyName { get; set; } = null!;
+    public string CompanyId { get; set; } = null!;
+    public string Version { get; set; } = null!;
     public DateMetaData MetaData { get; set; } = new DateMetaData();
     IDateMetaData IHaveDateMetaData.MetaData { get => MetaData; set => MetaData = value as DateMetaData ?? new DateMetaData { DateCreatedUtc = value?.DateCreatedUtc, DateUpdatedUtc = value?.DateUpdatedUtc }; }
 }

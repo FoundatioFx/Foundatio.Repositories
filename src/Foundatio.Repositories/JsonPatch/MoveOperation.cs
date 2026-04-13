@@ -1,12 +1,11 @@
-﻿using System;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Utility;
 
 public class MoveOperation : Operation
 {
-    public string FromPath { get; set; } = String.Empty;
+    public string? FromPath { get; set; }
 
     public override void Write(JsonWriter writer)
     {
@@ -21,7 +20,7 @@ public class MoveOperation : Operation
 
     public override void Read(JObject jOperation)
     {
-        Path = jOperation.Value<string>("path") ?? String.Empty;
-        FromPath = jOperation.Value<string>("from") ?? String.Empty;
+        Path = jOperation.Value<string>("path");
+        FromPath = jOperation.Value<string>("from");
     }
 }

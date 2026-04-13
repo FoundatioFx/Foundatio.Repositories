@@ -151,7 +151,8 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
             ));
 
         // Assert
-        var result = nestedAggQuery.Aggregations.ToAggregations()!;
+        var result = nestedAggQuery.Aggregations.ToAggregations();
+        Assert.NotNull(result);
         Assert.Single(result);
 
         var nestedReviewRatingAgg = result["nested_reviewRating"] as SingleBucketAggregate;
@@ -170,7 +171,8 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
             ))));
 
         // Assert - Verify filtered aggregation
-        result = nestedAggQueryWithFilter.Aggregations.ToAggregations()!;
+        result = nestedAggQueryWithFilter.Aggregations.ToAggregations();
+        Assert.NotNull(result);
         Assert.Single(result);
 
         var nestedReviewRatingFilteredAgg = result["nested_reviewRating"] as SingleBucketAggregate;
@@ -178,9 +180,11 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
 
         var userFilteredAgg = nestedReviewRatingFilteredAgg.Aggregations["user_" + employees[0].Id] as SingleBucketAggregate;
         Assert.NotNull(userFilteredAgg);
-        Assert.Single(userFilteredAgg.Aggregations.Terms("terms_rating")!.Buckets);
-        Assert.Equal("5", userFilteredAgg.Aggregations.Terms("terms_rating")!.Buckets.First().Key);
-        Assert.Equal(1, userFilteredAgg.Aggregations.Terms("terms_rating")!.Buckets.First().Total);
+        var userTermsRating = userFilteredAgg.Aggregations.Terms("terms_rating");
+        Assert.NotNull(userTermsRating);
+        Assert.Single(userTermsRating.Buckets);
+        Assert.Equal("5", userTermsRating.Buckets.First().Key);
+        Assert.Equal(1, userTermsRating.Buckets.First().Total);
     }
 
     [Fact]
@@ -220,15 +224,23 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         var nestedPeerReviewsAgg = result.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
         Assert.NotNull(nestedPeerReviewsAgg);
 
-        var reviewerTermsAgg = nestedPeerReviewsAgg.Aggregations.Terms<string>("terms_peerReviews.reviewerEmployeeId")!;
+        var reviewerTermsAgg = nestedPeerReviewsAgg.Aggregations.Terms<string>("terms_peerReviews.reviewerEmployeeId");
+        Assert.NotNull(reviewerTermsAgg);
         Assert.Equal(3, reviewerTermsAgg.Buckets.Count);
 
-        var ratingTermsAgg = nestedPeerReviewsAgg.Aggregations.Terms<int>("terms_peerReviews.rating")!;
+        var ratingTermsAgg = nestedPeerReviewsAgg.Aggregations.Terms<int>("terms_peerReviews.rating");
+        Assert.NotNull(ratingTermsAgg);
         Assert.Equal(3, ratingTermsAgg.Buckets.Count);
 
-        Assert.Equal(3, nestedPeerReviewsAgg.Aggregations.Min("min_peerReviews.rating")!.Value);
-        Assert.Equal(5, nestedPeerReviewsAgg.Aggregations.Max("max_peerReviews.rating")!.Value);
-        Assert.Equal(3, nestedPeerReviewsAgg.Aggregations.Cardinality("cardinality_peerReviews.reviewerEmployeeId")!.Value);
+        var minAgg = nestedPeerReviewsAgg.Aggregations.Min("min_peerReviews.rating");
+        Assert.NotNull(minAgg);
+        Assert.Equal(3, minAgg.Value);
+        var maxAgg = nestedPeerReviewsAgg.Aggregations.Max("max_peerReviews.rating");
+        Assert.NotNull(maxAgg);
+        Assert.Equal(5, maxAgg.Value);
+        var cardinalityAgg = nestedPeerReviewsAgg.Aggregations.Cardinality("cardinality_peerReviews.reviewerEmployeeId");
+        Assert.NotNull(cardinalityAgg);
+        Assert.Equal(3, cardinalityAgg.Value);
     }
 
     [Fact]
@@ -268,13 +280,15 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         var nestedPeerReviewsAggWithInclude = resultWithInclude.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
         Assert.NotNull(nestedPeerReviewsAggWithInclude);
 
-        var reviewerTermsAggWithInclude = nestedPeerReviewsAggWithInclude.Aggregations.Terms<string>("terms_peerReviews.reviewerEmployeeId")!;
-        Assert.Equal(2, reviewerTermsAggWithInclude.Buckets.Count); // Only employee1 and employee2 should be included
+        var reviewerTermsAggWithInclude = nestedPeerReviewsAggWithInclude.Aggregations.Terms<string>("terms_peerReviews.reviewerEmployeeId");
+        Assert.NotNull(reviewerTermsAggWithInclude);
+        Assert.Equal(2, reviewerTermsAggWithInclude.Buckets.Count);
         Assert.Contains(reviewerTermsAggWithInclude.Buckets, b => String.Equals(b.Key, "employee1"));
         Assert.Contains(reviewerTermsAggWithInclude.Buckets, b => String.Equals(b.Key, "employee2"));
         Assert.DoesNotContain(reviewerTermsAggWithInclude.Buckets, b => String.Equals(b.Key, "employee3"));
 
-        var ratingTermsAggWithInclude = nestedPeerReviewsAggWithInclude.Aggregations.Terms<int>("terms_peerReviews.rating")!;
+        var ratingTermsAggWithInclude = nestedPeerReviewsAggWithInclude.Aggregations.Terms<int>("terms_peerReviews.rating");
+        Assert.NotNull(ratingTermsAggWithInclude);;
         Assert.Equal(2, ratingTermsAggWithInclude.Buckets.Count); // Only ratings 4 and 5 should be included
         Assert.Contains(ratingTermsAggWithInclude.Buckets, b => b.Key == 4);
         Assert.Contains(ratingTermsAggWithInclude.Buckets, b => b.Key == 5);
@@ -318,14 +332,16 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         var nestedPeerReviewsAggWithExclude = resultWithExclude.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
         Assert.NotNull(nestedPeerReviewsAggWithExclude);
 
-        var reviewerTermsAggWithExclude = nestedPeerReviewsAggWithExclude.Aggregations.Terms<string>("terms_peerReviews.reviewerEmployeeId")!;
-        Assert.Equal(2, reviewerTermsAggWithExclude.Buckets.Count); // employee3 should be excluded
+        var reviewerTermsAggWithExclude = nestedPeerReviewsAggWithExclude.Aggregations.Terms<string>("terms_peerReviews.reviewerEmployeeId");
+        Assert.NotNull(reviewerTermsAggWithExclude);
+        Assert.Equal(2, reviewerTermsAggWithExclude.Buckets.Count);
         Assert.Contains(reviewerTermsAggWithExclude.Buckets, b => String.Equals(b.Key, "employee1"));
         Assert.Contains(reviewerTermsAggWithExclude.Buckets, b => String.Equals(b.Key, "employee2"));
         Assert.DoesNotContain(reviewerTermsAggWithExclude.Buckets, b => String.Equals(b.Key, "employee3"));
 
-        var ratingTermsAggWithExclude = nestedPeerReviewsAggWithExclude.Aggregations.Terms<int>("terms_peerReviews.rating")!;
-        Assert.Equal(2, ratingTermsAggWithExclude.Buckets.Count); // rating 3 should be excluded
+        var ratingTermsAggWithExclude = nestedPeerReviewsAggWithExclude.Aggregations.Terms<int>("terms_peerReviews.rating");
+        Assert.NotNull(ratingTermsAggWithExclude);
+        Assert.Equal(2, ratingTermsAggWithExclude.Buckets.Count);
         Assert.Contains(ratingTermsAggWithExclude.Buckets, b => b.Key == 4);
         Assert.Contains(ratingTermsAggWithExclude.Buckets, b => b.Key == 5);
         Assert.DoesNotContain(ratingTermsAggWithExclude.Buckets, b => b.Key == 3);
@@ -366,7 +382,8 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         var nestedPeerReviewsAgg = result.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
         Assert.NotNull(nestedPeerReviewsAgg);
 
-        var ratingTermsAgg = nestedPeerReviewsAgg.Aggregations.Terms<int>("terms_peerReviews.rating")!;
+        var ratingTermsAgg = nestedPeerReviewsAgg.Aggregations.Terms<int>("terms_peerReviews.rating");
+        Assert.NotNull(ratingTermsAgg);
         Assert.Equal(4, ratingTermsAgg.Buckets.Count);
         var bucket = ratingTermsAgg.Buckets.First(f => f.Key == 5);
         Assert.Equal(2, bucket.Total);
@@ -374,13 +391,14 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         // Test Newtonsoft.Json serialization
         string json = JsonConvert.SerializeObject(result);
         var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
-        Assert.Equal(3, roundTripped!.Total);
-        Assert.Single(roundTripped!.Aggregations);
+        Assert.NotNull(roundTripped);
+        Assert.Equal(3, roundTripped.Total);
+        Assert.Single(roundTripped.Aggregations);
 
-        var roundTrippedNestedAgg = roundTripped!.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
+        var roundTrippedNestedAgg = roundTripped.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
         Assert.NotNull(roundTrippedNestedAgg);
 
-        var roundTrippedRatingTermsAgg = roundTrippedNestedAgg.Aggregations.Terms<int>("terms_peerReviews.rating")!;
+        var roundTrippedRatingTermsAgg = roundTrippedNestedAgg.Aggregations.Terms<int>("terms_peerReviews.rating");
         Assert.NotNull(roundTrippedRatingTermsAgg);
         Assert.Equal(4, roundTrippedRatingTermsAgg.Buckets.Count);
         bucket = roundTrippedRatingTermsAgg.Buckets.First(f => f.Key == 5);
@@ -390,13 +408,15 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         string systemTextJson = System.Text.Json.JsonSerializer.Serialize(result);
         Assert.Equal(json, systemTextJson);
         roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(systemTextJson);
-        Assert.Equal(3, roundTripped!.Total);
-        Assert.Single(roundTripped!.Aggregations);
+        Assert.NotNull(roundTripped);
+        Assert.Equal(3, roundTripped.Total);
+        Assert.Single(roundTripped.Aggregations);
 
-        roundTrippedNestedAgg = roundTripped!.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
+        roundTrippedNestedAgg = roundTripped.Aggregations["nested_peerReviews"] as SingleBucketAggregate;
         Assert.NotNull(roundTrippedNestedAgg);
 
-        roundTrippedRatingTermsAgg = roundTrippedNestedAgg!.Aggregations.Terms<int>("terms_peerReviews.rating")!;
+        roundTrippedRatingTermsAgg = roundTrippedNestedAgg.Aggregations.Terms<int>("terms_peerReviews.rating");
+        Assert.NotNull(roundTrippedRatingTermsAgg);
         Assert.Equal(4, roundTrippedRatingTermsAgg.Buckets.Count);
         bucket = roundTrippedRatingTermsAgg.Buckets.First(f => f.Key == 5);
         Assert.Equal(2, bucket.Total);
@@ -661,7 +681,8 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         Assert.DoesNotContain("nested_peerReviews", result.Aggregations.Keys);
         Assert.Contains("terms_peerReviews.rating", result.Aggregations.Keys);
 
-        var ratingTermsAgg = result.Aggregations.Terms<int>("terms_peerReviews.rating")!;
+        var ratingTermsAgg = result.Aggregations.Terms<int>("terms_peerReviews.rating");
+        Assert.NotNull(ratingTermsAgg);;
         Assert.Equal(4, ratingTermsAgg.Buckets.Count);
         Assert.Equal(2, ratingTermsAgg.Buckets.First(b => b.Key == 5).Total);
         Assert.Equal(2, ratingTermsAgg.Buckets.First(b => b.Key == 4).Total);

@@ -19,9 +19,11 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
 
     public CustomFieldTests(ITestOutputHelper output) : base(output)
     {
-        _customFieldDefinitionRepository = _configuration.CustomFieldDefinitionRepository!;
+        Assert.NotNull(_configuration.CustomFieldDefinitionRepository);
+        _customFieldDefinitionRepository = _configuration.CustomFieldDefinitionRepository;
         _employeeRepository = new EmployeeWithCustomFieldsRepository(_configuration);
-        _repocache = (_configuration.Cache as InMemoryCacheClient)!;
+        Assert.NotNull(_configuration.Cache as InMemoryCacheClient);
+        _repocache = (InMemoryCacheClient)_configuration.Cache;
     }
 
     public override async ValueTask InitializeAsync()

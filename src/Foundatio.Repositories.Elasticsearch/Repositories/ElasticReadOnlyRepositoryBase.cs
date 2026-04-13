@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading;
@@ -132,7 +133,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             await AddDocumentsToCacheAsync(findHit ?? new FindHit<T>(id, null, 0), options, false).AnyContext();
 
         var doc = findHit?.Document;
-        return doc != null && ShouldReturnDocument(doc, options) ? doc : null;
+        return ShouldReturnDocument(doc, options) ? doc : null;
     }
 
     public Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, CommandOptionsDescriptor<T>? options)
@@ -159,7 +160,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         var itemsToFind = idList.Except(hits.Select(i => (Id)i.Id!)).ToList();
         if (itemsToFind.Count == 0)
-            return hits.Where(h => h.Document != null && ShouldReturnDocument(h.Document, options)).Select(h => h.Document!).ToList().AsReadOnly();
+            return hits.Where(h => ShouldReturnDocument(h.Document, options)).Select(h => h.Document!).ToList().AsReadOnly();
 
         var multiGet = new MultiGetDescriptor();
         foreach (var id in itemsToFind.Where(i => i.Routing != null || !HasParent))
@@ -201,7 +202,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (IsCacheEnabled && options.ShouldUseCache())
             await AddDocumentsToCacheAsync(hits, options, false).AnyContext();
 
-        return hits.Where(h => h.Document != null && ShouldReturnDocument(h.Document, options)).Select(h => h.Document!).ToList().AsReadOnly();
+        return hits.Where(h => ShouldReturnDocument(h.Document, options)).Select(h => h.Document!).ToList().AsReadOnly();
     }
 
     public Task<FindResults<T>> GetAllAsync(CommandOptionsDescriptor<T>? options)
@@ -224,6 +225,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (String.IsNullOrEmpty(id.Value))
             return false;
 
+        // documents that use soft deletes or have parents without a routing id need to use search for exists
         options ??= new CommandOptions();
 
         if (!SupportsSoftDeletes && (!HasParent || id.Routing != null))
@@ -887,10 +889,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return (resolvedIncludes, resolvedExcludes);
     }
 
-    protected bool ShouldReturnDocument(T document, ICommandOptions options)
+    protected bool ShouldReturnDocument([NotNullWhen(true)] T? document, ICommandOptions options)
     {
-        if (document == null)
-            return true;
+        if (document is null)
+            return false;
 
         if (!SupportsSoftDeletes)
             return true;
@@ -925,8 +927,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (!String.IsNullOrEmpty(cacheSuffix))
             cacheKey += ":" + cacheSuffix;
 
-        var result = await Cache.GetAsync<TResult>(cacheKey, default!).AnyContext();
-        _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (result != null ? "hit" : "miss"), EntityTypeName, cacheKey);
+        var cacheValue = await Cache.GetAsync<TResult>(cacheKey).AnyContext();
+        var result = cacheValue.HasValue ? cacheValue.Value : default;
+        _logger.LogTrace("Cache {HitOrMiss}: type={EntityType} key={CacheKey}", (cacheValue.HasValue ? "hit" : "miss"), EntityTypeName, cacheKey);
 
         return result;
     }

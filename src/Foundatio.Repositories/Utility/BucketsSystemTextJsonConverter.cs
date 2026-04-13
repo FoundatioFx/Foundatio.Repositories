@@ -61,7 +61,9 @@ public class BucketsSystemTextJsonConverter : System.Text.Json.Serialization.Jso
         if (value is null)
             value = element.Deserialize<KeyedBucket<object>>(options);
 
-        return value ?? new KeyedBucket<object>();
+        return value
+            ?? element.Deserialize<KeyedBucket<object>>(options)
+            ?? throw new JsonException("Failed to deserialize bucket.");
     }
 
     public override void Write(Utf8JsonWriter writer, IBucket value, JsonSerializerOptions options)

@@ -8,13 +8,13 @@ namespace Foundatio.Repositories.Utility;
 
 public class JsonDiffer
 {
-    internal static string Extend(string path, string extension)
+    internal static string Extend(string? path, string extension)
     {
         // TODO: JSON property name needs escaping for path ??
         return path + "/" + extension;
     }
 
-    private static Operation Build(string op, string path, string key, JToken? value)
+    private static Operation Build(string op, string? path, string key, JToken? value)
     {
         if (String.IsNullOrEmpty(key))
             return Operation.Parse("{ 'op' : '" + op + "' , path: '" + path + "', value: " +
@@ -24,17 +24,17 @@ public class JsonDiffer
                             (value == null ? "null" : value.ToString(Formatting.None)) + "}");
     }
 
-    internal static Operation Add(string path, string key, JToken value)
+    internal static Operation Add(string? path, string key, JToken value)
     {
         return Build("add", path, key, value);
     }
 
-    internal static Operation Remove(string path, string key)
+    internal static Operation Remove(string? path, string key)
     {
         return Build("remove", path, key, null);
     }
 
-    internal static Operation Replace(string path, string key, JToken? value)
+    internal static Operation Replace(string? path, string key, JToken? value)
     {
         return Build("replace", path, key, value);
     }
@@ -44,7 +44,7 @@ public class JsonDiffer
     {
         if (left.Type != right.Type)
         {
-            yield return JsonDiffer.Replace(path, "", right);
+            yield return JsonDiffer.Replace(path, String.Empty, right);
             yield break;
         }
 
@@ -55,7 +55,7 @@ public class JsonDiffer
             {
                 if (prev is RemoveOperation prevRemove && operation is AddOperation add && add.Path == prevRemove.Path)
                 {
-                    yield return Replace(add.Path, "", add.Value);
+                    yield return Replace(add.Path, String.Empty, add.Value);
                     prev = null;
                 }
                 else
@@ -102,7 +102,7 @@ public class JsonDiffer
             if (left.ToString() == right.ToString())
                 yield break;
             else
-                yield return JsonDiffer.Replace(path, "", right);
+                yield return JsonDiffer.Replace(path, String.Empty, right);
         }
     }
 

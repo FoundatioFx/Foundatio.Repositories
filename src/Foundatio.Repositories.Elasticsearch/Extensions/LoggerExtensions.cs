@@ -39,12 +39,12 @@ public static class LoggerExtensions
         }
     }
 
-    public static void LogErrorRequest(this ILogger logger, IElasticsearchResponse? elasticResponse, string message, params object[] args)
+    public static void LogErrorRequest(this ILogger logger, IElasticsearchResponse? elasticResponse, string message, params object?[] args)
     {
         LogErrorRequest(logger, null, elasticResponse, message, args);
     }
 
-    public static void LogErrorRequest(this ILogger logger, Exception? ex, IElasticsearchResponse? elasticResponse, string message, params object[] args)
+    public static void LogErrorRequest(this ILogger logger, Exception? ex, IElasticsearchResponse? elasticResponse, string message, params object?[] args)
     {
         if (elasticResponse == null || !logger.IsEnabled(LogLevel.Error))
             return;

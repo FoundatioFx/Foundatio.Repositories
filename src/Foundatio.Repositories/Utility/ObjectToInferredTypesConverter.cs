@@ -24,7 +24,7 @@ public class ObjectToInferredTypesConverter : JsonConverterFactory
                 JsonTokenType.Number when reader.TryGetInt64(out long l) => l,
                 JsonTokenType.Number => reader.GetDouble(),
                 JsonTokenType.String when reader.TryGetDateTime(out DateTime datetime) => datetime,
-                JsonTokenType.String => reader.GetString() ?? (object)String.Empty,
+                JsonTokenType.String => reader.GetString(),
                 JsonTokenType.True => true,
                 JsonTokenType.False => false,
                 JsonTokenType.Null => null,

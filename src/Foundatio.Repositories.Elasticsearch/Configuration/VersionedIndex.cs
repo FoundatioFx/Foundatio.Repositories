@@ -244,7 +244,7 @@ public class VersionedIndex : Index, IVersionedIndex
         return sb.ToString();
     }
 
-    public override async Task ReindexAsync(Func<int, string, Task>? progressCallbackAsync = null)
+    public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null)
     {
         int currentVersion = await GetCurrentVersionAsync().AnyContext();
         if (currentVersion < 0 || currentVersion >= Version)

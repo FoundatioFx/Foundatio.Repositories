@@ -1,5 +1,4 @@
-﻿using System;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace Foundatio.Repositories.Utility;
@@ -14,15 +13,14 @@ public class AddOperation : Operation
 
         WriteOp(writer, "add");
         WritePath(writer, Path);
-        if (Value is not null)
-            WriteValue(writer, Value);
+        WriteValue(writer, Value);
 
         writer.WriteEndObject();
     }
 
     public override void Read(JObject jOperation)
     {
-        Path = jOperation.Value<string>("path") ?? String.Empty;
+        Path = jOperation.Value<string>("path");
         Value = jOperation.GetValue("value");
     }
 }
