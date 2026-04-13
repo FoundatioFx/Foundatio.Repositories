@@ -258,10 +258,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
             case ComparisonOperator.GreaterThanOrEqual:
             case ComparisonOperator.LessThan:
             case ComparisonOperator.LessThanOrEqual:
-                if (condition.Value is null)
-                    throw new ArgumentException($"Value is required for {condition.Operator} operator on field '{resolvedField}'.");
-
-                return BuildRangeQuery(resolvedField, condition.Operator, condition.Value);
+                return BuildRangeQuery(resolvedField, condition.Operator, condition.Value!);
             default:
                 throw new ArgumentOutOfRangeException(nameof(condition.Operator), condition.Operator, "Unknown comparison operator.");
         }
@@ -425,13 +422,17 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
 
         if (ctx is IQueryVisitorContextWithFieldResolver { FieldResolver: not null } fieldResolverCtx)
         {
-            string customResolved = await fieldResolverCtx.FieldResolver(resolved, ctx).AnyContext();
+            string? customResolved = await fieldResolverCtx.FieldResolver(resolved, ctx).AnyContext();
             if (!String.IsNullOrWhiteSpace(customResolved))
                 resolved = customResolved;
         }
 
         if (nonAnalyzed)
-            resolved = resolver.GetNonAnalyzedFieldName(resolved);
+        {
+            string? nonAnalyzedField = resolver.GetNonAnalyzedFieldName(resolved);
+            if (nonAnalyzedField is not null)
+                resolved = nonAnalyzedField;
+        }
 
         return resolved;
     }

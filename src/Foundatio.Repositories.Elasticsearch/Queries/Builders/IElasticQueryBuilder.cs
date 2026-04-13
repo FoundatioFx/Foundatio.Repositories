@@ -106,7 +106,7 @@ public static class QueryBuilderContextExtensions
     {
         var elasticContext = context as IElasticQueryVisitorContext;
         if (elasticContext?.DefaultTimeZone is not null)
-            return await elasticContext.DefaultTimeZone.Invoke();
+            return await elasticContext.DefaultTimeZone.Invoke().AnyContext();
 
         return null;
     }

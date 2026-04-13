@@ -611,21 +611,18 @@ public static class ElasticIndexExtensions
     {
         var data = aggregate.Meta is not null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
 
-        // Check if there's a timezone offset in the metadata
-        bool hasTimezone = data.TryGetValue("@timezone", out object? timezoneValue) && timezoneValue is not null;
+        object? timezoneValue = data.TryGetValue("@timezone", out object? tz) ? tz : null;
+        bool hasTimezone = timezoneValue is not null;
 
         var buckets = aggregate.Buckets.Select(b =>
         {
-            // When there's a timezone, the bucket key from Elasticsearch already represents the local time boundary
-            // We use Unspecified kind since the dates are adjusted for the timezone
             DateTime date = hasTimezone
                 ? DateTime.SpecifyKind(b.Key.UtcDateTime, DateTimeKind.Unspecified)
                 : b.Key.UtcDateTime;
             var keyAsLong = b.Key.ToUnixTimeMilliseconds();
-            // Propagate timezone metadata to bucket data for round-trip serialization
             var bucketData = new Dictionary<string, object> { { "@type", "datehistogram" } };
-            if (hasTimezone)
-                bucketData["@timezone"] = timezoneValue!;
+            if (timezoneValue is not null)
+                bucketData["@timezone"] = timezoneValue;
 
             return (IBucket)new DateHistogramBucket(date, b.ToAggregations(serializer, logger))
             {

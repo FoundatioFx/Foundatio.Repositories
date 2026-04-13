@@ -309,10 +309,15 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
 
         var conditions = query.GetFieldConditions();
         var entityTypeCondition = conditions.FirstOrDefault(c => c.Field == InferField(d => d.EntityType) && c.Operator == ComparisonOperator.Equals);
-        if (entityTypeCondition == null || String.IsNullOrEmpty(entityTypeCondition.Value?.ToString()))
+        if (entityTypeCondition is null || String.IsNullOrEmpty(entityTypeCondition.Value?.ToString()))
             return;
 
-        await _cache.RemoveAsync(GetMappingCacheKey(entityTypeCondition.Value!.ToString()!, GetTenantKey(query)!)).AnyContext();
+        var tenantKeyCondition = conditions.FirstOrDefault(c => c.Field == InferField(d => d.TenantKey) && c.Operator == ComparisonOperator.Equals);
+        string? tenantKey = tenantKeyCondition?.Value?.ToString();
+        if (String.IsNullOrEmpty(tenantKey))
+            return;
+
+        await _cache.RemoveAsync(GetMappingCacheKey(entityTypeCondition.Value!.ToString()!, tenantKey)).AnyContext();
     }
 
     protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<CustomFieldDefinition>> documents, ChangeType? changeType = null)

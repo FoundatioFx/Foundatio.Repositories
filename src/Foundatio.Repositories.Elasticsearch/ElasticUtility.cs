@@ -55,7 +55,7 @@ public class ElasticUtility
             _logger.LogRequest(snapshotsResponse);
             if (snapshotsResponse.IsValidResponse)
             {
-                foreach (var snapshot in snapshotsResponse.Snapshots!)
+                foreach (var snapshot in snapshotsResponse.Snapshots ?? [])
                 {
                     if (snapshot.State == "IN_PROGRESS")
                         return true;
@@ -75,7 +75,7 @@ public class ElasticUtility
                 _logger.LogRequest(snapshotsResponse);
                 if (snapshotsResponse.IsValidResponse)
                 {
-                    foreach (var snapshot in snapshotsResponse.Snapshots!)
+                    foreach (var snapshot in snapshotsResponse.Snapshots ?? [])
                     {
                         if (snapshot.State == "IN_PROGRESS")
                             return true;
@@ -92,7 +92,7 @@ public class ElasticUtility
             return false;
         }
 
-        foreach (var node in tasksResponse.Nodes!.Values)
+        foreach (var node in tasksResponse.Nodes?.Values ?? [])
         {
             foreach (var task in node.Tasks.Values)
             {
@@ -114,7 +114,7 @@ public class ElasticUtility
             return Array.Empty<string>();
         }
 
-        return snapshotsResponse.Snapshots!.Select(s => s.Snapshot!).ToList();
+        return (snapshotsResponse.Snapshots ?? []).Select(s => s.Snapshot).OfType<string>().ToList();
     }
 
     public async Task<ICollection<string>> GetIndexListAsync()

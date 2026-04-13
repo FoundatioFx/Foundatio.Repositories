@@ -21,7 +21,7 @@ public static class ResolverExtensions
         if (sorts.Count == 0)
             return sorts;
 
-        return sorts.Select(sort => ResolveFieldSort(resolver, sort)!).ToList();
+        return sorts.Select(sort => ResolveFieldSort(resolver, sort)).OfType<SortOptions>().ToList();;
     }
 
     public static Field ResolveFieldName(this ElasticMappingResolver resolver, Field field)

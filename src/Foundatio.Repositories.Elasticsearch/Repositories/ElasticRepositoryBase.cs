@@ -470,9 +470,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 if (response.Source is IVersioned versionedDoc && response.PrimaryTerm.HasValue)
                     versionedDoc.Version = response.GetElasticVersion();
 
+                if (response.Source is not { } source)
+                    throw new DocumentException($"Document {ElasticIndex.GetIndex(id)}/{id.Value} returned no source");
+
                 bool actionModified = false;
                 foreach (var action in actionPatch.Actions)
-                    actionModified |= action?.Invoke(response.Source!) ?? false;
+                    actionModified |= action?.Invoke(source) ?? false;
 
                 if (!actionModified)
                 {
@@ -481,10 +484,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
 
                 if (HasDateTracking)
-                    SetDocumentDates(response.Source!, ElasticIndex.Configuration.TimeProvider);
+                    SetDocumentDates(source, ElasticIndex.Configuration.TimeProvider);
 
-                modifiedDocument = response.Source!;
-                await IndexDocumentsAsync([response.Source!], false, options).AnyContext();
+                modifiedDocument = source;
+                await IndexDocumentsAsync([source], false, options).AnyContext();
             }).AnyContext();
 
             if (modified && modifiedDocument is not null)
