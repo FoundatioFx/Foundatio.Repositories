@@ -623,16 +623,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return response.Total > 0;
     }
 
-    public virtual Task<FindResults<T>> SearchAsync(ISystemFilter systemFilter, string? filter = null, string? criteria = null, string? sort = null, string? aggregations = null, ICommandOptions? options = null)
-    {
-        return FindAsAsync<T>(q => q.SystemFilter(systemFilter).FilterExpression(filter!).SearchExpression(criteria!).SortExpression(sort!).AggregationsExpression(aggregations!), o => options?.As<T>()!);
-    }
-
-    public virtual Task<CountResult> CountBySearchAsync(ISystemFilter systemFilter, string? filter = null, string? aggregations = null, ICommandOptions? options = null)
-    {
-        return CountAsync(q => q.SystemFilter(systemFilter).FilterExpression(filter!).AggregationsExpression(aggregations!), o => options?.As<T>()!);
-    }
-
     protected virtual IRepositoryQuery<T> NewQuery()
     {
         return new RepositoryQuery<T>();
