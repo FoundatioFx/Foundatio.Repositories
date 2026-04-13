@@ -107,11 +107,12 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         {
             var value = await GetCachedFindHit(id, options.GetCacheKey()).AnyContext();
 
-            if (value?.Document != null)
+            var cachedDoc = value?.Document;
+            if (cachedDoc is not null)
             {
                 _logger.LogTrace("Cache hit: type={EntityType} key={Id}", EntityTypeName, id);
 
-                return ShouldReturnDocument(value.Document, options) ? value.Document : null;
+                return ShouldReturnDocument(cachedDoc, options) ? cachedDoc : null;
             }
         }
 
