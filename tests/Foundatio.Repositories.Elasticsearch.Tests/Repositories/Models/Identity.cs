@@ -7,14 +7,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 
 public class Identity : IIdentity
 {
-    public string Id { get; set; }
+    public string Id { get; set; } = null!;
 
     protected bool Equals(Identity other)
     {
         return String.Equals(Id, other.Id, StringComparison.InvariantCultureIgnoreCase);
     }
 
-    public override bool Equals(object obj)
+    public override bool Equals(object? obj)
     {
         if (ReferenceEquals(null, obj))
             return false;
@@ -50,9 +50,9 @@ public static class IdentityGenerator
         Id = DefaultId
     };
 
-    public static Identity Generate(string id = null)
+    public static Identity Generate(string? id = null)
     {
-        return new Identity { Id = id };
+        return new Identity { Id = id! };
     }
 
     public static List<Identity> GenerateIdentities(int count = 10)

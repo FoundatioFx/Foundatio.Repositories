@@ -2,7 +2,7 @@
 
 public static class CommandOptionsDescriptorExtensions
 {
-    public static ICommandOptions<T> Configure<T>(this CommandOptionsDescriptor<T> configure) where T : class
+    public static ICommandOptions<T> Configure<T>(this CommandOptionsDescriptor<T>? configure) where T : class
     {
         ICommandOptions<T> o = new CommandOptions<T>();
         if (configure != null)
@@ -11,7 +11,7 @@ public static class CommandOptionsDescriptorExtensions
         return o;
     }
 
-    public static ICommandOptions Configure(this CommandOptionsDescriptor configure)
+    public static ICommandOptions Configure(this CommandOptionsDescriptor? configure)
     {
         ICommandOptions o = new CommandOptions();
         if (configure != null)

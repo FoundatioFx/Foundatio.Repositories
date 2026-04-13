@@ -49,12 +49,12 @@ public class ModifiedDocumentsEventArgs<T> : EventArgs where T : class, IIdentit
 
 public class ModifiedDocument<T> where T : class, new()
 {
-    public ModifiedDocument(T value, T original)
+    public ModifiedDocument(T value, T? original)
     {
         Value = value;
         Original = original;
     }
 
     public T Value { get; set; }
-    public T Original { get; private set; }
+    public T? Original { get; private set; }
 }

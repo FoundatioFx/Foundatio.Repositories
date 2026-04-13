@@ -11,26 +11,30 @@ public class ObjectToInferredTypesConverter : JsonConverterFactory
     public override JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options)
     {
         var converterType = typeof(ObjectToInferredTypesConverterInner<>).MakeGenericType(typeToConvert);
-        return (JsonConverter)Activator.CreateInstance(converterType);
+        var converter = Activator.CreateInstance(converterType) as JsonConverter;
+        if (converter is null)
+            throw new InvalidOperationException($"Failed to create converter for type {typeToConvert}");
+
+        return converter;
     }
 
     private class ObjectToInferredTypesConverterInner<T> : JsonConverter<T>
     {
         public override T Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
-            object result = reader.TokenType switch
+            object? result = reader.TokenType switch
             {
                 JsonTokenType.Number when reader.TryGetInt64(out long l) => l,
                 JsonTokenType.Number => reader.GetDouble(),
                 JsonTokenType.String when reader.TryGetDateTime(out DateTime datetime) => datetime,
-                JsonTokenType.String => reader.GetString()!,
+                JsonTokenType.String => reader.GetString(),
                 JsonTokenType.True => true,
                 JsonTokenType.False => false,
-                JsonTokenType.Null => null!,
+                JsonTokenType.Null => null,
                 _ => JsonDocument.ParseValue(ref reader).RootElement.Clone()
             };
 
-            if (result == null)
+            if (result is null)
                 return default!;
 
             if (result is T typedResult)

@@ -4,6 +4,7 @@ using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Options;
 using Foundatio.Utility;
 
@@ -45,8 +46,11 @@ namespace Foundatio.Repositories
 
         public static T SnapshotPagingScrollId<T>(this T options, IHaveData target) where T : ICommandOptions
         {
+            string scrollId = target.GetScrollId()
+                ?? throw new RepositoryException("ScrollId is required for snapshot paging but was not found in the target data.");
+
             options.Values.Set(SnapshotPagingKey, true);
-            options.Values.Set(SnapshotPagingScrollIdKey, target.GetScrollId());
+            options.Values.Set(SnapshotPagingScrollIdKey, scrollId);
 
             return options;
         }
@@ -69,7 +73,7 @@ namespace Foundatio.Repositories.Options
             return options.SafeGetOption<IIndex>(ElasticIndexKey);
         }
 
-        public static ElasticMappingResolver GetMappingResolver(this ICommandOptions options)
+        public static ElasticMappingResolver? GetMappingResolver(this ICommandOptions options)
         {
             return options.GetElasticIndex()?.MappingResolver;
         }
@@ -99,7 +103,7 @@ namespace Foundatio.Repositories.Options
         }
 
         internal const string ParentDocumentTypeKey = "@ParentDocumentType";
-        public static T ParentDocumentType<T>(this T options, Type parentDocumentType) where T : ICommandOptions
+        public static T ParentDocumentType<T>(this T options, Type? parentDocumentType) where T : ICommandOptions
         {
             if (parentDocumentType != null)
                 return options.BuildOption(ParentDocumentTypeKey, parentDocumentType);
@@ -148,9 +152,9 @@ namespace Foundatio.Repositories.Options
             return options.SafeHasOption(SetElasticOptionsExtensions.SnapshotPagingScrollIdKey);
         }
 
-        public static string GetSnapshotScrollId(this ICommandOptions options)
+        public static string? GetSnapshotScrollId(this ICommandOptions options)
         {
-            return options.SafeGetOption<string>(SetElasticOptionsExtensions.SnapshotPagingScrollIdKey, null);
+            return options.SafeGetOption<string?>(SetElasticOptionsExtensions.SnapshotPagingScrollIdKey, null);
         }
 
         public static bool HasSnapshotLifetime(this ICommandOptions options)

@@ -8,10 +8,13 @@ namespace Foundatio.Repositories.Models;
 [DebuggerDisplay("Value: {Value}")]
 public class ObjectValueAggregate : MetricAggregateBase
 {
-    public object Value { get; set; }
+    public object? Value { get; set; }
 
-    public T ValueAs<T>(ITextSerializer serializer = null)
+    public T? ValueAs<T>(ITextSerializer? serializer = null)
     {
+        if (Value is null)
+            return default;
+
         if (serializer != null)
         {
             if (Value is string stringValue)
@@ -22,6 +25,6 @@ public class ObjectValueAggregate : MetricAggregateBase
 
         return Value is JToken jToken
             ? jToken.ToObject<T>()
-            : (T)Convert.ChangeType(Value, typeof(T));
+            : (T?)Convert.ChangeType(Value, typeof(T));
     }
 }

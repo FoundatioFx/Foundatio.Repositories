@@ -89,9 +89,9 @@ namespace Foundatio.Repositories.Options
             return options.SafeHasOption(AsyncQueryOptionsExtensions.AsyncQueryIdKey);
         }
 
-        public static string GetAsyncQueryId(this ICommandOptions options)
+        public static string? GetAsyncQueryId(this ICommandOptions options)
         {
-            return options.SafeGetOption<string>(AsyncQueryOptionsExtensions.AsyncQueryIdKey, null);
+            return options.SafeGetOption<string?>(AsyncQueryOptionsExtensions.AsyncQueryIdKey, null);
         }
 
         public static bool ShouldAutoDeleteAsyncQuery(this ICommandOptions options)

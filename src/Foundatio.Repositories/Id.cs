@@ -9,14 +9,14 @@ public record struct Id
 {
     public static readonly Id Null = new();
 
-    public Id(string id, string routing = null)
+    public Id(string id, string? routing = null)
     {
         Value = id;
         Routing = routing;
     }
 
     public string Value { get; }
-    public string Routing { get; }
+    public string? Routing { get; }
 
     public static implicit operator Id(string id) => new(id);
     public static implicit operator string(Id id) => id.ToString();
@@ -37,11 +37,11 @@ public class Ids : List<Id>
 
     public Ids() { }
 
-    public Ids(IEnumerable<string> ids) : base(ids != null ? ids.Select(i => (Id)i) : new Id[] { }) { }
+    public Ids(IEnumerable<string>? ids) : base(ids is not null ? ids.Select(i => (Id)i) : new Id[] { }) { }
 
     public Ids(IEnumerable<Id> ids) : base(ids) { }
 
-    public Ids(params string[] ids) : base(ids != null ? ids.Select(i => (Id)i) : new Id[] { }) { }
+    public Ids(params string[]? ids) : base(ids is not null ? ids.Select(i => (Id)i) : new Id[] { }) { }
 
     public Ids(params Id[] ids) : base(ids) { }
 

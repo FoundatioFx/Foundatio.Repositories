@@ -13,6 +13,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries;
 using Foundatio.Serializer;
 using Microsoft.Extensions.Logging.Abstractions;
 using Nest;
+using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 
@@ -91,13 +92,13 @@ public sealed class EmployeeIndex : Index<Employee>
 
     private async Task<string> ResolveIncludeAsync(string name)
     {
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
         return "aliasedage:10";
     }
 
-    private async Task<ElasticRuntimeField> ResolveRuntimeFieldAsync(string name)
+    private async Task<ElasticRuntimeField?> ResolveRuntimeFieldAsync(string name)
     {
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
 
         if (name.Equals("unmappedEmailAddress", StringComparison.OrdinalIgnoreCase))
             return new ElasticRuntimeField { Name = "unmappedEmailAddress" };
@@ -136,12 +137,12 @@ public sealed class EmployeeIndexWithYearsEmployed : Index<Employee>
 
 public sealed class VersionedEmployeeIndex : VersionedIndex<Employee>
 {
-    private readonly Func<CreateIndexDescriptor, CreateIndexDescriptor> _createIndex;
-    private readonly Func<TypeMappingDescriptor<Employee>, TypeMappingDescriptor<Employee>> _createMappings;
+    private readonly Func<CreateIndexDescriptor, CreateIndexDescriptor>? _createIndex;
+    private readonly Func<TypeMappingDescriptor<Employee>, TypeMappingDescriptor<Employee>>? _createMappings;
 
     public VersionedEmployeeIndex(IElasticConfiguration configuration, int version,
-        Func<CreateIndexDescriptor, CreateIndexDescriptor> createIndex = null,
-        Func<TypeMappingDescriptor<Employee>, TypeMappingDescriptor<Employee>> createMappings = null) : base(configuration, "employees", version)
+        Func<CreateIndexDescriptor, CreateIndexDescriptor>? createIndex = null,
+        Func<TypeMappingDescriptor<Employee>, TypeMappingDescriptor<Employee>>? createMappings = null) : base(configuration, "employees", version)
     {
         _createIndex = createIndex;
         _createMappings = createMappings;

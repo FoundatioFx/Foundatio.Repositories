@@ -7,7 +7,7 @@ public class MultiBucketAggregate<TBucket> : BucketAggregateBase
 {
     public MultiBucketAggregate() { }
 
-    public MultiBucketAggregate(IReadOnlyDictionary<string, IAggregate> aggregations) : base(aggregations) { }
+    public MultiBucketAggregate(IReadOnlyDictionary<string, IAggregate>? aggregations) : base(aggregations) { }
 
     public IReadOnlyCollection<TBucket> Buckets { get; set; } = EmptyReadOnly<TBucket>.Collection;
 }

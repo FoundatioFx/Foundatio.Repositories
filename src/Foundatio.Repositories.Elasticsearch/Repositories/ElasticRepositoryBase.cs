@@ -28,16 +28,21 @@ namespace Foundatio.Repositories.Elasticsearch;
 
 public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T>, ISearchableRepository<T> where T : class, IIdentity, new()
 {
-    protected readonly IMessagePublisher _messagePublisher;
+    protected readonly IMessagePublisher? _messagePublisher;
 
     protected ElasticRepositoryBase(IIndex index) : base(index)
     {
         _messagePublisher = index.Configuration.MessageBus;
         NotificationsEnabled = _messagePublisher != null;
 
-        AddRequiredField(_idField);
+        if (_idField is not null)
+            AddRequiredField(_idField);
+
         if (HasCreatedDate)
             AddRequiredField(e => ((IHaveCreatedDate)e).CreatedUtc);
+
+        if (HasDates && _updatedUtcField is not null)
+            AddRequiredField(_updatedUtcField);
 
         if (HasCustomFields)
         {
@@ -54,15 +59,15 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// Override to <c>true</c> for custom date field scenarios (e.g., nested metadata dates).
     /// </summary>
     protected virtual bool HasDateTracking => HasDates;
-    protected string DefaultPipeline { get; set; } = null;
+    protected string? DefaultPipeline { get; set; } = null;
     protected bool AutoCreateCustomFields { get; set; } = false;
 
     public Task<T> AddAsync(T document, CommandOptionsDescriptor<T> options)
     {
-        return AddAsync(document, options.Configure());
+        return AddAsync(document, options?.Configure());
     }
 
-    public async Task<T> AddAsync(T document, ICommandOptions options = null)
+    public async Task<T> AddAsync(T document, ICommandOptions? options = null)
     {
         if (document == null)
             throw new ArgumentNullException(nameof(document));
@@ -73,10 +78,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     public Task AddAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options)
     {
-        return AddAsync(documents, options.Configure());
+        return AddAsync(documents, options?.Configure());
     }
 
-    public virtual async Task AddAsync(IEnumerable<T> documents, ICommandOptions options = null)
+    public virtual async Task AddAsync(IEnumerable<T> documents, ICommandOptions? options = null)
     {
         var docs = documents?.ToList();
         if (docs == null || docs.Any(d => d == null))
@@ -85,7 +90,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (docs.Count == 0)
             return;
 
-        options = ConfigureOptions(options.As<T>());
+        options = ConfigureOptions(options?.As<T>());
 
         await OnDocumentsAddingAsync(docs, options).AnyContext();
 
@@ -111,10 +116,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     public Task<T> SaveAsync(T document, CommandOptionsDescriptor<T> options)
     {
-        return SaveAsync(document, options.Configure());
+        return SaveAsync(document, options?.Configure());
     }
 
-    public async Task<T> SaveAsync(T document, ICommandOptions options = null)
+    public async Task<T> SaveAsync(T document, ICommandOptions? options = null)
     {
         if (document == null)
             throw new ArgumentNullException(nameof(document));
@@ -125,10 +130,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     public Task SaveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options)
     {
-        return SaveAsync(documents, options.Configure());
+        return SaveAsync(documents, options?.Configure());
     }
 
-    public virtual async Task SaveAsync(IEnumerable<T> documents, ICommandOptions options = null)
+    public virtual async Task SaveAsync(IEnumerable<T> documents, ICommandOptions? options = null)
     {
         var docs = documents?.ToList();
         if (docs == null || docs.Any(d => d == null))
@@ -141,7 +146,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (ids.Length < docs.Count)
             throw new ArgumentException("Id must be set when calling Save.");
 
-        options = ConfigureOptions(options.As<T>());
+        options = ConfigureOptions(options?.As<T>());
 
         var originalDocuments = await GetOriginalDocumentsAsync(ids, options).AnyContext();
         await OnDocumentsSavingAsync(docs, originalDocuments, options).AnyContext();
@@ -169,10 +174,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     public Task<bool> PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options)
     {
-        return PatchAsync(id, operation, options.Configure());
+        return PatchAsync(id, operation, options?.Configure());
     }
 
-    public virtual async Task<bool> PatchAsync(Id id, IPatchOperation operation, ICommandOptions options = null)
+    public virtual async Task<bool> PatchAsync(Id id, IPatchOperation operation, ICommandOptions? options = null)
     {
         if (String.IsNullOrEmpty(id.Value))
             throw new ArgumentNullException(nameof(id));
@@ -187,7 +192,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         await ElasticIndex.EnsureIndexAsync(id).AnyContext();
 
-        options = ConfigureOptions(options.As<T>());
+        options = ConfigureOptions(options?.As<T>());
 
         if (operation is ScriptPatch scriptPatchOp)
             operation = ApplyDateTracking(scriptPatchOp);
@@ -335,7 +340,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     _logger.LogWarning("Unable to override resilience policy max attempts");
             }
 
-            T modifiedDocument = null;
+            T? modifiedDocument = null;
             await policy.ExecuteAsync(async ct =>
             {
                 modifiedDocument = null;
@@ -410,10 +415,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     public Task<long> PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options)
     {
-        return PatchAsync(ids, operation, options.Configure());
+        return PatchAsync(ids, operation, options?.Configure());
     }
 
-    public virtual async Task<long> PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions options = null)
+    public virtual async Task<long> PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(ids);
         ArgumentNullException.ThrowIfNull(operation);
@@ -421,7 +426,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (ids is { Count: 0 })
             return 0;
 
-        options = ConfigureOptions(options.As<T>());
+        options = ConfigureOptions(options?.As<T>());
 
         if (ids.Count is 1)
             return await PatchAsync(ids[0], operation, options).AnyContext() ? 1 : 0;
@@ -510,10 +515,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     public Task RemoveAsync(Id id, CommandOptionsDescriptor<T> options)
     {
-        return RemoveAsync(id, options.Configure());
+        return RemoveAsync(id, options?.Configure());
     }
 
-    public Task RemoveAsync(Id id, ICommandOptions options = null)
+    public Task RemoveAsync(Id id, ICommandOptions? options = null)
     {
         if (String.IsNullOrEmpty(id))
             throw new ArgumentNullException(nameof(id));
@@ -523,15 +528,15 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     public Task RemoveAsync(Ids ids, CommandOptionsDescriptor<T> options)
     {
-        return RemoveAsync(ids, options.Configure());
+        return RemoveAsync(ids, options?.Configure());
     }
 
-    public async Task RemoveAsync(Ids ids, ICommandOptions options = null)
+    public async Task RemoveAsync(Ids ids, ICommandOptions? options = null)
     {
         if (ids == null)
             throw new ArgumentNullException(nameof(ids));
 
-        options = ConfigureOptions(options.As<T>());
+        options = ConfigureOptions(options?.As<T>());
         if (IsCacheEnabled)
             options = options.ReadCache();
 
@@ -546,10 +551,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     public Task RemoveAsync(T document, CommandOptionsDescriptor<T> options)
     {
-        return RemoveAsync(document, options.Configure());
+        return RemoveAsync(document, options?.Configure());
     }
 
-    public virtual Task RemoveAsync(T document, ICommandOptions options = null)
+    public virtual Task RemoveAsync(T document, ICommandOptions? options = null)
     {
         if (document == null)
             throw new ArgumentNullException(nameof(document));
@@ -559,10 +564,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     public Task RemoveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options)
     {
-        return RemoveAsync(documents, options.Configure());
+        return RemoveAsync(documents, options?.Configure());
     }
 
-    public virtual async Task RemoveAsync(IEnumerable<T> documents, ICommandOptions options = null)
+    public virtual async Task RemoveAsync(IEnumerable<T> documents, ICommandOptions? options = null)
     {
         var docs = documents?.ToList();
         if (docs == null || docs.Any(d => d == null))
@@ -581,7 +586,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             await ElasticIndex.EnsureIndexAsync(null).AnyContext();
         }
 
-        options = ConfigureOptions(options.As<T>());
+        options = ConfigureOptions(options?.As<T>());
         if (IsCacheEnabled && options.HasCacheKey())
             throw new ArgumentException("Cache key can't be set when calling RemoveAsync");
 
@@ -642,12 +647,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         await OnDocumentsRemovedAsync(docs, options).AnyContext();
     }
 
-    public Task<long> RemoveAllAsync(CommandOptionsDescriptor<T> options)
+    public Task<long> RemoveAllAsync(CommandOptionsDescriptor<T>? options)
     {
-        return RemoveAllAsync(options.Configure());
+        return RemoveAllAsync(options?.Configure());
     }
 
-    public virtual async Task<long> RemoveAllAsync(ICommandOptions options = null)
+    public virtual async Task<long> RemoveAllAsync(ICommandOptions? options = null)
     {
         long count = await RemoveAllAsync(NewQuery(), options);
 
@@ -657,9 +662,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return count;
     }
 
-    public Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> query, IPatchOperation operation, CommandOptionsDescriptor<T> options = null)
+    public Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> query, IPatchOperation operation, CommandOptionsDescriptor<T>? options = null)
     {
-        return PatchAllAsync(query.Configure(), operation, options.Configure());
+        return PatchAllAsync(query.Configure(), operation, options?.Configure());
     }
 
     /// <summary>
@@ -667,7 +672,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// update-by-query when caching is disabled; otherwise they fall back to batch processing.
     /// JsonPatch and ActionPatch always use batch processing with conflict retry.
     /// </summary>
-    public virtual async Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null)
+    public virtual async Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(operation);
 
@@ -680,7 +685,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (!ElasticIndex.HasMultipleIndexes)
             await ElasticIndex.EnsureIndexAsync(null).AnyContext();
 
-        options = ConfigureOptions(options.As<T>());
+        options = ConfigureOptions(options?.As<T>());
 
         if (operation is ScriptPatch scriptPatchOp)
             operation = ApplyDateTracking(scriptPatchOp);
@@ -708,7 +713,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         if (HasDateTracking)
                             SetDocumentDates(doc, ElasticIndex.Configuration.TimeProvider);
 
-                        processedDocs[h.Id] = doc;
+                        processedDocs[h.Id!] = doc!;
                         var elasticVersion = h.GetElasticVersion();
 
                         b.Index<T>(i =>
@@ -745,7 +750,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
 
                 var successfulIds = new HashSet<string>(bulkResult.Items?.Where(i => i.IsValid).Select(i => i.Id) ?? []);
-                var modifiedDocuments = successfulIds.Select(id => processedDocs.GetValueOrDefault(id)).Where(d => d is not null).ToList();
+                var modifiedDocuments = successfulIds.Select(id => processedDocs.GetValueOrDefault(id)).Where(d => d is not null).Select(d => d!).ToList();
                 modifiedRecords += modifiedDocuments.Count;
 
                 if (modifiedDocuments.Count > 0 || retriedIds.Count > 0)
@@ -778,6 +783,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 var modifiedHits = new List<FindHit<T>>(results.Hits.Count);
                 foreach (var h in results.Hits)
                 {
+                    if (h.Document is null)
+                        continue;
+
                     bool actionModified = false;
                     foreach (var action in actionOperation.Actions)
                         actionModified |= action?.Invoke(h.Document) ?? false;
@@ -803,7 +811,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                         b.Index<T>(i =>
                         {
-                            i.Document(h.Document)
+                            i.Document(h.Document!)
                                 .Id(h.Id)
                                 .Routing(h.Routing)
                                 .Index(h.GetIndex())
@@ -835,17 +843,17 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
 
                 var successfulIds = new HashSet<string>(bulkResult.Items?.Where(i => i.IsValid).Select(i => i.Id) ?? []);
-                var modifiedDocuments = modifiedHits.Where(h => successfulIds.Contains(h.Id)).ToList();
+                var modifiedDocuments = modifiedHits.Where(h => successfulIds.Contains(h.Id!)).ToList();
                 modifiedRecords += modifiedDocuments.Count;
 
                 if (modifiedDocuments.Count > 0 || retriedIds.Count > 0)
                 {
                     if (IsCacheEnabled)
-                        await InvalidateCacheAsync(modifiedDocuments.Select(h => h.Document)).AnyContext();
+                        await InvalidateCacheAsync(modifiedDocuments.Select(h => h.Document!)).AnyContext();
 
                     try
                     {
-                        var callbackIds = modifiedDocuments.Select(h => h.Id).Concat(retriedIds).ToList();
+                        var callbackIds = modifiedDocuments.Select(h => h.Id!).Concat(retriedIds).ToList();
                         options.GetUpdatedIdsCallback()?.Invoke(callbackIds);
                     }
                     catch (OperationCanceledException) { throw; }
@@ -930,8 +938,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             }
             else
             {
-                if (HasIdentity && !query.GetIncludes().Contains(_idField.Value))
-                    query.Include(_idField.Value);
+                if (HasIdentity && !query.GetIncludes().Contains(_idField!.Value))
+                    query.Include(_idField!.Value);
 
                 long modifiedInBatch = 0;
                 await BatchProcessAsync(query, async results =>
@@ -973,8 +981,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     var result = BulkResult.From(bulkResult);
                     var updatedIds = results.Hits
-                        .Where(h => result.SuccessfulIds.Contains(h.Id) && !result.NoopIds.Contains(h.Id))
-                        .Select(h => h.Id).ToList();
+                        .Where(h => result.SuccessfulIds.Contains(h.Id!) && !result.NoopIds.Contains(h.Id!))
+                        .Select(h => h.Id!).ToList();
                     modifiedInBatch += updatedIds.Count;
 
                     if (IsCacheEnabled && updatedIds.Count > 0)
@@ -1017,14 +1025,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return affectedRecords;
     }
 
-    public Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null)
+    public Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null)
     {
-        return RemoveAllAsync(query.Configure(), options.Configure());
+        return RemoveAllAsync(query.Configure(), options?.Configure());
     }
 
-    public virtual async Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions options = null)
+    public virtual async Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions? options = null)
     {
-        options = ConfigureOptions(options.As<T>());
+        options = ConfigureOptions(options?.As<T>());
         bool hasRemoveListeners = DocumentsChanging.HasHandlers || DocumentsChanged.HasHandlers || DocumentsRemoving.HasHandlers || DocumentsRemoved.HasHandlers;
         if (hasRemoveListeners || (IsCacheEnabled && options.ShouldUseCache(true)))
         {
@@ -1075,22 +1083,22 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return response.Deleted;
     }
 
-    public Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<FindResults<T>, Task<bool>> processFunc, CommandOptionsDescriptor<T> options = null)
+    public Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<FindResults<T>, Task<bool>> processFunc, CommandOptionsDescriptor<T>? options = null)
     {
-        return BatchProcessAsync(query.Configure(), processFunc, options.Configure());
+        return BatchProcessAsync(query.Configure(), processFunc, options?.Configure());
     }
 
-    public Task<long> BatchProcessAsync(IRepositoryQuery query, Func<FindResults<T>, Task<bool>> processFunc, ICommandOptions options = null)
+    public Task<long> BatchProcessAsync(IRepositoryQuery query, Func<FindResults<T>, Task<bool>> processFunc, ICommandOptions? options = null)
     {
         return BatchProcessAsAsync(query, processFunc, options);
     }
 
-    public Task<long> BatchProcessAsAsync<TResult>(RepositoryQueryDescriptor<T> query, Func<FindResults<TResult>, Task<bool>> processFunc, CommandOptionsDescriptor<T> options = null) where TResult : class, new()
+    public Task<long> BatchProcessAsAsync<TResult>(RepositoryQueryDescriptor<T> query, Func<FindResults<TResult>, Task<bool>> processFunc, CommandOptionsDescriptor<T>? options = null) where TResult : class, new()
     {
-        return BatchProcessAsAsync<TResult>(query.Configure(), processFunc, options.Configure());
+        return BatchProcessAsAsync<TResult>(query.Configure(), processFunc, options?.Configure());
     }
 
-    public virtual async Task<long> BatchProcessAsAsync<TResult>(IRepositoryQuery query, Func<FindResults<TResult>, Task<bool>> processFunc, ICommandOptions options = null)
+    public virtual async Task<long> BatchProcessAsAsync<TResult>(IRepositoryQuery query, Func<FindResults<TResult>, Task<bool>> processFunc, ICommandOptions? options = null)
         where TResult : class, new()
     {
         if (processFunc == null)
@@ -1099,7 +1107,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (!ElasticIndex.HasMultipleIndexes)
             await ElasticIndex.EnsureIndexAsync(null).AnyContext();
 
-        options = ConfigureOptions(options.As<T>());
+        options = ConfigureOptions(options?.As<T>());
         if (!options.ShouldUseSnapshotPaging())
             options.SearchAfterPaging();
         if (!options.HasPageLimit())
@@ -1171,7 +1179,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (String.IsNullOrEmpty(tenantKey))
             return;
 
-        var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenantKey);
+        var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository!.GetFieldMappingAsync(EntityTypeName, tenantKey);
         var mapping = fieldMapping.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.GetIdxName(), StringComparer.OrdinalIgnoreCase);
 
         args.Options.QueryFieldResolver(mapping.ToHierarchicalFieldResolver("idx."));
@@ -1183,7 +1191,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         foreach (var tenant in tenantGroups)
         {
-            var fieldDefinitions = await ElasticIndex.Configuration.CustomFieldDefinitionRepository.GetFieldMappingAsync(EntityTypeName, tenant.Key);
+            var fieldDefinitions = await ElasticIndex.Configuration.CustomFieldDefinitionRepository!.GetFieldMappingAsync(EntityTypeName, tenant.Key!);
 
             foreach (var doc in tenant)
             {
@@ -1215,11 +1223,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     }
 
                     var result = await fieldType.ProcessValueAsync(doc, customField.Value, fieldDefinition);
-                    SetDocumentCustomField(doc, customField.Key, result.Value);
-                    idx[fieldDefinition.GetIdxName()] = result.Idx ?? result.Value;
+                    SetDocumentCustomField(doc, customField.Key, result.Value!);
+                    idx[fieldDefinition.GetIdxName()] = (result.Idx ?? result.Value)!;
 
                     if (result.IsCustomFieldDefinitionModified)
-                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(fieldDefinition).AnyContext();
+                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository!.SaveAsync(fieldDefinition).AnyContext();
                 }
 
                 foreach (var alwaysProcessField in fieldDefinitions.Values.Where(f => f.ProcessMode == CustomFieldProcessMode.AlwaysProcess))
@@ -1230,19 +1238,19 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         continue;
                     }
 
-                    object value = GetDocumentCustomField(doc, alwaysProcessField.Name);
-                    var result = await fieldType.ProcessValueAsync(doc, value, alwaysProcessField);
-                    SetDocumentCustomField(doc, alwaysProcessField.Name, result.Value);
-                    idx[alwaysProcessField.GetIdxName()] = result.Idx ?? result.Value;
+                    object? value = GetDocumentCustomField(doc, alwaysProcessField.Name);
+                    var result = await fieldType.ProcessValueAsync(doc, value!, alwaysProcessField);
+                    SetDocumentCustomField(doc, alwaysProcessField.Name, result.Value!);
+                    idx[alwaysProcessField.GetIdxName()] = (result.Idx ?? result.Value)!;
 
                     if (result.IsCustomFieldDefinitionModified)
-                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository.SaveAsync(alwaysProcessField).AnyContext();
+                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository!.SaveAsync(alwaysProcessField).AnyContext();
                 }
             }
         }
     }
 
-    protected virtual async Task<CustomFieldDefinition> HandleUnmappedCustomField(T document, string name, object value, IDictionary<string, CustomFieldDefinition> existingFields)
+    protected virtual async Task<CustomFieldDefinition?> HandleUnmappedCustomField(T document, string name, object value, IDictionary<string, CustomFieldDefinition> existingFields)
     {
         if (!AutoCreateCustomFields)
             return null;
@@ -1251,10 +1259,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (String.IsNullOrEmpty(tenantKey))
             return null;
 
-        return await ElasticIndex.Configuration.CustomFieldDefinitionRepository.AddFieldAsync(EntityTypeName, GetDocumentTenantKey(document), name, StringFieldType.IndexType);
+        return await ElasticIndex.Configuration.CustomFieldDefinitionRepository!.AddFieldAsync(EntityTypeName, GetDocumentTenantKey(document)!, name, StringFieldType.IndexType);
     }
 
-    protected string GetDocumentTenantKey(T document)
+    protected string? GetDocumentTenantKey(T document)
     {
         return document switch
         {
@@ -1264,7 +1272,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         };
     }
 
-    protected IDictionary<string, object> GetDocumentCustomFields(T document)
+    protected IDictionary<string, object>? GetDocumentCustomFields(T document)
     {
         return document switch
         {
@@ -1287,7 +1295,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
     }
 
-    protected object GetDocumentCustomField(T document, string name)
+    protected object? GetDocumentCustomField(T document, string name)
     {
         return document switch
         {
@@ -1297,7 +1305,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         };
     }
 
-    protected IDictionary<string, object> GetDocumentIdx(T document)
+    protected IDictionary<string, object>? GetDocumentIdx(T document)
     {
         return document switch
         {
@@ -1307,7 +1315,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         };
     }
 
-    protected virtual string GetTenantKey(IRepositoryQuery query)
+    protected virtual string? GetTenantKey(IRepositoryQuery query)
     {
         return null;
     }
@@ -1366,8 +1374,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         documents.EnsureIds(ElasticIndex.CreateDocumentId, ElasticIndex.Configuration.TimeProvider);
 
         var modifiedDocs = originalDocuments.FullOuterJoin(
-            documents, cf => cf.Id, cf => cf.Id,
-            (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m => new ModifiedDocument<T>(m.Modified, m.Original)).ToList();
+            documents, cf => cf!.Id!, cf => cf!.Id!,
+            (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m => new ModifiedDocument<T>(m.Modified!, m.Original!)).ToList();
 
         if (DocumentsSaving is { HasHandlers: true })
             await DocumentsSaving.InvokeAsync(this, new ModifiedDocumentsEventArgs<T>(modifiedDocs, this, options)).AnyContext();
@@ -1380,8 +1388,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     private async Task OnDocumentsSavedAsync(IReadOnlyCollection<T> documents, IReadOnlyCollection<T> originalDocuments, ICommandOptions options)
     {
         var modifiedDocs = originalDocuments.FullOuterJoin(
-            documents, cf => cf.Id, cf => cf.Id,
-            (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m => new ModifiedDocument<T>(m.Modified, m.Original)).ToList();
+            documents, cf => cf!.Id!, cf => cf!.Id!,
+            (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m => new ModifiedDocument<T>(m.Modified!, m.Original!)).ToList();
 
         if (SupportsSoftDeletes && IsCacheEnabled)
         {
@@ -1457,9 +1465,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         await DocumentsChanged.InvokeAsync(this, new DocumentsChangeEventArgs<T>(changeType, documents, this, options)).AnyContext();
     }
 
-    private async Task<IReadOnlyCollection<T>> GetOriginalDocumentsAsync(Ids ids, ICommandOptions options = null)
+    private async Task<IReadOnlyCollection<T>> GetOriginalDocumentsAsync(Ids ids, ICommandOptions options)
     {
-        if (!options.GetOriginalsEnabled(OriginalsEnabled) || ids.Count == 0)
+        if (!options.GetOriginalsEnabled(OriginalsEnabled) || ids.Count is 0)
             return EmptyList;
 
         var originals = options.GetOriginals<T>().ToList();
@@ -1648,8 +1656,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             _logger.LogRequest(bulkResponse, options.GetQueryLogLevel());
             _logger.LogInformation("Bulk {PatchType} had {ConflictCount} version conflicts, re-fetching and retrying", patchType, result.ConflictIds.Count);
 
-            foreach (var hit in results.Hits.Where(h => result.ConflictIds.Contains(h.Id)))
+            foreach (var hit in results.Hits)
             {
+                if (hit.Id is null || !result.ConflictIds.Contains(hit.Id))
+                    continue;
+
                 if (await PatchAsync(new Id(hit.Id, hit.Routing), operation, options).AnyContext())
                     retriedIds.Add(hit.Id);
             }
@@ -1658,13 +1669,18 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return (retriedIds.Count, retriedIds);
     }
 
-    private static void ThrowForBulkErrors(BulkResult result, bool isCreateOperation = false, string operationLabel = null)
+    private static void ThrowForBulkErrors(BulkResult result, bool isCreateOperation = false, string? operationLabel = null)
     {
         if (result.IsSuccess)
             return;
 
         if (result.HasTransportError)
-            throw new DocumentException(result.TransportError, result.TransportException);
+        {
+            if (result.TransportException is not null)
+                throw new DocumentException(result.TransportError ?? "Unknown transport error", result.TransportException);
+
+            throw new DocumentException(result.TransportError ?? "Unknown transport error");
+        }
 
         string label = operationLabel ?? (isCreateOperation ? "adding" : "saving");
         int totalErrors = result.ConflictIds.Count + result.RetryableIds.Count + result.FatalIds.Count;
@@ -1769,7 +1785,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         var delay = NotificationDeliveryDelay;
         if (documents.Count == 0)
-            return PublishChangeTypeMessageAsync(changeType, null, delay);
+            return PublishChangeTypeMessageAsync(changeType, (T?)null, delay);
 
         var tasks = new List<Task>(documents.Count);
         if (BatchNotifications && documents.Count > 1)
@@ -1815,17 +1831,17 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return Task.WhenAll(tasks);
     }
 
-    protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, T document, TimeSpan? delay)
+    protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, T? document, TimeSpan? delay)
     {
         return PublishChangeTypeMessageAsync(changeType, document, null, delay);
     }
 
-    protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, T document, IDictionary<string, object> data = null, TimeSpan? delay = null)
+    protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, T? document, IDictionary<string, object>? data = null, TimeSpan? delay = null)
     {
         return PublishChangeTypeMessageAsync(changeType, document?.Id, data, delay);
     }
 
-    protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, string id, IDictionary<string, object> data = null, TimeSpan? delay = null)
+    protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, string? id, IDictionary<string, object>? data = null, TimeSpan? delay = null)
     {
         if (!NotificationsEnabled)
             return Task.CompletedTask;
@@ -1868,7 +1884,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     protected virtual string GetUpdatedUtcFieldPath()
     {
         if (HasDates)
-            return _updatedUtcField.Value;
+            return _updatedUtcField!.Value;
 
         throw new RepositoryException(
             $"{GetType().Name} has HasDateTracking=true but does not implement IHaveDates. Override GetUpdatedUtcFieldPath() to return the Elasticsearch field path for your updated timestamp.");
@@ -2002,7 +2018,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return sb.ToString();
     }
 
-    private static JToken GetNestedJToken(JToken token, string dotPath)
+    private static JToken? GetNestedJToken(JToken token, string dotPath)
     {
         var remaining = dotPath.AsSpan();
 
@@ -2014,7 +2030,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             if (token is not JObject obj)
                 return null;
 
-            token = obj[segment.ToString()];
+            token = obj[segment.ToString()]!;
             if (token is null)
                 return null;
 
@@ -2063,12 +2079,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         var dict = new Dictionary<string, object>(obj.Count);
 
         foreach (var property in obj.Properties())
-            dict[property.Name] = ToValue(property.Value);
+            dict[property.Name] = ToValue(property.Value)!;
 
         return dict;
     }
 
-    private static object ToValue(JToken token)
+    private static object? ToValue(JToken token)
     {
         return token switch
         {

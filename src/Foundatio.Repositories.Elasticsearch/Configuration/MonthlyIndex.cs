@@ -9,7 +9,7 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
 public class MonthlyIndex : DailyIndex
 {
-    public MonthlyIndex(IElasticConfiguration configuration, string name, int version = 1, Func<object, DateTime> getDocumentDateUtc = null)
+    public MonthlyIndex(IElasticConfiguration configuration, string name, int version = 1, Func<object, DateTime>? getDocumentDateUtc = null)
         : base(configuration, name, version, getDocumentDateUtc)
     {
         DateFormat = "yyyy.MM";
@@ -54,11 +54,10 @@ public class MonthlyIndex : DailyIndex
 
 public class MonthlyIndex<T> : MonthlyIndex where T : class
 {
-    private readonly string _typeName = typeof(T).Name.ToLower();
+    private static readonly string _typeName = typeof(T).Name.ToLower();
 
-    public MonthlyIndex(IElasticConfiguration configuration, string name = null, int version = 1, Func<object, DateTime> getDocumentDateUtc = null) : base(configuration, name, version, getDocumentDateUtc)
+    public MonthlyIndex(IElasticConfiguration configuration, string? name = null, int version = 1, Func<object, DateTime>? getDocumentDateUtc = null) : base(configuration, name ?? _typeName, version, getDocumentDateUtc)
     {
-        Name = name ?? _typeName;
     }
 
     protected override ElasticMappingResolver CreateMappingResolver()

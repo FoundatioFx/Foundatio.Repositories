@@ -167,11 +167,11 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task InvalidateCacheWithInvalidArgumentsAsync()
     {
-        await Assert.ThrowsAsync<ArgumentNullException>(async () => await _identityRepository.InvalidateCacheAsync((Identity)null));
-        await Assert.ThrowsAsync<ArgumentNullException>(async () => await _identityRepository.InvalidateCacheAsync((IReadOnlyCollection<Identity>)null));
+        await Assert.ThrowsAsync<ArgumentNullException>(async () => await _identityRepository.InvalidateCacheAsync((Identity)null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(async () => await _identityRepository.InvalidateCacheAsync((IReadOnlyCollection<Identity>)null!));
         await _identityRepository.InvalidateCacheAsync(new List<Identity>());
         await Assert.ThrowsAsync<ArgumentNullException>(async () => await _identityRepository.InvalidateCacheAsync(new List<Identity> {
-            null
+            null!
         }));
     }
 
@@ -268,34 +268,34 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(0, _cache.Hits);
         Assert.Equal(0, _cache.Misses);
 
-        Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache(null)));
+        Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache(null!)));
         Assert.Equal(1, _cache.Count);
         Assert.Equal(0, _cache.Hits);
         Assert.Equal(1, _cache.Misses);
 
-        Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache(null)));
+        Assert.Equal(identity, await _identityRepository.GetByIdAsync(identity.Id, o => o.Cache(null!)));
         Assert.Equal(1, _cache.Count);
         Assert.Equal(1, _cache.Hits);
         Assert.Equal(1, _cache.Misses);
 
-        Assert.Null(await _identityRepository.GetByIdAsync("not-yet", o => o.Cache(null)));
+        Assert.Null(await _identityRepository.GetByIdAsync("not-yet", o => o.Cache(null!)));
         Assert.Equal(2, _cache.Count);
         Assert.Equal(1, _cache.Hits);
         Assert.Equal(2, _cache.Misses);
 
-        Assert.Null(await _identityRepository.GetByIdAsync("not-yet", o => o.Cache(null)));
+        Assert.Null(await _identityRepository.GetByIdAsync("not-yet", o => o.Cache(null!)));
         Assert.Equal(2, _cache.Count);
         Assert.Equal(2, _cache.Hits);
         Assert.Equal(2, _cache.Misses);
 
-        var newIdentity = await _identityRepository.AddAsync(IdentityGenerator.Generate("not-yet"), o => o.Cache(null));
+        var newIdentity = await _identityRepository.AddAsync(IdentityGenerator.Generate("not-yet"), o => o.Cache(null!));
         Assert.NotNull(newIdentity);
         Assert.NotNull(newIdentity.Id);
         Assert.Equal(2, _cache.Count);
         Assert.Equal(2, _cache.Hits);
         Assert.Equal(2, _cache.Misses);
 
-        Assert.Equal(newIdentity, await _identityRepository.GetByIdAsync("not-yet", o => o.Cache(null)));
+        Assert.Equal(newIdentity, await _identityRepository.GetByIdAsync("not-yet", o => o.Cache(null!)));
         Assert.Equal(2, _cache.Count);
         Assert.Equal(3, _cache.Hits);
         Assert.Equal(2, _cache.Misses);
@@ -406,10 +406,10 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.NotNull(identity);
         Assert.NotNull(identity.Id);
 
-        var result = await _identityRepository.GetByIdsAsync((Ids)null);
+        var result = await _identityRepository.GetByIdsAsync((Ids)null!);
         Assert.Empty(result);
 
-        result = await _identityRepository.GetByIdsAsync(new string[] { null });
+        result = await _identityRepository.GetByIdsAsync(new string[] { null! });
         Assert.Empty(result);
 
         result = await _identityRepository.GetByIdsAsync(new[] { IdentityGenerator.Default.Id, identity.Id });
@@ -481,19 +481,19 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.NotNull(identity);
         Assert.NotNull(identity.Id);
 
-        var result = await _identityRepository.GetByIdsAsync((Ids)null, o => o.Cache());
+        var result = await _identityRepository.GetByIdsAsync((Ids)null!, o => o.Cache());
         Assert.Empty(result);
         Assert.Equal(0, _cache.Count);
         Assert.Equal(0, _cache.Hits);
         Assert.Equal(0, _cache.Misses);
 
-        result = await _identityRepository.GetByIdsAsync(new Ids((string)null), o => o.Cache());
+        result = await _identityRepository.GetByIdsAsync(new Ids((string)null!), o => o.Cache());
         Assert.Empty(result);
         Assert.Equal(0, _cache.Count);
         Assert.Equal(0, _cache.Hits);
         Assert.Equal(0, _cache.Misses);
 
-        result = await _identityRepository.GetByIdsAsync(new Ids(IdentityGenerator.Default.Id, identity.Id, null), o => o.Cache());
+        result = await _identityRepository.GetByIdsAsync(new Ids(IdentityGenerator.Default.Id, identity.Id, null!), o => o.Cache());
         Assert.Single(result);
         Assert.Equal(2, _cache.Count);
         Assert.Equal(0, _cache.Hits);
@@ -708,12 +708,12 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(identity1.Id, results.Documents.First().Id);
         Assert.Equal(2, results.Total);
 
-        string asyncQueryId = results.GetAsyncQueryId();
+        string? asyncQueryId = results.GetAsyncQueryId();
         Assert.Null(asyncQueryId);
         Assert.False(results.IsAsyncQueryPartial());
         Assert.False(results.IsAsyncQueryRunning());
 
-        results = await _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId, TimeSpan.FromMinutes(1)));
+        results = await _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId!, TimeSpan.FromMinutes(1)));
         Assert.NotNull(results);
         Assert.Equal(2, results.Documents.Count);
         Assert.Equal(1, results.Page);
@@ -725,7 +725,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.False(results.IsAsyncQueryPartial());
         Assert.False(results.IsAsyncQueryRunning());
 
-        results = await _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId, TimeSpan.FromMinutes(1), autoDelete: true));
+        results = await _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId!, TimeSpan.FromMinutes(1), autoDelete: true));
         Assert.NotNull(results);
         Assert.Equal(2, results.Documents.Count);
         Assert.Equal(1, results.Page);
@@ -755,13 +755,13 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         await _identityRepository.RemoveQueryAsync(asyncQueryId);
 
         // getting query that doesn't exist returns empty (don't love it, but other things are doing similar)
-        await Assert.ThrowsAsync<AsyncQueryNotFoundException>(() => _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId)));
+        await Assert.ThrowsAsync<AsyncQueryNotFoundException>(() => _identityRepository.GetAllAsync(o => o.AsyncQueryId(asyncQueryId!)));
 
         // removing query that does not exist to make sure it doesn't throw
         await _identityRepository.RemoveQueryAsync(asyncQueryId);
 
         // setting to null is ignored
-        await _identityRepository.GetAllAsync(o => o.AsyncQueryId(null));
+        await _identityRepository.GetAllAsync(o => o.AsyncQueryId(null!));
     }
 
     [Fact]
@@ -779,12 +779,12 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.NotNull(results);
         Assert.Equal(2, results);
 
-        string asyncQueryId = results.GetAsyncQueryId();
+        string? asyncQueryId = results.GetAsyncQueryId();
         Assert.Null(asyncQueryId);
         Assert.False(results.IsAsyncQueryPartial());
         Assert.False(results.IsAsyncQueryRunning());
 
-        results = await _identityRepository.CountAsync(o => o.AsyncQueryId(asyncQueryId, TimeSpan.FromMinutes(1)));
+        results = await _identityRepository.CountAsync(o => o.AsyncQueryId(asyncQueryId!, TimeSpan.FromMinutes(1)));
         Assert.NotNull(results);
         Assert.Equal(2, results);
         Assert.Equal(2, results.Total);
@@ -793,7 +793,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.False(results.IsAsyncQueryPartial());
         Assert.False(results.IsAsyncQueryRunning());
 
-        results = await _identityRepository.CountAsync(o => o.AsyncQueryId(asyncQueryId, TimeSpan.FromMinutes(1), autoDelete: true));
+        results = await _identityRepository.CountAsync(o => o.AsyncQueryId(asyncQueryId!, TimeSpan.FromMinutes(1), autoDelete: true));
         Assert.NotNull(results);
         Assert.Equal(2, results);
         Assert.Equal(2, results.Total);
@@ -817,13 +817,13 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         await _identityRepository.RemoveQueryAsync(asyncQueryId);
 
         // getting query that doesn't exist returns empty (don't love it, but other things are doing similar)
-        results = await _identityRepository.CountAsync(o => o.AsyncQueryId(asyncQueryId));
+        await _identityRepository.CountAsync(o => o.AsyncQueryId(asyncQueryId!));
 
         // removing query that does not exist to make sure it doesn't throw
         await _identityRepository.RemoveQueryAsync(asyncQueryId);
 
         // setting to null is ignored
-        await _identityRepository.GetAllAsync(o => o.AsyncQueryId(null));
+        await _identityRepository.GetAllAsync(o => o.AsyncQueryId(null!));
     }
 
     [Fact]
@@ -853,7 +853,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.NotNull(employee2);
         Assert.NotNull(employee2.Id);
 
-        var results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedcompanyname:" + employee1.CompanyName), o => o.RuntimeFieldResolver(f => String.Equals(f, "unmappedCompanyName", StringComparison.OrdinalIgnoreCase) ? Task.FromResult(new ElasticRuntimeField { Name = "unmappedCompanyName", FieldType = ElasticRuntimeFieldType.Keyword }) : Task.FromResult<ElasticRuntimeField>(null)));
+        var results = await _employeeRepository.FindAsync(q => q.FilterExpression("unmappedcompanyname:" + employee1.CompanyName), o => o.RuntimeFieldResolver(f => String.Equals(f, "unmappedCompanyName", StringComparison.OrdinalIgnoreCase) ? Task.FromResult(new ElasticRuntimeField { Name = "unmappedCompanyName", FieldType = ElasticRuntimeFieldType.Keyword }) : Task.FromResult<ElasticRuntimeField>(null!)));
         Assert.NotNull(results);
         Assert.Single(results.Documents);
     }
@@ -901,7 +901,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(employee1.Id, results.Documents.First().Id);
         Assert.Equal(2, results.Total);
         Assert.Null(results.GetSearchBeforeToken());
-        Assert.NotEmpty(results.GetSearchAfterToken());
+        Assert.NotEmpty(results.GetSearchAfterToken()!);
 
         Assert.True(await results.NextPageAsync());
         Assert.Single(results.Documents);
@@ -909,8 +909,8 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(2, results.Total);
         Assert.Equal(employee2.Id, results.Documents.First().Id);
         Assert.False(results.HasMore);
-        string searchBeforeToken = results.GetSearchBeforeToken();
-        Assert.NotEmpty(searchBeforeToken);
+        string? searchBeforeToken = results.GetSearchBeforeToken();
+        Assert.NotEmpty(searchBeforeToken!);
         Assert.Null(results.GetSearchAfterToken());
 
         Assert.False(await results.NextPageAsync());
@@ -928,10 +928,10 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(employee1.Id, results.Documents.First().Id);
         Assert.Equal(2, results.Total);
         Assert.Null(results.GetSearchBeforeToken());
-        Assert.NotEmpty(results.GetSearchAfterToken());
+        Assert.NotEmpty(results.GetSearchAfterToken()!);
 
         // try search before
-        results = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchBeforeToken(searchBeforeToken));
+        results = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchBeforeToken(searchBeforeToken!));
         Assert.NotNull(results);
         Assert.Single(results.Documents);
         Assert.Equal(1, results.Page);
@@ -939,7 +939,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(employee1.Id, results.Documents.First().Id);
         Assert.Equal(2, results.Total);
         Assert.Null(results.GetSearchBeforeToken());
-        Assert.NotEmpty(results.GetSearchAfterToken());
+        Assert.NotEmpty(results.GetSearchAfterToken()!);
 
         results = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(5).SearchAfterPaging());
         Assert.NotNull(results);
@@ -1013,7 +1013,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
 
         // Act
         var results = await _identityRepository.GetAllAsync(o => o.PageLimit(10));
-        var viewedIds = new HashSet<string>();
+        var viewedIds = new HashSet<string?>();
         int pagedRecords = 0;
         do
         {
@@ -1052,7 +1052,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
 
         // Act
         var results = await _identityRepository.FindAsync(q => q, o => o.PageLimit(10));
-        var viewedIds = new HashSet<string>();
+        var viewedIds = new HashSet<string?>();
         int pagedRecords = 0;
         do
         {
@@ -1085,13 +1085,13 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(identity2.Id, results.Documents.First().Id);
         Assert.Equal(2, results.Total);
 
-        results = await _identityRepository.FindAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1).SearchAfter(results.Hits.First().GetSorts()));
+        results = await _identityRepository.FindAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1).SearchAfter(results.Hits.First().GetSorts()!));
         Assert.Single(results.Documents);
         Assert.Equal(2, results.Total);
         Assert.Equal(identity1.Id, results.Documents.First().Id);
         Assert.False(results.HasMore);
 
-        results = await _identityRepository.FindAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1).SearchAfter(results.Hits.First().GetSorts()));
+        results = await _identityRepository.FindAsync(q => q.SortDescending(d => d.Id), o => o.PageLimit(1).SearchAfter(results.Hits.First().GetSorts()!));
         Assert.Empty(results.Documents);
         Assert.Equal(1, results.Page);
         Assert.False(results.HasMore);
@@ -1299,13 +1299,13 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         int pageSize = 10;
 
         var employeePages = new List<FindResults<Employee>>();
-        string searchAfterToken = null;
-        string searchBeforeToken = null;
+        string? searchAfterToken = null;
+        string? searchBeforeToken = null;
         int page = 0;
         do
         {
             page++;
-            var employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(secondarySort), o => o.SearchAfterToken(searchAfterToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
+            var employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(secondarySort), o => o.SearchAfterToken(searchAfterToken!).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
             searchBeforeToken = employees.GetSearchBeforeToken();
             searchAfterToken = employees.GetSearchAfterToken();
             if (page == 1)
@@ -1345,7 +1345,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         do
         {
             page--;
-            var employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(e => e.Age), o => o.SearchBeforeToken(searchBeforeToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
+            var employees = await _employeeRepository.FindAsync(q => q.Sort(e => e.Name).Sort(e => e.CompanyName).SortDescending(e => e.Age), o => o.SearchBeforeToken(searchBeforeToken!).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
             searchBeforeToken = employees.GetSearchBeforeToken();
             searchAfterToken = employees.GetSearchAfterToken();
             if (page == 1)
@@ -1377,13 +1377,13 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         int pageSize = 10;
 
         var employeePages = new List<FindResults<Employee>>();
-        string searchAfterToken = null;
-        string searchBeforeToken = null;
+        string? searchAfterToken = null;
+        string? searchBeforeToken = null;
         int page = 0;
         do
         {
             page++;
-            var employees = await _employeeRepository.FindAsync(q => q.SortExpression("name companyname -age"), o => o.SearchAfterToken(searchAfterToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
+            var employees = await _employeeRepository.FindAsync(q => q.SortExpression("name companyname -age"), o => o.SearchAfterToken(searchAfterToken!).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
             searchBeforeToken = employees.GetSearchBeforeToken();
             searchAfterToken = employees.GetSearchAfterToken();
             if (page == 1)
@@ -1423,7 +1423,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         do
         {
             page--;
-            var employees = await _employeeRepository.FindAsync(q => q.SortExpression("name companyname -age"), o => o.SearchBeforeToken(searchBeforeToken).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
+            var employees = await _employeeRepository.FindAsync(q => q.SortExpression("name companyname -age"), o => o.SearchBeforeToken(searchBeforeToken!).PageLimit(pageSize).QueryLogLevel(LogLevel.Information));
             searchBeforeToken = employees.GetSearchBeforeToken();
             searchAfterToken = employees.GetSearchAfterToken();
             if (page == 1)

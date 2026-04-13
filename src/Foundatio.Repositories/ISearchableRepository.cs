@@ -29,10 +29,10 @@ public interface ISearchableRepository<T> : IRepository<T>, ISearchableReadOnlyR
     /// document-based cache invalidation per batch. <see cref="ScriptPatch"/> and <see cref="PartialPatch"/>
     /// use ID-based invalidation only (the modified document is not available client-side).</para>
     /// </remarks>
-    Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> query, IPatchOperation operation, CommandOptionsDescriptor<T> options = null);
+    Task<long> PatchAllAsync(RepositoryQueryDescriptor<T> query, IPatchOperation operation, CommandOptionsDescriptor<T>? options = null);
 
     /// <inheritdoc cref="PatchAllAsync(RepositoryQueryDescriptor{T}, IPatchOperation, CommandOptionsDescriptor{T})"/>
-    Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions options = null);
+    Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions? options = null);
 
     /// <summary>
     /// Permanently removes all documents matching the query (hard delete).
@@ -40,10 +40,10 @@ public interface ISearchableRepository<T> : IRepository<T>, ISearchableReadOnlyR
     /// <param name="query">An object containing filter criteria used to enforce tenancy or other system-level filters.</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
     /// <returns>The number of documents removed.</returns>
-    Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T> options = null);
+    Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null);
 
     /// <inheritdoc cref="RemoveAllAsync(RepositoryQueryDescriptor{T}, CommandOptionsDescriptor{T})"/>
-    Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions options = null);
+    Task<long> RemoveAllAsync(IRepositoryQuery query, ICommandOptions? options = null);
 
     /// <summary>
     /// Processes all documents matching the query in batches.
@@ -52,10 +52,10 @@ public interface ISearchableRepository<T> : IRepository<T>, ISearchableReadOnlyR
     /// <param name="processFunc">A function that processes each batch and returns <c>true</c> to continue or <c>false</c> to stop.</param>
     /// <param name="options">Options to control paging, caching, and other behaviors.</param>
     /// <returns>The total number of documents processed.</returns>
-    Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<FindResults<T>, Task<bool>> processFunc, CommandOptionsDescriptor<T> options = null);
+    Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<FindResults<T>, Task<bool>> processFunc, CommandOptionsDescriptor<T>? options = null);
 
     /// <inheritdoc cref="BatchProcessAsync(RepositoryQueryDescriptor{T}, Func{FindResults{T}, Task{bool}}, CommandOptionsDescriptor{T})"/>
-    Task<long> BatchProcessAsync(IRepositoryQuery query, Func<FindResults<T>, Task<bool>> processFunc, ICommandOptions options = null);
+    Task<long> BatchProcessAsync(IRepositoryQuery query, Func<FindResults<T>, Task<bool>> processFunc, ICommandOptions? options = null);
 
     /// <summary>
     /// Processes all documents matching the query in batches, mapping results to a different type.
@@ -65,8 +65,8 @@ public interface ISearchableRepository<T> : IRepository<T>, ISearchableReadOnlyR
     /// <param name="processFunc">A function that processes each batch and returns <c>true</c> to continue or <c>false</c> to stop.</param>
     /// <param name="options">Options to control paging, caching, and other behaviors.</param>
     /// <returns>The total number of documents processed.</returns>
-    Task<long> BatchProcessAsAsync<TResult>(RepositoryQueryDescriptor<T> query, Func<FindResults<TResult>, Task<bool>> processFunc, CommandOptionsDescriptor<T> options = null) where TResult : class, new();
+    Task<long> BatchProcessAsAsync<TResult>(RepositoryQueryDescriptor<T> query, Func<FindResults<TResult>, Task<bool>> processFunc, CommandOptionsDescriptor<T>? options = null) where TResult : class, new();
 
     /// <inheritdoc cref="BatchProcessAsAsync{TResult}(RepositoryQueryDescriptor{T}, Func{FindResults{TResult}, Task{bool}}, CommandOptionsDescriptor{T})"/>
-    Task<long> BatchProcessAsAsync<TResult>(IRepositoryQuery query, Func<FindResults<TResult>, Task<bool>> processFunc, ICommandOptions options = null) where TResult : class, new();
+    Task<long> BatchProcessAsAsync<TResult>(IRepositoryQuery query, Func<FindResults<TResult>, Task<bool>> processFunc, ICommandOptions? options = null) where TResult : class, new();
 }

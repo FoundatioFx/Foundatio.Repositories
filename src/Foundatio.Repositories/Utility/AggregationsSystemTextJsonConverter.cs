@@ -15,9 +15,9 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
     public override IAggregate Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         var element = JsonElement.ParseValue(ref reader);
-        string typeToken = GetTokenType(element);
+        string? typeToken = GetTokenType(element);
 
-        IAggregate value = typeToken switch
+        IAggregate? value = typeToken switch
         {
             "bucket" => element.Deserialize<BucketAggregate>(options),
             "exstats" => element.Deserialize<ExtendedStatsAggregate>(options),
@@ -31,7 +31,13 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
             _ => null
         };
 
-        return value ?? element.Deserialize<ValueAggregate>(options);
+        if (value is null)
+            value = element.Deserialize<ValueAggregate>(options);
+
+        if (value is null)
+            throw new JsonException("Failed to deserialize aggregate.");
+
+        return value;
     }
 
     public override void Write(Utf8JsonWriter writer, IAggregate value, JsonSerializerOptions options)
@@ -49,8 +55,8 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
         if (element.Deserialize<PercentilesAggregate>(options) is not { } agg)
             return new PercentilesAggregate();
 
-        if (agg.Items is null && GetProperty(element, "Items") is { } itemsElement)
-            agg.Items = itemsElement.Deserialize<IReadOnlyList<PercentileItem>>(options);
+        if (agg.Items is not { Count: > 0 } && GetProperty(element, "Items") is { } itemsElement)
+            agg.Items = itemsElement.Deserialize<IReadOnlyList<PercentileItem>>(options) ?? [];
 
         return agg;
     }
@@ -80,7 +86,7 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
         return null;
     }
 
-    private static string GetTokenType(JsonElement element)
+    private static string? GetTokenType(JsonElement element)
     {
         var dataPropertyElement = GetProperty(element, "Data");
 

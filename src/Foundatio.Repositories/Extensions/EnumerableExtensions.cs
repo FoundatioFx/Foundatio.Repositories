@@ -9,7 +9,7 @@ namespace Foundatio.Repositories.Extensions;
 
 public static class EnumerableExtensions
 {
-    public static void EnsureIds<T>(this IEnumerable<T> values, Func<T, string> generateIdFunc = null, TimeProvider timeProvider = null) where T : class, IIdentity
+    public static void EnsureIds<T>(this IEnumerable<T> values, Func<T, string>? generateIdFunc = null, TimeProvider? timeProvider = null) where T : class, IIdentity
     {
         if (values == null)
             return;
@@ -25,7 +25,7 @@ public static class EnumerableExtensions
         }
     }
 
-    public static void SetDates(this IHaveDates value, TimeProvider timeProvider = null)
+    public static void SetDates(this IHaveDates value, TimeProvider? timeProvider = null)
     {
         if (value is null)
             return;
@@ -39,7 +39,7 @@ public static class EnumerableExtensions
         value.UpdatedUtc = utcNow;
     }
 
-    public static void SetDates<T>(this IEnumerable<T> values, TimeProvider timeProvider = null) where T : class, IHaveDates
+    public static void SetDates<T>(this IEnumerable<T> values, TimeProvider? timeProvider = null) where T : class, IHaveDates
     {
         if (values is null)
             return;
@@ -48,7 +48,7 @@ public static class EnumerableExtensions
             value.SetDates(timeProvider);
     }
 
-    public static void SetCreatedDates<T>(this IEnumerable<T> values, TimeProvider timeProvider = null) where T : class, IHaveCreatedDate
+    public static void SetCreatedDates<T>(this IEnumerable<T> values, TimeProvider? timeProvider = null) where T : class, IHaveCreatedDate
     {
         if (values == null)
             return;
@@ -74,9 +74,9 @@ public static class EnumerableExtensions
         Func<TA, TK> selectKeyA,
         Func<TB, TK> selectKeyB,
         Func<IEnumerable<TA>, IEnumerable<TB>, TK, TR> projection,
-        IEqualityComparer<TK> cmp = null)
+        IEqualityComparer<TK>? cmp = null)
     {
-        cmp = cmp ?? EqualityComparer<TK>.Default;
+        cmp ??= EqualityComparer<TK>.Default;
         var alookup = a.ToLookup(selectKeyA, cmp);
         var blookup = b.ToLookup(selectKeyB, cmp);
 
@@ -97,11 +97,11 @@ public static class EnumerableExtensions
         Func<TA, TK> selectKeyA,
         Func<TB, TK> selectKeyB,
         Func<TA, TB, TK, TR> projection,
-        TA defaultA = default,
-        TB defaultB = default,
-        IEqualityComparer<TK> cmp = null)
+        TA defaultA = default!,
+        TB defaultB = default!,
+        IEqualityComparer<TK>? cmp = null)
     {
-        cmp = cmp ?? EqualityComparer<TK>.Default;
+        cmp ??= EqualityComparer<TK>.Default;
         var alookup = a.ToLookup(selectKeyA, cmp);
         var blookup = (b ?? new List<TB>()).ToLookup(selectKeyB, cmp);
 
@@ -123,7 +123,7 @@ public static class EnumerableExtensions
     public static IReadOnlyCollection<T> UnionOriginalAndModified<T>(this IReadOnlyCollection<ModifiedDocument<T>> documents) where T : class, new()
     {
         return documents.Select(d => d.Value)
-            .Union(documents.Select(d => d.Original).Where(d => d is not null))
+            .Union(documents.Select(d => d.Original).Where(d => d is not null).Select(d => d!))
             .ToList();
     }
 

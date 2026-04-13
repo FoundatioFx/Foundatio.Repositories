@@ -91,7 +91,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                     if (parentQuery.GetDocumentType() == typeof(object))
                         parentQuery.DocumentType(ctx.Options.ParentDocumentType());
 
-                    var parentContext = new QueryBuilderContext<object>(parentQuery, parentOptions, null);
+                    var parentContext = new QueryBuilderContext<object>(parentQuery, parentOptions);
 
                     await index.QueryBuilder.BuildAsync(parentContext);
 

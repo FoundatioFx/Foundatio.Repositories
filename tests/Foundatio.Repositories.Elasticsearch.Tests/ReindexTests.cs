@@ -362,6 +362,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
             IEmployeeRepository version20Repository = new EmployeeRepository(version20Index);
             var result = await version20Repository.GetByIdAsync(employee.Id);
+            Assert.NotNull(result);
             Assert.Equal("scripted", result.CompanyName);
 
             await using AsyncDisposableAction version21Scope = new(() => version21Index.DeleteAsync());
@@ -370,6 +371,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
             IEmployeeRepository version21Repository = new EmployeeRepository(version21Index);
             result = await version21Repository.GetByIdAsync(employee.Id);
+            Assert.NotNull(result);
             Assert.Equal("typed script", result.CompanyName);
         }
 
@@ -389,6 +391,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
             IEmployeeRepository version21Repository = new EmployeeRepository(version21Index);
             var result = await version21Repository.GetByIdAsync(employee.Id);
+            Assert.NotNull(result);
             Assert.Equal("typed script", result.CompanyName);
         }
     }
@@ -558,6 +561,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Equal(2, countResponse.Count);
 
         var result = await repository.GetByIdAsync(employee.Id);
+        Assert.NotNull(result);
         Assert.Equal(ToJson(employee), ToJson(result));
         Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName, ct: TestCancellationToken)).Exists);
     }

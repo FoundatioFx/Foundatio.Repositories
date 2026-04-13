@@ -14,14 +14,15 @@ public class JsonDiffer
         return path + "/" + extension;
     }
 
-    private static Operation Build(string op, string path, string key, JToken value)
+    private static Operation Build(string op, string path, string key, JToken? value)
     {
-        if (String.IsNullOrEmpty(key))
-            return Operation.Parse("{ 'op' : '" + op + "' , path: '" + path + "', value: " +
-                                (value == null ? "null" : value.ToString(Formatting.None)) + "}");
+        string fullPath = String.IsNullOrEmpty(key) ? path : Extend(path, key);
 
-        return Operation.Parse("{ op : '" + op + "' , path : '" + Extend(path, key) + "' , value : " +
-                            (value == null ? "null" : value.ToString(Formatting.None)) + "}");
+        if (String.Equals(op, "remove", StringComparison.Ordinal))
+            return Operation.Parse("{ 'op' : '" + op + "' , 'path': '" + fullPath + "'}");
+
+        return Operation.Parse("{ 'op' : '" + op + "' , 'path' : '" + fullPath + "' , 'value' : " +
+                            (value is null ? "null" : value.ToString(Formatting.None)) + "}");
     }
 
     internal static Operation Add(string path, string key, JToken value)
@@ -34,7 +35,7 @@ public class JsonDiffer
         return Build("remove", path, key, null);
     }
 
-    internal static Operation Replace(string path, string key, JToken value)
+    internal static Operation Replace(string path, string key, JToken? value)
     {
         return Build("replace", path, key, value);
     }
@@ -44,29 +45,29 @@ public class JsonDiffer
     {
         if (left.Type != right.Type)
         {
-            yield return JsonDiffer.Replace(path, "", right);
+            yield return JsonDiffer.Replace(path, String.Empty, right);
             yield break;
         }
 
         if (left.Type == JTokenType.Array)
         {
-            Operation prev = null;
+            Operation? prev = null;
             foreach (var operation in ProcessArray(left, right, path, useIdToDetermineEquality))
             {
-                if (prev is RemoveOperation prevRemove && operation is AddOperation add && add.Path == prevRemove.Path)
+                if (prev is RemoveOperation prevRemove && operation is AddOperation add && add.Path is not null && add.Path == prevRemove.Path)
                 {
-                    yield return Replace(add.Path, "", add.Value);
+                    yield return Replace(add.Path, String.Empty, add.Value);
                     prev = null;
                 }
                 else
                 {
-                    if (prev != null)
+                    if (prev is not null)
                         yield return prev;
                     prev = operation;
                 }
             }
 
-            if (prev != null)
+            if (prev is not null)
                 yield return prev;
         }
         else if (left.Type == JTokenType.Object)
@@ -85,7 +86,7 @@ public class JsonDiffer
             }
 
             var matchedKeys = lprops.Select(x => x.Key).Intersect(rprops.Select(y => y.Key));
-            var zipped = matchedKeys.Select(k => new { key = k, left = left[k], right = right[k] });
+            var zipped = matchedKeys.Select(k => new { key = k, left = left[k]!, right = right[k]! });
 
             foreach (var match in zipped)
             {
@@ -102,7 +103,7 @@ public class JsonDiffer
             if (left.ToString() == right.ToString())
                 yield break;
             else
-                yield return JsonDiffer.Replace(path, "", right);
+                yield return JsonDiffer.Replace(path, String.Empty, right);
         }
     }
 
@@ -207,17 +208,17 @@ internal class CustomCheckEqualityComparer : IEqualityComparer<JToken>
         _inner = inner;
     }
 
-    public bool Equals(JToken x, JToken y)
+    public bool Equals(JToken? x, JToken? y)
     {
-        if (!_enableIdCheck || x.Type != JTokenType.Object || y.Type != JTokenType.Object)
+        if (!_enableIdCheck || x is null || y is null || x.Type != JTokenType.Object || y.Type != JTokenType.Object)
             return _inner.Equals(x, y);
 
         var xIdToken = x["id"];
         var yIdToken = y["id"];
 
-        string xId = xIdToken?.Value<string>();
-        string yId = yIdToken?.Value<string>();
-        if (xId != null && xId == yId)
+        string? xId = xIdToken?.Value<string>();
+        string? yId = yIdToken?.Value<string>();
+        if (xId is not null && xId == yId)
         {
             return true;
         }
@@ -231,8 +232,8 @@ internal class CustomCheckEqualityComparer : IEqualityComparer<JToken>
             return _inner.GetHashCode(obj);
 
         var xIdToken = obj["id"];
-        string xId = xIdToken != null && xIdToken.HasValues ? xIdToken.Value<string>() : null;
-        if (xId != null)
+        string? xId = xIdToken is not null && xIdToken.HasValues ? xIdToken.Value<string>() : null;
+        if (xId is not null)
             return xId.GetHashCode() + _inner.GetHashCode(obj);
 
         return _inner.GetHashCode(obj);
@@ -246,9 +247,9 @@ internal class CustomCheckEqualityComparer : IEqualityComparer<JToken>
         var xIdToken = x["id"];
         var yIdToken = y["id"];
 
-        string xId = xIdToken?.Value<string>();
-        string yId = yIdToken?.Value<string>();
+        string? xId = xIdToken?.Value<string>();
+        string? yId = yIdToken?.Value<string>();
 
-        return xId != null && xId == yId;
+        return xId is not null && xId == yId;
     }
 }

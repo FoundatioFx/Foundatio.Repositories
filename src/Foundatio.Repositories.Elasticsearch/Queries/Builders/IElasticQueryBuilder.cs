@@ -20,7 +20,7 @@ public interface IElasticQueryBuilder
 
 public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitorContext, IQueryVisitorContextWithFieldResolver, IQueryVisitorContextWithIncludeResolver, IQueryVisitorContextWithValidation where T : class, new()
 {
-    public QueryBuilderContext(IRepositoryQuery source, ICommandOptions options, SearchDescriptor<T> search = null, IQueryBuilderContext parentContext = null)
+    public QueryBuilderContext(IRepositoryQuery source, ICommandOptions options, SearchDescriptor<T>? search = null, IQueryBuilderContext? parentContext = null)
     {
         Source = source;
         Options = options;
@@ -38,29 +38,29 @@ public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitor
         }
     }
 
-    public IQueryBuilderContext Parent { get; }
+    public IQueryBuilderContext? Parent { get; }
     public IRepositoryQuery Source { get; }
     public ICommandOptions Options { get; }
-    public QueryContainer Query { get; set; }
-    public QueryContainer Filter { get; set; }
+    public QueryContainer Query { get; set; } = null!;
+    public QueryContainer Filter { get; set; } = null!;
     public SearchDescriptor<T> Search { get; }
     public IDictionary<string, object> Data { get; } = new Dictionary<string, object>();
-    public QueryValidationOptions ValidationOptions { get; set; }
-    public QueryValidationResult ValidationResult { get; set; }
-    QueryFieldResolver IQueryVisitorContextWithFieldResolver.FieldResolver { get; set; }
-    IncludeResolver IQueryVisitorContextWithIncludeResolver.IncludeResolver { get; set; }
-    ElasticMappingResolver IElasticQueryVisitorContext.MappingResolver { get; set; }
+    public QueryValidationOptions ValidationOptions { get; set; } = null!;
+    public QueryValidationResult ValidationResult { get; set; } = null!;
+    QueryFieldResolver IQueryVisitorContextWithFieldResolver.FieldResolver { get; set; } = null!;
+    IncludeResolver IQueryVisitorContextWithIncludeResolver.IncludeResolver { get; set; } = null!;
+    ElasticMappingResolver IElasticQueryVisitorContext.MappingResolver { get; set; } = null!;
     ICollection<ElasticRuntimeField> IElasticQueryVisitorContext.RuntimeFields { get; } = new List<ElasticRuntimeField>();
     bool? IElasticQueryVisitorContext.EnableRuntimeFieldResolver { get; set; }
-    RuntimeFieldResolver IElasticQueryVisitorContext.RuntimeFieldResolver { get; set; }
+    RuntimeFieldResolver IElasticQueryVisitorContext.RuntimeFieldResolver { get; set; } = null!;
 
     GroupOperator IQueryVisitorContext.DefaultOperator { get; set; }
-    Func<Task<string>> IElasticQueryVisitorContext.DefaultTimeZone { get; set; }
+    Func<Task<string>>? IElasticQueryVisitorContext.DefaultTimeZone { get; set; }
     bool IElasticQueryVisitorContext.UseScoring { get; set; }
-    string[] IQueryVisitorContext.DefaultFields { get; set; }
-    string IQueryVisitorContext.QueryType { get; set; }
+    string[]? IQueryVisitorContext.DefaultFields { get; set; }
+    string? IQueryVisitorContext.QueryType { get; set; }
 
-    private DateRange GetDateRange()
+    private DateRange? GetDateRange()
     {
         foreach (var dateRange in Source.GetDateRanges())
         {
@@ -74,7 +74,7 @@ public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitor
 
 public interface IQueryBuilderContext
 {
-    IQueryBuilderContext Parent { get; }
+    IQueryBuilderContext? Parent { get; }
     IRepositoryQuery Source { get; }
     ICommandOptions Options { get; }
     QueryContainer Query { get; set; }
@@ -100,13 +100,13 @@ public static class QueryBuilderContextExtensions
         elasticContext.DefaultTimeZone = () => Task.FromResult(timeZone);
     }
 
-    public static Task<string> GetTimeZoneAsync(this IQueryBuilderContext context)
+    public static async Task<string?> GetTimeZoneAsync(this IQueryBuilderContext context)
     {
         var elasticContext = context as IElasticQueryVisitorContext;
-        if (elasticContext?.DefaultTimeZone != null)
-            return elasticContext.DefaultTimeZone.Invoke();
+        if (elasticContext?.DefaultTimeZone is not null)
+            return await elasticContext.DefaultTimeZone.Invoke();
 
-        return Task.FromResult<string>(null);
+        return null;
     }
 }
 

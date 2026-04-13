@@ -101,7 +101,9 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         Assert.Equal("1:0", employee.Version);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         var employeeCopy = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employeeCopy);
         Assert.Equal(employee, employeeCopy);
         Assert.Equal("1:0", employee.Version);
 
@@ -130,6 +132,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         Assert.True(response.IsValid);
 
         employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
         Assert.Equal("1:2", employee.Version);
 
         employee.CompanyName = "updated again";
@@ -162,6 +165,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         Assert.Equal("1:1", employee2.Version);
 
         var employee1Version1Copy = await _employeeRepository.GetByIdAsync(employee1.Id);
+        Assert.NotNull(employee1Version1Copy);
         Assert.Equal("1:0", employee1Version1Copy.Version);
         Assert.Equal(employee1, employee1Version1Copy);
 
@@ -244,7 +248,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         var results = await _employeeRepository.GetAllAsync(o => o.PageLimit(PAGE_SIZE));
         Assert.True(results.HasMore);
 
-        var viewedIds = new HashSet<string>();
+        var viewedIds = new HashSet<string?>();
         int pagedRecords = 0;
         do
         {
@@ -313,7 +317,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         var results = await _employeeRepository.GetAllAsync(o => o.PageLimit(PAGE_SIZE).SnapshotPaging());
         Assert.True(results.HasMore);
 
-        var viewedIds = new HashSet<string>();
+        var viewedIds = new HashSet<string?>();
         var newEmployees = new List<Employee>();
         int pagedRecords = 0;
         do
@@ -349,7 +353,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         var results = await _employeeRepository.GetAllAsync(o => o.PageLimit(PAGE_SIZE).SnapshotPaging());
         Assert.True(results.HasMore);
 
-        var viewedIds = new HashSet<string>();
+        var viewedIds = new HashSet<string?>();
         var newEmployees = new List<Employee>();
         int pagedRecords = 0;
         do
@@ -367,6 +371,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
             results = await _employeeRepository.GetAllAsync(o => o.SnapshotPagingScrollId(results));
         } while (results != null && results.Hits.Count > 0);
 
+        Assert.NotNull(results);
         Assert.False(results.HasMore);
         Assert.True(employees.All(e => viewedIds.Contains(e.Id)));
         Assert.Equal(NUMBER_OF_EMPLOYEES, pagedRecords);
@@ -386,7 +391,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         var results = await _employeeRepository.GetAllAsync(o => o.PageLimit(PAGE_SIZE));
         Assert.True(results.HasMore);
 
-        var viewedIds = new HashSet<string>();
+        var viewedIds = new HashSet<string?>();
         int pagedRecords = 0;
         do
         {
@@ -455,6 +460,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         // Assert
         var updated = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(updated);
         Assert.Equal("PatchedCo", updated.CompanyName);
         Assert.True(updated.GetElasticVersion() > originalVersion);
     }
@@ -557,9 +563,11 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
 
         // Assert
         var emp2FromEs = await _employeeRepository.GetByIdAsync(emp2.Id, o => o.Cache(false));
+        Assert.NotNull(emp2FromEs);
         Assert.Equal("FreshUpdate", emp2FromEs.CompanyName);
 
         var emp1Cached = await _employeeRepository.GetByIdAsync(emp1.Id, o => o.Cache());
+        Assert.NotNull(emp1Cached);
         Assert.Equal("BumpedEmp1", emp1Cached.CompanyName);
     }
 
