@@ -6,7 +6,7 @@ public static class FindResultsExtensions
 {
     public static string? GetAsyncQueryId(this IHaveData results)
     {
-        return results.Data.GetString(AsyncQueryDataKeys.AsyncQueryId, null);
+        return results.Data.GetString(AsyncQueryDataKeys.AsyncQueryId);
     }
 
     /// <summary>

@@ -17,8 +17,8 @@ namespace Foundatio.Repositories;
 /// </remarks>
 public record FieldCondition
 {
-    public required Field Field { get; set; }
-    public object? Value { get; set; }
+    public required Field Field { get; init; }
+    public object? Value { get; init; }
     public ComparisonOperator Operator { get; set; }
 }
 

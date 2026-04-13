@@ -42,8 +42,8 @@ public class VersionedIndex : Index, IVersionedIndex
 
     private record ReindexScript
     {
-        public int Version { get; set; }
-        public required string Script { get; set; }
+        public int Version { get; init; }
+        public required string Script { get; init; }
     }
 
     protected virtual void AddReindexScript(int versionNumber, string script)
@@ -377,10 +377,10 @@ public class VersionedIndex : Index, IVersionedIndex
     [DebuggerDisplay("{Index} (Date: {DateUtc} Version: {Version} CurrentVersion: {CurrentVersion})")]
     protected record IndexInfo
     {
-        public required string Index { get; set; }
-        public int Version { get; set; }
+        public required string Index { get; init; }
+        public int Version { get; init; }
         public int CurrentVersion { get; set; } = -1;
-        public DateTime DateUtc { get; set; }
+        public DateTime DateUtc { get; init; }
     }
 }
 

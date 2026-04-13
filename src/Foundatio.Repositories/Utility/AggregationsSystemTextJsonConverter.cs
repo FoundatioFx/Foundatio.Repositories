@@ -31,9 +31,13 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
             _ => null
         };
 
-        return value
-            ?? element.Deserialize<ValueAggregate>(options)
-            ?? throw new JsonException("Failed to deserialize aggregate.");
+        if (value is null)
+            value = element.Deserialize<ValueAggregate>(options);
+
+        if (value is null)
+            throw new JsonException("Failed to deserialize aggregate.");
+
+        return value;
     }
 
     public override void Write(Utf8JsonWriter writer, IAggregate value, JsonSerializerOptions options)
@@ -51,7 +55,7 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
         if (element.Deserialize<PercentilesAggregate>(options) is not { } agg)
             return new PercentilesAggregate();
 
-        if (agg.Items is not { Count: > 0 } && GetProperty(element, "Items") is { } itemsElement)
+        if (agg.Items.Count is 0 && GetProperty(element, "Items") is { } itemsElement)
             agg.Items = itemsElement.Deserialize<IReadOnlyList<PercentileItem>>(options) ?? [];
 
         return agg;

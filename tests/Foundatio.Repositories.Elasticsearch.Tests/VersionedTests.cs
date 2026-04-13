@@ -254,7 +254,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         {
             Assert.Equal(PAGE_SIZE, results.Documents.Count);
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
-            Assert.DoesNotContain(results.Hits, h => viewedIds.Contains(h.Id!));
+            Assert.DoesNotContain(results.Hits, h => viewedIds.Contains(h.Id));
             viewedIds.AddRange(results.Hits.Select(h => h.Id));
 
             pagedRecords += results.Documents.Count;
@@ -324,7 +324,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         {
             Assert.True(results.Documents.Count >= PAGE_SIZE);
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
-            Assert.DoesNotContain(results.Hits, h => viewedIds.Contains(h.Id!));
+            Assert.DoesNotContain(results.Hits, h => viewedIds.Contains(h.Id));
             viewedIds.AddRange(results.Hits.Select(h => h.Id));
 
             Assert.DoesNotContain(newEmployees, d => viewedIds.Contains(d.Id));
@@ -360,7 +360,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         {
             Assert.True(results.Documents.Count >= PAGE_SIZE);
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
-            Assert.DoesNotContain(results.Hits, h => viewedIds.Contains(h.Id!));
+            Assert.DoesNotContain(results.Hits, h => viewedIds.Contains(h.Id));
             viewedIds.AddRange(results.Hits.Select(h => h.Id));
 
             Assert.DoesNotContain(newEmployees, d => viewedIds.Contains(d.Id));
@@ -371,7 +371,8 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
             results = await _employeeRepository.GetAllAsync(o => o.SnapshotPagingScrollId(results));
         } while (results != null && results.Hits.Count > 0);
 
-        Assert.False(results!.HasMore);
+        Assert.NotNull(results);
+        Assert.False(results.HasMore);
         Assert.True(employees.All(e => viewedIds.Contains(e.Id)));
         Assert.Equal(NUMBER_OF_EMPLOYEES, pagedRecords);
     }
@@ -396,7 +397,7 @@ public sealed class VersionedTests : ElasticRepositoryTestBase
         {
             Assert.Equal(Math.Min(PAGE_SIZE, NUMBER_OF_EMPLOYEES - pagedRecords), results.Documents.Count);
             Assert.Equal(NUMBER_OF_EMPLOYEES, results.Total);
-            Assert.DoesNotContain(results.Hits, h => viewedIds.Contains(h.Id!));
+            Assert.DoesNotContain(results.Hits, h => viewedIds.Contains(h.Id));
             viewedIds.AddRange(results.Hits.Select(h => h.Id));
 
             pagedRecords += results.Documents.Count;

@@ -85,7 +85,7 @@ public class EmployeeWithCustomFieldsRepository : ElasticRepositoryBase<Employee
 
     public Task<FindResults<EmployeeWithCustomFields>> GetAllByCompanyAsync(string company, CommandOptionsDescriptor<EmployeeWithCustomFields>? options = null)
     {
-        var commandOptions = (options ?? (_ => _)).Configure();
+        var commandOptions = options.Configure();
         if (commandOptions.ShouldUseCache())
             commandOptions.CacheKey(company);
 
@@ -128,7 +128,7 @@ public class EmployeeWithCustomFieldsRepository : ElasticRepositoryBase<Employee
     {
         string script = $"ctx._source.yearsEmployed += {years};";
         if (ids.Length == 0)
-            return await PatchAllAsync(null!, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
+            return await PatchAllAsync(NewQuery(), new ScriptPatch(script), new CommandOptions().Notifications(false).ImmediateConsistency(true));
 
         await ((IRepository<EmployeeWithCustomFields>)this).PatchAsync(ids, new ScriptPatch(script), o => o.ImmediateConsistency(true));
         return ids.Length;

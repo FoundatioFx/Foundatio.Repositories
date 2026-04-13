@@ -141,7 +141,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
     {
         string script = $"ctx._source.yearsEmployed += {years};";
         if (ids.Length == 0)
-            return await PatchAllAsync(null!, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
+            return await PatchAllAsync(NewQuery(), new ScriptPatch(script), new CommandOptions().Notifications(false).ImmediateConsistency(true));
 
         await ((IRepository<Employee>)this).PatchAsync(ids, new ScriptPatch(script), o => o.ImmediateConsistency(true));
         return ids.Length;
@@ -161,8 +161,13 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
         await base.AddDocumentsToCacheAsync(findHits, options, isDirtyRead);
 
         var cacheEntries = new Dictionary<string, FindHit<Employee>>();
-        foreach (var hit in findHits.Where(d => !String.IsNullOrEmpty(d.Document?.EmailAddress)))
-            cacheEntries.Add($"email:{hit.Document!.EmailAddress!.ToLowerInvariant()}", hit);
+        foreach (var hit in findHits)
+        {
+            if (hit.Document?.EmailAddress is not { Length: > 0 } email)
+                continue;
+
+            cacheEntries.Add($"email:{email.ToLowerInvariant()}", hit);
+        }
 
         await AddDocumentsToCacheWithKeyAsync(cacheEntries, options.GetExpiresIn());
     }

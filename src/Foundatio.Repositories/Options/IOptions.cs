@@ -48,7 +48,7 @@ public class OptionsDictionary : IOptionsDictionary
         {
             try
             {
-                return TypeHelper.ToType<T>(data);
+                return TypeHelper.ToType<T>(data) ?? defaultValue;
             }
             catch
             {

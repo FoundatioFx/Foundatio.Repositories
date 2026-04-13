@@ -22,7 +22,8 @@ public class JsonPatchTests
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
 
-        var list = (sample["books"] as JArray)!;
+        var list = sample["books"] as JArray;
+        Assert.NotNull(list);
 
         Assert.Equal(3, list.Count);
     }
@@ -40,7 +41,10 @@ public class JsonPatchTests
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
 
-        var list = (sample["someobject"]!["somearray"] as JArray)!;
+        var someobject = sample["someobject"];
+        Assert.NotNull(someobject);
+        var list = someobject["somearray"] as JArray;
+        Assert.NotNull(list);
 
         Assert.Single(list);
     }
@@ -72,7 +76,8 @@ public class JsonPatchTests
 
         new JsonPatcher().Patch(ref sample, patchDocument);
 
-        var list = (sample["books"] as JArray)!;
+        var list = sample["books"] as JArray;
+        Assert.NotNull(list);
 
         Assert.Single(list);
     }
@@ -89,7 +94,8 @@ public class JsonPatchTests
 
         new JsonPatcher().Patch(ref sample, patchDocument);
 
-        var list = (sample["tags"] as JArray)!;
+        var list = sample["tags"] as JArray;
+        Assert.NotNull(list);
 
         Assert.Equal(2, list.Count);
     }
@@ -107,7 +113,10 @@ public class JsonPatchTests
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
 
-        string result = sample.SelectPatchToken(pointer)!.Value<string>()!;
+        var token = sample.SelectPatchToken(pointer);
+        Assert.NotNull(token);
+        string? result = token.Value<string>();
+        Assert.NotNull(result);
         Assert.Equal("Little Red Riding Hood", result);
     }
 
@@ -124,7 +133,10 @@ public class JsonPatchTests
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
 
-        string result = sample.SelectPatchToken(pointer)!.Value<string>()!;
+        var token = sample.SelectPatchToken(pointer);
+        Assert.NotNull(token);
+        string? result = token.Value<string>();
+        Assert.NotNull(result);
         Assert.Equal("213324234343", result);
     }
 
@@ -179,7 +191,10 @@ public class JsonPatchTests
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
 
-        string result = sample.SelectPatchToken(topointer)!.Value<string>()!;
+        var token = sample.SelectPatchToken(topointer);
+        Assert.NotNull(token);
+        string? result = token.Value<string>();
+        Assert.NotNull(result);
         Assert.Equal("F. Scott Fitzgerald", result);
     }
 
@@ -323,7 +338,9 @@ public class JsonPatchTests
 
         new JsonPatcher().Patch(ref sample, patchDocument);
 
-        Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer)!.Value<string>());
+        var token = sample.SelectPatchToken(pointer);
+        Assert.NotNull(token);
+        Assert.Equal("Bob Brown", token.Value<string>());
     }
 
     [Fact]
@@ -338,7 +355,9 @@ public class JsonPatchTests
 
         new JsonPatcher().Patch(ref sample, patchDocument);
 
-        Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer)!.Value<string>());
+        var token = sample.SelectPatchToken(pointer);
+        Assert.NotNull(token);
+        Assert.Equal("Bob Brown", token.Value<string>());
 
         sample = JToken.Parse("{}");
 
@@ -349,7 +368,9 @@ public class JsonPatchTests
 
         new JsonPatcher().Patch(ref sample, patchDocument);
 
-        Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer)!.Value<string>());
+        token = sample.SelectPatchToken(pointer);
+        Assert.NotNull(token);
+        Assert.Equal("Bob Brown", token.Value<string>());
 
         sample = JToken.Parse("{}");
 
@@ -360,7 +381,9 @@ public class JsonPatchTests
 
         new JsonPatcher().Patch(ref sample, patchDocument);
 
-        Assert.Equal("Bob Brown", sample.SelectPatchToken(pointer)!.Value<string>());
+        token = sample.SelectPatchToken(pointer);
+        Assert.NotNull(token);
+        Assert.Equal("Bob Brown", token.Value<string>());
 
         sample = JToken.Parse("{}");
 
@@ -387,7 +410,9 @@ public class JsonPatchTests
         new JsonPatcher().Patch(ref sample, patchDocument);
 
         string newPointer = "/books/0/author/hello";
-        Assert.Equal("world", sample.SelectPatchToken(newPointer)!.Value<string>());
+        var token = sample.SelectPatchToken(newPointer);
+        Assert.NotNull(token);
+        Assert.Equal("world", token.Value<string>());
     }
 
     [Fact]
@@ -418,10 +443,14 @@ public class JsonPatchTests
         new JsonPatcher().Patch(ref sample, patchDocument);
 
         string newPointer = "/books/1/author";
-        Assert.Equal("Eric", sample.SelectPatchToken(newPointer)!.Value<string>());
+        var token = sample.SelectPatchToken(newPointer);
+        Assert.NotNull(token);
+        Assert.Equal("Eric", token.Value<string>());
 
         newPointer = "/books/2/author";
-        Assert.Equal("Eric", sample.SelectPatchToken(newPointer)!.Value<string>());
+        token = sample.SelectPatchToken(newPointer);
+        Assert.NotNull(token);
+        Assert.Equal("Eric", token.Value<string>());
     }
 
     [Fact]
@@ -432,7 +461,8 @@ public class JsonPatchTests
         var patchDocument = JsonConvert.DeserializeObject<PatchDocument>(operations);
         var token = JToken.Parse("{ \"data\": { \"Address\": { \"address1\": null, \"address2\": null, \"city\": \"e\", \"state\": null, \"postal_code\": null, \"country\": null, \"geo\": null, \"geo_hash\": null, \"normalized_geo_hash\": null, \"geo_country\": null, \"geo_level1\": null, \"geo_level2\": null, \"geo_locality\": null, \"latitude\": null, \"longitude\": null, \"full_address\": null } } }");
 
-        new JsonPatcher().Patch(ref token, patchDocument!);
+        Assert.NotNull(patchDocument);
+        new JsonPatcher().Patch(ref token, patchDocument);
 
         Assert.Equal("{\"data\":{\"Address\":{\"address1\":\"100 Main Street\",\"city\":\"Suamico\",\"state\":\"Wi\",\"postal_code\":\"54173\",\"country\":\"US\"}}}", token.ToString(Formatting.None));
     }
@@ -465,7 +495,9 @@ public class JsonPatchTests
         var patcher = new JsonPatcher();
         patcher.Patch(ref sample, patchDocument);
 
-        Assert.False(sample.ToObject<MyConfigClass>()!.RequiresConfiguration);
+        var config = sample.ToObject<MyConfigClass>();
+        Assert.NotNull(config);
+        Assert.False(config.RequiresConfiguration);
     }
 
     public static JToken GetSample2()

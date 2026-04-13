@@ -399,50 +399,50 @@ public class ElasticReindexer
 
     private record ReindexResult
     {
-        public long Total { get; set; }
-        public long Completed { get; set; }
-        public long Failures { get; set; }
-        public bool Succeeded { get; set; }
+        public long Total { get; init; }
+        public long Completed { get; init; }
+        public long Failures { get; init; }
+        public bool Succeeded { get; init; }
     }
 
     private record TaskWithReindexResponse
     {
-        public TaskReindexResult? Response { get; set; }
-        public TaskReindexError? Error { get; set; }
+        public TaskReindexResult? Response { get; init; }
+        public TaskReindexError? Error { get; init; }
     }
 
     private record TaskReindexError
     {
-        public string? Type { get; set; }
-        public string? Reason { get; set; }
-        public List<string>? Script_Stack { get; set; }
+        public string? Type { get; init; }
+        public string? Reason { get; init; }
+        public List<string>? Script_Stack { get; init; }
 
-        public TaskCause? Caused_By { get; set; }
+        public TaskCause? Caused_By { get; init; }
     }
 
     private record TaskCause
     {
-        public string? Type { get; set; }
-        public string? Reason { get; set; }
+        public string? Type { get; init; }
+        public string? Reason { get; init; }
     }
 
     private record TaskReindexResult
     {
-        public long Total { get; set; }
-        public long Created { get; set; }
-        public long Updated { get; set; }
-        public long Noops { get; set; }
-        public long VersionConflicts { get; set; }
+        public long Total { get; init; }
+        public long Created { get; init; }
+        public long Updated { get; init; }
+        public long Noops { get; init; }
+        public long VersionConflicts { get; init; }
 
-        public IReadOnlyCollection<BulkIndexByScrollFailure>? Failures { get; set; }
+        public IReadOnlyCollection<BulkIndexByScrollFailure>? Failures { get; init; }
     }
 
     private record BulkIndexByScrollFailure
     {
-        public Error? Cause { get; set; }
-        public string? Id { get; set; }
-        public string? Index { get; set; }
-        public int Status { get; set; }
-        public string? Type { get; set; }
+        public Error? Cause { get; init; }
+        public string? Id { get; init; }
+        public string? Index { get; init; }
+        public int Status { get; init; }
+        public string? Type { get; init; }
     }
 }

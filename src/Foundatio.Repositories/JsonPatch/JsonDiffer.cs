@@ -16,12 +16,13 @@ public class JsonDiffer
 
     private static Operation Build(string op, string? path, string key, JToken? value)
     {
-        if (String.IsNullOrEmpty(key))
-            return Operation.Parse("{ 'op' : '" + op + "' , path: '" + path + "', value: " +
-                                (value == null ? "null" : value.ToString(Formatting.None)) + "}");
+        string fullPath = String.IsNullOrEmpty(key) ? path ?? String.Empty : Extend(path, key);
 
-        return Operation.Parse("{ op : '" + op + "' , path : '" + Extend(path, key) + "' , value : " +
-                            (value == null ? "null" : value.ToString(Formatting.None)) + "}");
+        if (String.Equals(op, "remove", StringComparison.Ordinal))
+            return Operation.Parse("{ 'op' : '" + op + "' , 'path': '" + fullPath + "'}");
+
+        return Operation.Parse("{ 'op' : '" + op + "' , 'path' : '" + fullPath + "' , 'value' : " +
+                            (value is null ? "null" : value.ToString(Formatting.None)) + "}");
     }
 
     internal static Operation Add(string? path, string key, JToken value)

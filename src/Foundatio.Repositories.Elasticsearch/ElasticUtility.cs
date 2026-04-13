@@ -157,9 +157,9 @@ public delegate DateTime? ExtractDateFunc(string name);
 
 public record CreateSnapshotOptions
 {
-    public required string Repository { get; set; }
+    public required string Repository { get; init; }
     public string? Name { get; set; }
-    public ICollection<string>? Indices { get; set; }
-    public bool IgnoreUnavailable { get; set; } = false;
-    public bool IncludeGlobalState { get; set; } = true;
+    public ICollection<string>? Indices { get; init; }
+    public bool IgnoreUnavailable { get; init; } = false;
+    public bool IncludeGlobalState { get; init; } = true;
 }

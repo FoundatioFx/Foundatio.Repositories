@@ -10,17 +10,20 @@ public class JsonPatcher : AbstractPatcher<JToken>
 {
     protected override JToken Replace(ReplaceOperation operation, JToken target)
     {
-        var tokens = target.SelectPatchTokens(operation.Path!).ToList();
+        if (operation.Path is null)
+            return operation.Value ?? JValue.CreateNull();
+
+        var tokens = target.SelectPatchTokens(operation.Path).ToList();
         if (tokens.Count == 0)
         {
-            string[] parts = operation.Path!.Split('/');
+            string[] parts = operation.Path.Split('/');
             string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
             string? propertyName = parts.LastOrDefault();
 
-            if (target.SelectOrCreatePatchToken(parentPath) is not JObject parent)
+            if (propertyName is null || target.SelectOrCreatePatchToken(parentPath) is not JObject parent)
                 return target;
 
-            parent[propertyName!] = operation.Value;
+            parent[propertyName] = operation.Value;
 
             return target;
         }
@@ -38,7 +41,10 @@ public class JsonPatcher : AbstractPatcher<JToken>
 
     protected override void Add(AddOperation operation, JToken target)
     {
-        string[] parts = operation.Path!.Split('/');
+        if (operation.Path is null)
+            return;
+
+        string[] parts = operation.Path.Split('/');
         string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
         string? propertyName = parts.LastOrDefault();
 
@@ -49,18 +55,18 @@ public class JsonPatcher : AbstractPatcher<JToken>
             var array = target.SelectOrCreatePatchArrayToken(parentPath) as JArray;
             array?.Add(value);
         }
-        else if (propertyName!.IsNumeric())
+        else if (propertyName is not null && propertyName.IsNumeric())
         {
             var array = target.SelectOrCreatePatchArrayToken(parentPath) as JArray;
             if (Int32.TryParse(propertyName, out int index))
                 array?.Insert(index, value);
         }
-        else
+        else if (propertyName is not null)
         {
             var parent = target.SelectOrCreatePatchToken(parentPath) as JObject;
-            var property = parent?.Property(propertyName!);
+            var property = parent?.Property(propertyName);
             if (property == null)
-                parent?.Add(propertyName!, value);
+                parent?.Add(propertyName, value);
             else
                 property.Value = value;
         }
@@ -68,7 +74,10 @@ public class JsonPatcher : AbstractPatcher<JToken>
 
     protected override void Remove(RemoveOperation operation, JToken target)
     {
-        var tokens = target.SelectPatchTokens(operation.Path!).ToList();
+        if (operation.Path is null)
+            return;
+
+        var tokens = target.SelectPatchTokens(operation.Path).ToList();
         if (tokens.Count == 0)
             return;
 
@@ -87,10 +96,13 @@ public class JsonPatcher : AbstractPatcher<JToken>
 
     protected override void Move(MoveOperation operation, JToken target)
     {
-        if (operation.Path!.StartsWith(operation.FromPath!))
+        if (operation.Path is null || operation.FromPath is null)
+            throw new ArgumentException("Move operation requires both 'path' and 'from' properties.");
+
+        if (operation.Path.StartsWith(operation.FromPath))
             throw new ArgumentException("To path cannot be below from path");
 
-        var token = target.SelectPatchToken(operation.FromPath!);
+        var token = target.SelectPatchToken(operation.FromPath);
         if (token is null)
             throw new InvalidOperationException($"Move source path '{operation.FromPath}' does not exist.");
 
@@ -101,7 +113,7 @@ public class JsonPatcher : AbstractPatcher<JToken>
     protected override void Test(TestOperation operation, JToken target)
     {
         // Do I need to clone this?
-        var existingValue = target.SelectPatchToken(operation.Path!);
+        var existingValue = operation.Path is not null ? target.SelectPatchToken(operation.Path) : null;
         if (existingValue is null || !JToken.DeepEquals(existingValue, operation.Value))
         {
             throw new InvalidOperationException("Value at " + operation.Path + " does not match.");
@@ -110,7 +122,10 @@ public class JsonPatcher : AbstractPatcher<JToken>
 
     protected override void Copy(CopyOperation operation, JToken target)
     {
-        var token = target.SelectPatchToken(operation.FromPath!);  // Do I need to clone this?
+        if (operation.FromPath is null)
+            throw new ArgumentException("Copy operation requires a 'from' property.");
+
+        var token = target.SelectPatchToken(operation.FromPath);  // Do I need to clone this?
         if (token is null)
             throw new InvalidOperationException($"Copy source path '{operation.FromPath}' does not exist.");
 

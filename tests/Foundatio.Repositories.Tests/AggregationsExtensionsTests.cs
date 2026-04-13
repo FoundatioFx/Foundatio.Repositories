@@ -76,11 +76,11 @@ public sealed class AggregationsExtensionsTests
         };
 
         // Act
-        var result = aggs.Terms<string>("test")!;
-        var resultBuckets = result.Buckets.ToList();
+        var result = aggs.Terms<string>("test");
 
         // Assert
         Assert.NotNull(result);
+        var resultBuckets = result.Buckets.ToList();
         Assert.Equal(6, resultBuckets.Count);
         Assert.Equal("str", resultBuckets[0].Key);
         Assert.Equal("2.5", resultBuckets[1].Key);

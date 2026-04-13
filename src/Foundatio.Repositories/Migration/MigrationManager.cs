@@ -200,7 +200,7 @@ public class MigrationManager
 
         // get all to add any additional migrations that are not configured
         var otherMigrationStates = await _migrationStatusRepository.GetAllAsync(o => o.PageLimit(1000)).AnyContext();
-        migrationStates.AddRange(otherMigrationStates.Documents.Where(m => !migrationStates.Any(s => s.Id == m.Id)));
+        migrationStates.AddRange(otherMigrationStates.Documents.Where(m => !migrationStates.Any(s => String.Equals(s.Id, m.Id, StringComparison.Ordinal))));
 
         var migrationInfos = migrations.Select(m => new MigrationInfo
         {
@@ -286,7 +286,7 @@ public enum MigrationResult
 [DebuggerDisplay("Type: {Migration.MigrationType} Version {Migration.Version}")]
 public record MigrationInfo
 {
-    public required IMigration Migration { get; set; }
+    public required IMigration Migration { get; init; }
     public MigrationState? State { get; set; }
 }
 

@@ -65,7 +65,7 @@ public class DailyLogEventRepository : ElasticRepositoryBase<LogEvent>, ILogEven
 
         string script = $"ctx._source.value += {value};";
         if (ids.Length == 0)
-            return await PatchAllAsync(null!, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
+            return await PatchAllAsync(NewQuery(), new ScriptPatch(script), new CommandOptions<LogEvent>().Notifications(false).ImmediateConsistency(true));
 
         await ((IRepository<LogEvent>)this).PatchAsync(ids, new ScriptPatch(script), o => o.Notifications(false).ImmediateConsistency(true));
         return ids.Length;

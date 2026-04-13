@@ -27,14 +27,17 @@ public class CalculatedIntegerFieldType : IntegerFieldType
         if (!fieldDefinition.Data.TryGetValue("Expression", out object? expression) || expression is null)
             return await base.ProcessValueAsync(document, value, fieldDefinition);
 
-        string expressionText = expression.ToString() ?? String.Empty;
+        string? expressionText = expression.ToString();
+        if (String.IsNullOrEmpty(expressionText))
+            return await base.ProcessValueAsync(document, value, fieldDefinition);
+
         var calculatedValue = await _scriptService.EvaluateForSourceAsync(document, expressionText);
 
         // TODO: Implement a consecutive errors counter that disables badly behaving expressions
         if (calculatedValue.IsCancelled)
             return new ProcessFieldValueResult { Value = null };
 
-        if (calculatedValue.Value is Double.NaN)
+        if (calculatedValue.Value is double d && Double.IsNaN(d))
             return new ProcessFieldValueResult { Value = null };
 
         return new ProcessFieldValueResult { Value = calculatedValue.Value };

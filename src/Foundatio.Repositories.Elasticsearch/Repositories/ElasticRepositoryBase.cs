@@ -35,7 +35,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         _messagePublisher = index.Configuration.MessageBus;
         NotificationsEnabled = _messagePublisher != null;
 
-        AddRequiredField(_idField!);
+        if (_idField is not null)
+            AddRequiredField(_idField);
         if (HasCreatedDate)
             AddRequiredField(e => ((IHaveCreatedDate)e).CreatedUtc);
 

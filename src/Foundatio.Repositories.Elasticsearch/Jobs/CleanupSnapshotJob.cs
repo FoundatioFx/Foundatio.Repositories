@@ -171,15 +171,15 @@ public class CleanupSnapshotJob : IJob
     [DebuggerDisplay("{Name}")]
     private record RepositoryMaxAge
     {
-        public required string Name { get; set; }
-        public TimeSpan MaxAge { get; set; }
+        public required string Name { get; init; }
+        public TimeSpan MaxAge { get; init; }
     }
 
     [DebuggerDisplay("{Name} ({Date})")]
     private record SnapshotDate
     {
-        public required string Name { get; set; }
-        public DateTime Date { get; set; }
+        public required string Name { get; init; }
+        public DateTime Date { get; init; }
     }
 }
 

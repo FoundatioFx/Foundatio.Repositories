@@ -181,8 +181,8 @@ public class CleanupIndexesJob : IJob
 
     private record IndexDate
     {
-        public required string Index { get; set; }
-        public DateTime Date { get; set; }
-        public TimeSpan MaxAge { get; set; }
+        public required string Index { get; init; }
+        public DateTime Date { get; init; }
+        public TimeSpan MaxAge { get; init; }
     }
 }

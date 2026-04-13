@@ -10,7 +10,7 @@ public static class DictionaryExtensions
 {
     public static string? GetString(this IEnumerable<KeyValuePair<string, object>> data, string name)
     {
-        return data.GetString(name, String.Empty);
+        return data.GetString(name, null);
     }
 
     public static string? GetString(this IEnumerable<KeyValuePair<string, object>> data, string name, string? @default)
@@ -70,7 +70,8 @@ public static class DictionaryExtensions
         if (value is bool b)
             return b;
 
-        if (Boolean.TryParse(value.ToString()!, out bool result))
+        string? valueString = value.ToString();
+        if (valueString is not null && Boolean.TryParse(valueString, out bool result))
             return result;
 
         return @default;

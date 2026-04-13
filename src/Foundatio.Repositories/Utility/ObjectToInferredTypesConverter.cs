@@ -11,8 +11,10 @@ public class ObjectToInferredTypesConverter : JsonConverterFactory
     public override JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options)
     {
         var converterType = typeof(ObjectToInferredTypesConverterInner<>).MakeGenericType(typeToConvert);
-        return Activator.CreateInstance(converterType) as JsonConverter
-            ?? throw new InvalidOperationException($"Failed to create converter for type {typeToConvert}");
+        var converter = Activator.CreateInstance(converterType) as JsonConverter;
+        if (converter is null)
+            throw new InvalidOperationException($"Failed to create converter for type {typeToConvert}");
+        return converter;
     }
 
     private class ObjectToInferredTypesConverterInner<T> : JsonConverter<T>
@@ -39,6 +41,7 @@ public class ObjectToInferredTypesConverter : JsonConverterFactory
 
             try
             {
+                // Special case for JsonElement
                 if (result is JsonElement element)
                 {
                     return JsonSerializer.Deserialize<T>(element.GetRawText(), options)!;

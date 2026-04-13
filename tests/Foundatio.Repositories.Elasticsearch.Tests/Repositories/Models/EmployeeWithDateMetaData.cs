@@ -44,13 +44,17 @@ public static class EmployeeWithDateMetaDataGenerator
 
     public static EmployeeWithDateMetaData Generate(string? id = null, string? name = null, int? age = null, string? companyName = null)
     {
-        return new EmployeeWithDateMetaData
+        var employee = new EmployeeWithDateMetaData
         {
-            Id = id ?? String.Empty,
             Name = name ?? "Test",
             Age = age ?? 25,
             CompanyName = companyName ?? "TestCo",
             CompanyId = "test-company"
         };
+
+        if (id is not null)
+            employee.Id = id;
+
+        return employee;
     }
 }
