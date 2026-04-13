@@ -51,7 +51,10 @@ public class OptionsDictionary : IOptionsDictionary
         {
             try
             {
-                return TypeHelper.ToType<T>(data) ?? defaultValue;
+                if (TypeHelper.ToType<T>(data) is T converted)
+                    return converted;
+
+                return defaultValue;
             }
             catch
             {
