@@ -41,9 +41,11 @@ public static class ElasticsearchExtensions
         }
 
 #if ELASTICSEARCH9
-        return (response.Aliases ?? throw new InvalidOperationException("Aliases response was null")).Count;
+        Assert.NotNull(response.Aliases);
+        return response.Aliases.Count;
 #else
-        return (response.Values ?? throw new InvalidOperationException("Values response was null")).Count;
+        Assert.NotNull(response.Values);
+        return response.Values.Count;
 #endif
     }
 
@@ -60,9 +62,11 @@ public static class ElasticsearchExtensions
         }
 
 #if ELASTICSEARCH9
-        return (response.Aliases ?? throw new InvalidOperationException("Aliases response was null")).Keys.ToList();
+        Assert.NotNull(response.Aliases);
+        return response.Aliases.Keys.ToList();
 #else
-        return (response.Values ?? throw new InvalidOperationException("Values response was null")).Keys.ToList();
+        Assert.NotNull(response.Values);
+        return response.Values.Keys.ToList();
 #endif
     }
 
@@ -79,9 +83,11 @@ public static class ElasticsearchExtensions
         }
 
 #if ELASTICSEARCH9
-        return (response.Aliases ?? throw new InvalidOperationException("Aliases response was null")).Keys.ToList();
+        Assert.NotNull(response.Aliases);
+        return response.Aliases.Keys.ToList();
 #else
-        return (response.Values ?? throw new InvalidOperationException("Values response was null")).Keys.ToList();
+        Assert.NotNull(response.Values);
+        return response.Values.Keys.ToList();
 #endif
     }
 }
