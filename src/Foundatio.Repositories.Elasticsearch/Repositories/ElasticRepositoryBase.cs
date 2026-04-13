@@ -37,6 +37,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         if (_idField is not null)
             AddRequiredField(_idField);
+
         if (HasCreatedDate)
             AddRequiredField(e => ((IHaveCreatedDate)e).CreatedUtc);
 

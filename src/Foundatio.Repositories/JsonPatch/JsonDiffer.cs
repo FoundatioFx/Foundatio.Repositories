@@ -16,7 +16,7 @@ public class JsonDiffer
 
     private static Operation Build(string op, string? path, string key, JToken? value)
     {
-        string fullPath = String.IsNullOrEmpty(key) ? path ?? "" : Extend(path, key);
+        string fullPath = String.IsNullOrEmpty(key) ? path ?? String.Empty : Extend(path, key);
 
         if (String.Equals(op, "remove", StringComparison.Ordinal))
             return Operation.Parse("{ 'op' : '" + op + "' , 'path': '" + fullPath + "'}");
