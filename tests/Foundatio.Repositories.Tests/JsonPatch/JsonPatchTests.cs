@@ -185,7 +185,8 @@ public class JsonPatchTests
     [Fact]
     public void TestExample1()
     {
-        JsonNode targetDoc = JsonNode.Parse(@"{ ""foo"": ""bar""}")!;
+        var targetDoc = JsonNode.Parse(@"{ ""foo"": ""bar""}");
+        Assert.NotNull(targetDoc);
         var patchDoc = PatchDocument.Parse(@"[
                                                     { ""op"": ""add"", ""path"": ""/baz"", ""value"": ""qux"" }
                                                 ]");
@@ -218,9 +219,10 @@ public class JsonPatchTests
         string output = streamReader.ReadToEnd();
 
         var jOutput = JsonNode.Parse(output);
+        Assert.NotNull(jOutput);
 
         Assert.Equal(@"[{""op"":""test"",""path"":""/a/b/c"",""value"":""foo""},{""op"":""remove"",""path"":""/a/b/c""},{""op"":""add"",""path"":""/a/b/c"",""value"":[""foo"",""bar""]},{""op"":""replace"",""path"":""/a/b/c"",""value"":42},{""op"":""move"",""path"":""/a/b/d"",""from"":""/a/b/c""},{""op"":""copy"",""path"":""/a/b/e"",""from"":""/a/b/d""}]",
-            jOutput!.ToJsonString());
+            jOutput.ToJsonString());
     }
 
     [Fact]
@@ -266,7 +268,8 @@ public class JsonPatchTests
         ""2018PropertyTwo"" : ""2018 property two value"",
         ""2018Properties"" : [""First value from 2018"",""Second value from 2018""]
     }
-}")!;
+}");
+        Assert.NotNull(sample);
 
         Assert.NotNull(sample.SelectPatchToken("/data/2017Properties/1"));
 
@@ -301,7 +304,8 @@ public class JsonPatchTests
     [Fact]
     public void Replace_non_existant_property()
     {
-        var sample = JsonNode.Parse(@"{ ""data"": {} }")!;
+        var sample = JsonNode.Parse(@"{ ""data"": {} }");
+        Assert.NotNull(sample);
 
         var patchDocument = new PatchDocument();
         string pointer = "/data/author";
@@ -314,7 +318,8 @@ public class JsonPatchTests
         Assert.NotNull(token);
         Assert.Equal("Bob Brown", token.GetValue<string>());
 
-        sample = JsonNode.Parse("{}")!;
+        sample = JsonNode.Parse("{}");
+        Assert.NotNull(sample);
 
         patchDocument = new PatchDocument();
         pointer = "/data/author";
@@ -327,7 +332,8 @@ public class JsonPatchTests
         Assert.NotNull(token);
         Assert.Equal("Bob Brown", token.GetValue<string>());
 
-        sample = JsonNode.Parse("{}")!;
+        sample = JsonNode.Parse("{}");
+        Assert.NotNull(sample);
 
         patchDocument = new PatchDocument();
         pointer = "/";
@@ -340,7 +346,8 @@ public class JsonPatchTests
         Assert.NotNull(token);
         Assert.Equal("Bob Brown", token.GetValue<string>());
 
-        sample = JsonNode.Parse("{}")!;
+        sample = JsonNode.Parse("{}");
+        Assert.NotNull(sample);
 
         patchDocument = new PatchDocument();
         pointer = "/hey/now/0/you";
@@ -376,7 +383,8 @@ public class JsonPatchTests
         const string operations = "[{\"op\":\"remove\",\"path\":\"/data/Address/full_address\"},{\"op\":\"remove\",\"path\":\"/data/Address/longitude\"},{\"op\":\"remove\",\"path\":\"/data/Address/latitude\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo_locality\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo_level2\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo_level1\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo_country\"},{\"op\":\"remove\",\"path\":\"/data/Address/normalized_geo_hash\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo_hash\"},{\"op\":\"remove\",\"path\":\"/data/Address/geo\"},{\"op\":\"replace\",\"path\":\"/data/Address/country\",\"value\":\"US\"},{\"op\":\"replace\",\"path\":\"/data/Address/postal_code\",\"value\":\"54173\"},{\"op\":\"replace\",\"path\":\"/data/Address/state\",\"value\":\"Wi\"},{\"op\":\"replace\",\"path\":\"/data/Address/city\",\"value\":\"Suamico\"},{\"op\":\"remove\",\"path\":\"/data/Address/address2\"},{\"op\":\"replace\",\"path\":\"/data/Address/address1\",\"value\":\"100 Main Street\"}]";
 
         var patchDocument = JsonSerializer.Deserialize<PatchDocument>(operations);
-        var token = JsonNode.Parse("{ \"data\": { \"Address\": { \"address1\": null, \"address2\": null, \"city\": \"e\", \"state\": null, \"postal_code\": null, \"country\": null, \"geo\": null, \"geo_hash\": null, \"normalized_geo_hash\": null, \"geo_country\": null, \"geo_level1\": null, \"geo_level2\": null, \"geo_locality\": null, \"latitude\": null, \"longitude\": null, \"full_address\": null } } }")!;
+        var token = JsonNode.Parse("{ \"data\": { \"Address\": { \"address1\": null, \"address2\": null, \"city\": \"e\", \"state\": null, \"postal_code\": null, \"country\": null, \"geo\": null, \"geo_hash\": null, \"normalized_geo_hash\": null, \"geo_country\": null, \"geo_level1\": null, \"geo_level2\": null, \"geo_locality\": null, \"latitude\": null, \"longitude\": null, \"full_address\": null } } }");
+        Assert.NotNull(token);
 
         Assert.NotNull(patchDocument);
         new JsonPatcher().Patch(ref token, patchDocument);
@@ -404,7 +412,8 @@ public class JsonPatchTests
     [Fact]
     public void Can_replace_existing_boolean()
     {
-        JsonNode sample = JsonSerializer.SerializeToNode(new MyConfigClass { RequiresConfiguration = true })!;
+        var sample = JsonSerializer.SerializeToNode(new MyConfigClass { RequiresConfiguration = true });
+        Assert.NotNull(sample);
 
         var patchDocument = new PatchDocument();
         patchDocument.AddOperation(new ReplaceOperation { Path = "/RequiresConfiguration", Value = JsonValue.Create(false) });
@@ -419,7 +428,7 @@ public class JsonPatchTests
 
     public static JsonNode GetSample2()
     {
-        return JsonNode.Parse(@"{
+        var result = JsonNode.Parse(@"{
     ""books"": [
         {
           ""title"" : ""The Great Gatsby"",
@@ -430,7 +439,9 @@ public class JsonPatchTests
           ""author"" : ""John Steinbeck""
         }
     ]
-}")!;
+}");
+        Assert.NotNull(result);
+        return result;
     }
 
     [Fact]
@@ -452,7 +463,8 @@ public class JsonPatchTests
           ""author"" : ""John Steinbeck""
         }
     ]
-}")!;
+}");
+        Assert.NotNull(sample);
 
         var patchDocument = new PatchDocument();
         string pointer = "$.books[?(@.author == 'John Steinbeck')]";
@@ -463,14 +475,16 @@ public class JsonPatchTests
 
         // Assert
         var list = sample["books"] as System.Text.Json.Nodes.JsonArray;
-        Assert.Single(list!);
+        Assert.NotNull(list);
+        Assert.Single(list);
     }
 
     [Fact]
     public void Remove_WithJsonPathValueFilter_RemovesMatchingItem()
     {
         // Arrange
-        var sample = JsonNode.Parse(@"{ ""tags"": [ ""tag1"", ""tag2"", ""tag3"" ] }")!;
+        var sample = JsonNode.Parse(@"{ ""tags"": [ ""tag1"", ""tag2"", ""tag3"" ] }");
+        Assert.NotNull(sample);
 
         var patchDocument = new PatchDocument();
         string pointer = "$.tags[?(@ == 'tag2')]";
@@ -504,7 +518,8 @@ public class JsonPatchTests
           ""author"" : ""John Steinbeck""
         }
     ]
-}")!;
+}");
+        Assert.NotNull(sample);
 
         var patchDocument = new PatchDocument();
         string pointer = "$.books[?(@.author == 'John Steinbeck')].author";
