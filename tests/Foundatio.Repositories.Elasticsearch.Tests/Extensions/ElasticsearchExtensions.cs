@@ -14,9 +14,9 @@ public static class ElasticsearchExtensions
         var aliasResponse = await client.Indices.GetAliasAsync((Indices)aliasName, a => a.IgnoreUnavailable());
         Assert.True(aliasResponse.IsValidResponse);
 #if ELASTICSEARCH9
-        var indices = aliasResponse.Aliases;
+        var indices = aliasResponse.Aliases!;
 #else
-        var indices = aliasResponse.Values;
+        var indices = aliasResponse.Values!;
 #endif
         Assert.Contains(indexName, indices.Keys);
         Assert.Single(indices);
@@ -39,9 +39,9 @@ public static class ElasticsearchExtensions
         }
 
 #if ELASTICSEARCH9
-        return response.Aliases.Count;
+        return response.Aliases!.Count;
 #else
-        return response.Values.Count;
+        return response.Values!.Count;
 #endif
     }
 
@@ -58,9 +58,9 @@ public static class ElasticsearchExtensions
         }
 
 #if ELASTICSEARCH9
-        return response.Aliases.Keys.ToList();
+        return response.Aliases!.Keys.ToList();
 #else
-        return response.Values.Keys.ToList();
+        return response.Values!.Keys.ToList();
 #endif
     }
 
@@ -77,9 +77,9 @@ public static class ElasticsearchExtensions
         }
 
 #if ELASTICSEARCH9
-        return response.Aliases.Keys.ToList();
+        return response.Aliases!.Keys.ToList();
 #else
-        return response.Values.Keys.ToList();
+        return response.Values!.Keys.ToList();
 #endif
     }
 }

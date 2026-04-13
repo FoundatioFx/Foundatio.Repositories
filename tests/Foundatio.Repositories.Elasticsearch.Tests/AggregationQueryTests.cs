@@ -38,20 +38,47 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         var result = await _employeeRepository.CountAsync(q => q.AggregationsExpression(aggregations));
         Assert.Equal(10, result.Total);
         Assert.Equal(7, result.Aggregations.Count);
-        Assert.Equal(19, result.Aggregations.Min("min_age").Value);
-        Assert.Equal(60, result.Aggregations.Max("max_age").Value);
-        Assert.Equal(34.7, result.Aggregations.Average("avg_age").Value);
-        Assert.Equal(347, result.Aggregations.Sum("sum_age").Value);
+        var minAge = result.Aggregations.Min("min_age");
+        Assert.NotNull(minAge);
+        Assert.Equal(19, minAge.Value);
+        var maxAge = result.Aggregations.Max("max_age");
+        Assert.NotNull(maxAge);
+        Assert.Equal(60, maxAge.Value);
+        var avgAge = result.Aggregations.Average("avg_age");
+        Assert.NotNull(avgAge);
+        Assert.Equal(34.7, avgAge.Value);
+        var sumAge = result.Aggregations.Sum("sum_age");
+        Assert.NotNull(sumAge);
+        Assert.Equal(347, sumAge.Value);
         var percentiles = result.Aggregations.Percentiles("percentiles_age");
-        Assert.Equal(DateTime.UtcNow.Date.SubtractYears(10), result.Aggregations.Min<DateTime>("min_createdUtc").Value);
-        Assert.Equal(DateTime.UtcNow.Date.SubtractYears(1), result.Aggregations.Max<DateTime>("max_createdUtc").Value);
-        Assert.Equal(19.27, percentiles.GetPercentile(1).Value);
-        Assert.Equal(20.35, percentiles.GetPercentile(5).Value);
-        Assert.Equal(26d, percentiles.GetPercentile(25).Value);
-        Assert.Equal(30.5, percentiles.GetPercentile(50).Value);
-        Assert.Equal(42.5, percentiles.GetPercentile(75).Value);
-        Assert.Equal(55.95d, Math.Round((double)percentiles.GetPercentile(95).Value, 2));
-        Assert.Equal(59.19, percentiles.GetPercentile(99).Value);
+        Assert.NotNull(percentiles);
+        var minCreatedUtc = result.Aggregations.Min<DateTime>("min_createdUtc");
+        Assert.NotNull(minCreatedUtc);
+        Assert.Equal(DateTime.UtcNow.Date.SubtractYears(10), minCreatedUtc.Value);
+        var maxCreatedUtc = result.Aggregations.Max<DateTime>("max_createdUtc");
+        Assert.NotNull(maxCreatedUtc);
+        Assert.Equal(DateTime.UtcNow.Date.SubtractYears(1), maxCreatedUtc.Value);
+        var p1 = percentiles.GetPercentile(1);
+        Assert.NotNull(p1);
+        Assert.Equal(19.27, p1.Value);
+        var p5 = percentiles.GetPercentile(5);
+        Assert.NotNull(p5);
+        Assert.Equal(20.35, p5.Value);
+        var p25 = percentiles.GetPercentile(25);
+        Assert.NotNull(p25);
+        Assert.Equal(26d, p25.Value);
+        var p50 = percentiles.GetPercentile(50);
+        Assert.NotNull(p50);
+        Assert.Equal(30.5, p50.Value);
+        var p75 = percentiles.GetPercentile(75);
+        Assert.NotNull(p75);
+        Assert.Equal(42.5, p75.Value);
+        var p95 = percentiles.GetPercentile(95);
+        Assert.NotNull(p95);
+        Assert.Equal(55.95d, Math.Round((double)p95.Value!, 2));
+        var p99 = percentiles.GetPercentile(99);
+        Assert.NotNull(p99);
+        Assert.Equal(59.19, p99.Value);
     }
 
     [Fact]
@@ -63,10 +90,18 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         var result = await _employeeRepository.CountAsync(q => q.FilterExpression("age: <40").AggregationsExpression(aggregations));
         Assert.Equal(7, result.Total);
         Assert.Equal(4, result.Aggregations.Count);
-        Assert.Equal(19, result.Aggregations.Min("min_age").Value);
-        Assert.Equal(35, result.Aggregations.Min("max_age").Value);
-        Assert.Equal(Math.Round(27.2857142857143, 5), Math.Round(result.Aggregations.Average("avg_age").Value.GetValueOrDefault(), 5));
-        Assert.Equal(191, result.Aggregations.Sum("sum_age").Value);
+        var minAge = result.Aggregations.Min("min_age");
+        Assert.NotNull(minAge);
+        Assert.Equal(19, minAge.Value);
+        var maxAge = result.Aggregations.Min("max_age");
+        Assert.NotNull(maxAge);
+        Assert.Equal(35, maxAge.Value);
+        var avgAge = result.Aggregations.Average("avg_age");
+        Assert.NotNull(avgAge);
+        Assert.Equal(Math.Round(27.2857142857143, 5), Math.Round(avgAge.Value.GetValueOrDefault(), 5));
+        var sumAge = result.Aggregations.Sum("sum_age");
+        Assert.NotNull(sumAge);
+        Assert.Equal(191, sumAge.Value);
     }
 
     [Fact]
@@ -78,10 +113,18 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         var result = await _employeeRepository.CountAsync(q => q.FilterExpression("aliasedage: <40").AggregationsExpression(aggregations));
         Assert.Equal(7, result.Total);
         Assert.Equal(4, result.Aggregations.Count);
-        Assert.Equal(19, result.Aggregations.Min("min_aliasedage").Value);
-        Assert.Equal(35, result.Aggregations.Min("max_aliasedage").Value);
-        Assert.Equal(Math.Round(27.2857142857143, 5), Math.Round(result.Aggregations.Average("avg_aliasedage").Value.GetValueOrDefault(), 5));
-        Assert.Equal(191, result.Aggregations.Sum("sum_aliasedage").Value);
+        var minAliasedAge = result.Aggregations.Min("min_aliasedage");
+        Assert.NotNull(minAliasedAge);
+        Assert.Equal(19, minAliasedAge.Value);
+        var maxAliasedAge = result.Aggregations.Min("max_aliasedage");
+        Assert.NotNull(maxAliasedAge);
+        Assert.Equal(35, maxAliasedAge.Value);
+        var avgAliasedAge = result.Aggregations.Average("avg_aliasedage");
+        Assert.NotNull(avgAliasedAge);
+        Assert.Equal(Math.Round(27.2857142857143, 5), Math.Round(avgAliasedAge.Value.GetValueOrDefault(), 5));
+        var sumAliasedAge = result.Aggregations.Sum("sum_aliasedage");
+        Assert.NotNull(sumAliasedAge);
+        Assert.Equal(191, sumAliasedAge.Value);
     }
 
     [Fact]
@@ -98,11 +141,21 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         var result = await _employeeRepository.CountAsync(q => q.AggregationsExpression(aggregations));
         Assert.Equal(1, result.Total);
         Assert.Equal(5, result.Aggregations.Count);
-        Assert.Equal(1000, result.Aggregations.Min("min_followers").Value);
-        Assert.Equal(1000, result.Aggregations.Min("max_followers").Value);
-        Assert.Equal(1000, result.Aggregations.Average("avg_followers").Value.GetValueOrDefault());
-        Assert.Equal(1000, result.Aggregations.Sum("sum_followers").Value);
-        Assert.Equal(1, result.Aggregations.Cardinality("cardinality_twitter").Value);
+        var minFollowers = result.Aggregations.Min("min_followers");
+        Assert.NotNull(minFollowers);
+        Assert.Equal(1000, minFollowers.Value);
+        var maxFollowers = result.Aggregations.Min("max_followers");
+        Assert.NotNull(maxFollowers);
+        Assert.Equal(1000, maxFollowers.Value);
+        var avgFollowers = result.Aggregations.Average("avg_followers");
+        Assert.NotNull(avgFollowers);
+        Assert.Equal(1000, avgFollowers.Value.GetValueOrDefault());
+        var sumFollowers = result.Aggregations.Sum("sum_followers");
+        Assert.NotNull(sumFollowers);
+        Assert.Equal(1000, sumFollowers.Value);
+        var cardinalityTwitter = result.Aggregations.Cardinality("cardinality_twitter");
+        Assert.NotNull(cardinalityTwitter);
+        Assert.Equal(1, cardinalityTwitter.Value);
     }
 
     [Fact]
@@ -129,7 +182,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
             ), cancellationToken: TestCancellationToken);
 
         // Assert
-        var result = nestedAggQuery.Aggregations.ToAggregations(_serializer);
+        var result = nestedAggQuery.Aggregations!.ToAggregations(_serializer)!;
         Assert.Single(result);
         Assert.Equal(2, ((Foundatio.Repositories.Models.BucketAggregate)((Foundatio.Repositories.Models.SingleBucketAggregate)result["nested_reviewRating"]).Aggregations["terms_rating"]).Items.Count);
 
@@ -144,15 +197,15 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
             ))), cancellationToken: TestCancellationToken);
 
         // Assert (with filter)
-        result = nestedAggQueryWithFilter.Aggregations.ToAggregations(_serializer);
+        result = nestedAggQueryWithFilter.Aggregations!.ToAggregations(_serializer)!;
         Assert.Single(result);
 
         var nestedAgg = (Foundatio.Repositories.Models.SingleBucketAggregate)result["nested_reviewRating"];
         var filteredAgg = (Foundatio.Repositories.Models.SingleBucketAggregate)nestedAgg.Aggregations[$"user_{employees[0].Id}"];
         Assert.NotNull(filteredAgg);
-        Assert.Single(filteredAgg.Aggregations.Terms("terms_rating").Buckets);
-        Assert.Equal("5", filteredAgg.Aggregations.Terms("terms_rating").Buckets.First().Key);
-        Assert.Equal(1, filteredAgg.Aggregations.Terms("terms_rating").Buckets.First().Total);
+        Assert.Single(filteredAgg.Aggregations.Terms("terms_rating")!.Buckets);
+        Assert.Equal("5", filteredAgg.Aggregations.Terms("terms_rating")!.Buckets.First().Key);
+        Assert.Equal(1, filteredAgg.Aggregations.Terms("terms_rating")!.Buckets.First().Total);
     }
 
     [Fact]
@@ -172,7 +225,9 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         var result = await _employeeRepository.CountAsync(q => q.AggregationsExpression("cardinality:twitter"));
         Assert.Equal(1, result.Total);
         Assert.Single(result.Aggregations);
-        Assert.Equal(1, result.Aggregations.Cardinality("cardinality_twitter").Value);
+        var cardinalityTwitter = result.Aggregations.Cardinality("cardinality_twitter");
+        Assert.NotNull(cardinalityTwitter);
+        Assert.Equal(1, cardinalityTwitter.Value);
     }
 
     [Fact]
@@ -184,7 +239,9 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         var result = await _employeeRepository.CountAsync(q => q.AggregationsExpression(aggregations));
         Assert.Equal(10, result.Total);
         Assert.Single(result.Aggregations);
-        Assert.Equal(2, result.Aggregations.Cardinality("cardinality_location").Value);
+        var cardinalityLocation = result.Aggregations.Cardinality("cardinality_location");
+        Assert.NotNull(cardinalityLocation);
+        Assert.Equal(2, cardinalityLocation.Value);
     }
 
     [Fact]
@@ -196,7 +253,9 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         var result = await _employeeRepository.CountAsync(q => q.AggregationsExpression(aggregations));
         Assert.Equal(10, result.Total);
         Assert.Single(result.Aggregations);
-        Assert.Equal(10, result.Aggregations.Missing("missing_companyName").Total);
+        var missingCompanyName = result.Aggregations.Missing("missing_companyName");
+        Assert.NotNull(missingCompanyName);
+        Assert.Equal(10, missingCompanyName.Total);
     }
 
     [Fact]
@@ -214,10 +273,15 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(3, result.Total);
         Assert.Equal(3, result.Aggregations.Count);
 
-        AssertEqual(utcToday.SubtractDays(2), result.Aggregations.Min<DateTime>("min_nextReview")?.Value);
-        AssertEqual(utcToday, result.Aggregations.Max<DateTime>("max_nextReview")?.Value);
+        var minNextReview = result.Aggregations.Min<DateTime>("min_nextReview");
+        Assert.NotNull(minNextReview);
+        AssertEqual(utcToday.SubtractDays(2), minNextReview.Value);
+        var maxNextReview = result.Aggregations.Max<DateTime>("max_nextReview");
+        Assert.NotNull(maxNextReview);
+        AssertEqual(utcToday, maxNextReview.Value);
 
         var dateHistogramAgg = result.Aggregations.DateHistogram("date_nextReview");
+        Assert.NotNull(dateHistogramAgg);
         Assert.Equal(3, dateHistogramAgg.Buckets.Count);
         var oldestDate = utcToday.Date.SubtractDays(2);
         foreach (var bucket in dateHistogramAgg.Buckets)
@@ -243,10 +307,15 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(3, result.Total);
         Assert.Equal(3, result.Aggregations.Count);
 
-        AssertEqual(DateTime.SpecifyKind(utcToday.SubtractDays(2).SubtractHours(1), DateTimeKind.Unspecified), result.Aggregations.Min<DateTime>("min_nextReview")?.Value);
-        AssertEqual(DateTime.SpecifyKind(utcToday.SubtractHours(1), DateTimeKind.Unspecified), result.Aggregations.Max<DateTime>("max_nextReview")?.Value);
+        var minNextReview = result.Aggregations.Min<DateTime>("min_nextReview");
+        Assert.NotNull(minNextReview);
+        AssertEqual(DateTime.SpecifyKind(utcToday.SubtractDays(2).SubtractHours(1), DateTimeKind.Unspecified), minNextReview.Value);
+        var maxNextReview = result.Aggregations.Max<DateTime>("max_nextReview");
+        Assert.NotNull(maxNextReview);
+        AssertEqual(DateTime.SpecifyKind(utcToday.SubtractHours(1), DateTimeKind.Unspecified), maxNextReview.Value);
 
         var dateHistogramAgg = result.Aggregations.DateHistogram("date_nextReview");
+        Assert.NotNull(dateHistogramAgg);
         Assert.Equal(3, dateHistogramAgg.Buckets.Count);
         var oldestDate = DateTime.SpecifyKind(utcToday.Date.SubtractDays(2).SubtractHours(1), DateTimeKind.Unspecified);
         foreach (var bucket in dateHistogramAgg.Buckets)
@@ -273,10 +342,15 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(3, result.Total);
         Assert.Equal(3, result.Aggregations.Count);
 
-        AssertEqual(DateTime.SpecifyKind(utcToday.SubtractDays(2).AddMinutes(offsetInMinutes), DateTimeKind.Unspecified), result.Aggregations.Min<DateTime>("min_nextReview")?.Value);
-        AssertEqual(DateTime.SpecifyKind(utcToday.AddMinutes(offsetInMinutes), DateTimeKind.Unspecified), result.Aggregations.Max<DateTime>("max_nextReview")?.Value);
+        var minNextReview = result.Aggregations.Min<DateTime>("min_nextReview");
+        Assert.NotNull(minNextReview);
+        AssertEqual(DateTime.SpecifyKind(utcToday.SubtractDays(2).AddMinutes(offsetInMinutes), DateTimeKind.Unspecified), minNextReview.Value);
+        var maxNextReview = result.Aggregations.Max<DateTime>("max_nextReview");
+        Assert.NotNull(maxNextReview);
+        AssertEqual(DateTime.SpecifyKind(utcToday.AddMinutes(offsetInMinutes), DateTimeKind.Unspecified), maxNextReview.Value);
 
         var dateHistogramAgg = result.Aggregations.DateHistogram("date_nextReview");
+        Assert.NotNull(dateHistogramAgg);
         Assert.Equal(3, dateHistogramAgg.Buckets.Count);
         var oldestDate = DateTime.SpecifyKind(utcToday.SubtractDays(3).AddMinutes(offsetInMinutes), DateTimeKind.Unspecified); // it's minus 3 days because the offset puts it a day back.
         foreach (var bucket in dateHistogramAgg.Buckets)
@@ -317,11 +391,15 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(3, result.Total);
         Assert.Equal(3, result.Aggregations.Count);
 
-        // Dates are always returned in utc.
-        Assert.Equal(DateTime.SpecifyKind(today.SubtractDays(2), DateTimeKind.Utc), result.Aggregations.Min<DateTime>("min_nextReview")?.Value);
-        Assert.Equal(DateTime.SpecifyKind(today, DateTimeKind.Utc), result.Aggregations.Max<DateTime>("max_nextReview")?.Value);
+        var minNextReview = result.Aggregations.Min<DateTime>("min_nextReview");
+        Assert.NotNull(minNextReview);
+        Assert.Equal(DateTime.SpecifyKind(today.SubtractDays(2), DateTimeKind.Utc), minNextReview.Value);
+        var maxNextReview = result.Aggregations.Max<DateTime>("max_nextReview");
+        Assert.NotNull(maxNextReview);
+        Assert.Equal(DateTime.SpecifyKind(today, DateTimeKind.Utc), maxNextReview.Value);
 
         var dateHistogramAgg = result.Aggregations.DateHistogram("date_nextReview");
+        Assert.NotNull(dateHistogramAgg);
         Assert.Equal(3, dateHistogramAgg.Buckets.Count);
         var oldestDate = DateTime.SpecifyKind(today.Date.SubtractDays(2), DateTimeKind.Utc);
         foreach (var bucket in dateHistogramAgg.Buckets)
@@ -347,11 +425,15 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(3, result.Total);
         Assert.Equal(3, result.Aggregations.Count);
 
-        // Dates are always returned in utc.
-        AssertEqual(DateTime.SpecifyKind(today.UtcDateTime.SubtractDays(2).SubtractHours(1), DateTimeKind.Unspecified), result.Aggregations.Min<DateTime>("min_nextReview")?.Value);
-        AssertEqual(DateTime.SpecifyKind(today.UtcDateTime.SubtractHours(1), DateTimeKind.Unspecified), result.Aggregations.Max<DateTime>("max_nextReview")?.Value);
+        var minNextReview = result.Aggregations.Min<DateTime>("min_nextReview");
+        Assert.NotNull(minNextReview);
+        AssertEqual(DateTime.SpecifyKind(today.UtcDateTime.SubtractDays(2).SubtractHours(1), DateTimeKind.Unspecified), minNextReview.Value);
+        var maxNextReview = result.Aggregations.Max<DateTime>("max_nextReview");
+        Assert.NotNull(maxNextReview);
+        AssertEqual(DateTime.SpecifyKind(today.UtcDateTime.SubtractHours(1), DateTimeKind.Unspecified), maxNextReview.Value);
 
         var dateHistogramAgg = result.Aggregations.DateHistogram("date_nextReview");
+        Assert.NotNull(dateHistogramAgg);
         Assert.Equal(3, dateHistogramAgg.Buckets.Count);
         var oldestDate = DateTime.SpecifyKind(today.UtcDateTime.SubtractDays(2).AddHours(1).Date.SubtractHours(1), DateTimeKind.Unspecified);
         foreach (var bucket in dateHistogramAgg.Buckets)
@@ -379,11 +461,17 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(10, result.Total);
         Assert.Single(result.Aggregations);
 
-        var bucket = result.Aggregations.GeoHash("geogrid_location").Buckets.Single();
+        var geoHashAgg = result.Aggregations.GeoHash("geogrid_location");
+        Assert.NotNull(geoHashAgg);
+        var bucket = geoHashAgg.Buckets.Single();
         Assert.Equal("s", bucket.Key);
         Assert.Equal(10, bucket.Total);
-        Assert.Equal(Math.Round(14.9999999860302, 5), Math.Round(bucket.Aggregations.Average("avg_lat").Value.GetValueOrDefault(), 5));
-        Assert.Equal(Math.Round(14.9999999860302, 5), Math.Round(bucket.Aggregations.Average("avg_lon").Value.GetValueOrDefault(), 5));
+        var avgLat = bucket.Aggregations.Average("avg_lat");
+        Assert.NotNull(avgLat);
+        Assert.Equal(Math.Round(14.9999999860302, 5), Math.Round(avgLat.Value.GetValueOrDefault(), 5));
+        var avgLon = bucket.Aggregations.Average("avg_lon");
+        Assert.NotNull(avgLon);
+        Assert.Equal(Math.Round(14.9999999860302, 5), Math.Round(avgLon.Value.GetValueOrDefault(), 5));
     }
 
     [Fact]
@@ -394,36 +482,46 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         var result = await _employeeRepository.CountAsync(q => q.AggregationsExpression("terms:age"));
         Assert.Equal(10, result.Total);
         Assert.Single(result.Aggregations);
-        Assert.Equal(10, result.Aggregations.Terms<int>("terms_age").Buckets.Count);
-        Assert.Equal(1, result.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19).Total);
+        var termsAge = result.Aggregations.Terms<int>("terms_age");
+        Assert.NotNull(termsAge);
+        Assert.Equal(10, termsAge.Buckets.Count);
+        Assert.Equal(1, termsAge.Buckets.First(f => f.Key == 19).Total);
 
         string json = JsonConvert.SerializeObject(result);
         var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
+        Assert.NotNull(roundTripped);
         Assert.Equal(10, roundTripped.Total);
         Assert.Single(roundTripped.Aggregations);
-        Assert.Equal(10, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
-        Assert.Equal(1, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19).Total);
+        var roundTrippedTermsAge = roundTripped.Aggregations.Terms<int>("terms_age");
+        Assert.NotNull(roundTrippedTermsAge);
+        Assert.Equal(10, roundTrippedTermsAge.Buckets.Count);
+        Assert.Equal(1, roundTrippedTermsAge.Buckets.First(f => f.Key == 19).Total);
 
         result = await _employeeRepository.CountAsync(q => q.AggregationsExpression("terms:(age~2 @missing:0 terms:(years~2 @missing:0))"));
         Assert.Equal(10, result.Total);
         Assert.Single(result.Aggregations);
-        Assert.Equal(2, result.Aggregations.Terms<int>("terms_age").Buckets.Count);
-        var bucket = result.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
+        termsAge = result.Aggregations.Terms<int>("terms_age");
+        Assert.NotNull(termsAge);
+        Assert.Equal(2, termsAge.Buckets.Count);
+        var bucket = termsAge.Buckets.First(f => f.Key == 19);
         Assert.Equal(1, bucket.Total);
         Assert.Single(bucket.Aggregations);
-        Assert.Single(bucket.Aggregations.Terms<int>("terms_years").Buckets);
+        var termsYears = bucket.Aggregations.Terms<int>("terms_years");
+        Assert.NotNull(termsYears);
+        Assert.Single(termsYears.Buckets);
 
         json = JsonConvert.SerializeObject(result, Formatting.Indented);
         roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
+        Assert.NotNull(roundTripped);
         string roundTrippedJson = JsonConvert.SerializeObject(roundTripped, Formatting.Indented);
         Assert.Equal(json, roundTrippedJson);
         Assert.Equal(10, roundTripped.Total);
         Assert.Single(roundTripped.Aggregations);
-        Assert.Equal(2, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
-        bucket = roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
+        Assert.Equal(2, roundTripped.Aggregations.Terms<int>("terms_age")!.Buckets.Count);
+        bucket = roundTripped.Aggregations.Terms<int>("terms_age")!.Buckets.First(f => f.Key == 19);
         Assert.Equal(1, bucket.Total);
         Assert.Single(bucket.Aggregations);
-        Assert.Single(bucket.Aggregations.Terms<int>("terms_years").Buckets);
+        Assert.Single(bucket.Aggregations.Terms<int>("terms_years")!.Buckets);
     }
 
     [Fact]
@@ -442,6 +540,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Single(result.Aggregations);
 
         var dateHistogramAgg = result.Aggregations.DateHistogram("date_nextReview");
+        Assert.NotNull(dateHistogramAgg);
         Assert.Equal(3, dateHistogramAgg.Buckets.Count);
         var oldestDate = DateTime.SpecifyKind(utcToday.UtcDateTime.Date.SubtractDays(2).SubtractHours(1), DateTimeKind.Unspecified);
         foreach (var bucket in dateHistogramAgg.Buckets)
@@ -453,8 +552,10 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
 
         string json = JsonConvert.SerializeObject(result);
         var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
+        Assert.NotNull(roundTripped);
 
         dateHistogramAgg = roundTripped.Aggregations.DateHistogram("date_nextReview");
+        Assert.NotNull(dateHistogramAgg);
         Assert.Equal(3, dateHistogramAgg.Buckets.Count);
         oldestDate = DateTime.SpecifyKind(utcToday.UtcDateTime.Date.SubtractDays(2).SubtractHours(1), DateTimeKind.Unspecified);
         foreach (var bucket in dateHistogramAgg.Buckets)
@@ -481,12 +582,15 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Single(result.Aggregations);
 
         var dateTermsAgg = result.Aggregations.Min<DateTime>("min_nextReview");
+        Assert.NotNull(dateTermsAgg);
         Assert.Equal(utcToday.SubtractDays(2), dateTermsAgg.Value);
 
         string json = JsonConvert.SerializeObject(result);
         var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
+        Assert.NotNull(roundTripped);
 
         dateTermsAgg = roundTripped.Aggregations.Min<DateTime>("min_nextReview");
+        Assert.NotNull(dateTermsAgg);
         Assert.Equal(utcToday.SubtractDays(2), dateTermsAgg.Value);
     }
 
@@ -499,8 +603,10 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         var result = await _employeeRepository.CountAsync(q => q.AggregationsExpression(aggregations));
         Assert.Equal(10, result.Total);
         Assert.Single(result.Aggregations);
-        Assert.Equal(10, result.Aggregations.Terms<int>("terms_age").Buckets.Count);
-        var bucket = result.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
+        var termsAge = result.Aggregations.Terms<int>("terms_age");
+        Assert.NotNull(termsAge);
+        Assert.Equal(10, termsAge.Buckets.Count);
+        var bucket = termsAge.Buckets.First(f => f.Key == 19);
         Assert.Equal(1, bucket.Total);
 
         var tophits = bucket.Aggregations.TopHits();
@@ -512,10 +618,13 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
 
         string json = JsonConvert.SerializeObject(result);
         var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
+        Assert.NotNull(roundTripped);
         Assert.Equal(10, roundTripped.Total);
         Assert.Single(roundTripped.Aggregations);
-        Assert.Equal(10, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
-        bucket = roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
+        var roundTrippedTermsAge = roundTripped.Aggregations.Terms<int>("terms_age");
+        Assert.NotNull(roundTrippedTermsAge);
+        Assert.Equal(10, roundTrippedTermsAge.Buckets.Count);
+        bucket = roundTrippedTermsAge.Buckets.First(f => f.Key == 19);
         Assert.Equal(1, bucket.Total);
 
         string systemTextJson = System.Text.Json.JsonSerializer.Serialize(result);
@@ -524,10 +633,11 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
             System.Text.Json.Nodes.JsonNode.Parse(systemTextJson)),
             "Newtonsoft and System.Text.Json serialization should produce semantically equivalent JSON");
         roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(systemTextJson);
+        Assert.NotNull(roundTripped);
         Assert.Equal(10, roundTripped.Total);
         Assert.Single(roundTripped.Aggregations);
-        Assert.Equal(10, roundTripped.Aggregations.Terms<int>("terms_age").Buckets.Count);
-        bucket = roundTripped.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 19);
+        Assert.Equal(10, roundTripped.Aggregations.Terms<int>("terms_age")!.Buckets.Count);
+        bucket = roundTripped.Aggregations.Terms<int>("terms_age")!.Buckets.First(f => f.Key == 19);
         Assert.Equal(1, bucket.Total);
 
         tophits = bucket.Aggregations.TopHits();
@@ -574,7 +684,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         using var hitStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(json));
         var employeeHit = _configuration.Client.ElasticsearchClientSettings.RequestResponseSerializer.Deserialize<Hit<Employee>>(hitStream);
         Assert.Equal("employees", employeeHit.Index);
-        Assert.Equal("62d982efd3e0d1fed81452f3", employeeHit.Source.CompanyId);
+        Assert.Equal("62d982efd3e0d1fed81452f3", employeeHit.Source!.CompanyId);
     }
 
     [Fact]
@@ -587,8 +697,10 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         var result = await _employeeRepository.CountAsync(q => q.AggregationsExpression(aggregations));
         Assert.Equal(11, result.Total);
         Assert.Single(result.Aggregations);
-        Assert.Single(result.Aggregations.Terms<int>("terms_age").Buckets);
-        var bucket = result.Aggregations.Terms<int>("terms_age").Buckets.First(f => f.Key == 45);
+        var termsAge = result.Aggregations.Terms<int>("terms_age");
+        Assert.NotNull(termsAge);
+        Assert.Single(termsAge.Buckets);
+        var bucket = termsAge.Buckets.First(f => f.Key == 45);
         Assert.Equal(2, bucket.Total);
 
         var tophits = bucket.Aggregations.TopHits();

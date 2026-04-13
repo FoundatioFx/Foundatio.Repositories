@@ -6,20 +6,11 @@ namespace Foundatio.Repositories.Utility;
 
 public static class TypeHelper
 {
-    public static T ToType<T>(object value)
+    public static T? ToType<T>(object? value)
     {
         Type targetType = typeof(T);
-        if (value == null)
-        {
-            try
-            {
-                return (T)Convert.ChangeType(value, targetType);
-            }
-            catch
-            {
-                throw new ArgumentNullException(nameof(value));
-            }
-        }
+        if (value is null)
+            return default;
 
         TypeConverter converter = TypeDescriptor.GetConverter(targetType);
         Type valueType = value.GetType();
@@ -30,10 +21,11 @@ public static class TypeHelper
         TypeInfo targetTypeInfo = targetType.GetTypeInfo();
         if (targetTypeInfo.IsEnum && (value is string || valueType.GetTypeInfo().IsEnum))
         {
+            string? valueString = value.ToString();
             // attempt to match enum by name.
-            if (TryEnumIsDefined<T>(targetType, value.ToString()))
+            if (valueString is not null && TryEnumIsDefined<T>(targetType, valueString))
             {
-                object parsedValue = Enum.Parse(targetType, value.ToString(), false);
+                object parsedValue = Enum.Parse(targetType, valueString, false);
                 return (T)parsedValue;
             }
 
@@ -46,16 +38,23 @@ public static class TypeHelper
 
         if (converter.CanConvertFrom(valueType))
         {
-            object convertedValue = converter.ConvertFrom(value);
-            return (T)convertedValue;
+            object? convertedValue = converter.ConvertFrom(value);
+            if (convertedValue is T typedValue)
+                return typedValue;
+
+            return default;
         }
 
-        if (!(value is IConvertible))
+        if (value is not IConvertible)
             throw new ArgumentException($"An incompatible value specified.  Target Type: {targetType.FullName} Value Type: {value.GetType().FullName}", nameof(value));
+
         try
         {
-            object convertedValue = Convert.ChangeType(value, targetType);
-            return (T)convertedValue;
+            object? convertedValue = Convert.ChangeType(value, targetType);
+            if (convertedValue is T typedConvertedValue)
+                return typedConvertedValue;
+
+            return default;
         }
         catch (Exception e)
         {

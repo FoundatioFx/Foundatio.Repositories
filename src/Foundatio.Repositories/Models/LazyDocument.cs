@@ -17,14 +17,14 @@ public interface ILazyDocument
     /// </summary>
     /// <typeparam name="T">The type to deserialize to.</typeparam>
     /// <returns>The deserialized document, or <c>null</c> if the document data is empty.</returns>
-    T As<T>() where T : class;
+    T? As<T>() where T : class;
 
     /// <summary>
     /// Deserializes the document to the specified type.
     /// </summary>
     /// <param name="objectType">The type to deserialize to.</param>
     /// <returns>The deserialized document, or <c>null</c> if the document data is empty.</returns>
-    object As(Type objectType);
+    object? As(Type objectType);
 }
 
 /// <summary>
@@ -49,7 +49,7 @@ public class LazyDocument : ILazyDocument
     }
 
     /// <inheritdoc/>
-    public T As<T>() where T : class
+    public T? As<T>() where T : class
     {
         if (_data == null || _data.Length == 0)
             return default;
@@ -58,7 +58,7 @@ public class LazyDocument : ILazyDocument
     }
 
     /// <inheritdoc/>
-    public object As(Type objectType)
+    public object? As(Type objectType)
     {
         if (_data == null || _data.Length == 0)
             return null;

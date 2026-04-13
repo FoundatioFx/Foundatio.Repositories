@@ -9,7 +9,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 
 public class LogEvent : IIdentity, IHaveCreatedDate
 {
-    public string Id { get; set; }
+    public string Id { get; set; } = null!;
 
     protected bool Equals(LogEvent other)
     {
@@ -21,7 +21,7 @@ public class LogEvent : IIdentity, IHaveCreatedDate
             CreatedUtc.Equals(other.CreatedUtc);
     }
 
-    public override bool Equals(object obj)
+    public override bool Equals(object? obj)
     {
         if (ReferenceEquals(null, obj))
             return false;
@@ -56,17 +56,17 @@ public class LogEvent : IIdentity, IHaveCreatedDate
         return !Equals(left, right);
     }
 
-    public string CompanyId { get; set; }
-    public string Message { get; set; }
+    public string CompanyId { get; set; } = null!;
+    public string Message { get; set; } = null!;
     public int Value { get; set; }
-    public LogEventMeta Meta { get; set; }
+    public LogEventMeta Meta { get; set; } = null!;
     public DateTimeOffset Date { get; set; }
     public DateTime CreatedUtc { get; set; }
 }
 
 public class LogEventMeta
 {
-    public string Stuff { get; set; }
+    public string Stuff { get; set; } = null!;
 }
 
 public static class LogEventGenerator
@@ -80,18 +80,18 @@ public static class LogEventGenerator
         CreatedUtc = DateTime.UtcNow
     };
 
-    public static LogEvent Generate(string id = null, string companyId = null, string message = null, DateTime? createdUtc = null, DateTimeOffset? date = null, string stuff = null)
+    public static LogEvent Generate(string? id = null, string? companyId = null, string? message = null, DateTime? createdUtc = null, DateTimeOffset? date = null, string? stuff = null)
     {
         var created = createdUtc ?? RandomData.GetDateTime(DateTime.UtcNow.StartOfMonth(), DateTime.UtcNow);
         return new LogEvent
         {
-            Id = id,
+            Id = id!,
             Message = message ?? RandomData.GetAlphaString(),
             CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
             CreatedUtc = created,
             Meta = new LogEventMeta
             {
-                Stuff = stuff,
+                Stuff = stuff!,
             },
             Date = date ?? created
         };

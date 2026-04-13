@@ -169,7 +169,7 @@ public class ScriptPatch : IPatchOperation
     /// <summary>
     /// Gets or sets the parameters to pass to the script.
     /// </summary>
-    public Dictionary<string, object> Params { get; set; }
+    public Dictionary<string, object>? Params { get; set; }
 }
 
 /// <summary>
@@ -178,7 +178,7 @@ public class ScriptPatch : IPatchOperation
 public static class ActionPatchExtensions
 {
     /// <inheritdoc cref="IRepository{T}.PatchAsync(Id, IPatchOperation, ICommandOptions)"/>
-    public static Task<bool> PatchAsync<T>(this IRepository<T> repository, Id id, ActionPatch<T> operation, ICommandOptions options = null) where T : class, IIdentity, new()
+    public static Task<bool> PatchAsync<T>(this IRepository<T> repository, Id id, ActionPatch<T> operation, ICommandOptions? options = null) where T : class, IIdentity, new()
     {
         return repository.PatchAsync(id, operation, options);
     }

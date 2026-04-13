@@ -21,9 +21,9 @@ namespace Foundatio.Repositories.Options
 {
     public static class ReadAggregationQueryExtensions
     {
-        public static string GetAggregationsExpression(this IRepositoryQuery query)
+        public static string? GetAggregationsExpression(this IRepositoryQuery query)
         {
-            return query.SafeGetOption<string>(AggregationQueryExtensions.AggregationsKey, null);
+            return query.SafeGetOption<string?>(AggregationQueryExtensions.AggregationsKey, null);
         }
     }
 }
@@ -38,7 +38,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             if (elasticIndex?.QueryParser == null)
                 return;
 
-            string aggregations = ctx.Source.GetAggregationsExpression();
+            string? aggregations = ctx.Source.GetAggregationsExpression();
             if (String.IsNullOrEmpty(aggregations))
                 return;
 

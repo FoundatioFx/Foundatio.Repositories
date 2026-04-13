@@ -5,7 +5,7 @@ namespace Foundatio.Repositories.Utility;
 
 public class AddOperation : Operation
 {
-    public JsonNode Value { get; set; }
+    public JsonNode? Value { get; set; }
 
     public override void Write(Utf8JsonWriter writer)
     {

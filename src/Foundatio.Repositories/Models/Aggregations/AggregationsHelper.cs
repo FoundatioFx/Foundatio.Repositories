@@ -8,14 +8,14 @@ public class AggregationsHelper
 
     public AggregationsHelper() { }
 
-    protected AggregationsHelper(IDictionary<string, IAggregate> aggregations)
+    protected AggregationsHelper(IDictionary<string, IAggregate>? aggregations)
     {
         Aggregations = aggregations != null ?
             new Dictionary<string, IAggregate>(aggregations)
             : EmptyReadOnly<string, IAggregate>.Dictionary;
     }
 
-    public AggregationsHelper(IReadOnlyDictionary<string, IAggregate> aggregations)
+    public AggregationsHelper(IReadOnlyDictionary<string, IAggregate>? aggregations)
     {
         Aggregations = aggregations ?? EmptyReadOnly<string, IAggregate>.Dictionary;
     }

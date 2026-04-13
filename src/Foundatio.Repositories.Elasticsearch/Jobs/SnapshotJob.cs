@@ -51,7 +51,7 @@ public class SnapshotJob : IJob
             if (hasSnapshotRepositoryResponse.ApiCallDetails.HttpStatusCode == 404)
                 return JobResult.CancelledWithMessage($"Snapshot repository {Repository} has not been configured.");
 
-            return JobResult.FromException(hasSnapshotRepositoryResponse.OriginalException(), hasSnapshotRepositoryResponse.GetErrorMessage());
+            return JobResult.FromException(hasSnapshotRepositoryResponse.OriginalException()!, hasSnapshotRepositoryResponse.GetErrorMessage());
         }
 
         string snapshotName = _timeProvider.GetUtcNow().UtcDateTime.ToString("'" + Repository + "-'yyyy-MM-dd-HH-mm");

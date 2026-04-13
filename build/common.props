@@ -16,8 +16,9 @@
     <Copyright>Copyright © $([System.DateTime]::Now.ToString(yyyy)) Foundatio.  All rights reserved.</Copyright>
     <Authors>FoundatioFx</Authors>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
-    <WarningsAsErrors>true</WarningsAsErrors>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <PackageOutputPath>$(SolutionDir)artifacts</PackageOutputPath>
     <PackageIcon>foundatio-icon.png</PackageIcon>

@@ -67,7 +67,7 @@ public class MigrationManager
         if (migrationType == null)
             throw new ArgumentNullException(nameof(migrationType));
 
-        object migrationInstance = _serviceProvider.GetService(migrationType);
+        object? migrationInstance = _serviceProvider.GetService(migrationType);
         if (migrationInstance == null)
             throw new ArgumentException($"Unable to get instance of type '{migrationType.Name}'. Please ensure it's registered in Dependency Injection.", nameof(migrationType));
 
@@ -75,7 +75,7 @@ public class MigrationManager
             throw new ArgumentException($"Type '{migrationType.Name}' must implement interface '{nameof(IMigration)}'.", nameof(migrationType));
 
         var versionedMigrations = _migrations.Where(m => m.MigrationType != MigrationType.Repeatable && m.Version.HasValue);
-        if (migration.Version.HasValue && versionedMigrations.Any(m => m.Version.Value == migration.Version))
+        if (migration.Version.HasValue && versionedMigrations.Any(m => m.Version is { } v && v == migration.Version))
             throw new ArgumentException($"Duplicate migration version detected for '{migrationType.Name}'", nameof(migrationType));
 
         _migrations.Add(migration);
@@ -138,7 +138,7 @@ public class MigrationManager
                 {
                     _logger.LogError(ex, "Failed running migration {Id}", migrationInfo.Migration.GetId());
 
-                    migrationInfo.State.ErrorMessage = ex.Message;
+                    migrationInfo.State!.ErrorMessage = ex.Message;
                     await _migrationStatusRepository.SaveAsync(migrationInfo.State).AnyContext();
 
                     return MigrationResult.Failed;
@@ -165,7 +165,7 @@ public class MigrationManager
         {
             info.State = new MigrationState
             {
-                Id = info.Migration.GetId(),
+                Id = info.Migration.GetId()!,
                 MigrationType = info.Migration.MigrationType,
                 Version = info.Migration.Version ?? 0,
                 StartedUtc = _timeProvider.GetUtcNow().UtcDateTime
@@ -183,7 +183,7 @@ public class MigrationManager
 
     private async Task MarkMigrationCompleteAsync(MigrationInfo info)
     {
-        info.State.CompletedUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        info.State!.CompletedUtc = _timeProvider.GetUtcNow().UtcDateTime;
         info.State.ErrorMessage = null;
         await _migrationStatusRepository.SaveAsync(info.State).AnyContext();
         _logger.LogInformation("Completed migration {Id}", info.State.Id);
@@ -192,7 +192,7 @@ public class MigrationManager
     public async Task<MigrationStatus> GetMigrationStatus()
     {
         var migrations = Migrations.OrderBy(m => m.Version).ToList();
-        string[] migrationIds = migrations.Select(m => m.GetId()).ToArray();
+        string[] migrationIds = migrations.Select(m => m.GetId()!).ToArray();
 
         // get by id to ensure latest document versions
         var migrationStatesByIds = await _migrationStatusRepository.GetByIdsAsync(migrationIds).AnyContext();
@@ -200,7 +200,7 @@ public class MigrationManager
 
         // get all to add any additional migrations that are not configured
         var otherMigrationStates = await _migrationStatusRepository.GetAllAsync(o => o.PageLimit(1000)).AnyContext();
-        migrationStates.AddRange(otherMigrationStates.Documents.Where(m => !migrationStates.Any(s => s.Id == m.Id)));
+        migrationStates.AddRange(otherMigrationStates.Documents.Where(m => !migrationStates.Any(s => String.Equals(s.Id, m.Id, StringComparison.Ordinal))));
 
         var migrationInfos = migrations.Select(m => new MigrationInfo
         {
@@ -219,7 +219,7 @@ public class MigrationManager
                 if (versioned.Length > 0)
                 {
                     var now = _timeProvider.GetUtcNow().UtcDateTime;
-                    max = versioned.Max(v => v.Migration.Version.Value);
+                    max = versioned.Max(v => v.Migration.Version!.Value);
 
                     // marking highest version as completed
                     await _migrationStatusRepository.SaveAsync(new MigrationState
@@ -244,7 +244,7 @@ public class MigrationManager
             currentVersion = completedVersionedMigrations.Max(m => m.Version);
 
         var pendingMigrations = new List<MigrationInfo>();
-        pendingMigrations.AddRange(versioned.Where(m => m.Migration.Version.Value > currentVersion).OrderBy(m => m.Migration.Version.Value));
+        pendingMigrations.AddRange(versioned.Where(m => m.Migration.Version!.Value > currentVersion).OrderBy(m => m.Migration.Version!.Value));
 
         // repeatable migrations that haven't run or have a newer version
         pendingMigrations.AddRange(migrationInfos.Where(i => i.Migration.MigrationType == MigrationType.Repeatable && (i.State == null || i.State.Version < i.Migration.Version)));
@@ -252,7 +252,7 @@ public class MigrationManager
         return new MigrationStatus(pendingMigrations, currentVersion);
     }
 
-    private IEnumerable<Type> GetDerivedTypes<TAction>(IList<Assembly> assemblies = null)
+    private IEnumerable<Type> GetDerivedTypes<TAction>(IList<Assembly>? assemblies = null)
     {
         if (assemblies == null || assemblies.Count == 0)
             assemblies = AppDomain.CurrentDomain.GetAssemblies();
@@ -266,8 +266,8 @@ public class MigrationManager
             }
             catch (ReflectionTypeLoadException ex)
             {
-                string loaderMessages = String.Join(", ", ex.LoaderExceptions.ToList().Select(le => le.Message));
-                _logger.LogInformation(ex, "Unable to search types from assembly \"{Assembly}\" for plugins of type \"{PluginType}\": {LoaderMessages}", assembly.FullName, typeof(TAction).Name, loaderMessages);
+                string loaderMessages = String.Join(", ", (ex.LoaderExceptions ?? []).OfType<Exception>().Select(le => le.Message));
+                _logger.LogInformation("Unable to search types from assembly {Assembly} for plugins of type {PluginType}: {LoaderMessages}", assembly.FullName, typeof(TAction).Name, loaderMessages);
             }
         }
 
@@ -284,15 +284,15 @@ public enum MigrationResult
 }
 
 [DebuggerDisplay("Type: {Migration.MigrationType} Version {Migration.Version}")]
-public class MigrationInfo
+public record MigrationInfo
 {
-    public IMigration Migration { get; set; }
-    public MigrationState State { get; set; }
+    public required IMigration Migration { get; init; }
+    public MigrationState? State { get; set; }
 }
 
 public class MigrationStatus
 {
-    public MigrationStatus(IReadOnlyCollection<MigrationInfo> pendingMigrations, int currentVersion)
+    public MigrationStatus(IReadOnlyCollection<MigrationInfo>? pendingMigrations, int currentVersion)
     {
         PendingMigrations = pendingMigrations ?? EmptyReadOnly<MigrationInfo>.Collection;
         CurrentVersion = currentVersion;

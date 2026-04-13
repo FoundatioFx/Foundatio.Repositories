@@ -25,7 +25,7 @@ public static class FieldValueHelper
             decimal m => FieldValue.Double((double)m),
             DateTime dt => FieldValue.String(dt.ToString("o")),
             DateTimeOffset dto => FieldValue.String(dto.ToString("o")),
-            _ => FieldValue.String(value.ToString())
+            _ => FieldValue.String(value.ToString()!)
         };
     }
 }

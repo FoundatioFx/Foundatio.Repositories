@@ -44,10 +44,10 @@ public interface IElasticConfiguration : IDisposable
     IReadOnlyCollection<IIndex> Indexes { get; }
 
     /// <summary>Repository for managing custom field definitions, or <c>null</c> if no custom field index is configured.</summary>
-    ICustomFieldDefinitionRepository CustomFieldDefinitionRepository { get; }
+    ICustomFieldDefinitionRepository? CustomFieldDefinitionRepository { get; }
 
     /// <summary>Returns the index with the specified <paramref name="name"/>, or <c>null</c> if not found.</summary>
-    IIndex GetIndex(string name);
+    IIndex? GetIndex(string name);
 
     /// <summary>Configures global query builders applied to every query across all indexes.</summary>
     void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder);
@@ -56,14 +56,14 @@ public interface IElasticConfiguration : IDisposable
     void ConfigureGlobalQueryParsers(ElasticQueryParserConfiguration config);
 
     /// <summary>Creates and configures the specified indexes (or all registered indexes) in Elasticsearch.</summary>
-    Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true);
+    Task ConfigureIndexesAsync(IEnumerable<IIndex>? indexes = null, bool beginReindexingOutdated = true);
 
     /// <summary>Runs maintenance tasks (e.g., alias management, cleanup) on the specified or all indexes.</summary>
-    Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null);
+    Task MaintainIndexesAsync(IEnumerable<IIndex>? indexes = null);
 
     /// <summary>Deletes the specified indexes (or all registered indexes) from Elasticsearch.</summary>
-    Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null);
+    Task DeleteIndexesAsync(IEnumerable<IIndex>? indexes = null);
 
     /// <summary>Reindexes outdated versioned indexes to their latest version.</summary>
-    Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func<int, string, Task> progressCallbackAsync = null);
+    Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null);
 }

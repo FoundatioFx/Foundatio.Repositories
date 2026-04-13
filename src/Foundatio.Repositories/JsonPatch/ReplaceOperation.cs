@@ -5,7 +5,7 @@ namespace Foundatio.Repositories.Utility;
 
 public class ReplaceOperation : Operation
 {
-    public JsonNode Value { get; set; }
+    public JsonNode? Value { get; set; }
 
     public override void Write(Utf8JsonWriter writer)
     {

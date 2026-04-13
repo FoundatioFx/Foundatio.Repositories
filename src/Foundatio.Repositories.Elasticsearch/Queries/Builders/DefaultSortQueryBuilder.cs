@@ -14,7 +14,7 @@ public class DefaultSortQueryBuilder : IElasticQueryBuilder
     public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
     {
         // Get existing sorts from context data (set by SortQueryBuilder or ExpressionQueryBuilder)
-        List<SortOptions> sortFields = null;
+        List<SortOptions>? sortFields = null;
         if (ctx.Data.TryGetValue(SortQueryBuilder.SortFieldsKey, out var sortsObj) && sortsObj is List<SortOptions> sorts)
         {
             sortFields = sorts;

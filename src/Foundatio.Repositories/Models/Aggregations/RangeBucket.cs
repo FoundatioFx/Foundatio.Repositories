@@ -9,12 +9,12 @@ public class RangeBucket : BucketBase
     public RangeBucket() { }
 
     [System.Text.Json.Serialization.JsonConstructor]
-    public RangeBucket(IReadOnlyDictionary<string, IAggregate> aggregations) : base(aggregations) { }
+    public RangeBucket(IReadOnlyDictionary<string, IAggregate>? aggregations) : base(aggregations) { }
 
-    public string Key { get; set; }
+    public string? Key { get; set; }
     public double? From { get; set; }
-    public string FromAsString { get; set; }
+    public string? FromAsString { get; set; }
     public double? To { get; set; }
-    public string ToAsString { get; set; }
+    public string? ToAsString { get; set; }
     public long Total { get; set; }
 }

@@ -26,19 +26,19 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
 public class ElasticConfiguration : IElasticConfiguration
 {
-    protected readonly IQueue<WorkItemData> _workItemQueue;
+    protected readonly IQueue<WorkItemData>? _workItemQueue;
     protected readonly ILogger _logger;
     protected readonly ILockProvider _beginReindexLockProvider;
     protected readonly ILockProvider _lockProvider;
     private readonly List<IIndex> _indexes = new();
     private readonly Lazy<IReadOnlyCollection<IIndex>> _frozenIndexes;
     private readonly Lazy<ElasticsearchClient> _client;
-    private readonly Lazy<ICustomFieldDefinitionRepository> _customFieldDefinitionRepository;
+    private readonly Lazy<ICustomFieldDefinitionRepository?> _customFieldDefinitionRepository;
     protected readonly bool _shouldDisposeCache;
     private readonly bool _shouldDisposeMessageBus;
     private int _disposed;
 
-    public ElasticConfiguration(IQueue<WorkItemData> workItemQueue = null, ICacheClient cacheClient = null, IMessageBus messageBus = null, ITextSerializer serializer = null, TimeProvider timeProvider = null, IResiliencePolicyProvider resiliencePolicyProvider = null, ILoggerFactory loggerFactory = null)
+    public ElasticConfiguration(IQueue<WorkItemData>? workItemQueue = null, ICacheClient? cacheClient = null, IMessageBus? messageBus = null, ITextSerializer? serializer = null, TimeProvider? timeProvider = null, IResiliencePolicyProvider? resiliencePolicyProvider = null, ILoggerFactory? loggerFactory = null)
     {
         _workItemQueue = workItemQueue;
         TimeProvider = timeProvider ?? TimeProvider.System;
@@ -56,13 +56,14 @@ public class ElasticConfiguration : IElasticConfiguration
         ResiliencePolicyProvider = resiliencePolicyProvider ?? cacheClient?.GetResiliencePolicyProvider() ?? new ResiliencePolicyProvider();
         ResiliencePolicy = ResiliencePolicyProvider.GetPolicy<ElasticConfiguration>(_logger, TimeProvider);
         Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { CloneValues = true, ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
-        _lockProvider = new CacheLockProvider(Cache, messageBus, TimeProvider, ResiliencePolicyProvider, LoggerFactory);
-        _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15), TimeProvider, ResiliencePolicyProvider, LoggerFactory);
         _shouldDisposeCache = cacheClient is null;
         _shouldDisposeMessageBus = messageBus is null;
-        MessageBus = messageBus ?? new InMemoryMessageBus(new InMemoryMessageBusOptions { ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
+        messageBus ??= new InMemoryMessageBus(new InMemoryMessageBusOptions { ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
+        MessageBus = messageBus;
+        _lockProvider = new CacheLockProvider(Cache, messageBus, TimeProvider, ResiliencePolicyProvider, LoggerFactory);
+        _beginReindexLockProvider = new ThrottlingLockProvider(Cache, 1, TimeSpan.FromMinutes(15), TimeProvider, ResiliencePolicyProvider, LoggerFactory);
         _frozenIndexes = new Lazy<IReadOnlyCollection<IIndex>>(() => _indexes.AsReadOnly());
-        _customFieldDefinitionRepository = new Lazy<ICustomFieldDefinitionRepository>(CreateCustomFieldDefinitionRepository);
+        _customFieldDefinitionRepository = new Lazy<ICustomFieldDefinitionRepository?>(CreateCustomFieldDefinitionRepository);
         _client = new Lazy<ElasticsearchClient>(CreateElasticClient);
     }
 
@@ -88,7 +89,7 @@ public class ElasticConfiguration : IElasticConfiguration
         settings.EnableTcpKeepAlive(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2));
     }
 
-    protected virtual NodePool CreateConnectionPool()
+    protected virtual NodePool? CreateConnectionPool()
     {
         return null;
     }
@@ -102,10 +103,10 @@ public class ElasticConfiguration : IElasticConfiguration
     public IResiliencePolicy ResiliencePolicy { get; }
     public TimeProvider TimeProvider { get; set; }
     public IReadOnlyCollection<IIndex> Indexes => _frozenIndexes.Value;
-    public ICustomFieldDefinitionRepository CustomFieldDefinitionRepository => _customFieldDefinitionRepository.Value;
+    public ICustomFieldDefinitionRepository? CustomFieldDefinitionRepository => _customFieldDefinitionRepository.Value;
 
-    private CustomFieldDefinitionIndex _customFieldDefinitionIndex = null;
-    private ICustomFieldDefinitionRepository CreateCustomFieldDefinitionRepository()
+    private CustomFieldDefinitionIndex? _customFieldDefinitionIndex = null;
+    private ICustomFieldDefinitionRepository? CreateCustomFieldDefinitionRepository()
     {
         if (_customFieldDefinitionIndex == null)
             return null;
@@ -128,7 +129,7 @@ public class ElasticConfiguration : IElasticConfiguration
         _indexes.Add(index);
     }
 
-    public IIndex GetIndex(string name)
+    public IIndex? GetIndex(string name)
     {
         foreach (var index in Indexes)
             if (index.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
@@ -137,7 +138,7 @@ public class ElasticConfiguration : IElasticConfiguration
         return null;
     }
 
-    public Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true)
+    public Task ConfigureIndexesAsync(IEnumerable<IIndex>? indexes = null, bool beginReindexingOutdated = true)
     {
         if (indexes == null)
             indexes = Indexes;
@@ -178,7 +179,7 @@ public class ElasticConfiguration : IElasticConfiguration
         await _beginReindexLockProvider.TryUsingAsync(enqueueReindexLockName, async () => { await _workItemQueue.EnqueueAsync(reindexWorkItem).AnyContext(); }, TimeSpan.Zero, new CancellationToken(true)).AnyContext();
     }
 
-    public Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null)
+    public Task MaintainIndexesAsync(IEnumerable<IIndex>? indexes = null)
     {
         if (indexes == null)
             indexes = Indexes;
@@ -190,7 +191,7 @@ public class ElasticConfiguration : IElasticConfiguration
         return Task.WhenAll(tasks);
     }
 
-    public Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null)
+    public Task DeleteIndexesAsync(IEnumerable<IIndex>? indexes = null)
     {
         if (indexes == null)
             indexes = Indexes;
@@ -202,7 +203,7 @@ public class ElasticConfiguration : IElasticConfiguration
         return Task.WhenAll(tasks);
     }
 
-    public async Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func<int, string, Task> progressCallbackAsync = null)
+    public async Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null)
     {
         if (indexes == null)
             indexes = Indexes;

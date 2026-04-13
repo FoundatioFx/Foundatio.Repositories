@@ -9,21 +9,25 @@ namespace Foundatio.Repositories.Models;
 [DebuggerDisplay("Value: {Value}")]
 public class ObjectValueAggregate : MetricAggregateBase
 {
-    public object Value { get; set; }
+    public object? Value { get; set; }
 
-    public T ValueAs<T>(ITextSerializer serializer)
+    public T? ValueAs<T>(ITextSerializer? serializer = null)
     {
-        ArgumentNullException.ThrowIfNull(serializer);
+        if (Value is null)
+            return default;
 
-        if (Value is string stringValue)
-            return serializer.Deserialize<T>(stringValue);
+        if (serializer is not null)
+        {
+            if (Value is string stringValue)
+                return serializer.Deserialize<T>(stringValue);
 
-        if (Value is JsonNode jNode)
-            return serializer.Deserialize<T>(jNode.ToJsonString());
+            if (Value is JsonNode jNode)
+                return serializer.Deserialize<T>(jNode.ToJsonString());
 
-        if (Value is JsonElement jElement)
-            return serializer.Deserialize<T>(jElement.GetRawText());
+            if (Value is JsonElement jElement)
+                return serializer.Deserialize<T>(jElement.GetRawText());
+        }
 
-        return (T)Convert.ChangeType(Value, typeof(T));
+        return (T?)Convert.ChangeType(Value, typeof(T));
     }
 }

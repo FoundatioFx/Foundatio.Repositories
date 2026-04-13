@@ -5,7 +5,7 @@ namespace Foundatio.Repositories.Utility;
 
 public class CopyOperation : Operation
 {
-    public string FromPath { get; set; }
+    public string? FromPath { get; set; }
 
     public override void Write(Utf8JsonWriter writer)
     {

@@ -13,11 +13,11 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public sealed class MigrationTests : ElasticRepositoryTestBase
 {
-    private MigrationIndex _migrationIndex;
-    private MigrationManager _migrationManager;
-    private MigrationStateRepository _migrationStateRepository;
-    private ILockProvider _lockProvider;
-    private IServiceProvider _serviceProvider;
+    private MigrationIndex _migrationIndex = null!;
+    private MigrationManager _migrationManager = null!;
+    private MigrationStateRepository _migrationStateRepository = null!;
+    private ILockProvider _lockProvider = null!;
+    private IServiceProvider _serviceProvider = null!;
 
     public MigrationTests(ITestOutputHelper output) : base(output)
     {

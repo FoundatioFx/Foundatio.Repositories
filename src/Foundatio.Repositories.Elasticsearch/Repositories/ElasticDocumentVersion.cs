@@ -20,7 +20,7 @@ public struct ElasticDocumentVersion : IEquatable<ElasticDocumentVersion>, IComp
 
     public override string ToString() => $"{PrimaryTerm}:{SequenceNumber}";
 
-    public override bool Equals(object obj)
+    public override bool Equals(object? obj)
     {
         if (obj is ElasticDocumentVersion version)
             return Equals(version);
@@ -87,7 +87,7 @@ public struct ElasticDocumentVersion : IEquatable<ElasticDocumentVersion>, IComp
         return SequenceNumber.CompareTo(other.SequenceNumber);
     }
 
-    public int CompareTo(object obj)
+    public int CompareTo(object? obj)
     {
         if (ReferenceEquals(null, obj))
             return 1;

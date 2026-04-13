@@ -27,6 +27,7 @@ public class FindResultsSerializationTests
             var roundTripped = serializer.Deserialize<FindResults<TestDocument>>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             Assert.Equal(original.Total, roundTripped.Total);
             Assert.Equal(original.Page, roundTripped.Page);
             Assert.Equal(original.HasMore, roundTripped.HasMore);
@@ -49,6 +50,7 @@ public class FindResultsSerializationTests
             var roundTripped = serializer.Deserialize<CountResult>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             Assert.Equal(original.Total, roundTripped.Total);
         }
     }
@@ -70,6 +72,7 @@ public class FindResultsSerializationTests
             var roundTripped = serializer.Deserialize<CountResult>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             Assert.Equal(original.Total, roundTripped.Total);
             Assert.Equal(original.Aggregations.Count, roundTripped.Aggregations.Count);
         }
@@ -99,6 +102,7 @@ public class FindResultsSerializationTests
             var roundTripped = serializer.Deserialize<CountResult>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             var nested = roundTripped.Aggregations["nested_test"] as SingleBucketAggregate;
             Assert.NotNull(nested);
             Assert.Equal(6, nested.Total);
@@ -139,6 +143,7 @@ public class FindResultsSerializationTests
             var roundTripped = serializer.Deserialize<CountResult>(json);
 
             // Assert - Level 1: outer sbucket
+            Assert.NotNull(roundTripped);
             var outer = roundTripped.Aggregations["nested_outer"] as SingleBucketAggregate;
             Assert.NotNull(outer);
             Assert.Equal(50, outer.Total);
@@ -194,6 +199,7 @@ public class FindResultsSerializationTests
             var roundTripped = serializer.Deserialize<CountResult>(json);
 
             // Assert - sbucket preserved
+            Assert.NotNull(roundTripped);
             var nested = roundTripped.Aggregations["nested_reviews"] as SingleBucketAggregate;
             Assert.True(nested != null, $"{serializer.GetType().Name}: SingleBucketAggregate lost");
             Assert.Equal(3, nested.Aggregations.Count);
@@ -246,6 +252,7 @@ public class FindResultsSerializationTests
             var roundTripped = serializer.Deserialize<CountResult>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             var bucket = roundTripped.Aggregations["terms_status"] as BucketAggregate;
             Assert.NotNull(bucket);
             Assert.Equal(2, bucket.Items.Count);
@@ -275,6 +282,7 @@ public class FindResultsSerializationTests
             var roundTripped = serializer.Deserialize<CountResult>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             var maxAge = roundTripped.Aggregations["max_age"] as ValueAggregate;
             Assert.NotNull(maxAge);
             Assert.Equal(65.0, maxAge.Value);
@@ -301,6 +309,7 @@ public class FindResultsSerializationTests
             var roundTripped = serializer.Deserialize<CountResult>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             var stats = roundTripped.Aggregations["stats_age"] as StatsAggregate;
             Assert.NotNull(stats);
             Assert.Equal(100, stats.Count);
@@ -330,6 +339,7 @@ public class FindResultsSerializationTests
             var roundTripped = serializer.Deserialize<CountResult>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             var percentiles = roundTripped.Aggregations["percentiles_age"] as PercentilesAggregate;
             Assert.NotNull(percentiles);
             Assert.NotNull(percentiles.Items);
@@ -355,6 +365,7 @@ public class FindResultsSerializationTests
             var roundTripped = serializer.Deserialize<CountResult>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             var objVal = roundTripped.Aggregations["obj_val"] as ObjectValueAggregate;
             Assert.NotNull(objVal);
             Assert.Equal("test_string", objVal.Value?.ToString());
@@ -378,6 +389,7 @@ public class FindResultsSerializationTests
             var roundTripped = serializer.Deserialize<CountResult>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             var dateVal = roundTripped.Aggregations["date_val"] as ValueAggregate<DateTime>;
             Assert.NotNull(dateVal);
             Assert.Equal(date, dateVal.Value);
@@ -411,6 +423,7 @@ public class FindResultsSerializationTests
             var roundTripped = serializer.Deserialize<CountResult>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             var exstats = roundTripped.Aggregations["exstats_age"] as ExtendedStatsAggregate;
             Assert.NotNull(exstats);
             Assert.Equal(100, exstats.Count);
@@ -432,11 +445,13 @@ public class FindResultsSerializationTests
             var roundTripped = serializer.Deserialize<FindHit<TestDocument>>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             Assert.Equal(original.Id, roundTripped.Id);
             Assert.Equal(original.Score, roundTripped.Score);
             Assert.Equal(original.Version, roundTripped.Version);
             Assert.Equal(original.Routing, roundTripped.Routing);
-            Assert.Equal(original.Document.Name, roundTripped.Document.Name);
+            Assert.NotNull(roundTripped.Document);
+            Assert.Equal(original.Document!.Name, roundTripped.Document.Name);
         }
     }
 
@@ -453,6 +468,7 @@ public class FindResultsSerializationTests
             var roundTripped = serializer.Deserialize<FindResults<TestDocument>>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             Assert.Equal(0, roundTripped.Total);
             Assert.Empty(roundTripped.Hits);
             Assert.Empty(roundTripped.Documents);
@@ -478,6 +494,7 @@ public class FindResultsSerializationTests
             var roundTripped = serializer.Deserialize<FindResults<TestDocument>>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             Assert.Equal(3, roundTripped.Total);
             Assert.Equal(3, roundTripped.Hits.Count);
             Assert.Equal(3, roundTripped.Documents.Count);
@@ -489,6 +506,6 @@ public class FindResultsSerializationTests
 
 public class TestDocument
 {
-    public string Id { get; set; }
-    public string Name { get; set; }
+    public string Id { get; set; } = null!;
+    public string Name { get; set; } = null!;
 }

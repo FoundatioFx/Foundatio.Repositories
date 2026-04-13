@@ -21,7 +21,7 @@ public static class ResolverExtensions
         if (sorts.Count == 0)
             return sorts;
 
-        return sorts.Select(sort => ResolveFieldSort(resolver, sort)).ToList();
+        return sorts.Select(sort => ResolveFieldSort(resolver, sort)!).ToList();
     }
 
     public static Field ResolveFieldName(this ElasticMappingResolver resolver, Field field)
@@ -32,7 +32,7 @@ public static class ResolverExtensions
         return new Field(resolver.GetResolvedField(field), field.Boost);
     }
 
-    public static SortOptions ResolveFieldSort(this ElasticMappingResolver resolver, SortOptions sort)
+    public static SortOptions? ResolveFieldSort(this ElasticMappingResolver resolver, SortOptions? sort)
     {
         // SortOptions is a discriminated union - check if it's a field sort
         if (sort?.Field != null)

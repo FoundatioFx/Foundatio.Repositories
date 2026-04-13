@@ -33,19 +33,18 @@ public class DailyIndex : VersionedIndex
     private TimeSpan? _maxIndexAge;
     protected readonly Func<object, DateTime> _getDocumentDateUtc;
     protected readonly string[] _defaultIndexes;
-    private readonly ConcurrentDictionary<DateTime, string> _ensuredDates = new();
+    private readonly ConcurrentDictionary<DateTime, byte> _ensuredDates = new();
 
-    public DailyIndex(IElasticConfiguration configuration, string name, int version = 1, Func<object, DateTime> getDocumentDateUtc = null)
+    public DailyIndex(IElasticConfiguration configuration, string name, int version = 1, Func<object, DateTime>? getDocumentDateUtc = null)
         : base(configuration, name, version)
     {
         AddAlias(Name);
         _frozenAliases = new Lazy<IReadOnlyCollection<IndexAliasAge>>(() => _aliases.AsReadOnly());
         _aliasCache = new ScopedCacheClient(configuration.Cache, "alias");
-        _getDocumentDateUtc = getDocumentDateUtc;
-        _defaultIndexes = [Name];
+        _defaultIndexes = new[] { Name };
         HasMultipleIndexes = true;
 
-        if (_getDocumentDateUtc != null)
+        if (getDocumentDateUtc is not null)
             _getDocumentDateUtc = document =>
             {
                 var date = getDocumentDateUtc(document);
@@ -149,13 +148,13 @@ public class DailyIndex : VersionedIndex
         string unversionedIndexAlias = GetIndexByDate(utcDate);
         if (await _aliasCache.ExistsAsync(unversionedIndexAlias).AnyContext())
         {
-            _ensuredDates[utcDate] = null;
+            _ensuredDates[utcDate] = 0;
             return;
         }
 
         if (await AliasExistsAsync(unversionedIndexAlias).AnyContext())
         {
-            _ensuredDates[utcDate] = null;
+            _ensuredDates[utcDate] = 0;
             await _aliasCache.SetAsync(unversionedIndexAlias, unversionedIndexAlias, expires).AnyContext();
             return;
         }
@@ -172,7 +171,7 @@ public class DailyIndex : VersionedIndex
                 descriptor.AddAlias(alias.Name, a => { });
         }).AnyContext();
 
-        _ensuredDates[utcDate] = null;
+        _ensuredDates[utcDate] = 0;
         await _aliasCache.SetAsync(unversionedIndexAlias, unversionedIndexAlias, expires).AnyContext();
     }
 
@@ -240,7 +239,7 @@ public class DailyIndex : VersionedIndex
         return DeleteIndexAsync($"{Name}-v*");
     }
 
-    public override async Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null)
+    public override async Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null)
     {
         int currentVersion = await GetCurrentVersionAsync().AnyContext();
         if (currentVersion < 0 || currentVersion >= Version)
@@ -433,7 +432,7 @@ public class DailyIndex : VersionedIndex
         return ElasticMappingResolver.Create(GetLatestIndexMapping, Configuration.Client.Infer, _logger);
     }
 
-    protected TypeMapping GetLatestIndexMapping()
+    protected TypeMapping? GetLatestIndexMapping()
     {
         string filter = $"{Name}-v{Version}-*";
         var indicesResponse = Configuration.Client.Indices.Get((Indices)(IndexName)filter);
@@ -522,7 +521,7 @@ public class DailyIndex : VersionedIndex
         return base.CreateDocumentId(document);
     }
 
-    public override Task EnsureIndexAsync(object target)
+    public override Task EnsureIndexAsync(object? target)
     {
         if (target == null)
             throw new ArgumentNullException(nameof(target));
@@ -559,18 +558,17 @@ public class DailyIndex : VersionedIndex
     [DebuggerDisplay("Name: {Name} Max Age: {MaxAge}")]
     public class IndexAliasAge
     {
-        public string Name { get; set; }
+        public string Name { get; set; } = null!;
         public TimeSpan MaxAge { get; set; }
     }
 }
 
 public class DailyIndex<T> : DailyIndex, IIndex<T> where T : class
 {
-    private readonly string _typeName = typeof(T).Name.ToLower();
+    private static readonly string _typeName = typeof(T).Name.ToLower();
 
-    public DailyIndex(IElasticConfiguration configuration, string name = null, int version = 1, Func<object, DateTime> getDocumentDateUtc = null) : base(configuration, name, version, getDocumentDateUtc)
+    public DailyIndex(IElasticConfiguration configuration, string? name = null, int version = 1, Func<object, DateTime>? getDocumentDateUtc = null) : base(configuration, name ?? _typeName, version, getDocumentDateUtc)
     {
-        Name = name ?? _typeName;
     }
 
     protected override ElasticMappingResolver CreateMappingResolver()
@@ -606,7 +604,7 @@ public class DailyIndex<T> : DailyIndex, IIndex<T> where T : class
         settings.DefaultMappingFor<T>(d => d.IndexName(Name));
     }
 
-    protected override string GetTimeStampField()
+    protected override string? GetTimeStampField()
     {
         if (typeof(IHaveDates).IsAssignableFrom(typeof(T)))
             return InferField(f => ((IHaveDates)f).UpdatedUtc);

@@ -113,9 +113,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
 #if ELASTICSEARCH9
-        var indices = aliasResponse.Aliases;
+        var indices = aliasResponse.Aliases!;
 #else
-        var indices = aliasResponse.Values;
+        var indices = aliasResponse.Values!;
 #endif
         Assert.Single(indices);
         Assert.Equal(version2Index.VersionedName, indices.First().Key);
@@ -171,9 +171,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
 #if ELASTICSEARCH9
-        var indices = aliasResponse.Aliases;
+        var indices = aliasResponse.Aliases!;
 #else
-        var indices = aliasResponse.Values;
+        var indices = aliasResponse.Values!;
 #endif
         Assert.Single(indices);
         Assert.True(indices.ContainsKey(version1Index.VersionedName));
@@ -225,9 +225,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         _logger.LogRequest(aliasResponse);
         Assert.True(aliasResponse.IsValidResponse);
 #if ELASTICSEARCH9
-        var indices = aliasResponse.Aliases;
+        var indices = aliasResponse.Aliases!;
 #else
-        var indices = aliasResponse.Values;
+        var indices = aliasResponse.Values!;
 #endif
         Assert.Single(indices);
         Assert.Equal(version1Index.VersionedName, indices.First().Key);
@@ -268,9 +268,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
 #if ELASTICSEARCH9
-        indices = aliasResponse.Aliases;
+        indices = aliasResponse.Aliases!;
 #else
-        indices = aliasResponse.Values;
+        indices = aliasResponse.Values!;
 #endif
         Assert.Single(indices);
         Assert.Equal(version1Index.VersionedName, indices.First().Key);
@@ -280,9 +280,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
 #if ELASTICSEARCH9
-        indices = aliasResponse.Aliases;
+        indices = aliasResponse.Aliases!;
 #else
-        indices = aliasResponse.Values;
+        indices = aliasResponse.Values!;
 #endif
         Assert.Single(indices);
         Assert.Equal(version2Index.VersionedName, indices.First().Key);
@@ -384,6 +384,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
             IEmployeeRepository version20Repository = new EmployeeRepository(version20Index);
             var result = await version20Repository.GetByIdAsync(employee.Id);
+            Assert.NotNull(result);
             Assert.Equal("scripted", result.CompanyName);
 
             await using AsyncDisposableAction version21Scope = new(() => version21Index.DeleteAsync());
@@ -392,6 +393,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
             IEmployeeRepository version21Repository = new EmployeeRepository(version21Index);
             result = await version21Repository.GetByIdAsync(employee.Id);
+            Assert.NotNull(result);
             Assert.Equal("typed script", result.CompanyName);
         }
 
@@ -411,6 +413,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
             IEmployeeRepository version21Repository = new EmployeeRepository(version21Index);
             var result = await version21Repository.GetByIdAsync(employee.Id);
+            Assert.NotNull(result);
             Assert.Equal("typed script", result.CompanyName);
         }
     }
@@ -440,9 +443,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version1Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
 #if ELASTICSEARCH9
-        var indices = aliasResponse.Aliases;
+        var indices = aliasResponse.Aliases!;
 #else
-        var indices = aliasResponse.Values;
+        var indices = aliasResponse.Values!;
 #endif
         Assert.Single(indices);
         Assert.Equal(version1Index.VersionedName, indices.First().Key);
@@ -499,9 +502,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
 #if ELASTICSEARCH9
-        var indices = aliasResponse.Aliases;
+        var indices = aliasResponse.Aliases!;
 #else
-        var indices = aliasResponse.Values;
+        var indices = aliasResponse.Values!;
 #endif
         Assert.Single(indices);
         Assert.Equal(version1Index.VersionedName, indices.First().Key);
@@ -511,9 +514,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
 #if ELASTICSEARCH9
-        indices = aliasResponse.Aliases;
+        indices = aliasResponse.Aliases!;
 #else
-        indices = aliasResponse.Values;
+        indices = aliasResponse.Values!;
 #endif
         Assert.Single(indices);
         Assert.Equal(version2Index.VersionedName, indices.First().Key);
@@ -558,9 +561,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         _logger.LogRequest(aliasResponse);
         Assert.True(aliasResponse.IsValidResponse);
 #if ELASTICSEARCH9
-        var indices = aliasResponse.Aliases;
+        var indices = aliasResponse.Aliases!;
 #else
-        var indices = aliasResponse.Values;
+        var indices = aliasResponse.Values!;
 #endif
         Assert.Single(indices);
         Assert.Equal(version1Index.VersionedName, indices.First().Key);
@@ -590,9 +593,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
         Assert.True(aliasResponse.IsValidResponse);
 #if ELASTICSEARCH9
-        indices = aliasResponse.Aliases;
+        indices = aliasResponse.Aliases!;
 #else
-        indices = aliasResponse.Values;
+        indices = aliasResponse.Values!;
 #endif
         Assert.Single(indices);
         Assert.Equal(version2Index.VersionedName, indices.First().Key);
@@ -608,7 +611,6 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         var result = await repository.GetByIdAsync(employee.Id);
         Assert.NotNull(result);
-        employee.Version = result.Version; // SeqNo/PrimaryTerm is not preserved across reindex
         Assert.Equal(ToJson(employee), ToJson(result));
         Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
     }
@@ -641,9 +643,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         _logger.LogRequest(aliasResponse);
         Assert.True(aliasResponse.IsValidResponse);
 #if ELASTICSEARCH9
-        var indices = aliasResponse.Aliases;
+        var indices = aliasResponse.Aliases!;
 #else
-        var indices = aliasResponse.Values;
+        var indices = aliasResponse.Values!;
 #endif
         Assert.Single(indices);
         Assert.Equal(version1Index.VersionedName, indices.First().Key);
@@ -672,9 +674,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         _logger.LogRequest(aliasResponse);
         Assert.True(aliasResponse.IsValidResponse, aliasResponse.GetErrorMessage());
 #if ELASTICSEARCH9
-        indices = aliasResponse.Aliases;
+        indices = aliasResponse.Aliases!;
 #else
-        indices = aliasResponse.Values;
+        indices = aliasResponse.Values!;
 #endif
         Assert.Single(indices);
         Assert.Equal(version2Index.VersionedName, indices.First().Key);
@@ -762,9 +764,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse);
 #if ELASTICSEARCH9
-        var aliasIndices = aliasesResponse.Aliases;
+        var aliasIndices = aliasesResponse.Aliases!;
 #else
-        var aliasIndices = aliasesResponse.Values;
+        var aliasIndices = aliasesResponse.Values!;
 #endif
         Assert.Equal(version1Index.GetVersionedIndex(employee.CreatedUtc, 1), aliasIndices.Single().Key);
 
@@ -781,9 +783,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         _logger.LogRequest(aliasesResponse);
         Assert.True(aliasesResponse.IsValidResponse, aliasesResponse.GetErrorMessage());
 #if ELASTICSEARCH9
-        aliasIndices = aliasesResponse.Aliases;
+        aliasIndices = aliasesResponse.Aliases!;
 #else
-        aliasIndices = aliasesResponse.Values;
+        aliasIndices = aliasesResponse.Values!;
 #endif
         Assert.Equal(version1Index.GetVersionedIndex(employee.CreatedUtc, 2), aliasIndices.Single().Key);
 
@@ -954,9 +956,9 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var request = new GetRequest(version2Index.VersionedName, employee.Id);
         var response = await _client.GetAsync<Dictionary<string, object>>(request, cancellationToken: TestCancellationToken);
         Assert.True(response.IsValidResponse);
-        Assert.True(response.Source.TryGetValue("companyNameRenamed", out var companyNameRenamed));
+        Assert.True(response.Source!.TryGetValue("companyNameRenamed", out var companyNameRenamed));
         Assert.Equal("TestCompany", companyNameRenamed?.ToString());
-        Assert.False(response.Source.ContainsKey("companyName"));
+        Assert.False(response.Source!.ContainsKey("companyName"));
     }
 
     [Fact]
@@ -988,7 +990,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var request = new GetRequest(version2Index.VersionedName, employee.Id);
         var response = await _client.GetAsync<Dictionary<string, object>>(request, cancellationToken: TestCancellationToken);
         Assert.True(response.IsValidResponse);
-        Assert.True(response.Source.TryGetValue("data", out var data));
+        Assert.True(response.Source!.TryGetValue("data", out var data));
 
         string json = ToJson(data);
         Assert.Equal("{\"newField\":\"nestedValue\"}", json);
@@ -1023,7 +1025,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var request = new GetRequest(version2Index.VersionedName, employee.Id);
         var response = await _client.GetAsync<Dictionary<string, object>>(request, cancellationToken: TestCancellationToken);
         Assert.True(response.IsValidResponse);
-        Assert.False(response.Source.ContainsKey("companyName"));
+        Assert.False(response.Source!.ContainsKey("companyName"));
     }
 
     [Fact]
@@ -1056,7 +1058,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var request = new GetRequest(version2Index.VersionedName, employee.Id);
         var response = await _client.GetAsync<Dictionary<string, object>>(request, cancellationToken: TestCancellationToken);
         Assert.True(response.IsValidResponse);
-        Assert.True(response.Source.TryGetValue("data", out var data));
+        Assert.True(response.Source!.TryGetValue("data", out var data));
 
         string json = ToJson(data);
         Assert.Equal("{\"keepField\":\"keepValue\"}", json);

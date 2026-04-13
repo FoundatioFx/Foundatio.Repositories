@@ -32,6 +32,7 @@ public class BucketSerializationTests
             var roundTripped = serializer.Deserialize<CountResult>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             var bucket = roundTripped.Aggregations["terms"] as BucketAggregate;
             Assert.NotNull(bucket);
             var item = Assert.IsType<KeyedBucket<string>>(bucket.Items.First());
@@ -63,6 +64,7 @@ public class BucketSerializationTests
             var roundTripped = serializer.Deserialize<CountResult>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             var bucket = roundTripped.Aggregations["histogram"] as BucketAggregate;
             Assert.NotNull(bucket);
             var item = Assert.IsType<KeyedBucket<double>>(bucket.Items.First());
@@ -96,6 +98,7 @@ public class BucketSerializationTests
             var roundTripped = serializer.Deserialize<CountResult>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             var bucket = roundTripped.Aggregations["date_hist"] as BucketAggregate;
             Assert.NotNull(bucket);
             var item = Assert.IsType<DateHistogramBucket>(bucket.Items.First());
@@ -135,6 +138,7 @@ public class BucketSerializationTests
             var roundTripped = serializer.Deserialize<CountResult>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             var bucket = roundTripped.Aggregations["price_ranges"] as BucketAggregate;
             Assert.NotNull(bucket);
             Assert.Equal(2, bucket.Items.Count);
@@ -182,6 +186,7 @@ public class BucketSerializationTests
             var roundTripped = serializer.Deserialize<CountResult>(json);
 
             // Assert
+            Assert.NotNull(roundTripped);
             var nested = roundTripped.Aggregations["nested_reviews"] as SingleBucketAggregate;
             Assert.NotNull(nested);
             Assert.Equal(5, nested.Total);

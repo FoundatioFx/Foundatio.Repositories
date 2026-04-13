@@ -30,7 +30,7 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     Task<T> AddAsync(T document, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="AddAsync(T, CommandOptionsDescriptor{T})"/>
-    Task<T> AddAsync(T document, ICommandOptions options = null);
+    Task<T> AddAsync(T document, ICommandOptions? options = null);
 
     /// <summary>
     /// Adds multiple documents to the repository.
@@ -42,7 +42,7 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     Task AddAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="AddAsync(IEnumerable{T}, CommandOptionsDescriptor{T})"/>
-    Task AddAsync(IEnumerable<T> documents, ICommandOptions options = null);
+    Task AddAsync(IEnumerable<T> documents, ICommandOptions? options = null);
 
     /// <summary>
     /// Saves changes to an existing document, or adds it if it doesn't exist.
@@ -55,7 +55,7 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     Task<T> SaveAsync(T document, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="SaveAsync(T, CommandOptionsDescriptor{T})"/>
-    Task<T> SaveAsync(T document, ICommandOptions options = null);
+    Task<T> SaveAsync(T document, ICommandOptions? options = null);
 
     /// <summary>
     /// Saves changes to multiple existing documents.
@@ -67,7 +67,7 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     Task SaveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="SaveAsync(IEnumerable{T}, CommandOptionsDescriptor{T})"/>
-    Task SaveAsync(IEnumerable<T> documents, ICommandOptions options = null);
+    Task SaveAsync(IEnumerable<T> documents, ICommandOptions? options = null);
 
     /// <summary>
     /// Applies a patch operation to a document.
@@ -95,7 +95,7 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     Task<bool> PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="PatchAsync(Id, IPatchOperation, CommandOptionsDescriptor{T})"/>
-    Task<bool> PatchAsync(Id id, IPatchOperation operation, ICommandOptions options = null);
+    Task<bool> PatchAsync(Id id, IPatchOperation operation, ICommandOptions? options = null);
 
     /// <summary>
     /// Applies a patch operation to multiple documents.
@@ -112,7 +112,7 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     Task<long> PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="PatchAsync(Ids, IPatchOperation, CommandOptionsDescriptor{T})"/>
-    Task<long> PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions options = null);
+    Task<long> PatchAsync(Ids ids, IPatchOperation operation, ICommandOptions? options = null);
 
     /// <summary>
     /// Permanently removes a document from the repository (hard delete).
@@ -122,7 +122,7 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     Task RemoveAsync(Id id, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="RemoveAsync(Id, CommandOptionsDescriptor{T})"/>
-    Task RemoveAsync(Id id, ICommandOptions options = null);
+    Task RemoveAsync(Id id, ICommandOptions? options = null);
 
     /// <summary>
     /// Permanently removes multiple documents from the repository (hard delete).
@@ -132,7 +132,7 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     Task RemoveAsync(Ids ids, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="RemoveAsync(Ids, CommandOptionsDescriptor{T})"/>
-    Task RemoveAsync(Ids ids, ICommandOptions options = null);
+    Task RemoveAsync(Ids ids, ICommandOptions? options = null);
 
     /// <summary>
     /// Permanently removes a document from the repository (hard delete).
@@ -142,7 +142,7 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     Task RemoveAsync(T document, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="RemoveAsync(T, CommandOptionsDescriptor{T})"/>
-    Task RemoveAsync(T document, ICommandOptions options = null);
+    Task RemoveAsync(T document, ICommandOptions? options = null);
 
     /// <summary>
     /// Permanently removes multiple documents from the repository (hard delete).
@@ -152,7 +152,7 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     Task RemoveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="RemoveAsync(IEnumerable{T}, CommandOptionsDescriptor{T})"/>
-    Task RemoveAsync(IEnumerable<T> documents, ICommandOptions options = null);
+    Task RemoveAsync(IEnumerable<T> documents, ICommandOptions? options = null);
 
     /// <summary>
     /// Permanently removes all documents from the repository (hard delete).
@@ -162,7 +162,7 @@ public interface IRepository<T> : IReadOnlyRepository<T> where T : class, IIdent
     Task<long> RemoveAllAsync(CommandOptionsDescriptor<T> options);
 
     /// <inheritdoc cref="RemoveAllAsync(CommandOptionsDescriptor{T})"/>
-    Task<long> RemoveAllAsync(ICommandOptions options = null);
+    Task<long> RemoveAllAsync(ICommandOptions? options = null);
 
     /// <summary>
     /// Event raised before documents are added to the repository.

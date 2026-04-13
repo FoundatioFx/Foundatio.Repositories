@@ -42,8 +42,9 @@ namespace Foundatio.Repositories
             options.SearchAfterPaging();
             if (!String.IsNullOrEmpty(searchAfterToken))
             {
-                object[] values = FindHitExtensions.DecodeSortToken(searchAfterToken, serializer);
-                options.Values.Set(SearchAfterKey, values);
+                object[]? values = FindHitExtensions.DecodeSortToken(searchAfterToken, serializer);
+                if (values is not null)
+                    options.Values.Set(SearchAfterKey, values);
             }
             else
             {
@@ -73,8 +74,9 @@ namespace Foundatio.Repositories
             options.SearchAfterPaging();
             if (!String.IsNullOrEmpty(searchBeforeToken))
             {
-                object[] values = FindHitExtensions.DecodeSortToken(searchBeforeToken, serializer);
-                options.Values.Set(SearchBeforeKey, values);
+                object[]? values = FindHitExtensions.DecodeSortToken(searchBeforeToken, serializer);
+                if (values is not null)
+                    options.Values.Set(SearchBeforeKey, values);
             }
             else
             {
@@ -133,7 +135,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
             // Get sorts from context data (set by SortQueryBuilder or ExpressionQueryBuilder)
-            List<SortOptions> sortFields = null;
+            List<SortOptions>? sortFields = null;
             if (ctx.Data.TryGetValue(SortQueryBuilder.SortFieldsKey, out var sortsObj) && sortsObj is List<SortOptions> sorts)
             {
                 sortFields = sorts;
@@ -164,7 +166,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 // Reverse sort orders if searching before
                 if (ctx.Options.HasSearchBefore())
                 {
-                    sortFields = sortFields.Select(s => s.ReverseOrder()).ToList();
+                    sortFields = sortFields.Select(s => s.ReverseOrder()!).ToList();
                 }
             }
 

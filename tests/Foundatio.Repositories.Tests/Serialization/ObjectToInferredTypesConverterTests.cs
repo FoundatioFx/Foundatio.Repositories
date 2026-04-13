@@ -269,6 +269,7 @@ public class ObjectToInferredTypesConverterTests
         var result = _serializer.Deserialize<object[]>(json);
 
         // Assert
+        Assert.NotNull(result);
         Assert.Equal(4, result.Length);
         Assert.Equal("test", result[0]);
         Assert.Equal(42L, result[1]);
@@ -280,7 +281,7 @@ public class ObjectToInferredTypesConverterTests
     public void Write_WithNull_WritesNullLiteral()
     {
         // Arrange
-        object value = null;
+        object? value = null;
 
         // Act
         string json = _serializer.SerializeToString(value);

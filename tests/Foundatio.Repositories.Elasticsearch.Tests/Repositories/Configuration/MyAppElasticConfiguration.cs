@@ -33,7 +33,7 @@ public class MyAppElasticConfiguration : ElasticConfiguration
 
     protected override NodePool CreateConnectionPool()
     {
-        string connectionString = Environment.GetEnvironmentVariable("ELASTICSEARCH_URL");
+        string? connectionString = Environment.GetEnvironmentVariable("ELASTICSEARCH_URL");
         bool fiddlerIsRunning = String.Equals(Environment.GetEnvironmentVariable("USE_FIDDLER_PROXY"), "true", StringComparison.OrdinalIgnoreCase);
 
         if (!String.IsNullOrEmpty(connectionString))

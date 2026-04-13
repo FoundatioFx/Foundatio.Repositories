@@ -14,7 +14,7 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
     private readonly ElasticReindexer _reindexer;
     private readonly ILockProvider _lockProvider;
 
-    public ReindexWorkItemHandler(ElasticsearchClient client, ITextSerializer serializer, ILockProvider lockProvider, ILoggerFactory loggerFactory = null)
+    public ReindexWorkItemHandler(ElasticsearchClient client, ITextSerializer serializer, ILockProvider lockProvider, ILoggerFactory? loggerFactory = null)
         : base(loggerFactory)
     {
         _reindexer = new ElasticReindexer(client, serializer, loggerFactory?.CreateLogger<ReindexWorkItemHandler>());
@@ -22,17 +22,17 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
         AutoRenewLockOnProgress = true;
     }
 
-    public override Task<ILock> GetWorkItemLockAsync(object workItem, CancellationToken cancellationToken = default)
+    public override Task<ILock?> GetWorkItemLockAsync(object workItem, CancellationToken cancellationToken = default)
     {
         if (workItem is not ReindexWorkItem reindexWorkItem)
-            return null;
+            return Task.FromResult<ILock?>(null);
 
-        return _lockProvider.AcquireAsync(String.Join(":", "reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex), TimeSpan.FromMinutes(20), cancellationToken);
+        return _lockProvider.AcquireAsync(String.Join(":", "reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex), TimeSpan.FromMinutes(20), cancellationToken)!;
     }
 
     public override Task HandleItemAsync(WorkItemContext context)
     {
         var workItem = context.GetData<ReindexWorkItem>();
-        return _reindexer.ReindexAsync(workItem, context.ReportProgressAsync);
+        return _reindexer.ReindexAsync(workItem!, context.ReportProgressAsync);
     }
 }

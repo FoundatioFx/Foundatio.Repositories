@@ -22,7 +22,7 @@ public class JsonDiffer
         return value.Replace("~", "~0").Replace("/", "~1");
     }
 
-    private static Operation Build(string op, string path, string key, JsonNode value)
+    private static Operation Build(string op, string path, string key, JsonNode? value)
     {
         string fullPath = String.IsNullOrEmpty(key) ? path : Extend(path, key);
         var jOperation = new JsonObject
@@ -36,7 +36,7 @@ public class JsonDiffer
         return Operation.Build(jOperation);
     }
 
-    internal static Operation Add(string path, string key, JsonNode value)
+    internal static Operation Add(string path, string key, JsonNode? value)
     {
         return Build("add", path, key, value);
     }
@@ -46,39 +46,39 @@ public class JsonDiffer
         return Build("remove", path, key, null);
     }
 
-    internal static Operation Replace(string path, string key, JsonNode value)
+    internal static Operation Replace(string path, string key, JsonNode? value)
     {
         return Build("replace", path, key, value);
     }
 
-    internal static IEnumerable<Operation> CalculatePatch(JsonNode left, JsonNode right, bool useIdToDetermineEquality,
+    internal static IEnumerable<Operation> CalculatePatch(JsonNode? left, JsonNode? right, bool useIdToDetermineEquality,
         string path = "")
     {
         if (GetNodeType(left) != GetNodeType(right))
         {
-            yield return JsonDiffer.Replace(path, "", right);
+            yield return JsonDiffer.Replace(path, String.Empty, right);
             yield break;
         }
 
         if (left is JsonArray)
         {
-            Operation prev = null;
+            Operation? prev = null;
             foreach (var operation in ProcessArray(left, right, path, useIdToDetermineEquality))
             {
-                if (prev is RemoveOperation prevRemove && operation is AddOperation add && add.Path == prevRemove.Path)
+                if (prev is RemoveOperation prevRemove && operation is AddOperation add && add.Path is not null && add.Path == prevRemove.Path)
                 {
-                    yield return Replace(add.Path, "", add.Value);
+                    yield return Replace(add.Path, String.Empty, add.Value);
                     prev = null;
                 }
                 else
                 {
-                    if (prev != null)
+                    if (prev is not null)
                         yield return prev;
                     prev = operation;
                 }
             }
 
-            if (prev != null)
+            if (prev is not null)
                 yield return prev;
         }
         else if (left is JsonObject leftObj && right is JsonObject rightObj)
@@ -114,11 +114,11 @@ public class JsonDiffer
             if (JsonNodeToString(left) == JsonNodeToString(right))
                 yield break;
             else
-                yield return JsonDiffer.Replace(path, "", right);
+                yield return JsonDiffer.Replace(path, String.Empty, right);
         }
     }
 
-    private static string GetNodeType(JsonNode node)
+    private static string GetNodeType(JsonNode? node)
     {
         return node switch
         {
@@ -130,12 +130,12 @@ public class JsonDiffer
         };
     }
 
-    private static string JsonNodeToString(JsonNode node)
+    private static string JsonNodeToString(JsonNode? node)
     {
         return node?.ToJsonString() ?? "null";
     }
 
-    private static IEnumerable<Operation> ProcessArray(JsonNode left, JsonNode right, string path,
+    private static IEnumerable<Operation> ProcessArray(JsonNode? left, JsonNode? right, string path,
         bool useIdPropertyToDetermineEquality)
     {
         var comparer = new CustomCheckEqualityComparer(useIdPropertyToDetermineEquality);
@@ -202,13 +202,13 @@ public class JsonDiffer
         }
     }
 
-    public PatchDocument Diff(JsonNode @from, JsonNode to, bool useIdPropertyToDetermineEquality)
+    public PatchDocument Diff(JsonNode? @from, JsonNode? to, bool useIdPropertyToDetermineEquality)
     {
         return new PatchDocument(CalculatePatch(@from, to, useIdPropertyToDetermineEquality).ToArray());
     }
 }
 
-internal class CustomCheckEqualityComparer : IEqualityComparer<JsonNode>
+internal class CustomCheckEqualityComparer : IEqualityComparer<JsonNode?>
 {
     private readonly bool _enableIdCheck;
 
@@ -217,14 +217,14 @@ internal class CustomCheckEqualityComparer : IEqualityComparer<JsonNode>
         _enableIdCheck = enableIdCheck;
     }
 
-    public bool Equals(JsonNode x, JsonNode y)
+    public bool Equals(JsonNode? x, JsonNode? y)
     {
         if (!_enableIdCheck || x is not JsonObject xObj || y is not JsonObject yObj)
             return JsonNode.DeepEquals(x, y);
 
-        string xId = xObj["id"]?.GetValue<string>();
-        string yId = yObj["id"]?.GetValue<string>();
-        if (xId != null && xId == yId)
+        string? xId = xObj["id"]?.GetValue<string>();
+        string? yId = yObj["id"]?.GetValue<string>();
+        if (xId is not null && xId == yId)
         {
             return true;
         }
@@ -232,7 +232,7 @@ internal class CustomCheckEqualityComparer : IEqualityComparer<JsonNode>
         return JsonNode.DeepEquals(x, y);
     }
 
-    public int GetHashCode(JsonNode obj)
+    public int GetHashCode(JsonNode? obj)
     {
         if (obj is null)
             return 0;
@@ -240,21 +240,21 @@ internal class CustomCheckEqualityComparer : IEqualityComparer<JsonNode>
         if (!_enableIdCheck || obj is not JsonObject xObj)
             return obj.ToJsonString().GetHashCode();
 
-        string xId = xObj["id"]?.GetValue<string>();
-        if (xId != null)
+        string? xId = xObj["id"]?.GetValue<string>();
+        if (xId is not null)
             return xId.GetHashCode() + obj.ToJsonString().GetHashCode();
 
         return obj.ToJsonString().GetHashCode();
     }
 
-    public static bool HaveEqualIds(JsonNode x, JsonNode y)
+    public static bool HaveEqualIds(JsonNode? x, JsonNode? y)
     {
         if (x is not JsonObject xObj || y is not JsonObject yObj)
             return false;
 
-        string xId = xObj["id"]?.GetValue<string>();
-        string yId = yObj["id"]?.GetValue<string>();
+        string? xId = xObj["id"]?.GetValue<string>();
+        string? yId = yObj["id"]?.GetValue<string>();
 
-        return xId != null && xId == yId;
+        return xId is not null && xId == yId;
     }
 }

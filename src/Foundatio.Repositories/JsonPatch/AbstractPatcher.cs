@@ -1,4 +1,4 @@
-namespace Foundatio.Repositories.Utility;
+﻿namespace Foundatio.Repositories.Utility;
 
 public abstract class AbstractPatcher<TDoc> where TDoc : class
 {
@@ -33,6 +33,7 @@ public abstract class AbstractPatcher<TDoc> where TDoc : class
                 Test(test, target);
                 break;
         }
+
         return target;
     }
 

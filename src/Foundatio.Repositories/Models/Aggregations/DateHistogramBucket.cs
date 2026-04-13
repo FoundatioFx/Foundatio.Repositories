@@ -12,7 +12,7 @@ public class DateHistogramBucket : KeyedBucket<double>
     }
 
     [System.Text.Json.Serialization.JsonConstructor]
-    public DateHistogramBucket(DateTime date, IReadOnlyDictionary<string, IAggregate> aggregations) : base(aggregations)
+    public DateHistogramBucket(DateTime date, IReadOnlyDictionary<string, IAggregate>? aggregations) : base(aggregations)
     {
         Date = date;
     }

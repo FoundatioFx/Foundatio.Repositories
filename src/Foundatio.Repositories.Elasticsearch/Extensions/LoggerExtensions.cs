@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -24,28 +24,28 @@ public static class LoggerExtensions
             string body = Encoding.UTF8.GetString(apiCall.RequestBodyInBytes);
             body = JsonUtility.Normalize(body);
 
-            logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}\r\n{HttpBody}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri.PathAndQuery, body);
+            logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}\r\n{HttpBody}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri?.PathAndQuery, body);
         }
         else if (apiCall != null)
         {
-            logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}", apiCall.HttpStatusCode, apiCall.HttpMethod, apiCall.Uri.PathAndQuery);
+            logger.Log(logLevel, "[{HttpStatusCode}] {HttpMethod} {HttpPathAndQuery}", apiCall?.HttpStatusCode, apiCall?.HttpMethod, apiCall?.Uri?.PathAndQuery);
         }
     }
 
-    public static void LogErrorRequest(this ILogger logger, ElasticsearchResponse elasticResponse, string message, params object[] args)
+    public static void LogErrorRequest(this ILogger logger, ElasticsearchResponse? elasticResponse, string message, params object?[] args)
     {
         LogErrorRequest(logger, null, elasticResponse, message, args);
     }
 
-    public static void LogErrorRequest(this ILogger logger, Exception ex, ElasticsearchResponse elasticResponse, string message, params object[] args)
+    public static void LogErrorRequest(this ILogger logger, Exception? ex, ElasticsearchResponse? elasticResponse, string message, params object?[] args)
     {
         if (elasticResponse == null || !logger.IsEnabled(LogLevel.Error))
             return;
 
         var originalException = elasticResponse.ApiCallDetails?.OriginalException;
 
-        AggregateException aggEx = null;
-        if (ex != null && originalException != null)
+        AggregateException? aggEx = null;
+        if (ex is not null && originalException is not null)
             aggEx = new AggregateException(ex, originalException);
 
         var allArgs = new object[args.Length + 1];
