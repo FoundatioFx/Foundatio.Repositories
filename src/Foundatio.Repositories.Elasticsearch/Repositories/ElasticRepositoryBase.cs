@@ -1415,7 +1415,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (String.IsNullOrEmpty(tenantKey))
             return null;
 
-        return await ElasticIndex.Configuration.CustomFieldDefinitionRepository!.AddFieldAsync(EntityTypeName, GetDocumentTenantKey(document)!, name, StringFieldType.IndexType).AnyContext();
+        return await ElasticIndex.Configuration.CustomFieldDefinitionRepository!.AddFieldAsync(EntityTypeName, tenantKey, name, StringFieldType.IndexType).AnyContext();
     }
 
     protected string? GetDocumentTenantKey(T document)
