@@ -552,7 +552,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         Assert.NotNull(dateAgg);
         Assert.Single(dateAgg.Buckets);
         Assert.Equal(utcNow.AddDays(-1).Date, dateAgg.Buckets.First().Date);
-        Assert.Equal(utcNow.AddDays(-1).Floor(TimeSpan.FromMilliseconds(1)), dateAgg.Buckets.First().Aggregations.Min<DateTime>("min_createdUtc")!.Value.Floor(TimeSpan.FromMilliseconds(1)));
+        var minCreatedUtc = dateAgg.Buckets.First().Aggregations.Min<DateTime>("min_createdUtc");
+        Assert.NotNull(minCreatedUtc);
+        Assert.Equal(utcNow.AddDays(-1).Floor(TimeSpan.FromMilliseconds(1)), minCreatedUtc.Value.Floor(TimeSpan.FromMilliseconds(1)));
 
         result = await _dailyRepository.CountAsync(q => q.AggregationsExpression("date:(createdUtc~1h^-3h min:createdUtc)"));
         Assert.Single(result.Aggregations);

@@ -8,15 +8,15 @@ namespace Foundatio.Repositories.Utility;
 
 public class JsonDiffer
 {
-    internal static string Extend(string? path, string extension)
+    internal static string Extend(string path, string extension)
     {
         // TODO: JSON property name needs escaping for path ??
         return path + "/" + extension;
     }
 
-    private static Operation Build(string op, string? path, string key, JToken? value)
+    private static Operation Build(string op, string path, string key, JToken? value)
     {
-        string fullPath = String.IsNullOrEmpty(key) ? path ?? String.Empty : Extend(path, key);
+        string fullPath = String.IsNullOrEmpty(key) ? path : Extend(path, key);
 
         if (String.Equals(op, "remove", StringComparison.Ordinal))
             return Operation.Parse("{ 'op' : '" + op + "' , 'path': '" + fullPath + "'}");
@@ -25,17 +25,17 @@ public class JsonDiffer
                             (value is null ? "null" : value.ToString(Formatting.None)) + "}");
     }
 
-    internal static Operation Add(string? path, string key, JToken value)
+    internal static Operation Add(string path, string key, JToken value)
     {
         return Build("add", path, key, value);
     }
 
-    internal static Operation Remove(string? path, string key)
+    internal static Operation Remove(string path, string key)
     {
         return Build("remove", path, key, null);
     }
 
-    internal static Operation Replace(string? path, string key, JToken? value)
+    internal static Operation Replace(string path, string key, JToken? value)
     {
         return Build("replace", path, key, value);
     }
@@ -54,7 +54,7 @@ public class JsonDiffer
             Operation? prev = null;
             foreach (var operation in ProcessArray(left, right, path, useIdToDetermineEquality))
             {
-                if (prev is RemoveOperation prevRemove && operation is AddOperation add && add.Path == prevRemove.Path)
+                if (prev is RemoveOperation prevRemove && operation is AddOperation add && add.Path is not null && add.Path == prevRemove.Path)
                 {
                     yield return Replace(add.Path, String.Empty, add.Value);
                     prev = null;

@@ -53,6 +53,7 @@ public static class TypeHelper
             object? convertedValue = Convert.ChangeType(value, targetType);
             if (convertedValue is T typedConvertedValue)
                 return typedConvertedValue;
+
             return default;
         }
         catch (Exception e)
