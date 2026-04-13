@@ -227,7 +227,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             return false;
 
         // documents that use soft deletes or have parents without a routing id need to use search for exists
-        options ??= new CommandOptions();
+        options = ConfigureOptions(options?.As<T>());
 
         if (!SupportsSoftDeletes && (!HasParent || id.Routing != null))
         {

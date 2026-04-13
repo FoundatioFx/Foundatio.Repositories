@@ -1463,10 +1463,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         await DocumentsChanged.InvokeAsync(this, new DocumentsChangeEventArgs<T>(changeType, documents, this, options)).AnyContext();
     }
 
-    private async Task<IReadOnlyCollection<T>> GetOriginalDocumentsAsync(Ids ids, ICommandOptions? options = null)
+    private async Task<IReadOnlyCollection<T>> GetOriginalDocumentsAsync(Ids ids, ICommandOptions options)
     {
-        options ??= new CommandOptions();
-
         if (!options.GetOriginalsEnabled(OriginalsEnabled) || ids.Count == 0)
             return EmptyList;
 
