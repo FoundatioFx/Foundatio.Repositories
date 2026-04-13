@@ -53,7 +53,7 @@ public class PatchDocument
     {
         var root = new PatchDocument();
 
-        if (document == null)
+        if (document is null)
             return root;
 
         foreach (var child in document.Children())

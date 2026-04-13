@@ -78,7 +78,7 @@ public class CleanupIndexesJob : IJob
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var indexesToDelete = indexes.Where(r => r.Date < now.Subtract(r.MaxAge)).ToList();
 
-        if (indexesToDelete.Count == 0)
+        if (indexesToDelete.Count is 0)
         {
             _logger.LogInformation("No indexes selected for deletion.");
             return JobResult.Success;
@@ -149,7 +149,7 @@ public class CleanupIndexesJob : IJob
 
     private IndexDate? GetIndexDate(string name)
     {
-        if (_indexes.Count == 0)
+        if (_indexes.Count is 0)
         {
             AddIndex("logstash", TimeSpan.FromDays(7));
             AddIndex(".marvel", TimeSpan.FromDays(7));

@@ -32,10 +32,9 @@ public class PatchDocumentConverter : JsonConverter
 
     public override void WriteJson(JsonWriter writer, object? value, JsonSerializer serializer)
     {
-        if (!(value is PatchDocument))
+        if (value is not PatchDocument jsonPatchDoc)
             return;
 
-        var jsonPatchDoc = (PatchDocument)value;
         writer.WriteStartArray();
         foreach (var op in jsonPatchDoc.Operations)
             op.Write(writer);

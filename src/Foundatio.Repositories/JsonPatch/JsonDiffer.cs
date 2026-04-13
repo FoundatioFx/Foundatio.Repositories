@@ -61,13 +61,13 @@ public class JsonDiffer
                 }
                 else
                 {
-                    if (prev != null)
+                    if (prev is not null)
                         yield return prev;
                     prev = operation;
                 }
             }
 
-            if (prev != null)
+            if (prev is not null)
                 yield return prev;
         }
         else if (left.Type == JTokenType.Object)
@@ -218,7 +218,7 @@ internal class CustomCheckEqualityComparer : IEqualityComparer<JToken>
 
         string? xId = xIdToken?.Value<string>();
         string? yId = yIdToken?.Value<string>();
-        if (xId != null && xId == yId)
+        if (xId is not null && xId == yId)
         {
             return true;
         }
@@ -232,8 +232,8 @@ internal class CustomCheckEqualityComparer : IEqualityComparer<JToken>
             return _inner.GetHashCode(obj);
 
         var xIdToken = obj["id"];
-        string? xId = xIdToken != null && xIdToken.HasValues ? xIdToken.Value<string>() : null;
-        if (xId != null)
+        string? xId = xIdToken is not null && xIdToken.HasValues ? xIdToken.Value<string>() : null;
+        if (xId is not null)
             return xId.GetHashCode() + _inner.GetHashCode(obj);
 
         return _inner.GetHashCode(obj);
@@ -250,6 +250,6 @@ internal class CustomCheckEqualityComparer : IEqualityComparer<JToken>
         string? xId = xIdToken?.Value<string>();
         string? yId = yIdToken?.Value<string>();
 
-        return xId != null && xId == yId;
+        return xId is not null && xId == yId;
     }
 }

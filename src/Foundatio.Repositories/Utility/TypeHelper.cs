@@ -44,7 +44,7 @@ public static class TypeHelper
             return default;
         }
 
-        if (!(value is IConvertible))
+        if (value is not IConvertible)
             throw new ArgumentException($"An incompatible value specified.  Target Type: {targetType.FullName} Value Type: {value.GetType().FullName}", nameof(value));
         try
         {

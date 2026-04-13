@@ -17,7 +17,7 @@ public class JsonPatcher : AbstractPatcher<JToken>
         if (tokens.Count == 0)
         {
             string[] parts = operation.Path.Split('/');
-            string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
+            string parentPath = String.Join("/", parts.Take(parts.Length - 1));
             string? propertyName = parts.LastOrDefault();
 
             if (propertyName is null || target.SelectOrCreatePatchToken(parentPath) is not JObject parent)
@@ -30,7 +30,7 @@ public class JsonPatcher : AbstractPatcher<JToken>
 
         foreach (var token in tokens)
         {
-            if (token.Parent != null)
+            if (token.Parent is not null)
                 token.Replace(operation.Value ?? JValue.CreateNull());
             else // root object
                 return operation.Value ?? JValue.CreateNull();
@@ -45,7 +45,7 @@ public class JsonPatcher : AbstractPatcher<JToken>
             return;
 
         string[] parts = operation.Path.Split('/');
-        string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
+        string parentPath = String.Join("/", parts.Take(parts.Length - 1));
         string? propertyName = parts.LastOrDefault();
 
         var value = operation.Value ?? JValue.CreateNull();
@@ -65,7 +65,7 @@ public class JsonPatcher : AbstractPatcher<JToken>
         {
             var parent = target.SelectOrCreatePatchToken(parentPath) as JObject;
             var property = parent?.Property(propertyName);
-            if (property == null)
+            if (property is null)
                 parent?.Add(propertyName, value);
             else
                 property.Value = value;
@@ -148,7 +148,7 @@ public static class JTokenExtensions
     public static JToken? SelectOrCreatePatchToken(this JToken token, string path)
     {
         var result = token.SelectToken(path.ToJTokenPath());
-        if (result != null)
+        if (result is not null)
             return result;
 
         string[] parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
@@ -160,7 +160,7 @@ public static class JTokenExtensions
         {
             string part = parts[i];
             var partToken = current.SelectPatchToken(part);
-            if (partToken == null)
+            if (partToken is null)
             {
                 if (current is JObject partObject)
                     current = partObject[part] = new JObject();
@@ -177,7 +177,7 @@ public static class JTokenExtensions
     public static JToken? SelectOrCreatePatchArrayToken(this JToken token, string path)
     {
         var result = token.SelectToken(path.ToJTokenPath());
-        if (result != null)
+        if (result is not null)
             return result;
 
         string[] parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
@@ -189,7 +189,7 @@ public static class JTokenExtensions
         {
             string part = parts[i];
             var partToken = current.SelectPatchToken(part);
-            if (partToken == null)
+            if (partToken is null)
             {
                 if (current is JObject partObject)
                 {

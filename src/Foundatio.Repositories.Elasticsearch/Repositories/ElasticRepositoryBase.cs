@@ -1466,7 +1466,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     private async Task<IReadOnlyCollection<T>> GetOriginalDocumentsAsync(Ids ids, ICommandOptions options)
     {
-        if (!options.GetOriginalsEnabled(OriginalsEnabled) || ids.Count == 0)
+        if (!options.GetOriginalsEnabled(OriginalsEnabled) || ids.Count is 0)
             return EmptyList;
 
         var originals = options.GetOriginals<T>().ToList();
