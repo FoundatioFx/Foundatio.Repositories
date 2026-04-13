@@ -180,33 +180,35 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         {
             case ComparisonOperator.Equals:
                 {
+                    var conditionValue = condition.Value ?? throw new QueryValidationException($"Condition value for field '{resolvedField}' cannot be null for Equals operator.");
                     Query eqQuery;
-                    if (condition.Value is IEnumerable and not string)
+                    if (conditionValue is IEnumerable and not string)
                     {
                         var values = new List<FieldValue>();
-                        foreach (var value in (IEnumerable)condition.Value)
+                        foreach (var value in (IEnumerable)conditionValue)
                             values.Add(ToFieldValue(value));
                         eqQuery = new TermsQuery { Field = resolvedField, Terms = new TermsQueryField(values) };
                     }
                     else
                     {
-                        eqQuery = new TermQuery { Field = resolvedField, Value = ToFieldValue(condition.Value!) };
+                        eqQuery = new TermQuery { Field = resolvedField, Value = ToFieldValue(conditionValue) };
                     }
                     return eqQuery;
                 }
             case ComparisonOperator.NotEquals:
                 {
+                    var conditionValue = condition.Value ?? throw new QueryValidationException($"Condition value for field '{resolvedField}' cannot be null for NotEquals operator.");
                     Query neQuery;
-                    if (condition.Value is IEnumerable and not string)
+                    if (conditionValue is IEnumerable and not string)
                     {
                         var values = new List<FieldValue>();
-                        foreach (var value in (IEnumerable)condition.Value)
+                        foreach (var value in (IEnumerable)conditionValue)
                             values.Add(ToFieldValue(value));
                         neQuery = new TermsQuery { Field = resolvedField, Terms = new TermsQueryField(values) };
                     }
                     else
                     {
-                        neQuery = new TermQuery { Field = resolvedField, Value = ToFieldValue(condition.Value!) };
+                        neQuery = new TermQuery { Field = resolvedField, Value = ToFieldValue(conditionValue) };
                     }
                     return new BoolQuery { MustNot = new Query[] { neQuery } };
                 }
@@ -258,7 +260,8 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
             case ComparisonOperator.GreaterThanOrEqual:
             case ComparisonOperator.LessThan:
             case ComparisonOperator.LessThanOrEqual:
-                return BuildRangeQuery(resolvedField, condition.Operator, condition.Value!);
+                var rangeValue = condition.Value ?? throw new QueryValidationException($"Condition value for field '{resolvedField}' cannot be null for range operator.");
+                return BuildRangeQuery(resolvedField, condition.Operator, rangeValue);
             default:
                 throw new ArgumentOutOfRangeException(nameof(condition.Operator), condition.Operator, "Unknown comparison operator.");
         }

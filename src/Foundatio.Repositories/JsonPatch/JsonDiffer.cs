@@ -65,7 +65,7 @@ public class JsonDiffer
             Operation? prev = null;
             foreach (var operation in ProcessArray(left, right, path, useIdToDetermineEquality))
             {
-                if (prev is RemoveOperation prevRemove && operation is AddOperation add && add.Path is not null && add.Path == prevRemove.Path)
+                if (prev is RemoveOperation prevRemove && operation is AddOperation add && add.Path is not null && String.Equals(add.Path, prevRemove.Path, StringComparison.Ordinal))
                 {
                     yield return Replace(add.Path, String.Empty, add.Value);
                     prev = null;

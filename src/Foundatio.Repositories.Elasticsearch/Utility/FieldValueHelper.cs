@@ -5,7 +5,7 @@ namespace Foundatio.Repositories.Elasticsearch.Utility;
 
 public static class FieldValueHelper
 {
-    public static FieldValue ToFieldValue(object value)
+    public static FieldValue ToFieldValue(object? value)
     {
         return value switch
         {

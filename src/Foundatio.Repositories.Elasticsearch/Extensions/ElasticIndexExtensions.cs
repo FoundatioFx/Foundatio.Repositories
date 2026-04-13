@@ -649,10 +649,10 @@ public static class ElasticIndexExtensions
         if (aggregate.DocCountErrorUpperBound.GetValueOrDefault() > 0)
         {
             logger?.LogWarning("Terms aggregation {AggregationName} has doc_count_error_upper_bound of {DocCountErrorUpperBound}. Results may be inaccurate. Consider increasing shard_size.", name, aggregate.DocCountErrorUpperBound);
-            data.Add(nameof(aggregate.DocCountErrorUpperBound), aggregate.DocCountErrorUpperBound!);
+            data.Add(nameof(aggregate.DocCountErrorUpperBound), aggregate.DocCountErrorUpperBound.GetValueOrDefault());
         }
         if (aggregate.SumOtherDocCount.GetValueOrDefault() > 0)
-            data.Add(nameof(aggregate.SumOtherDocCount), aggregate.SumOtherDocCount!);
+            data.Add(nameof(aggregate.SumOtherDocCount), aggregate.SumOtherDocCount.GetValueOrDefault());
 
         var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<string>(b.ToAggregations(serializer, logger))
         {
@@ -675,10 +675,10 @@ public static class ElasticIndexExtensions
         if (aggregate.DocCountErrorUpperBound.GetValueOrDefault() > 0)
         {
             logger?.LogWarning("Terms aggregation {AggregationName} has doc_count_error_upper_bound of {DocCountErrorUpperBound}. Results may be inaccurate. Consider increasing shard_size.", name, aggregate.DocCountErrorUpperBound);
-            data.Add(nameof(aggregate.DocCountErrorUpperBound), aggregate.DocCountErrorUpperBound!);
+            data.Add(nameof(aggregate.DocCountErrorUpperBound), aggregate.DocCountErrorUpperBound.GetValueOrDefault());
         }
         if (aggregate.SumOtherDocCount.GetValueOrDefault() > 0)
-            data.Add(nameof(aggregate.SumOtherDocCount), aggregate.SumOtherDocCount!);
+            data.Add(nameof(aggregate.SumOtherDocCount), aggregate.SumOtherDocCount.GetValueOrDefault());
 
         var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<double>(b.ToAggregations(serializer, logger))
         {
@@ -701,10 +701,10 @@ public static class ElasticIndexExtensions
         if (aggregate.DocCountErrorUpperBound.GetValueOrDefault() > 0)
         {
             logger?.LogWarning("Terms aggregation {AggregationName} has doc_count_error_upper_bound of {DocCountErrorUpperBound}. Results may be inaccurate. Consider increasing shard_size.", name, aggregate.DocCountErrorUpperBound);
-            data.Add(nameof(aggregate.DocCountErrorUpperBound), aggregate.DocCountErrorUpperBound!);
+            data.Add(nameof(aggregate.DocCountErrorUpperBound), aggregate.DocCountErrorUpperBound.GetValueOrDefault());
         }
         if (aggregate.SumOtherDocCount.GetValueOrDefault() > 0)
-            data.Add(nameof(aggregate.SumOtherDocCount), aggregate.SumOtherDocCount!);
+            data.Add(nameof(aggregate.SumOtherDocCount), aggregate.SumOtherDocCount.GetValueOrDefault());
 
         var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<double>(b.ToAggregations(serializer, logger))
         {

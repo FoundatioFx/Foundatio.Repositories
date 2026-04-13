@@ -75,7 +75,8 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(42.5, p75.Value);
         var p95 = percentiles.GetPercentile(95);
         Assert.NotNull(p95);
-        Assert.Equal(55.95d, Math.Round((double)p95.Value!, 2));
+        Assert.NotNull(p95.Value);
+        Assert.Equal(55.95d, Math.Round((double)p95.Value, 2));
         var p99 = percentiles.GetPercentile(99);
         Assert.NotNull(p99);
         Assert.Equal(59.19, p99.Value);
@@ -182,7 +183,10 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
             ), cancellationToken: TestCancellationToken);
 
         // Assert
-        var result = nestedAggQuery.Aggregations!.ToAggregations(_serializer)!;
+        var aggs = nestedAggQuery.Aggregations;
+        Assert.NotNull(aggs);
+        var result = aggs.ToAggregations(_serializer);
+        Assert.NotNull(result);
         Assert.Single(result);
         Assert.Equal(2, ((Foundatio.Repositories.Models.BucketAggregate)((Foundatio.Repositories.Models.SingleBucketAggregate)result["nested_reviewRating"]).Aggregations["terms_rating"]).Items.Count);
 
@@ -197,15 +201,20 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
             ))), cancellationToken: TestCancellationToken);
 
         // Assert (with filter)
-        result = nestedAggQueryWithFilter.Aggregations!.ToAggregations(_serializer)!;
+        var aggsWithFilter = nestedAggQueryWithFilter.Aggregations;
+        Assert.NotNull(aggsWithFilter);
+        result = aggsWithFilter.ToAggregations(_serializer);
+        Assert.NotNull(result);
         Assert.Single(result);
 
         var nestedAgg = (Foundatio.Repositories.Models.SingleBucketAggregate)result["nested_reviewRating"];
         var filteredAgg = (Foundatio.Repositories.Models.SingleBucketAggregate)nestedAgg.Aggregations[$"user_{employees[0].Id}"];
         Assert.NotNull(filteredAgg);
-        Assert.Single(filteredAgg.Aggregations.Terms("terms_rating")!.Buckets);
-        Assert.Equal("5", filteredAgg.Aggregations.Terms("terms_rating")!.Buckets.First().Key);
-        Assert.Equal(1, filteredAgg.Aggregations.Terms("terms_rating")!.Buckets.First().Total);
+        var termsRating = filteredAgg.Aggregations.Terms("terms_rating");
+        Assert.NotNull(termsRating);
+        Assert.Single(termsRating.Buckets);
+        Assert.Equal("5", termsRating.Buckets.First().Key);
+        Assert.Equal(1, termsRating.Buckets.First().Total);
     }
 
     [Fact]
@@ -519,11 +528,15 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(json, roundTrippedJson);
         Assert.Equal(10, roundTripped.Total);
         Assert.Single(roundTripped.Aggregations);
-        Assert.Equal(2, roundTripped.Aggregations.Terms<int>("terms_age")!.Buckets.Count);
-        bucket = roundTripped.Aggregations.Terms<int>("terms_age")!.Buckets.First(f => f.Key == 19);
+        var roundTrippedTermsAge2 = roundTripped.Aggregations.Terms<int>("terms_age");
+        Assert.NotNull(roundTrippedTermsAge2);
+        Assert.Equal(2, roundTrippedTermsAge2.Buckets.Count);
+        bucket = roundTrippedTermsAge2.Buckets.First(f => f.Key == 19);
         Assert.Equal(1, bucket.Total);
         Assert.Single(bucket.Aggregations);
-        Assert.Single(bucket.Aggregations.Terms<int>("terms_years")!.Buckets);
+        var roundTrippedTermsYears = bucket.Aggregations.Terms<int>("terms_years");
+        Assert.NotNull(roundTrippedTermsYears);
+        Assert.Single(roundTrippedTermsYears.Buckets);
     }
 
     [Fact]
@@ -638,8 +651,10 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.NotNull(roundTripped);
         Assert.Equal(10, roundTripped.Total);
         Assert.Single(roundTripped.Aggregations);
-        Assert.Equal(10, roundTripped.Aggregations.Terms<int>("terms_age")!.Buckets.Count);
-        bucket = roundTripped.Aggregations.Terms<int>("terms_age")!.Buckets.First(f => f.Key == 19);
+        var sysTermsAge = roundTripped.Aggregations.Terms<int>("terms_age");
+        Assert.NotNull(sysTermsAge);
+        Assert.Equal(10, sysTermsAge.Buckets.Count);
+        bucket = sysTermsAge.Buckets.First(f => f.Key == 19);
         Assert.Equal(1, bucket.Total);
 
         tophits = bucket.Aggregations.TopHits();
@@ -686,7 +701,8 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         using var hitStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(json));
         var employeeHit = _configuration.Client.ElasticsearchClientSettings.RequestResponseSerializer.Deserialize<Hit<Employee>>(hitStream);
         Assert.Equal("employees", employeeHit.Index);
-        Assert.Equal("62d982efd3e0d1fed81452f3", employeeHit.Source!.CompanyId);
+        Assert.NotNull(employeeHit.Source);
+        Assert.Equal("62d982efd3e0d1fed81452f3", employeeHit.Source.CompanyId);
     }
 
     [Fact]
