@@ -55,7 +55,7 @@ public class AggregationsSystemTextJsonConverter : System.Text.Json.Serializatio
         if (element.Deserialize<PercentilesAggregate>(options) is not { } agg)
             return new PercentilesAggregate();
 
-        if (agg.Items.Count is 0 && GetProperty(element, "Items") is { } itemsElement)
+        if (agg.Items is not { Count: > 0 } && GetProperty(element, "Items") is { } itemsElement)
             agg.Items = itemsElement.Deserialize<IReadOnlyList<PercentileItem>>(options) ?? [];
 
         return agg;
