@@ -65,7 +65,7 @@ public class JsonPatcher : AbstractPatcher<JsonNode>
 
         string[] parts = operation.Path.Split('/');
         string parentPath = String.Join("/", parts.Select((p, i) => i < parts.Length - 1 ? p : String.Empty).Where(p => p.Length > 0));
-        string? propertyName = parts.LastOrDefault();
+        string? propertyName = parts.Length > 0 ? JsonNodeExtensions.UnescapeJsonPointer(parts[^1]) : null;
 
         if (propertyName == "-")
         {

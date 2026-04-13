@@ -348,7 +348,14 @@ public class ElasticReindexer
     private async Task HandleFailureAsync(ReindexWorkItem workItem, BulkIndexByScrollFailure failure)
     {
         _logger.LogError("Error reindexing document {Index}/{Id}: [{Status}] {Message}", workItem.OldIndex, failure.Id, failure.Status, failure.Cause?.Reason);
-        var gr = await _client.GetAsync<object>(request: new GetRequest(workItem.OldIndex, failure.Id!)).AnyContext();
+
+        if (String.IsNullOrEmpty(failure.Id))
+        {
+            _logger.LogWarning("Skipping error document fetch: failure has no document Id");
+            return;
+        }
+
+        var gr = await _client.GetAsync<object>(request: new GetRequest(workItem.OldIndex, failure.Id)).AnyContext();
 
         if (!gr.IsValidResponse)
         {
