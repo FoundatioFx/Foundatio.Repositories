@@ -552,7 +552,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         Assert.NotNull(dateAgg);
         Assert.Single(dateAgg.Buckets);
         Assert.Equal(utcNow.AddDays(-1).Date, dateAgg.Buckets.First().Date);
-        Assert.Equal(utcNow.AddDays(-1).Floor(TimeSpan.FromMilliseconds(1)), dateAgg.Buckets.First().Aggregations.Min<DateTime>("min_createdUtc")!.Value.Floor(TimeSpan.FromMilliseconds(1)));
+        var minAgg = dateAgg.Buckets.First().Aggregations.Min<DateTime>("min_createdUtc");
+        Assert.NotNull(minAgg);
+        Assert.Equal(utcNow.AddDays(-1).Floor(TimeSpan.FromMilliseconds(1)), minAgg.Value.Floor(TimeSpan.FromMilliseconds(1)));
 
         result = await _dailyRepository.CountAsync(q => q.AggregationsExpression("date:(createdUtc~1h^-3h min:createdUtc)"));
         Assert.Single(result.Aggregations);
@@ -989,8 +991,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Assert
         employee = (await _employeeWithDateMetaDataRepository.GetByIdAsync(employee.Id))!;
         Assert.NotNull(employee.MetaData);
-        Assert.Equal(expectedTime, employee.MetaData!.DateCreatedUtc);
-        Assert.Equal(expectedTime, employee.MetaData!.DateUpdatedUtc);
+        Assert.Equal(expectedTime, employee.MetaData.DateCreatedUtc);
+        Assert.Equal(expectedTime, employee.MetaData.DateUpdatedUtc);
     }
 
     [Fact]
@@ -1001,7 +1003,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeWithDateMetaDataRepository.AddAsync(EmployeeWithDateMetaDataGenerator.Default);
-        var originalCreated = employee.MetaData!.DateCreatedUtc;
+        Assert.NotNull(employee.MetaData);
+        var originalCreated = employee.MetaData.DateCreatedUtc;
 
         timeProvider.Advance(TimeSpan.FromSeconds(5));
         var expectedUpdated = timeProvider.GetUtcNow().UtcDateTime;
@@ -1013,8 +1016,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Assert
         employee = (await _employeeWithDateMetaDataRepository.GetByIdAsync(employee.Id))!;
         Assert.Equal("Saved", employee.Name);
-        Assert.Equal(originalCreated, employee.MetaData!.DateCreatedUtc);
-        Assert.Equal(expectedUpdated, employee.MetaData!.DateUpdatedUtc);
+        Assert.NotNull(employee.MetaData);
+        Assert.Equal(originalCreated, employee.MetaData.DateCreatedUtc);
+        Assert.Equal(expectedUpdated, employee.MetaData.DateUpdatedUtc);
     }
 
     [Fact]
@@ -1025,7 +1029,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeWithDateMetaDataRepository.AddAsync(EmployeeWithDateMetaDataGenerator.Default);
-        var originalCreated = employee.MetaData!.DateCreatedUtc;
+        Assert.NotNull(employee.MetaData);
+        var originalCreated = employee.MetaData.DateCreatedUtc;
 
         timeProvider.Advance(TimeSpan.FromSeconds(5));
         var expectedUpdated = timeProvider.GetUtcNow().UtcDateTime;
@@ -1037,8 +1042,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Assert
         employee = (await _employeeWithDateMetaDataRepository.GetByIdAsync(employee.Id))!;
         Assert.Equal("JsonPatched", employee.Name);
-        Assert.Equal(originalCreated, employee.MetaData!.DateCreatedUtc);
-        Assert.Equal(expectedUpdated, employee.MetaData!.DateUpdatedUtc);
+        Assert.NotNull(employee.MetaData);
+        Assert.Equal(originalCreated, employee.MetaData.DateCreatedUtc);
+        Assert.Equal(expectedUpdated, employee.MetaData.DateUpdatedUtc);
     }
 
     [Fact]
@@ -1049,7 +1055,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeWithDateMetaDataRepository.AddAsync(EmployeeWithDateMetaDataGenerator.Default);
-        var originalCreated = employee.MetaData!.DateCreatedUtc;
+        Assert.NotNull(employee.MetaData);
+        var originalCreated = employee.MetaData.DateCreatedUtc;
 
         timeProvider.Advance(TimeSpan.FromSeconds(5));
         var expectedUpdated = timeProvider.GetUtcNow().UtcDateTime;
@@ -1061,8 +1068,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Assert
         employee = (await _employeeWithDateMetaDataRepository.GetByIdAsync(employee.Id))!;
         Assert.Equal("ActionPatched", employee.Name);
-        Assert.Equal(originalCreated, employee.MetaData!.DateCreatedUtc);
-        Assert.Equal(expectedUpdated, employee.MetaData!.DateUpdatedUtc);
+        Assert.NotNull(employee.MetaData);
+        Assert.Equal(originalCreated, employee.MetaData.DateCreatedUtc);
+        Assert.Equal(expectedUpdated, employee.MetaData.DateUpdatedUtc);
     }
 
     [Fact]
@@ -1073,7 +1081,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeWithDateMetaDataRepository.AddAsync(EmployeeWithDateMetaDataGenerator.Default);
-        var originalCreated = employee.MetaData!.DateCreatedUtc;
+        Assert.NotNull(employee.MetaData);
+        var originalCreated = employee.MetaData.DateCreatedUtc;
 
         timeProvider.Advance(TimeSpan.FromSeconds(5));
         var expectedUpdated = timeProvider.GetUtcNow().UtcDateTime;
@@ -1085,8 +1094,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Assert
         employee = (await _employeeWithDateMetaDataRepository.GetByIdAsync(employee.Id))!;
         Assert.Equal("ScriptPatched", employee.Name);
-        Assert.Equal(originalCreated, employee.MetaData!.DateCreatedUtc);
-        Assert.Equal(expectedUpdated, employee.MetaData!.DateUpdatedUtc);
+        Assert.NotNull(employee.MetaData);
+        Assert.Equal(originalCreated, employee.MetaData.DateCreatedUtc);
+        Assert.Equal(expectedUpdated, employee.MetaData.DateUpdatedUtc);
     }
 
     [Fact]
@@ -1097,7 +1107,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeWithDateMetaDataRepository.AddAsync(EmployeeWithDateMetaDataGenerator.Default);
-        var originalCreated = employee.MetaData!.DateCreatedUtc;
+        Assert.NotNull(employee.MetaData);
+        var originalCreated = employee.MetaData.DateCreatedUtc;
 
         timeProvider.Advance(TimeSpan.FromSeconds(5));
         var expectedUpdated = timeProvider.GetUtcNow().UtcDateTime;
@@ -1109,8 +1120,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Assert
         employee = (await _employeeWithDateMetaDataRepository.GetByIdAsync(employee.Id))!;
         Assert.Equal("PartialPatched", employee.Name);
-        Assert.Equal(originalCreated, employee.MetaData!.DateCreatedUtc);
-        Assert.Equal(expectedUpdated, employee.MetaData!.DateUpdatedUtc);
+        Assert.NotNull(employee.MetaData);
+        Assert.Equal(originalCreated, employee.MetaData.DateCreatedUtc);
+        Assert.Equal(expectedUpdated, employee.MetaData.DateUpdatedUtc);
     }
 
     [Fact]
@@ -1121,7 +1133,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeWithDateMetaDataRepository.AddAsync(EmployeeWithDateMetaDataGenerator.Default);
-        var originalCreated = employee.MetaData!.DateCreatedUtc;
+        Assert.NotNull(employee.MetaData);
+        var originalCreated = employee.MetaData.DateCreatedUtc;
 
         timeProvider.Advance(TimeSpan.FromSeconds(5));
         var callerProvidedTime = new DateTime(2020, 6, 15, 12, 0, 0, DateTimeKind.Utc);
@@ -1136,8 +1149,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Assert
         employee = (await _employeeWithDateMetaDataRepository.GetByIdAsync(employee.Id))!;
         Assert.Equal("CallerScript", employee.Name);
-        Assert.Equal(originalCreated, employee.MetaData!.DateCreatedUtc);
-        Assert.Equal(callerProvidedTime, employee.MetaData!.DateUpdatedUtc);
+        Assert.NotNull(employee.MetaData);
+        Assert.Equal(originalCreated, employee.MetaData.DateCreatedUtc);
+        Assert.Equal(callerProvidedTime, employee.MetaData.DateUpdatedUtc);
     }
 
     [Fact]
@@ -1148,7 +1162,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         _configuration.TimeProvider = timeProvider;
 
         var employee = await _employeeWithDateMetaDataRepository.AddAsync(EmployeeWithDateMetaDataGenerator.Default);
-        var originalCreated = employee.MetaData!.DateCreatedUtc;
+        Assert.NotNull(employee.MetaData);
+        var originalCreated = employee.MetaData.DateCreatedUtc;
 
         timeProvider.Advance(TimeSpan.FromSeconds(5));
         var callerProvidedTime = new DateTime(2020, 6, 15, 12, 0, 0, DateTimeKind.Utc);
@@ -1160,8 +1175,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Assert
         employee = (await _employeeWithDateMetaDataRepository.GetByIdAsync(employee.Id))!;
         Assert.Equal("CallerPartial", employee.Name);
-        Assert.Equal(originalCreated, employee.MetaData!.DateCreatedUtc);
-        Assert.Equal(callerProvidedTime, employee.MetaData!.DateUpdatedUtc);
+        Assert.NotNull(employee.MetaData);
+        Assert.Equal(originalCreated, employee.MetaData.DateCreatedUtc);
+        Assert.Equal(callerProvidedTime, employee.MetaData.DateUpdatedUtc);
     }
 
     [Fact]
@@ -1943,7 +1959,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         await Task.WhenAll(ids.Select(async id =>
         {
             var emp = await _employeeRepository.GetByIdAsync(id);
-            Assert.Equal("ActionPatched", emp!.CompanyName);
+            Assert.NotNull(emp);
+            Assert.Equal("ActionPatched", emp.CompanyName);
         }));
     }
 
