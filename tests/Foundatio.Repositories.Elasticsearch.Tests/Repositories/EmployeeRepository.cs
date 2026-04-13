@@ -161,13 +161,8 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
         await base.AddDocumentsToCacheAsync(findHits, options, isDirtyRead);
 
         var cacheEntries = new Dictionary<string, FindHit<Employee>>();
-        foreach (var hit in findHits)
-        {
-            if (hit.Document?.EmailAddress is not { Length: > 0 } email)
-                continue;
-
-            cacheEntries.Add($"email:{email.ToLowerInvariant()}", hit);
-        }
+        foreach (var hit in findHits.Where(h => h.Document?.EmailAddress is { Length: > 0 }))
+            cacheEntries.Add($"email:{hit.Document!.EmailAddress.ToLowerInvariant()}", hit);
 
         await AddDocumentsToCacheWithKeyAsync(cacheEntries, options.GetExpiresIn());
     }
