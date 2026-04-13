@@ -611,6 +611,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         var result = await repository.GetByIdAsync(employee.Id);
         Assert.NotNull(result);
+        employee.Version = result.Version; // SeqNo/PrimaryTerm is not preserved across reindex
         Assert.Equal(ToJson(employee), ToJson(result));
         Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
     }
