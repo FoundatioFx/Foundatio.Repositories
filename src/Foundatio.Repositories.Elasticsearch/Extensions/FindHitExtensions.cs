@@ -26,7 +26,7 @@ public static class FindHitExtensions
 
     public static object[]? GetSorts<T>(this FindHit<T> hit)
     {
-        if (hit == null || !hit.Data.TryGetValue(ElasticDataKeys.Sorts, out object? sorts))
+        if (hit is null || !hit.Data.TryGetValue(ElasticDataKeys.Sorts, out object? sorts))
             return Array.Empty<object>();
 
         object[]? sortsArray = sorts as object[];

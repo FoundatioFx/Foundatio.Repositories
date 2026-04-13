@@ -924,7 +924,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (!IsCacheEnabled || !options.ShouldReadCache() || !options.HasCacheKey())
             return default;
 
-        string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey()!;
+        string cacheKey = cachePrefix is not null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey()!;
         if (!String.IsNullOrEmpty(cacheSuffix))
             cacheKey += ":" + cacheSuffix;
 
@@ -943,7 +943,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (!options.HasCacheKey())
             throw new ArgumentException("Cache key is required when enabling cache.", nameof(options));
 
-        string cacheKey = cachePrefix != null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey()!;
+        string cacheKey = cachePrefix is not null ? cachePrefix + ":" + options.GetCacheKey() : options.GetCacheKey()!;
         if (!String.IsNullOrEmpty(cacheSuffix))
             cacheKey += ":" + cacheSuffix;
 
@@ -1006,13 +1006,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 result = cacheHitsById
                     .Where(kvp => kvp.Value.HasValue && !kvp.Value.IsNull)
                     .SelectMany(kvp => kvp.Value.Value)
-                    .Where(v => v?.Document != null && v.Id is not null && idList.Contains(v.Id));
+                    .Where(v => v?.Document is not null && v.Id is not null && idList.Contains(v.Id));
             }
             else
             {
                 var cacheKeyHits = await Cache.GetAsync<ICollection<FindHit<T>>>(cacheKey).AnyContext();
                 result = cacheKeyHits.HasValue && !cacheKeyHits.IsNull
-                    ? cacheKeyHits.Value.Where(v => v?.Document != null && v.Id is not null && idList.Contains(v.Id))
+                    ? cacheKeyHits.Value.Where(v => v?.Document is not null && v.Id is not null && idList.Contains(v.Id))
                     : Enumerable.Empty<FindHit<T>>();
             }
 

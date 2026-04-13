@@ -317,7 +317,7 @@ public static class ElasticIndexExtensions
     {
         if (aggregate is Nest.ValueAggregate valueAggregate)
         {
-            if (valueAggregate.Meta != null && valueAggregate.Meta.TryGetValue("@field_type", out object? value))
+            if (valueAggregate.Meta is not null && valueAggregate.Meta.TryGetValue("@field_type", out object? value))
             {
                 string? type = value.ToString();
                 if (type == "date" && valueAggregate.Value.HasValue)
@@ -426,7 +426,7 @@ public static class ElasticIndexExtensions
         var kind = DateTimeKind.Utc;
         long ticks = _epochTicks + ((long)valueAggregate.Value * TimeSpan.TicksPerMillisecond);
 
-        if (valueAggregate.Meta.TryGetValue("@timezone", out object? value) && value != null)
+        if (valueAggregate.Meta.TryGetValue("@timezone", out object? value) && value is not null)
         {
             kind = DateTimeKind.Unspecified;
             ticks -= Exceptionless.DateTimeExtensions.TimeUnit.Parse(value.ToString()!).Ticks;

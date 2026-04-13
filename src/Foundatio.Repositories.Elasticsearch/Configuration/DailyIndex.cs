@@ -42,7 +42,7 @@ public class DailyIndex : VersionedIndex
         _defaultIndexes = new[] { Name };
         HasMultipleIndexes = true;
 
-        if (getDocumentDateUtc != null)
+        if (getDocumentDateUtc is not null)
             _getDocumentDateUtc = document =>
             {
                 var date = getDocumentDateUtc(document);
