@@ -580,7 +580,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetByEmailAddressFilter()
     {
-        var findResult = await _employeeRepository.GetByEmailAddressAsync(EmployeeGenerator.Default.EmailAddress);
+        var findResult = await _employeeRepository.GetByEmailAddressAsync(EmployeeGenerator.Default.EmailAddress!);
         Assert.Null(findResult);
         Assert.Equal(1, _cache.Writes);
         Assert.Equal(1, _cache.Count);
@@ -588,7 +588,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(2, _cache.Misses); // one for soft deleted ids
 
         // missing value should be cached
-        findResult = await _employeeRepository.GetByEmailAddressAsync(EmployeeGenerator.Default.EmailAddress);
+        findResult = await _employeeRepository.GetByEmailAddressAsync(EmployeeGenerator.Default.EmailAddress!);
         Assert.DoesNotContain(Log.LogEntries, l => l.LogLevel == LogLevel.Error);
         Assert.Null(findResult);
         Assert.Equal(1, _cache.Writes);

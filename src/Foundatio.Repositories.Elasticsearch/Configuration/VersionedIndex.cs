@@ -497,6 +497,6 @@ public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class
     }
 
     public Inferrer Infer => Configuration.Client.Infer;
-    public string InferField(Expression<Func<T, object>> objectPath) => Infer.Field(objectPath);
-    public string InferPropertyName(Expression<Func<T, object>> objectPath) => Infer.PropertyName(objectPath);
+    public string InferField(Expression<Func<T, object?>> objectPath) => Infer.Field(objectPath);
+    public string InferPropertyName(Expression<Func<T, object?>> objectPath) => Infer.PropertyName(objectPath);
 }

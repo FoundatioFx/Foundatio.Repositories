@@ -62,7 +62,7 @@ public record DateRange
             });
         }
 
-        public static T DateRange<T, TModel>(this T query, DateTime? utcStart, DateTime? utcEnd, Expression<Func<TModel, object>> objectPath, string? timeZone = null) where T : IRepositoryQuery
+        public static T DateRange<T, TModel>(this T query, DateTime? utcStart, DateTime? utcEnd, Expression<Func<TModel, object?>> objectPath, string? timeZone = null) where T : IRepositoryQuery
         {
             if (objectPath == null)
                 throw new ArgumentNullException(nameof(objectPath));

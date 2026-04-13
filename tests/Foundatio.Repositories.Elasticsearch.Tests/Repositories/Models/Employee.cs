@@ -24,15 +24,15 @@ public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes
 {
     public string Id { get; set; } = null!;
     public string CompanyId { get; set; } = null!;
-    public string CompanyName { get; set; } = null!;
-    public string UnmappedCompanyName => CompanyName;
-    public string Name { get; set; } = null!;
-    public string EmailAddress { get; set; } = null!;
-    public string UnmappedEmailAddress => EmailAddress;
+    public string? CompanyName { get; set; }
+    public string? UnmappedCompanyName => CompanyName;
+    public string? Name { get; set; }
+    public string? EmailAddress { get; set; }
+    public string? UnmappedEmailAddress => EmailAddress;
     public int Age { get; set; }
     public int UnmappedAge => Age;
     public double DecimalAge => Age + .5;
-    public string Location { get; set; } = null!;
+    public string? Location { get; set; }
     public int YearsEmployed { get; set; }
     public EmploymentType EmploymentType { get; set; } = EmploymentType.FullTime;
     public DateTime LastReview { get; set; }
@@ -139,10 +139,10 @@ public static class EmployeeGenerator
         return new Employee
         {
             Id = id!,
-            Name = name!,
+            Name = name,
             Age = age ?? RandomData.GetInt(18, 100),
             YearsEmployed = yearsEmployed ?? RandomData.GetInt(0, 1),
-            CompanyName = companyName!,
+            CompanyName = companyName,
             CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
             EmploymentType = employmentType ?? EmploymentType.FullTime,
             LastReview = lastReview.GetValueOrDefault(),
@@ -206,10 +206,10 @@ public static class EmployeeWithCustomFieldsGenerator
         return new EmployeeWithCustomFields
         {
             Id = id!,
-            Name = name!,
+            Name = name,
             Age = age ?? RandomData.GetInt(18, 100),
             YearsEmployed = yearsEmployed ?? RandomData.GetInt(0, 1),
-            CompanyName = companyName!,
+            CompanyName = companyName,
             CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
             EmploymentType = employmentType ?? EmploymentType.FullTime,
             LastReview = lastReview.GetValueOrDefault(),

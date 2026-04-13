@@ -76,8 +76,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected Func<T, string>? GetParentIdFunc { get; set; }
 
     protected Inferrer Infer => ElasticIndex.Configuration.Client.Infer;
-    protected string InferField(Expression<Func<T, object>> objectPath) => Infer.Field(objectPath);
-    protected string InferPropertyName(Expression<Func<T, object>> objectPath) => Infer.PropertyName(objectPath);
+    protected string InferField(Expression<Func<T, object?>> objectPath) => Infer.Field(objectPath);
+    protected string InferPropertyName(Expression<Func<T, object?>> objectPath) => Infer.PropertyName(objectPath);
     protected bool HasParent { get; set; } = false;
 
     protected Consistency DefaultConsistency { get; set; } = Consistency.Eventual;
@@ -690,13 +690,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     }
 
     /// <inheritdoc cref="AddDefaultExclude(string)"/>
-    protected void AddDefaultExclude(Expression<Func<T, object>> objectPath)
+    protected void AddDefaultExclude(Expression<Func<T, object?>> objectPath)
     {
         _defaultExcludes.Add(new Lazy<Field>(() => InferPropertyName(objectPath)));
     }
 
     /// <inheritdoc cref="AddDefaultExclude(string)"/>
-    protected void AddDefaultExclude(params Expression<Func<T, object>>[] objectPaths)
+    protected void AddDefaultExclude(params Expression<Func<T, object?>>[] objectPaths)
     {
         _defaultExcludes.AddRange(objectPaths.Select(o => new Lazy<Field>(() => InferPropertyName(o))));
     }
@@ -722,13 +722,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     }
 
     /// <inheritdoc cref="AddRequiredField(string)"/>
-    protected void AddRequiredField(Expression<Func<T, object>> objectPath)
+    protected void AddRequiredField(Expression<Func<T, object?>> objectPath)
     {
         _requiredFields.Add(new Lazy<Field>(() => InferPropertyName(objectPath)));
     }
 
     /// <inheritdoc cref="AddRequiredField(string)"/>
-    protected void AddRequiredField(params Expression<Func<T, object>>[] objectPaths)
+    protected void AddRequiredField(params Expression<Func<T, object?>>[] objectPaths)
     {
         _requiredFields.AddRange(objectPaths.Select(o => new Lazy<Field>(() => InferPropertyName(o))));
     }

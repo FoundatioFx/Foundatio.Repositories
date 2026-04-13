@@ -1317,14 +1317,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     /// <inheritdoc cref="AddPropertyRequiredForRemove(string)"/>
     [Obsolete("Use AddRequiredField instead. This method will be removed in a future major version.")]
-    protected void AddPropertyRequiredForRemove(Expression<Func<T, object>> objectPath)
+    protected void AddPropertyRequiredForRemove(Expression<Func<T, object?>> objectPath)
     {
         AddRequiredField(objectPath);
     }
 
     /// <inheritdoc cref="AddPropertyRequiredForRemove(string)"/>
     [Obsolete("Use AddRequiredField instead. This method will be removed in a future major version.")]
-    protected void AddPropertyRequiredForRemove(params Expression<Func<T, object>>[] objectPaths)
+    protected void AddPropertyRequiredForRemove(params Expression<Func<T, object?>>[] objectPaths)
     {
         AddRequiredField(objectPaths);
     }

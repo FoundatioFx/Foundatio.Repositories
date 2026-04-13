@@ -544,7 +544,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         var indexSettings = indexSettingsEntry.Settings;
         var replicas = indexSettings.Index?.NumberOfReplicas ?? indexSettings.NumberOfReplicas;
         Assert.NotNull(replicas);
-        var replicaCount = replicas.Match(i => i, s => int.Parse(s));
+        var replicaCount = replicas.Match(i => i, s => int.Parse(s!));
         Assert.Equal(0, replicaCount);
         Assert.NotNull(indexSettings.Index);
         var indexSection = indexSettings.Index;
@@ -566,7 +566,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         indexSettings = indexSettingsEntry.Settings;
         replicas = indexSettings.Index?.NumberOfReplicas ?? indexSettings.NumberOfReplicas;
         Assert.NotNull(replicas);
-        replicaCount = replicas.Match(i => i, s => int.Parse(s));
+        replicaCount = replicas.Match(i => i, s => int.Parse(s!));
         Assert.Equal(1, replicaCount);
         Assert.NotNull(indexSettings.Index);
         indexSection = indexSettings.Index;

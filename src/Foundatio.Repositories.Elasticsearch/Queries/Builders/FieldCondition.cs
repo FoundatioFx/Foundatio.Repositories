@@ -307,13 +307,13 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
         return this;
     }
 
-    public FieldConditionGroup<T> FieldCondition(Expression<Func<T, object>> objectPath, ComparisonOperator op, object? value)
+    public FieldConditionGroup<T> FieldCondition(Expression<Func<T, object?>> objectPath, ComparisonOperator op, object? value)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Value = value, Operator = op });
         return this;
     }
 
-    public FieldConditionGroup<T> FieldCondition(Expression<Func<T, object>> objectPath, ComparisonOperator op, params object[] values)
+    public FieldConditionGroup<T> FieldCondition(Expression<Func<T, object?>> objectPath, ComparisonOperator op, params object[] values)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Value = values, Operator = op });
         return this;
@@ -331,13 +331,13 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
         return this;
     }
 
-    public FieldConditionGroup<T> FieldContains(Expression<Func<T, object>> objectPath, object? value)
+    public FieldConditionGroup<T> FieldContains(Expression<Func<T, object?>> objectPath, object? value)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.Contains });
         return this;
     }
 
-    public FieldConditionGroup<T> FieldContains(Expression<Func<T, object>> objectPath, params object[] values)
+    public FieldConditionGroup<T> FieldContains(Expression<Func<T, object?>> objectPath, params object[] values)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Value = values, Operator = ComparisonOperator.Contains });
         return this;
@@ -355,13 +355,13 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
         return this;
     }
 
-    public FieldConditionGroup<T> FieldNotContains(Expression<Func<T, object>> objectPath, object? value)
+    public FieldConditionGroup<T> FieldNotContains(Expression<Func<T, object?>> objectPath, object? value)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.NotContains });
         return this;
     }
 
-    public FieldConditionGroup<T> FieldNotContains(Expression<Func<T, object>> objectPath, params object[] values)
+    public FieldConditionGroup<T> FieldNotContains(Expression<Func<T, object?>> objectPath, params object[] values)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Value = values, Operator = ComparisonOperator.NotContains });
         return this;
@@ -373,7 +373,7 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
         return this;
     }
 
-    public FieldConditionGroup<T> FieldEmpty(Expression<Func<T, object>> objectPath)
+    public FieldConditionGroup<T> FieldEmpty(Expression<Func<T, object?>> objectPath)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Operator = ComparisonOperator.IsEmpty });
         return this;
@@ -385,7 +385,7 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
         return this;
     }
 
-    public FieldConditionGroup<T> FieldHasValue(Expression<Func<T, object>> objectPath)
+    public FieldConditionGroup<T> FieldHasValue(Expression<Func<T, object?>> objectPath)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Operator = ComparisonOperator.HasValue });
         return this;
@@ -403,13 +403,13 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
         return this;
     }
 
-    public FieldConditionGroup<T> FieldEquals(Expression<Func<T, object>> objectPath, object? value)
+    public FieldConditionGroup<T> FieldEquals(Expression<Func<T, object?>> objectPath, object? value)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.Equals });
         return this;
     }
 
-    public FieldConditionGroup<T> FieldEquals(Expression<Func<T, object>> objectPath, params object[] values)
+    public FieldConditionGroup<T> FieldEquals(Expression<Func<T, object?>> objectPath, params object[] values)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Value = values, Operator = ComparisonOperator.Equals });
         return this;
@@ -427,13 +427,13 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
         return this;
     }
 
-    public FieldConditionGroup<T> FieldNotEquals(Expression<Func<T, object>> objectPath, object? value)
+    public FieldConditionGroup<T> FieldNotEquals(Expression<Func<T, object?>> objectPath, object? value)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.NotEquals });
         return this;
     }
 
-    public FieldConditionGroup<T> FieldNotEquals(Expression<Func<T, object>> objectPath, params object[] values)
+    public FieldConditionGroup<T> FieldNotEquals(Expression<Func<T, object?>> objectPath, params object[] values)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Value = values, Operator = ComparisonOperator.NotEquals });
         return this;
@@ -445,7 +445,7 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
         return this;
     }
 
-    public FieldConditionGroup<T> FieldGreaterThan(Expression<Func<T, object>> objectPath, object? value)
+    public FieldConditionGroup<T> FieldGreaterThan(Expression<Func<T, object?>> objectPath, object? value)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.GreaterThan });
         return this;
@@ -457,7 +457,7 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
         return this;
     }
 
-    public FieldConditionGroup<T> FieldGreaterThanOrEqual(Expression<Func<T, object>> objectPath, object? value)
+    public FieldConditionGroup<T> FieldGreaterThanOrEqual(Expression<Func<T, object?>> objectPath, object? value)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.GreaterThanOrEqual });
         return this;
@@ -469,7 +469,7 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
         return this;
     }
 
-    public FieldConditionGroup<T> FieldLessThan(Expression<Func<T, object>> objectPath, object? value)
+    public FieldConditionGroup<T> FieldLessThan(Expression<Func<T, object?>> objectPath, object? value)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.LessThan });
         return this;
@@ -481,7 +481,7 @@ public class FieldConditionGroup<T> : FieldConditionGroup where T : class
         return this;
     }
 
-    public FieldConditionGroup<T> FieldLessThanOrEqual(Expression<Func<T, object>> objectPath, object? value)
+    public FieldConditionGroup<T> FieldLessThanOrEqual(Expression<Func<T, object?>> objectPath, object? value)
     {
         Conditions.Add(new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.LessThanOrEqual });
         return this;

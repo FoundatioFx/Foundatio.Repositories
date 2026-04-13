@@ -35,6 +35,6 @@ public interface IIndex<T> : IIndex where T : class
 {
     void ConfigureIndexMapping(TypeMappingDescriptor<T> map);
     Inferrer Infer { get; }
-    string InferField(Expression<Func<T, object>> objectPath);
-    string InferPropertyName(Expression<Func<T, object>> objectPath);
+    string InferField(Expression<Func<T, object?>> objectPath);
+    string InferPropertyName(Expression<Func<T, object?>> objectPath);
 }

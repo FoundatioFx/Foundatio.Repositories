@@ -308,11 +308,11 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         await base.InvalidateCacheByQueryAsync(query).AnyContext();
 
         var conditions = query.GetFieldConditions();
-        var entityTypeCondition = conditions.FirstOrDefault(c => c.Field == InferField(d => d.EntityType) && c.Operator == ComparisonOperator.Equals);
+        var entityTypeCondition = conditions.FirstOrDefault(c => String.Equals(Infer.Field(c.Field), InferField(d => d.EntityType), StringComparison.Ordinal) && c.Operator == ComparisonOperator.Equals);
         if (entityTypeCondition is null || String.IsNullOrEmpty(entityTypeCondition.Value?.ToString()))
             return;
 
-        var tenantKeyCondition = conditions.FirstOrDefault(c => String.Equals(c.Field, InferField(d => d.TenantKey), StringComparison.Ordinal) && c.Operator == ComparisonOperator.Equals);
+        var tenantKeyCondition = conditions.FirstOrDefault(c => String.Equals(Infer.Field(c.Field), InferField(d => d.TenantKey), StringComparison.Ordinal) && c.Operator == ComparisonOperator.Equals);
         string? tenantKey = tenantKeyCondition?.Value?.ToString();
         if (String.IsNullOrEmpty(tenantKey))
             return;

@@ -157,7 +157,7 @@ public class EmployeeWithCustomFieldsRepository : ElasticRepositoryBase<Employee
     protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<EmployeeWithCustomFields>> documents, ChangeType? changeType = null)
     {
         await base.InvalidateCacheAsync(documents, changeType);
-        await Cache.RemoveAllAsync(documents.Where(d => !String.IsNullOrEmpty(d.Value.EmailAddress)).Select(d => $"email:{d.Value.EmailAddress.ToLowerInvariant()}"));
+        await Cache.RemoveAllAsync(documents.Where(d => !String.IsNullOrEmpty(d.Value.EmailAddress)).Select(d => $"email:{d.Value.EmailAddress!.ToLowerInvariant()}"));
     }
 }
 
