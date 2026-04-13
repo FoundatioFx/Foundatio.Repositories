@@ -391,6 +391,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(3, result.Total);
         Assert.Equal(3, result.Aggregations.Count);
 
+        // Dates are always returned in utc.
         var minNextReview = result.Aggregations.Min<DateTime>("min_nextReview");
         Assert.NotNull(minNextReview);
         Assert.Equal(DateTime.SpecifyKind(today.SubtractDays(2), DateTimeKind.Utc), minNextReview.Value);
@@ -425,6 +426,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(3, result.Total);
         Assert.Equal(3, result.Aggregations.Count);
 
+        // Dates are always returned in utc.
         var minNextReview = result.Aggregations.Min<DateTime>("min_nextReview");
         Assert.NotNull(minNextReview);
         AssertEqual(DateTime.SpecifyKind(today.UtcDateTime.SubtractDays(2).SubtractHours(1), DateTimeKind.Unspecified), minNextReview.Value);

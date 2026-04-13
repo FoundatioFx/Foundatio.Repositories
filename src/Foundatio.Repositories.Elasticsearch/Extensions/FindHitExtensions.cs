@@ -21,11 +21,13 @@ public static class FindHitExtensions
         if (hit is null || !hit.Data.TryGetValue(ElasticDataKeys.Sorts, out object? sorts))
             return Array.Empty<object>();
 
+        // Handle different collection types - new ES client returns IReadOnlyCollection<FieldValue>
         if (sorts is object[] sortsArray)
             return sortsArray;
 
         if (sorts is IEnumerable<FieldValue> fieldValues)
         {
+            // Extract actual values from FieldValue objects
             return fieldValues.Select(GetFieldValueAsObject).ToArray()!;
         }
 
@@ -37,6 +39,8 @@ public static class FindHitExtensions
 
     private static object? GetFieldValueAsObject(FieldValue fv)
     {
+        // FieldValue is a tagged union in the new ES client
+        // We need to extract the actual value based on the variant
         if (fv.TryGetLong(out var longVal))
             return longVal;
         if (fv.TryGetDouble(out var doubleVal))
@@ -48,6 +52,7 @@ public static class FindHitExtensions
         if (fv.IsNull)
             return null;
 
+        // Fallback - return the FieldValue itself
         return fv;
     }
 
