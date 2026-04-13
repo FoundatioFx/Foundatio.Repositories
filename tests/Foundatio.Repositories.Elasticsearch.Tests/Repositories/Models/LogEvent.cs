@@ -85,13 +85,13 @@ public static class LogEventGenerator
         var created = createdUtc ?? RandomData.GetDateTime(DateTime.UtcNow.StartOfMonth(), DateTime.UtcNow);
         return new LogEvent
         {
-            Id = id ?? String.Empty,
+            Id = id ?? ObjectId.GenerateNewId().ToString(),
             Message = message ?? RandomData.GetAlphaString(),
             CompanyId = companyId ?? ObjectId.GenerateNewId().ToString(),
             CreatedUtc = created,
             Meta = new LogEventMeta
             {
-                Stuff = stuff ?? String.Empty,
+                Stuff = stuff ?? RandomData.GetAlphaString(),
             },
             Date = date ?? created
         };
