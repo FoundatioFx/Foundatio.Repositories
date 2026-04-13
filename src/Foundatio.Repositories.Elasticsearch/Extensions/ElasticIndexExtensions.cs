@@ -411,7 +411,9 @@ public static class ElasticIndexExtensions
                 result =>
                 {
                     if (result is null)
+                    {
                         return;
+                    }
 
                     if (result.Found)
                     {
@@ -434,7 +436,9 @@ public static class ElasticIndexExtensions
                 error =>
                 {
                     if (error is null)
+                    {
                         return;
+                    }
 
                     logger?.LogWarning("MultiGet document error: index={Index}, id={Id}, reason={Reason}", error.Index, error.Id, error.Error?.Reason);
                 }
@@ -624,8 +628,8 @@ public static class ElasticIndexExtensions
             var keyAsLong = b.Key.ToUnixTimeMilliseconds();
             // Propagate timezone metadata to bucket data for round-trip serialization
             var bucketData = new Dictionary<string, object> { { "@type", "datehistogram" } };
-            if (hasTimezone)
-                bucketData["@timezone"] = timezoneValue!;
+            if (hasTimezone && timezoneValue is not null)
+                bucketData["@timezone"] = timezoneValue;
 
             return (IBucket)new DateHistogramBucket(date, b.ToAggregations(serializer, logger))
             {
