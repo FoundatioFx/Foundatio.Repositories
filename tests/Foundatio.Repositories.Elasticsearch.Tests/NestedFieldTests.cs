@@ -288,7 +288,7 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         Assert.DoesNotContain(reviewerTermsAggWithInclude.Buckets, b => String.Equals(b.Key, "employee3"));
 
         var ratingTermsAggWithInclude = nestedPeerReviewsAggWithInclude.Aggregations.Terms<int>("terms_peerReviews.rating");
-        Assert.NotNull(ratingTermsAggWithInclude);;
+        Assert.NotNull(ratingTermsAggWithInclude);
         Assert.Equal(2, ratingTermsAggWithInclude.Buckets.Count); // Only ratings 4 and 5 should be included
         Assert.Contains(ratingTermsAggWithInclude.Buckets, b => b.Key == 4);
         Assert.Contains(ratingTermsAggWithInclude.Buckets, b => b.Key == 5);
@@ -682,7 +682,7 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         Assert.Contains("terms_peerReviews.rating", result.Aggregations.Keys);
 
         var ratingTermsAgg = result.Aggregations.Terms<int>("terms_peerReviews.rating");
-        Assert.NotNull(ratingTermsAgg);;
+        Assert.NotNull(ratingTermsAgg);
         Assert.Equal(4, ratingTermsAgg.Buckets.Count);
         Assert.Equal(2, ratingTermsAgg.Buckets.First(b => b.Key == 5).Total);
         Assert.Equal(2, ratingTermsAgg.Buckets.First(b => b.Key == 4).Total);
