@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
-using Foundatio.Repositories.Options;
 using Elastic.Clients.Elasticsearch;
+using Foundatio.Repositories.Options;
 
 namespace Foundatio.Repositories
 {
