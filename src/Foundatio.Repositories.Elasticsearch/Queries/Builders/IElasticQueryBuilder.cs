@@ -29,7 +29,7 @@ public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitor
         Parent = parentContext;
         ((IQueryVisitorContextWithIncludeResolver)this).IncludeResolver = options.GetIncludeResolver();
         ((IQueryVisitorContextWithFieldResolver)this).FieldResolver = options.GetQueryFieldResolver();
-        ((IElasticQueryVisitorContext)this).MappingResolver = options.GetMappingResolver();
+        ((IElasticQueryVisitorContext)this).MappingResolver = options.GetMappingResolver() ?? ElasticMappingResolver.NullInstance;
 
         var range = GetDateRange();
         if (range != null)
@@ -46,21 +46,21 @@ public class QueryBuilderContext<T> : IQueryBuilderContext, IElasticQueryVisitor
     public Query Filter { get; set; } = null!;
     public SearchRequestDescriptor<T> Search { get; }
     public IDictionary<string, object> Data { get; } = new Dictionary<string, object>();
-    public QueryValidationOptions ValidationOptions { get; set; } = null!;
-    public QueryValidationResult ValidationResult { get; set; } = null!;
-    QueryFieldResolver IQueryVisitorContextWithFieldResolver.FieldResolver { get; set; } = null!;
-    IncludeResolver IQueryVisitorContextWithIncludeResolver.IncludeResolver { get; set; } = null!;
+    public QueryValidationOptions? ValidationOptions { get; set; }
+    public QueryValidationResult? ValidationResult { get; set; }
+    QueryFieldResolver? IQueryVisitorContextWithFieldResolver.FieldResolver { get; set; }
+    IncludeResolver? IQueryVisitorContextWithIncludeResolver.IncludeResolver { get; set; }
     ElasticMappingResolver IElasticQueryVisitorContext.MappingResolver { get; set; } = null!;
     ICollection<ElasticRuntimeField> IElasticQueryVisitorContext.RuntimeFields { get; } = new List<ElasticRuntimeField>();
     bool? IElasticQueryVisitorContext.EnableRuntimeFieldResolver { get; set; }
-    RuntimeFieldResolver IElasticQueryVisitorContext.RuntimeFieldResolver { get; set; } = null!;
+    RuntimeFieldResolver? IElasticQueryVisitorContext.RuntimeFieldResolver { get; set; }
     Func<string, Task<string>>? IElasticQueryVisitorContext.GeoLocationResolver { get; set; }
 
     GroupOperator IQueryVisitorContext.DefaultOperator { get; set; }
     Func<Task<string>>? IElasticQueryVisitorContext.DefaultTimeZone { get; set; }
     bool IElasticQueryVisitorContext.UseScoring { get; set; }
     string[]? IQueryVisitorContext.DefaultFields { get; set; }
-    string? IQueryVisitorContext.QueryType { get; set; }
+    string IQueryVisitorContext.QueryType { get; set; } = QueryTypes.Query;
 
     private DateRange? GetDateRange()
     {

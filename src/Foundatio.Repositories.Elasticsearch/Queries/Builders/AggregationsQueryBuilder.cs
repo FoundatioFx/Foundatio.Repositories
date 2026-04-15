@@ -43,7 +43,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 return;
 
             var result = await elasticIndex.QueryParser.BuildAggregationsAsync(aggregations, ctx).AnyContext();
-            ctx.Search.Aggregations(result);
+            if (result is not null)
+                ctx.Search.Aggregations(result);
         }
     }
 }

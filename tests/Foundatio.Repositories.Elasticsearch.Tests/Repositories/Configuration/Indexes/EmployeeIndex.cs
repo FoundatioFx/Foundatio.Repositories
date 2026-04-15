@@ -88,7 +88,7 @@ public sealed class EmployeeIndex : Index<Employee>
         ]);
     }
 
-    private async Task<string> ResolveIncludeAsync(string name)
+    private async Task<string?> ResolveIncludeAsync(string name)
     {
         await Task.Delay(100);
         return "aliasedage:10";

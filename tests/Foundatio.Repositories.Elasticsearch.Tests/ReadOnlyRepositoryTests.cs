@@ -857,7 +857,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.NotNull(employee2);
         Assert.NotNull(employee2.Id);
 
-        var results = await _employeeRepository.FindAsync(q => q.FilterExpression($"unmappedcompanyname:{employee1.CompanyName}"), o => o.RuntimeFieldResolver(f => String.Equals(f, "unmappedCompanyName", StringComparison.OrdinalIgnoreCase) ? Task.FromResult(new ElasticRuntimeField { Name = "unmappedCompanyName", FieldType = ElasticRuntimeFieldType.Keyword }) : Task.FromResult<ElasticRuntimeField>(null!)));
+        var results = await _employeeRepository.FindAsync(q => q.FilterExpression($"unmappedcompanyname:{employee1.CompanyName}"), o => o.RuntimeFieldResolver(f => String.Equals(f, "unmappedCompanyName", StringComparison.OrdinalIgnoreCase) ? Task.FromResult<ElasticRuntimeField?>(new ElasticRuntimeField { Name = "unmappedCompanyName", FieldType = ElasticRuntimeFieldType.Keyword }) : Task.FromResult<ElasticRuntimeField?>(null)));
         Assert.NotNull(results);
         Assert.Single(results.Documents);
     }
