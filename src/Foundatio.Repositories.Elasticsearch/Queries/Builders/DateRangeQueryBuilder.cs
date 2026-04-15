@@ -13,12 +13,12 @@ using Nest;
 namespace Foundatio.Repositories
 {
     [DebuggerDisplay("{Field}: {StartDate} - {EndDate}")]
-public record DateRange
-{
-    public DateTime? StartDate { get; init; }
-    public DateTime? EndDate { get; init; }
-    public string? TimeZone { get; init; }
-    public required Field Field { get; init; }
+    public record DateRange
+    {
+        public DateTime? StartDate { get; init; }
+        public DateTime? EndDate { get; init; }
+        public string? TimeZone { get; init; }
+        public required Field Field { get; init; }
 
         public bool UseStartDate => StartDate.HasValue && StartDate.Value > DateTime.MinValue;
 
