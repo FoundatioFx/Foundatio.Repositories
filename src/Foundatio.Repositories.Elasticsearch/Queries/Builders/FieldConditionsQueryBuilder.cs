@@ -444,13 +444,13 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
 
         if (ctx is IQueryVisitorContextWithFieldResolver { FieldResolver: not null } fieldResolverCtx)
         {
-            string customResolved = await fieldResolverCtx.FieldResolver(resolved, ctx).AnyContext();
+            string? customResolved = await fieldResolverCtx.FieldResolver(resolved, ctx).AnyContext();
             if (!String.IsNullOrWhiteSpace(customResolved))
                 resolved = customResolved;
         }
 
         if (nonAnalyzed)
-            resolved = resolver.GetNonAnalyzedFieldName(resolved);
+            resolved = resolver.GetNonAnalyzedFieldName(resolved)!;
 
         return resolved;
     }

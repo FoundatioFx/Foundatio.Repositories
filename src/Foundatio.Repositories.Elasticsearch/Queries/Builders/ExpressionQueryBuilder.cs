@@ -2,6 +2,8 @@
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries;
@@ -117,10 +119,12 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
     {
         private readonly QueryFieldResolver _resolver;
         private readonly LuceneQueryParser _parser = new();
+        private readonly ILogger _logger;
 
-        public FieldResolverQueryBuilder(QueryFieldResolver aliasMap)
+        public FieldResolverQueryBuilder(QueryFieldResolver aliasMap, ILogger<FieldResolverQueryBuilder>? logger = null)
         {
             _resolver = aliasMap;
+            _logger = logger ?? NullLogger<FieldResolverQueryBuilder>.Instance;
         }
 
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
@@ -132,38 +136,60 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             if (!String.IsNullOrEmpty(filter))
             {
                 var result = _parser.Parse(filter);
-                filter = GenerateQueryVisitor.Run(FieldResolverQueryVisitor.Run(result, _resolver, ctx), ctx);
-
-                ctx.Filter &= new QueryStringQuery
+                var resolved = FieldResolverQueryVisitor.Run(result, _resolver, ctx);
+                if (resolved is not null)
                 {
-                    Query = filter,
-                    DefaultOperator = Operator.And,
-                    AnalyzeWildcard = false
-                };
+                    filter = GenerateQueryVisitor.Run(resolved, ctx);
+
+                    ctx.Filter &= new QueryStringQuery
+                    {
+                        Query = filter,
+                        DefaultOperator = Operator.And,
+                        AnalyzeWildcard = false
+                    };
+                }
+                else
+                {
+                    _logger.LogWarning("No resolved query root; filter omitted for: {Expression}", filter);
+                }
             }
 
             if (!String.IsNullOrEmpty(search))
             {
                 var result = _parser.Parse(search);
-                search = GenerateQueryVisitor.Run(FieldResolverQueryVisitor.Run(result, _resolver, ctx), ctx);
-
-                ctx.Query &= new QueryStringQuery
+                var resolved = FieldResolverQueryVisitor.Run(result, _resolver, ctx);
+                if (resolved is not null)
                 {
-                    Query = search,
-                    DefaultOperator = ctx.Source.GetSearchExpressionDefaultOperator() == SearchOperator.Or ? Operator.Or : Operator.And,
-                    AnalyzeWildcard = true
-                };
+                    search = GenerateQueryVisitor.Run(resolved, ctx);
+
+                    ctx.Query &= new QueryStringQuery
+                    {
+                        Query = search,
+                        DefaultOperator = ctx.Source.GetSearchExpressionDefaultOperator() == SearchOperator.Or ? Operator.Or : Operator.And,
+                        AnalyzeWildcard = true
+                    };
+                }
+                else
+                {
+                    _logger.LogWarning("No resolved query root; search omitted for: {Expression}", search);
+                }
             }
 
             if (!String.IsNullOrEmpty(sort))
             {
                 var result = _parser.Parse(sort);
                 TermToFieldVisitor.Run(result, ctx);
-                FieldResolverQueryVisitor.Run(result, _resolver, ctx);
+                var resolved = FieldResolverQueryVisitor.Run(result, _resolver, ctx);
+                if (resolved is null)
+                {
+                    _logger.LogWarning("No resolved query root; sort omitted for: {Expression}", sort);
+                }
+                else
+                {
+                    var sortFields = GetSortFieldsVisitor.Run(resolved, ctx).ToList();
 
-                var sortFields = GetSortFieldsVisitor.Run(result, ctx).ToList();
-
-                ctx.Search.Sort(sortFields);
+                    ctx.Search.Sort(sortFields);
+                }
             }
 
             return Task.CompletedTask;

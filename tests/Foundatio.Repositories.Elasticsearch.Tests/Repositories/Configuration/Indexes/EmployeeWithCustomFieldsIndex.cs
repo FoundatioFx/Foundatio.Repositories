@@ -83,7 +83,7 @@ public sealed class EmployeeWithCustomFieldsIndex : VersionedIndex<EmployeeWithC
         config.UseIncludes(ResolveIncludeAsync).UseOptInRuntimeFieldResolver(ResolveRuntimeFieldAsync);
     }
 
-    private async Task<string> ResolveIncludeAsync(string name)
+    private async Task<string?> ResolveIncludeAsync(string name)
     {
         await Task.Delay(100, TestContext.Current.CancellationToken);
         return "aliasedage:10";

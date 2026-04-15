@@ -9,7 +9,7 @@
     <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <ReferenceFoundatioSource Condition="$(SolutionName.Contains('All')) Or !$(SolutionName.Contains('Foundatio'))">true</ReferenceFoundatioSource>
-    <ReferenceFoundatioRepositoriesSource>false</ReferenceFoundatioRepositoriesSource>
+    <ReferenceFoundatioRepositoriesSource Condition="$(SolutionName.Contains('All')) Or !$(SolutionName.Contains('Foundatio'))">true</ReferenceFoundatioRepositoriesSource>
     <FoundatioProjectsDir>$(ProjectDir)..\..\..\</FoundatioProjectsDir>
 
     <Copyright>Copyright © $([System.DateTime]::Now.ToString(yyyy)) Foundatio.  All rights reserved.</Copyright>
