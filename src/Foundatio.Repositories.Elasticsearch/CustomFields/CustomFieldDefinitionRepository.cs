@@ -48,7 +48,7 @@ public interface ICustomFieldDefinitionRepository : ISearchableRepository<Custom
     /// <exception cref="Foundatio.Repositories.Exceptions.DocumentValidationException">
     /// Thrown when a definition with the same name but a different type already exists for this tenant.
     /// </exception>
-    Task<CustomFieldDefinition> AddFieldAsync(string entityType, string tenantKey, string name, string indexType, string? description = null, int displayOrder = 0, IDictionary<string, object>? data = null);
+    Task<CustomFieldDefinition> AddFieldAsync(string entityType, string tenantKey, string name, string indexType, string? description = null, int displayOrder = 0, IDictionary<string, object?>? data = null);
 }
 
 public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomFieldDefinition>, ICustomFieldDefinitionRepository
@@ -117,7 +117,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         return RemoveAllAsync(q => q.FieldEquals(cf => cf.EntityType, entityType).FieldEquals(cf => cf.TenantKey, tenantKey));
     }
 
-    public Task<CustomFieldDefinition> AddFieldAsync(string entityType, string tenantKey, string name, string indexType, string? description = null, int displayOrder = 0, IDictionary<string, object>? data = null)
+    public Task<CustomFieldDefinition> AddFieldAsync(string entityType, string tenantKey, string name, string indexType, string? description = null, int displayOrder = 0, IDictionary<string, object?>? data = null)
     {
         var customField = new CustomFieldDefinition
         {

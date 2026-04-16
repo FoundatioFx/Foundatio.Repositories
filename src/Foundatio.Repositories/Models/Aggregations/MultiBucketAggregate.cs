@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Foundatio.Repositories.Models;
 
@@ -9,5 +10,6 @@ public class MultiBucketAggregate<TBucket> : BucketAggregateBase
 
     public MultiBucketAggregate(IReadOnlyDictionary<string, IAggregate>? aggregations) : base(aggregations) { }
 
-    public IReadOnlyCollection<TBucket> Buckets { get; set; } = EmptyReadOnly<TBucket>.Collection;
+    [DisallowNull]
+    public IReadOnlyCollection<TBucket> Buckets { get => field; set => field = value ?? EmptyReadOnly<TBucket>.Collection; } = EmptyReadOnly<TBucket>.Collection;
 }

@@ -44,7 +44,7 @@ public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes
     public PeerReview[]? PeerReviews { get; set; }
     public IList<PhoneInfo> PhoneNumbers { get; set; } = new List<PhoneInfo>();
 
-    public IDictionary<string, object> Data { get; set; } = new Dictionary<string, object>();
+    public IDictionary<string, object?> Data { get; set; } = new Dictionary<string, object?>();
 
     protected bool Equals(Employee other)
     {

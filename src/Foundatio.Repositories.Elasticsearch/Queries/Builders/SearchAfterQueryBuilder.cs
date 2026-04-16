@@ -33,7 +33,7 @@ namespace Foundatio.Repositories
             return options;
         }
 
-        public static T SearchAfterToken<T>(this T options, string searchAfterToken) where T : ICommandOptions
+        public static T SearchAfterToken<T>(this T options, string? searchAfterToken) where T : ICommandOptions
         {
             options.SearchAfterPaging();
             if (!String.IsNullOrEmpty(searchAfterToken))
@@ -65,7 +65,7 @@ namespace Foundatio.Repositories
             return options;
         }
 
-        public static T SearchBeforeToken<T>(this T options, string searchBeforeToken) where T : ICommandOptions
+        public static T SearchBeforeToken<T>(this T options, string? searchBeforeToken) where T : ICommandOptions
         {
             options.SearchAfterPaging();
             if (!String.IsNullOrEmpty(searchBeforeToken))

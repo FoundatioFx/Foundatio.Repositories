@@ -15,10 +15,10 @@ namespace Foundatio.Repositories
     [DebuggerDisplay("{Field}: {StartDate} - {EndDate}")]
     public record DateRange
     {
-        public DateTime? StartDate { get; init; }
-        public DateTime? EndDate { get; init; }
-        public string? TimeZone { get; init; }
-        public required Field Field { get; init; }
+        public DateTime? StartDate { get; set; }
+        public DateTime? EndDate { get; set; }
+        public string? TimeZone { get; set; }
+        public required Field Field { get; set; }
 
         public bool UseStartDate => StartDate.HasValue && StartDate.Value > DateTime.MinValue;
 

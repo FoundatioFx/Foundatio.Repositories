@@ -8,23 +8,23 @@ namespace Foundatio.Repositories.Extensions;
 
 public static class DictionaryExtensions
 {
-    public static string? GetString(this IEnumerable<KeyValuePair<string, object>> data, string name)
+    public static string? GetString(this IEnumerable<KeyValuePair<string, object?>> data, string name)
     {
         return data.GetString(name, null);
     }
 
-    public static string? GetString(this IEnumerable<KeyValuePair<string, object>> data, string name, string? @default)
+    public static string? GetString(this IEnumerable<KeyValuePair<string, object?>> data, string name, string? @default)
     {
         if (data is null)
             return @default;
 
         object? value;
-        if (data is IDictionary<string, object> dictionary)
+        if (data is IDictionary<string, object?> dictionary)
         {
             if (!dictionary.TryGetValue(name, out value))
                 return @default;
         }
-        else if (data is IReadOnlyDictionary<string, object> readOnlyDictionary)
+        else if (data is IReadOnlyDictionary<string, object?> readOnlyDictionary)
         {
             if (!readOnlyDictionary.TryGetValue(name, out value))
                 return @default;
@@ -36,26 +36,32 @@ public static class DictionaryExtensions
                 return @default;
         }
 
+        if (value is null)
+            return null;
+
         if (value is string s)
             return s;
 
         return @default;
     }
 
-    public static bool GetBoolean(this IEnumerable<KeyValuePair<string, object>> data, string name)
+    public static bool GetBoolean(this IEnumerable<KeyValuePair<string, object?>> data, string name)
     {
         return data.GetBoolean(name, false);
     }
 
-    public static bool GetBoolean(this IEnumerable<KeyValuePair<string, object>> data, string name, bool @default)
+    public static bool GetBoolean(this IEnumerable<KeyValuePair<string, object?>> data, string name, bool @default)
     {
+        if (data is null)
+            return @default;
+
         object? value = null;
-        if (data is IDictionary<string, object> dictionary)
+        if (data is IDictionary<string, object?> dictionary)
         {
             if (!dictionary.TryGetValue(name, out value))
                 return @default;
         }
-        else if (data is IReadOnlyDictionary<string, object> readOnlyDictionary)
+        else if (data is IReadOnlyDictionary<string, object?> readOnlyDictionary)
         {
             if (!readOnlyDictionary.TryGetValue(name, out value))
                 return @default;
@@ -70,7 +76,7 @@ public static class DictionaryExtensions
         if (value is bool b)
             return b;
 
-        string? valueString = value.ToString();
+        string? valueString = value?.ToString();
         if (valueString is not null && Boolean.TryParse(valueString, out bool result))
             return result;
 

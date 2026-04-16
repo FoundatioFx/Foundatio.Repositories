@@ -1207,6 +1207,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 foreach (var customField in customFields)
                 {
+                    if (customField.Value is null)
+                        continue;
+
                     if (!fieldDefinitions.TryGetValue(customField.Key, out var fieldDefinition))
                     {
                         fieldDefinition = await HandleUnmappedCustomField(doc, customField.Key, customField.Value, fieldDefinitions);
@@ -1272,7 +1275,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         };
     }
 
-    protected IDictionary<string, object>? GetDocumentCustomFields(T document)
+    protected IDictionary<string, object?>? GetDocumentCustomFields(T document)
     {
         return document switch
         {
@@ -1836,12 +1839,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return PublishChangeTypeMessageAsync(changeType, document, null, delay);
     }
 
-    protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, T? document, IDictionary<string, object>? data = null, TimeSpan? delay = null)
+    protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, T? document, IDictionary<string, object?>? data = null, TimeSpan? delay = null)
     {
         return PublishChangeTypeMessageAsync(changeType, document?.Id, data, delay);
     }
 
-    protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, string? id, IDictionary<string, object>? data = null, TimeSpan? delay = null)
+    protected virtual Task PublishChangeTypeMessageAsync(ChangeType changeType, string? id, IDictionary<string, object?>? data = null, TimeSpan? delay = null)
     {
         if (!NotificationsEnabled)
             return Task.CompletedTask;

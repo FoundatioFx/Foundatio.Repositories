@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Text.Json.Serialization;
@@ -39,7 +40,7 @@ public class FindResults<T> : CountResult, IFindResults<T> where T : class
     /// <param name="getNextPageFunc">A function to retrieve the next page of results.</param>
     /// <param name="data">Additional metadata.</param>
     [Newtonsoft.Json.JsonConstructor]
-    public FindResults(IEnumerable<FindHit<T>>? hits = null, long total = 0, IReadOnlyDictionary<string, IAggregate>? aggregations = null, Func<FindResults<T>, Task<FindResults<T>>>? getNextPageFunc = null, IDictionary<string, object>? data = null)
+    public FindResults(IEnumerable<FindHit<T>>? hits = null, long total = 0, IReadOnlyDictionary<string, IAggregate>? aggregations = null, Func<FindResults<T>, Task<FindResults<T>>>? getNextPageFunc = null, IDictionary<string, object?>? data = null)
         : base(total, aggregations, data)
     {
         ((IFindResults<T>)this).GetNextPageFunc = getNextPageFunc;
@@ -119,7 +120,7 @@ public class FindResults<T> : CountResult, IFindResults<T> where T : class
         {
             Aggregations = EmptyReadOnly<string, IAggregate>.Dictionary;
             Hits = EmptyReadOnly<FindHit<T>>.Collection;
-            Data = new Dictionary<string, object>();
+            Data = new Dictionary<string, object?>();
 
             return false;
         }
@@ -129,7 +130,7 @@ public class FindResults<T> : CountResult, IFindResults<T> where T : class
             Page = -1;
             Aggregations = EmptyReadOnly<string, IAggregate>.Dictionary;
             Hits = EmptyReadOnly<FindHit<T>>.Collection;
-            Data = new Dictionary<string, object>();
+            Data = new Dictionary<string, object?>();
 
             return false;
         }
@@ -140,7 +141,7 @@ public class FindResults<T> : CountResult, IFindResults<T> where T : class
             Aggregations = EmptyReadOnly<string, IAggregate>.Dictionary;
             Hits = EmptyReadOnly<FindHit<T>>.Collection;
             HasMore = false;
-            Data = new Dictionary<string, object>();
+            Data = new Dictionary<string, object?>();
 
             return false;
         }
@@ -201,11 +202,11 @@ public class CountResult : IHaveData
     /// <param name="data">Additional metadata.</param>
     [JsonConstructor]
     [Newtonsoft.Json.JsonConstructor]
-    public CountResult(long total = 0, IReadOnlyDictionary<string, IAggregate>? aggregations = null, IDictionary<string, object>? data = null)
+    public CountResult(long total = 0, IReadOnlyDictionary<string, IAggregate>? aggregations = null, IDictionary<string, object?>? data = null)
     {
         Aggregations = aggregations ?? EmptyReadOnly<string, IAggregate>.Dictionary;
         Total = total;
-        Data = data ?? new Dictionary<string, object>();
+        Data = data ?? new Dictionary<string, object?>();
     }
 
     /// <summary>
@@ -218,6 +219,7 @@ public class CountResult : IHaveData
     /// Gets the aggregation results.
     /// </summary>
     [JsonInclude]
+    [DisallowNull]
     public IReadOnlyDictionary<string, IAggregate> Aggregations
     {
         get;
@@ -232,7 +234,7 @@ public class CountResult : IHaveData
     /// Gets additional metadata associated with the result.
     /// </summary>
     [JsonInclude]
-    public IDictionary<string, object> Data { get; protected set; }
+    public IDictionary<string, object?> Data { get; protected set; }
 
     /// <summary>
     /// Gets a helper for accessing typed aggregation results.
@@ -286,7 +288,7 @@ public class FindHit<T> : IHaveData
     /// <param name="data">Additional metadata.</param>
     [JsonConstructor]
     [Newtonsoft.Json.JsonConstructor]
-    public FindHit(string? id, T? document, double score, string? version = null, string? routing = null, IDictionary<string, object>? data = null)
+    public FindHit(string? id, T? document, double score, string? version = null, string? routing = null, IDictionary<string, object?>? data = null)
     {
         Id = id;
         Document = document;
@@ -324,6 +326,6 @@ public class FindHit<T> : IHaveData
     /// <summary>
     /// Gets additional metadata associated with this hit.
     /// </summary>
-    public IDictionary<string, object> Data { get; }
+    public IDictionary<string, object?> Data { get; }
 }
 

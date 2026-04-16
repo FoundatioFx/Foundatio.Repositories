@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using Foundatio.Repositories.Models;
 using Foundatio.Utility;
 
@@ -62,7 +63,8 @@ public record CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes
     /// <summary>
     /// Any additional custom data that needs to be associated to this custom field.
     /// </summary>
-    public IDictionary<string, object> Data { get; set; } = new Dictionary<string, object>();
+    [DisallowNull]
+    public IDictionary<string, object?> Data { get => field; set => field = value ?? new Dictionary<string, object?>(); } = new Dictionary<string, object?>();
 
     /// <summary>
     /// Date the custom field was last updated.
@@ -120,7 +122,7 @@ public interface IHaveVirtualCustomFields
     /// <summary>
     /// Returns all custom field values for this entity.
     /// </summary>
-    IDictionary<string, object> GetCustomFields();
+    IDictionary<string, object?> GetCustomFields();
 
     /// <summary>
     /// Returns the value of a custom field by name, or <c>null</c> if not set.

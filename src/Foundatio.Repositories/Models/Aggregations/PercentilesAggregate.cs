@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Foundatio.Repositories.Models;
 
@@ -20,5 +21,6 @@ public class PercentilesAggregate : MetricAggregateBase
             Items = new List<PercentileItem>(items).AsReadOnly();
     }
 
-    public IReadOnlyCollection<PercentileItem> Items { get; internal set; } = [];
+    [DisallowNull]
+    public IReadOnlyCollection<PercentileItem> Items { get => field; internal set => field = value ?? []; } = [];
 }

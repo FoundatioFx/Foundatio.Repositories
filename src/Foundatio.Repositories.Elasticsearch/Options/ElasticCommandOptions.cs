@@ -33,7 +33,7 @@ namespace Foundatio.Repositories
             return options;
         }
 
-        public static T SnapshotPagingScrollId<T>(this T options, string scrollId) where T : ICommandOptions
+        public static T SnapshotPagingScrollId<T>(this T options, string? scrollId) where T : ICommandOptions
         {
             if (scrollId != null)
             {
