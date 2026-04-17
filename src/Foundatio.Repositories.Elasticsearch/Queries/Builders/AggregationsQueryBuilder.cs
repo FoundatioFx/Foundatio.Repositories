@@ -10,8 +10,14 @@ namespace Foundatio.Repositories
     {
         internal const string AggregationsKey = "@AggregationsExpressionKey";
 
-        public static T AggregationsExpression<T>(this T options, string aggregations) where T : IRepositoryQuery
+        public static T AggregationsExpression<T>(this T options, string? aggregations) where T : IRepositoryQuery
         {
+            if (aggregations is null)
+            {
+                options.Values?.Remove(AggregationsKey);
+                return options;
+            }
+
             return options.BuildOption(AggregationsKey, aggregations);
         }
     }

@@ -131,8 +131,14 @@ namespace Foundatio.Repositories
         /// (e.g., <c>"internal(data,logs)"</c> expands to <c>internal.data</c>, <c>internal.logs</c>).
         /// The parsed fields are merged with any individually added via <see cref="Exclude{T}(T, Field)"/>.
         /// </summary>
-        public static T ExcludeMask<T>(this T options, string maskExpression) where T : IRepositoryQuery
+        public static T ExcludeMask<T>(this T options, string? maskExpression) where T : IRepositoryQuery
         {
+            if (maskExpression is null)
+            {
+                options.Values?.Remove(ExcludesMaskKey);
+                return options;
+            }
+
             return options.BuildOption(ExcludesMaskKey, maskExpression);
         }
     }
@@ -198,8 +204,14 @@ namespace Foundatio.Repositories
         /// (e.g., <c>"id,address(street,city)"</c> expands to <c>id</c>, <c>address.street</c>, <c>address.city</c>).
         /// The parsed fields are merged with any individually added via <see cref="Include{T}(T, Field)"/>.
         /// </summary>
-        public static T IncludeMask<T>(this T options, string maskExpression) where T : ICommandOptions
+        public static T IncludeMask<T>(this T options, string? maskExpression) where T : ICommandOptions
         {
+            if (maskExpression is null)
+            {
+                options.Values?.Remove(IncludesMaskKey);
+                return options;
+            }
+
             return options.BuildOption(IncludesMaskKey, maskExpression);
         }
 
@@ -249,8 +261,14 @@ namespace Foundatio.Repositories
         /// (e.g., <c>"internal(data,logs)"</c> expands to <c>internal.data</c>, <c>internal.logs</c>).
         /// The parsed fields are merged with any individually added via <see cref="Exclude{T}(T, Field)"/>.
         /// </summary>
-        public static T ExcludeMask<T>(this T options, string maskExpression) where T : ICommandOptions
+        public static T ExcludeMask<T>(this T options, string? maskExpression) where T : ICommandOptions
         {
+            if (maskExpression is null)
+            {
+                options.Values?.Remove(ExcludesMaskKey);
+                return options;
+            }
+
             return options.BuildOption(ExcludesMaskKey, maskExpression);
         }
 

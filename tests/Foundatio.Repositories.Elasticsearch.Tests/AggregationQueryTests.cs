@@ -135,7 +135,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         {
             Name = "Blake",
             Age = 30,
-            Data = new Dictionary<string, object> { { "@user_meta", new { twitter_id = "blaken", twitter_followers = 1000 } } }
+            Data = new Dictionary<string, object?> { { "@user_meta", new { twitter_id = "blaken", twitter_followers = 1000 } } }
         }, o => o.ImmediateConsistency());
 
         const string aggregations = "min:followers max:followers avg:followers sum:followers cardinality:twitter";
@@ -225,7 +225,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
             Name = "Blake",
             Age = 30,
             NextReview = DateTimeOffset.UtcNow,
-            Data = new Dictionary<string, object> { { "@user_meta", new { twitter_id = "blaken", twitter_followers = 1000 } } }
+            Data = new Dictionary<string, object?> { { "@user_meta", new { twitter_id = "blaken", twitter_followers = 1000 } } }
         }, o => o.ImmediateConsistency());
 
         var thisWillTriggerMappingRefresh = await _employeeRepository.CountAsync(q => q.FilterExpression("fieldDoestExist:true"));
@@ -423,7 +423,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetDateOffsetAggregationsWithOffsetsAsync()
     {
-        var today = DateTimeOffset.UtcNow.Floor(TimeSpan.FromMilliseconds(1));
+        var today = new DateTimeOffset(DateTimeOffset.UtcNow.Date, TimeSpan.Zero);
         await _employeeRepository.AddAsync(new List<Employee> {
             EmployeeGenerator.Generate(nextReview: today.SubtractDays(2)),
             EmployeeGenerator.Generate(nextReview: today.SubtractDays(1)),

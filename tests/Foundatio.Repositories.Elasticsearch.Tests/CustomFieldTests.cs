@@ -340,7 +340,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
                 Name = "Calculated",
                 IndexType = IntegerFieldType.IndexType,
                 ProcessMode = CustomFieldProcessMode.AlwaysProcess,
-                Data = new Dictionary<string, object> { { "Expression", "source.Data.Field1 + source.Data.Field2" } }
+                Data = new Dictionary<string, object?> { { "Expression", "source.Data.Field1 + source.Data.Field2" } }
             }
         ]);
 
@@ -648,7 +648,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
                 Name = "Calculated",
                 IndexType = IntegerFieldType.IndexType,
                 ProcessMode = CustomFieldProcessMode.AlwaysProcess,
-                Data = new Dictionary<string, object> { { "Expression", "source.Data.Field1 + source.Data.Field2" } }
+                Data = new Dictionary<string, object?> { { "Expression", "source.Data.Field1 + source.Data.Field2" } }
             }
         ]);
 

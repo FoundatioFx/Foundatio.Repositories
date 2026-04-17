@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using Foundatio.Utility;
 
 namespace Foundatio.Repositories.Models;
@@ -9,7 +10,6 @@ public class EntityChanged : IHaveData
 {
     public EntityChanged()
     {
-        Data = new DataDictionary();
     }
 
     /// <summary>
@@ -23,5 +23,6 @@ public class EntityChanged : IHaveData
     /// </summary>
     public string? Id { get; set; }
     public ChangeType ChangeType { get; set; }
-    public IDictionary<string, object> Data { get; set; }
+    [DisallowNull]
+    public IDictionary<string, object?> Data { get => field; set => field = value ?? new DataDictionary(); } = new DataDictionary();
 }
