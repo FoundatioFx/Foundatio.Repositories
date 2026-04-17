@@ -364,7 +364,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task GetDateOffsetAggregationsWithOffsetsAsync()
     {
-        var today = DateTimeOffset.UtcNow.Floor(TimeSpan.FromMilliseconds(1));
+        var today = new DateTimeOffset(DateTimeOffset.UtcNow.Date, TimeSpan.Zero);
         await _employeeRepository.AddAsync(new List<Employee> {
             EmployeeGenerator.Generate(nextReview: today.SubtractDays(2)),
             EmployeeGenerator.Generate(nextReview: today.SubtractDays(1)),
