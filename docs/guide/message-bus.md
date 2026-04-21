@@ -72,9 +72,28 @@ public enum ChangeType : byte
 |------------|--------------|
 | `Added` | `AddAsync` - New document created |
 | `Saved` | `SaveAsync` - Document updated |
-| `Saved` | `PatchAsync` - Document patched |
+| `Saved` | `PatchAsync` - Document patched (with document ID) |
+| `Saved` | `PatchAllAsync` - Documents patched (per ID or type-level) |
 | `Removed` | `RemoveAsync` - Document deleted |
-| `Removed` | Soft delete transition (`IsDeleted: false → true`) |
+| `Removed` | Soft delete transition (`IsDeleted: false → true`) via `SaveAsync` |
+
+### Patch Notification Behavior
+
+Patch operations always use `ChangeType.Saved`. The `Id` field in the `EntityChanged` message depends on how the patch is invoked:
+
+| Method | Id Field | Notes |
+|--------|----------|-------|
+| `PatchAsync(id, ...)` | Document ID | One message per patched document |
+| `PatchAllAsync` with explicit IDs | Document ID | One message **per ID** in the query |
+| `PatchAllAsync` with filter-only query | `null` | Single type-level notification |
+
+::: warning
+When `PatchAllAsync` is called with a filter-only query (no explicit IDs), the `EntityChanged` message has `Id = null`. Subscribers that depend on `msg.Id` to look up specific documents should handle this case, for example by re-querying the affected documents.
+:::
+
+**In-process events:** The `DocumentsChanged` event fires for all patch types, but `args.Documents` is empty for `ScriptPatch`, `PartialPatch`, and single-doc `JsonPatch` because the modified document is not available client-side. Only `ActionPatch` populates the documents list. The `DocumentsSaving` and `DocumentsSaved` events do **not** fire for patch operations.
+
+**Soft-delete detection:** Patch operations do not detect `IsDeleted` transitions. The `ChangeType` is always `Saved`, even if a patch sets `IsDeleted = true`. Use `SaveAsync` with `OriginalsEnabled = true` for soft-delete transition detection.
 
 ### Soft Delete Notification Logic
 
@@ -350,7 +369,7 @@ await messageBus.SubscribeAsync<EntityChanged>(async (msg, ct) =>
 | Timing | Synchronous | Asynchronous |
 | Reliability | Guaranteed | Depends on bus |
 | Use Case | Local side effects | Cross-service |
-| Access to Document | Full document | ID only |
+| Access to Document | Full document (`SaveAsync`, `ActionPatch`) or empty list (server-side patches) | ID only (or `null` for type-level) |
 
 ## Distributed Cache Invalidation
 

@@ -368,3 +368,7 @@ bool exists = await repository.ExistsAsync(id);
 - **Range operators + time-series indexes**: `FieldLessThanOrEqual(f => f.CreatedUtc, now)` does NOT narrow which daily/monthly indexes are queried. Always pair with `.Index(start, end)`.
 - **`FieldEquals` on analyzed text fields throws**: If the field has no `.keyword` sub-field, `FieldEquals` throws `QueryValidationException`. Use `FieldContains` for full-text search.
 - **`PatchAsync(Ids, ...)` requires `Ids` type**: Use `new Ids(id1, id2)` -- `string[]` does not implicitly convert to `Ids`.
+- **`PatchAllAsync` with filter-only queries sends type-level notifications**: When `PatchAllAsync` is called without explicit IDs, the `EntityChanged` message has `Id = null`. Subscribers that need specific document IDs should restructure the query to use explicit IDs or re-query the affected documents.
+- **Patch `DocumentsChanged` event has empty document list**: For `ScriptPatch`, `PartialPatch`, and single-doc `JsonPatch`, `args.Documents` is empty because the modified document is not available client-side. Only `ActionPatch` populates the documents list.
+- **Patches do not fire `DocumentsSaving`/`DocumentsSaved`**: Unlike `SaveAsync`, patch operations only fire `DocumentsChanged`. Handlers on `DocumentsSaving` or `DocumentsSaved` will not see patched documents.
+- **Patches do not detect soft-delete transitions**: Even if a patch sets `IsDeleted = true`, the `ChangeType` is always `Saved`. Soft-delete detection (`ChangeType.Removed`) requires `SaveAsync` with `OriginalsEnabled = true`.
