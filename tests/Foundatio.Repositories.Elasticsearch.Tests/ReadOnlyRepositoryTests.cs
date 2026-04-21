@@ -75,14 +75,14 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
 
         var employeeResult = await _employeeRepository.FindOneAsync(new RepositoryQuery().Company("123"), new CommandOptions().Cache(true).CacheKey("test"));
-        Assert.Null(employeeResult);
+        Assert.Null(employeeResult.Document);
         Assert.Equal(1, _cache.Count);
         Assert.Equal(0, _cache.Hits);
         Assert.Equal(2, _cache.Misses);
 
         // doc exists, but we already cached the result with this cache key
         employeeResult = await _employeeRepository.FindOneAsync(new RepositoryQuery(), new CommandOptions().Cache(true).CacheKey("test"));
-        Assert.Null(employeeResult);
+        Assert.Null(employeeResult.Document);
         Assert.Equal(1, _cache.Count);
         Assert.Equal(1, _cache.Hits);
         Assert.Equal(2, _cache.Misses);

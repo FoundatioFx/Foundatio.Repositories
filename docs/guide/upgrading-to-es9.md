@@ -143,10 +143,11 @@ var options = new JsonSerializerOptions().ConfigureFoundatioRepositoryDefaults()
 ```
 
 This registers:
-- `JsonStringEnumConverter` with camelCase naming and integer fallback
 - `DoubleSystemTextJsonConverter` to preserve decimal points on whole-number doubles
-- `ObjectToInferredTypesConverter` to deserialize `object`-typed properties as CLR primitives instead of `JsonElement`
+- `ObjectToInferredTypesConverter` to deserialize `object`-typed properties as CLR primitives instead of `JsonElement` (required for `Dictionary<string, object>` metadata bags unless you supply a custom dictionary converter)
 - Case-insensitive property matching
+
+System.Text.Json serializes enums as **integers** by default, same as Newtonsoft.Json/NEST unless you opted in with `[JsonConverter(typeof(StringEnumConverter))]` or similar. No change is required for typical repository documents. Only add `[JsonConverter(typeof(JsonStringEnumConverter))]` (or a custom converter) on enums you intentionally store as strings in Elasticsearch `_source`.
 
 ### LazyDocument Serializer Requirement
 
@@ -418,7 +419,7 @@ The `settings.EnableApiVersioningHeader()` call from NEST is no longer needed an
 
 3. **Serializer mismatch**: If documents were serialized with Newtonsoft.Json (e.g., stored in a cache) and you try to deserialize with System.Text.Json, you may get errors or silent data loss. Ensure cached data is invalidated or re-serialized during migration.
 
-4. **Enum serialization**: Newtonsoft.Json serialized enums as integers by default; System.Text.Json does not. The `ConfigureFoundatioRepositoryDefaults()` helper registers a `JsonStringEnumConverter` with camelCase naming to handle this, but verify your existing data is compatible.
+4. **Enum serialization**: Both Newtonsoft.Json and System.Text.Json serialize enums as **integers** by default. `ConfigureFoundatioRepositoryDefaults()` does not register a global string-enum converter, and you usually need no extra attributes—existing indices that store enum values as integers stay compatible.
 
 5. **Double precision**: System.Text.Json may round whole-number doubles (e.g., `1.0` becomes `1`). The `DoubleSystemTextJsonConverter` registered by `ConfigureFoundatioRepositoryDefaults()` preserves the decimal point, but only for `double` typed properties.
 

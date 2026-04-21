@@ -312,7 +312,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                             sourceObj[prop.Key] = prop.Value?.DeepClone();
                     }
 
-                    using var mergedStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(sourceNode!.ToJsonString()));
+                    if (sourceNode is null)
+                        throw new DocumentException("Failed to parse source document JSON for partial merge.");
+
+                    using var mergedStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(sourceNode.ToJsonString()));
                     var mergedDocument = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(mergedStream);
 
                     var indexRequest = new IndexRequest<T>(mergedDocument, ElasticIndex.GetIndex(id), id.Value)
@@ -403,12 +406,18 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 // Serialize to JSON string, apply patch, deserialize back
                 // Using System.Text.Json.Nodes.JsonNode since Elastic.Clients.Elasticsearch uses System.Text.Json exclusively
                 var json = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(response.Source);
-                JsonNode target = JsonNode.Parse(json)!;
+                JsonNode? target = JsonNode.Parse(json);
+                if (target is null)
+                    throw new DocumentException("Document JSON parsed to null; cannot apply JSON patch.");
+
                 new JsonPatcher().Patch(ref target, jsonOperation.Patch);
 
                 ApplyDateTracking(target);
 
-                using var patchStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target!.ToJsonString()));
+                if (target is null)
+                    throw new DocumentException("JSON patch produced a null document.");
+
+                using var patchStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToJsonString()));
                 var patchedDocument = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(patchStream);
 
                 var indexRequest = new IndexRequest<T>(patchedDocument, ElasticIndex.GetIndex(id), id.Value)
@@ -817,23 +826,34 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     {
                         // Using System.Text.Json.Nodes.JsonNode since Elastic.Clients.Elasticsearch uses System.Text.Json exclusively
                         var json = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(h.Document);
-                        JsonNode target = JsonNode.Parse(json)!;
+                        JsonNode? target = JsonNode.Parse(json);
+                        if (target is null)
+                            throw new DocumentException("Document JSON parsed to null; cannot apply JSON patch.");
+
                         patcher.Patch(ref target, jsonOperation.Patch);
-                        using var docStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target!.ToJsonString()));
+                        if (target is null)
+                            throw new DocumentException("JSON patch produced a null document.");
+
+                        using var docStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(target.ToJsonString()));
                         var doc = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(docStream);
 
                         if (HasDateTracking)
                             SetDocumentDates(doc, ElasticIndex.Configuration.TimeProvider);
 
-                        processedDocs[h.Id!] = doc!;
+                        if (h.Id is null || doc is null)
+                            throw new DocumentException("Bulk JSON patch requires hit Id and deserialized document.");
+
+                        processedDocs[h.Id] = doc;
                         var elasticVersion = h.GetElasticVersion();
 
                         b.Index(doc, i =>
                         {
                             i.Id(h.Id!)
-                             .Routing(h.Routing!)
-                             .Index(h.GetIndex()!)
-                             .Pipeline(DefaultPipeline!);
+                             .Index(h.GetIndex()!);
+                            if (h.Routing is not null)
+                                i.Routing(h.Routing);
+                            if (DefaultPipeline is not null)
+                                i.Pipeline(DefaultPipeline);
 
                             if (HasVersion)
                             {
@@ -919,9 +939,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         b.Index(h.Document, i =>
                         {
                             i.Id(h.Id!)
-                                .Routing(h.Routing!)
-                                .Index(h.GetIndex()!)
-                                .Pipeline(DefaultPipeline!);
+                                .Index(h.GetIndex()!);
+                            if (h.Routing is not null)
+                                i.Routing(h.Routing);
+                            if (DefaultPipeline is not null)
+                                i.Pipeline(DefaultPipeline);
 
                             if (HasVersion)
                             {
@@ -996,7 +1018,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     throw new DocumentException(response.GetErrorMessage("Error occurred while patching by query"), response.OriginalException());
                 }
 
-                var taskId = response.Task!.ToString();
+                if (response.Task is null)
+                    throw new DocumentException("Update by query did not return a task identifier.", response.OriginalException());
+
+                var taskId = response.Task.ToString();
                 int attempts = 0;
                 do
                 {
@@ -1071,7 +1096,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 {
                     var bulkResult = await _client.BulkAsync(b =>
                     {
-                        b.Pipeline(DefaultPipeline);
+                        if (DefaultPipeline is not null)
+                            b.Pipeline(DefaultPipeline);
                         b.Refresh(options.GetRefreshMode(DefaultConsistency));
 
                         foreach (var h in results.Hits)
@@ -1089,16 +1115,21 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                                         sourceObj[prop.Key] = prop.Value?.DeepClone();
                                 }
 
-                                using var mergedStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(sourceNode!.ToJsonString()));
+                                if (sourceNode is null)
+                                    throw new DocumentException("Failed to parse source document JSON for partial merge.");
+
+                                using var mergedStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(sourceNode.ToJsonString()));
                                 var mergedDoc = _client.ElasticsearchClientSettings.SourceSerializer.Deserialize<T>(mergedStream);
                                 var elasticVersion = h.GetElasticVersion();
 
                                 b.Index(mergedDoc, i =>
                                 {
                                     i.Id(h.Id!)
-                                        .Routing(h.Routing!)
-                                        .Index(h.GetIndex()!)
-                                        .Pipeline(DefaultPipeline!);
+                                        .Index(h.GetIndex()!);
+                                    if (h.Routing is not null)
+                                        i.Routing(h.Routing);
+                                    if (DefaultPipeline is not null)
+                                        i.Pipeline(DefaultPipeline);
 
                                     if (HasVersion)
                                     {
@@ -1108,20 +1139,27 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                                 });
                             }
                             else if (operation is ScriptPatch sp)
-                                b.Update<T>(u => u
-                                    .Id(h.Id!)
-                                    .Routing(h.Routing!)
-                                    .Index(h.GetIndex()!)
-                                    .Script(s => s.Source(sp.Script).Params(sp.Params))
-                                    .RetriesOnConflict(options.GetRetryCount()));
+                                b.Update<T>(u =>
+                                {
+                                    u.Id(h.Id!)
+                                        .Index(h.GetIndex()!)
+                                        .Script(s => s.Source(sp.Script).Params(sp.Params))
+                                        .RetriesOnConflict(options.GetRetryCount());
+                                    if (h.Routing is not null)
+                                        u.Routing(h.Routing);
+                                });
                             else if (operation is PartialPatch pp)
                                 // TODO: Null-valued properties are silently dropped by the ES client's SourceSerializer
                                 // (elastic/elasticsearch-net#8763). Consumers must use ScriptPatch or JsonPatch to set fields to null.
-                                b.Update<T, object>(u => u.Id(h.Id!)
-                                    .Routing(h.Routing!)
-                                    .Index(h.GetIndex()!)
-                                    .Doc(pp.Document)
-                                    .RetriesOnConflict(options.GetRetryCount()));
+                                b.Update<T, object>(u =>
+                                {
+                                    u.Id(h.Id!)
+                                        .Index(h.GetIndex()!)
+                                        .Doc(pp.Document)
+                                        .RetriesOnConflict(options.GetRetryCount());
+                                    if (h.Routing is not null)
+                                        u.Routing(h.Routing);
+                                });
                         }
                     }).AnyContext();
 
@@ -1335,7 +1373,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (String.IsNullOrEmpty(tenantKey))
             return;
 
-        var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository!.GetFieldMappingAsync(EntityTypeName, tenantKey).AnyContext();
+        var definitionRepo = ElasticIndex.Configuration.CustomFieldDefinitionRepository;
+        if (definitionRepo is null)
+            return;
+
+        var fieldMapping = await definitionRepo.GetFieldMappingAsync(EntityTypeName, tenantKey).AnyContext();
         var mapping = fieldMapping.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.GetIdxName(), StringComparer.OrdinalIgnoreCase);
 
         args.Options.QueryFieldResolver(mapping.ToHierarchicalFieldResolver("idx."));
@@ -1343,11 +1385,15 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     protected virtual async Task OnCustomFieldsDocumentsChanging(object sender, DocumentsChangeEventArgs<T> args)
     {
+        var definitionRepo = ElasticIndex.Configuration.CustomFieldDefinitionRepository;
+        if (definitionRepo is null)
+            return;
+
         var tenantGroups = args.Documents.Select(d => d.Value).GroupBy(GetDocumentTenantKey).Where(g => g.Key != null).ToList();
 
         foreach (var tenant in tenantGroups)
         {
-            var fieldDefinitions = await ElasticIndex.Configuration.CustomFieldDefinitionRepository!.GetFieldMappingAsync(EntityTypeName, tenant.Key!).AnyContext();
+            var fieldDefinitions = await definitionRepo.GetFieldMappingAsync(EntityTypeName, tenant.Key!).AnyContext();
 
             foreach (var doc in tenant)
             {
@@ -1382,11 +1428,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     }
 
                     var result = await fieldType.ProcessValueAsync(doc, customField.Value, fieldDefinition).AnyContext();
-                    SetDocumentCustomField(doc, customField.Key, result.Value!);
-                    idx[fieldDefinition.GetIdxName()] = (result.Idx ?? result.Value)!;
+
+                    if (result.Value is not null)
+                        SetDocumentCustomField(doc, customField.Key, result.Value);
+
+                    object? idxValue = result.Idx ?? result.Value;
+                    if (idxValue is not null)
+                        idx[fieldDefinition.GetIdxName()] = idxValue;
 
                     if (result.IsCustomFieldDefinitionModified)
-                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository!.SaveAsync(fieldDefinition).AnyContext();
+                        await definitionRepo.SaveAsync(fieldDefinition).AnyContext();
                 }
 
                 foreach (var alwaysProcessField in fieldDefinitions.Values.Where(f => f.ProcessMode == CustomFieldProcessMode.AlwaysProcess))
@@ -1398,12 +1449,17 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     }
 
                     object? value = GetDocumentCustomField(doc, alwaysProcessField.Name);
-                    var result = await fieldType.ProcessValueAsync(doc, value!, alwaysProcessField).AnyContext();
-                    SetDocumentCustomField(doc, alwaysProcessField.Name, result.Value!);
-                    idx[alwaysProcessField.GetIdxName()] = (result.Idx ?? result.Value)!;
+                    var result = await fieldType.ProcessValueAsync(doc, value, alwaysProcessField).AnyContext();
+
+                    if (result.Value is not null)
+                        SetDocumentCustomField(doc, alwaysProcessField.Name, result.Value);
+
+                    object? alwaysIdxValue = result.Idx ?? result.Value;
+                    if (alwaysIdxValue is not null)
+                        idx[alwaysProcessField.GetIdxName()] = alwaysIdxValue;
 
                     if (result.IsCustomFieldDefinitionModified)
-                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository!.SaveAsync(alwaysProcessField).AnyContext();
+                        await definitionRepo.SaveAsync(alwaysProcessField).AnyContext();
                 }
             }
         }
@@ -1418,7 +1474,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (String.IsNullOrEmpty(tenantKey))
             return null;
 
-        return await ElasticIndex.Configuration.CustomFieldDefinitionRepository!.AddFieldAsync(EntityTypeName, tenantKey, name, StringFieldType.IndexType).AnyContext();
+        var definitionRepo = ElasticIndex.Configuration.CustomFieldDefinitionRepository;
+        if (definitionRepo is null)
+            throw new RepositoryException("Custom field definition repository is not configured.");
+
+        return await definitionRepo.AddFieldAsync(EntityTypeName, tenantKey, name, StringFieldType.IndexType).AnyContext();
     }
 
     protected string? GetDocumentTenantKey(T document)
@@ -1481,6 +1541,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     public AsyncEvent<DocumentsEventArgs<T>> DocumentsAdding { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
 
+    private static string GetDocumentJoinKey(T? document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+
+        if (String.IsNullOrEmpty(document.Id))
+            throw new ArgumentException("Document is missing an Id before save.", nameof(document));
+
+        return document.Id;
+    }
+
     private async Task OnDocumentsAddingAsync(IReadOnlyCollection<T> documents, ICommandOptions options)
     {
         if (HasDateTracking)
@@ -1533,8 +1603,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         documents.EnsureIds(ElasticIndex.CreateDocumentId, ElasticIndex.Configuration.TimeProvider);
 
         var modifiedDocs = originalDocuments.FullOuterJoin(
-            documents, cf => cf!.Id!, cf => cf!.Id!,
-            (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m => new ModifiedDocument<T>(m.Modified!, m.Original!)).ToList();
+            documents, GetDocumentJoinKey, GetDocumentJoinKey,
+            (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m =>
+            {
+                T current = m.Modified ?? m.Original ?? throw new DocumentException($"Full outer join produced no document for id {m.Id}.");
+                return new ModifiedDocument<T>(current, m.Modified is not null ? m.Original : null);
+            }).ToList();
 
         if (DocumentsSaving is { HasHandlers: true })
             await DocumentsSaving.InvokeAsync(this, new ModifiedDocumentsEventArgs<T>(modifiedDocs, this, options)).AnyContext();
@@ -1547,8 +1621,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     private async Task OnDocumentsSavedAsync(IReadOnlyCollection<T> documents, IReadOnlyCollection<T> originalDocuments, ICommandOptions options)
     {
         var modifiedDocs = originalDocuments.FullOuterJoin(
-            documents, cf => cf!.Id!, cf => cf!.Id!,
-            (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m => new ModifiedDocument<T>(m.Modified!, m.Original!)).ToList();
+            documents, GetDocumentJoinKey, GetDocumentJoinKey,
+            (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m =>
+            {
+                T current = m.Modified ?? m.Original ?? throw new DocumentException($"Full outer join produced no document for id {m.Id}.");
+                return new ModifiedDocument<T>(current, m.Modified is not null ? m.Original : null);
+            }).ToList();
 
         if (SupportsSoftDeletes && IsCacheEnabled)
         {
@@ -1661,7 +1739,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         var response = await _client.IndexAsync(document, i =>
         {
             i.OpType(isCreateOperation ? OpType.Create : OpType.Index);
-            i.Pipeline(DefaultPipeline);
+            if (DefaultPipeline is not null)
+                i.Pipeline(DefaultPipeline);
             i.Refresh(options.GetRefreshMode(DefaultConsistency));
 
             if (GetParentIdFunc is not null)

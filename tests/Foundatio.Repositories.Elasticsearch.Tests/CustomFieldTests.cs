@@ -340,7 +340,8 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
                 Name = "Calculated",
                 IndexType = IntegerFieldType.IndexType,
                 ProcessMode = CustomFieldProcessMode.AlwaysProcess,
-                Data = new Dictionary<string, object?> { { "Expression", "source.Data.Field1 + source.Data.Field2" } }
+                // Missing Field1/Field2 must evaluate to 0 so Calculated is still written for documents that only carry other custom fields (e.g. unmapped myfield1).
+                Data = new Dictionary<string, object?> { { "Expression", "(source.Data.Field1 || 0) + (source.Data.Field2 || 0)" } }
             }
         ]);
 

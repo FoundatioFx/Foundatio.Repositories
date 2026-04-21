@@ -48,45 +48,14 @@ public class JsonSerializerOptionsExtensionsTests
     }
 
     [Fact]
-    public void ConfigureDefaults_WithEnumValue_SerializesAsCamelCase()
+    public void ConfigureDefaults_WithPlainEnum_SerializesAsInteger()
     {
-        // Arrange
         var serializer = new SystemTextJsonSerializer(
             new JsonSerializerOptions().ConfigureFoundatioRepositoryDefaults());
 
-        // Act
         string json = serializer.SerializeToString(TestEnum.SomeValue);
 
-        // Assert
-        Assert.Equal("\"someValue\"", json);
-    }
-
-    [Fact]
-    public void ConfigureDefaults_WithCamelCaseEnumString_DeserializesToEnum()
-    {
-        // Arrange
-        var serializer = new SystemTextJsonSerializer(
-            new JsonSerializerOptions().ConfigureFoundatioRepositoryDefaults());
-
-        // Act
-        var result = serializer.Deserialize<TestEnum>("\"someValue\"");
-
-        // Assert
-        Assert.Equal(TestEnum.SomeValue, result);
-    }
-
-    [Fact]
-    public void ConfigureDefaults_WithIntegerEnumValue_DeserializesToEnum()
-    {
-        // Arrange
-        var serializer = new SystemTextJsonSerializer(
-            new JsonSerializerOptions().ConfigureFoundatioRepositoryDefaults());
-
-        // Act
-        var result = serializer.Deserialize<TestEnum>("1");
-
-        // Assert
-        Assert.Equal(TestEnum.SomeValue, result);
+        Assert.Equal("1", json);
     }
 
     [Fact]
