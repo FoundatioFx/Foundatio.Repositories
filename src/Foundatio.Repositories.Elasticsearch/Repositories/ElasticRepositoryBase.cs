@@ -1193,7 +1193,15 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     {
         var definitionRepo = ElasticIndex.Configuration.CustomFieldDefinitionRepository;
         if (definitionRepo is null)
+        {
+            foreach (var doc in args.Documents.Select(d => d.Value))
+            {
+                var idx = GetDocumentIdx(doc);
+                idx?.Clear();
+            }
+
             return;
+        }
 
         var tenantGroups = args.Documents.Select(d => d.Value).GroupBy(GetDocumentTenantKey).Where(g => g.Key != null).ToList();
 
@@ -1235,8 +1243,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     var result = await fieldType.ProcessValueAsync(doc, customField.Value, fieldDefinition);
 
-                    if (result.Value is not null)
-                        SetDocumentCustomField(doc, customField.Key, result.Value);
+                    SetDocumentCustomField(doc, customField.Key, result.Value);
 
                     object? idxValue = result.Idx ?? result.Value;
                     if (idxValue is not null)
@@ -1257,8 +1264,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     object? value = GetDocumentCustomField(doc, alwaysProcessField.Name);
                     var result = await fieldType.ProcessValueAsync(doc, value, alwaysProcessField);
 
-                    if (result.Value is not null)
-                        SetDocumentCustomField(doc, alwaysProcessField.Name, result.Value);
+                    SetDocumentCustomField(doc, alwaysProcessField.Name, result.Value);
 
                     object? alwaysIdxValue = result.Idx ?? result.Value;
                     if (alwaysIdxValue is not null)
@@ -1287,6 +1293,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return await definitionRepo.AddFieldAsync(EntityTypeName, GetDocumentTenantKey(document)!, name, StringFieldType.IndexType);
     }
 
+    /// <summary>
+    /// Gets the tenant key from the document for custom field tenant-scoped lookups.
+    /// </summary>
     protected string? GetDocumentTenantKey(T document)
     {
         return document switch
@@ -1297,6 +1306,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         };
     }
 
+    /// <summary>
+    /// Gets the custom fields dictionary from the document (<c>Data</c> for <see cref="IHaveCustomFields"/>,
+    /// or the virtual fields collection for <see cref="IHaveVirtualCustomFields"/>).
+    /// </summary>
     protected IDictionary<string, object?>? GetDocumentCustomFields(T document)
     {
         return document switch
@@ -1307,8 +1320,18 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         };
     }
 
-    protected void SetDocumentCustomField(T document, string name, object value)
+    /// <summary>
+    /// Sets a custom field value on the document. If <paramref name="value"/> is <c>null</c>,
+    /// the field is removed via <see cref="RemoveDocumentCustomField"/> to prevent stale data.
+    /// </summary>
+    protected void SetDocumentCustomField(T document, string name, object? value)
     {
+        if (value is null)
+        {
+            RemoveDocumentCustomField(document, name);
+            return;
+        }
+
         switch (document)
         {
             case IHaveCustomFields f:
@@ -1320,6 +1343,27 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
     }
 
+    /// <summary>
+    /// Removes a custom field from the document's data store. For <see cref="IHaveCustomFields"/>
+    /// documents this removes the key from <c>Data</c>; for <see cref="IHaveVirtualCustomFields"/>
+    /// it delegates to <see cref="IHaveVirtualCustomFields.RemoveCustomField"/>.
+    /// </summary>
+    protected void RemoveDocumentCustomField(T document, string name)
+    {
+        switch (document)
+        {
+            case IHaveCustomFields f:
+                f.Data.Remove(name);
+                return;
+            case IHaveVirtualCustomFields v:
+                v.RemoveCustomField(name);
+                return;
+        }
+    }
+
+    /// <summary>
+    /// Gets a single custom field value by name from the document.
+    /// </summary>
     protected object? GetDocumentCustomField(T document, string name)
     {
         return document switch
@@ -1330,6 +1374,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         };
     }
 
+    /// <summary>
+    /// Gets the indexed custom field values dictionary (<c>Idx</c>) from the document.
+    /// </summary>
     protected IDictionary<string, object>? GetDocumentIdx(T document)
     {
         return document switch
