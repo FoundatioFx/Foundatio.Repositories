@@ -500,7 +500,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         var result = IsCacheEnabled && options.ShouldReadCache() && options.HasCacheKey() ? await GetCachedFindHit(options).AnyContext() : null;
         if (result != null)
-            return result.FirstOrDefault()!;
+            return result.FirstOrDefault() ?? FindHit<T>.Empty;
 
         await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 
@@ -524,7 +524,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (IsCacheEnabled && options.ShouldUseCache())
             await AddDocumentsToCacheAsync(result, options, options.GetConsistency(DefaultConsistency) == Consistency.Eventual).AnyContext();
 
-        return result.FirstOrDefault()!;
+        return result.FirstOrDefault() ?? FindHit<T>.Empty;
     }
 
     public Task<CountResult> CountAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null)
@@ -602,6 +602,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     public virtual async Task<bool> ExistsAsync(IRepositoryQuery query, ICommandOptions? options = null)
     {
+        if (!HasIdentity)
+            throw new NotSupportedException("ExistsAsync requires the model type to implement IIdentity.");
+
         options = ConfigureOptions(options?.As<T>());
         await OnBeforeQueryAsync(query, options, typeof(T)).AnyContext();
 

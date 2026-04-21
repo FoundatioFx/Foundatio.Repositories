@@ -24,7 +24,7 @@ public interface ICustomFieldType
     /// <param name="value">The current value from <c>Data</c> (may be <c>null</c> for <see cref="CustomFieldProcessMode.AlwaysProcess"/> fields).</param>
     /// <param name="fieldDefinition">The custom field definition for this field.</param>
     /// <returns>A <see cref="ProcessFieldValueResult"/> containing the processed value.</returns>
-    Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class;
+    Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object? value, CustomFieldDefinition fieldDefinition) where T : class;
 
     /// <summary>
     /// Configures the Elasticsearch mapping for index slots of this type.
