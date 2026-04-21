@@ -2456,6 +2456,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task PatchAsync_ScriptPatch_SendsEntityChangedNotification()
     {
+        // Arrange
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         _messageBus.ResetMessagesSent();
 
@@ -2469,16 +2470,19 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             return Task.CompletedTask;
         }, TestCancellationToken);
 
+        // Act
         await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'Changed';"));
 
-        using var cts1 = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        await countdownEvent.WaitAsync(cts1.Token);
+        // Assert
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await countdownEvent.WaitAsync(cts.Token);
         Assert.Equal(0, countdownEvent.CurrentCount);
     }
 
     [Fact]
     public async Task PatchAsync_ScriptPatch_FiresDocumentsChangedEvent()
     {
+        // Arrange
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
 
         var countdownEvent = new AsyncCountdownEvent(1);
@@ -2489,16 +2493,19 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             countdownEvent.Signal();
         });
 
+        // Act
         await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'Changed';"));
 
-        using var cts2 = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        await countdownEvent.WaitAsync(cts2.Token);
+        // Assert
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await countdownEvent.WaitAsync(cts.Token);
         Assert.Equal(0, countdownEvent.CurrentCount);
     }
 
     [Fact]
     public async Task PatchAsync_PartialPatch_SendsEntityChangedNotification()
     {
+        // Arrange
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         _messageBus.ResetMessagesSent();
 
@@ -2512,16 +2519,19 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             return Task.CompletedTask;
         }, TestCancellationToken);
 
+        // Act
         await _employeeRepository.PatchAsync(employee.Id, new PartialPatch(new { name = "Changed" }));
 
-        using var cts3 = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        await countdownEvent.WaitAsync(cts3.Token);
+        // Assert
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await countdownEvent.WaitAsync(cts.Token);
         Assert.Equal(0, countdownEvent.CurrentCount);
     }
 
     [Fact]
     public async Task PatchAsync_ActionPatch_SendsEntityChangedNotification()
     {
+        // Arrange
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         _messageBus.ResetMessagesSent();
 
@@ -2535,16 +2545,19 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             return Task.CompletedTask;
         }, TestCancellationToken);
 
+        // Act
         await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => e.Name = "Changed"));
 
-        using var cts4 = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        await countdownEvent.WaitAsync(cts4.Token);
+        // Assert
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await countdownEvent.WaitAsync(cts.Token);
         Assert.Equal(0, countdownEvent.CurrentCount);
     }
 
     [Fact]
     public async Task PatchAsync_ActionPatch_FiresDocumentsChangedWithDocument()
     {
+        // Arrange
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
 
         var countdownEvent = new AsyncCountdownEvent(1);
@@ -2556,21 +2569,26 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             countdownEvent.Signal();
         });
 
+        // Act
         await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => e.Name = "Changed"));
 
-        using var cts5 = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        await countdownEvent.WaitAsync(cts5.Token);
+        // Assert
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await countdownEvent.WaitAsync(cts.Token);
         Assert.Equal(0, countdownEvent.CurrentCount);
     }
 
     [Fact]
     public async Task PatchAsync_ScriptNoOp_DoesNotSendNotification()
     {
+        // Arrange
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         _messageBus.ResetMessagesSent();
 
+        // Act
         await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx.op = 'none';"));
 
+        // Assert
         await Task.Delay(TimeSpan.FromMilliseconds(250), TestCancellationToken);
         Assert.Equal(0, _messageBus.MessagesSent);
     }
@@ -2578,11 +2596,14 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task PatchAsync_ActionPatchNoOp_DoesNotSendNotification()
     {
+        // Arrange
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         _messageBus.ResetMessagesSent();
 
+        // Act
         await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => false));
 
+        // Assert
         await Task.Delay(TimeSpan.FromMilliseconds(250), TestCancellationToken);
         Assert.Equal(0, _messageBus.MessagesSent);
     }
@@ -2590,11 +2611,14 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task PatchAsync_NotificationsSuppressed_DoesNotSendNotification()
     {
+        // Arrange
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
         _messageBus.ResetMessagesSent();
 
+        // Act
         await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'Changed';"), o => o.Notifications(false));
 
+        // Assert
         await Task.Delay(TimeSpan.FromMilliseconds(250), TestCancellationToken);
         Assert.Equal(0, _messageBus.MessagesSent);
     }
@@ -2602,6 +2626,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task PatchAllAsync_FilterQuery_SendsTypeLevelNotification()
     {
+        // Arrange
         await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(3), o => o.ImmediateConsistency());
         _messageBus.ResetMessagesSent();
 
@@ -2615,19 +2640,22 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             return Task.CompletedTask;
         }, TestCancellationToken);
 
+        // Act
         await _employeeRepository.PatchAllAsync(
             q => q,
             new ScriptPatch("ctx._source.name = 'Changed';"),
             o => o.ImmediateConsistency());
 
-        using var cts6 = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        await countdownEvent.WaitAsync(cts6.Token);
+        // Assert
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await countdownEvent.WaitAsync(cts.Token);
         Assert.Equal(0, countdownEvent.CurrentCount);
     }
 
     [Fact]
     public async Task PatchAllAsync_FilterQuery_FiresDocumentsChangedEvent()
     {
+        // Arrange
         await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(3), o => o.ImmediateConsistency());
 
         var countdownEvent = new AsyncCountdownEvent(1);
@@ -2638,27 +2666,32 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             countdownEvent.Signal();
         });
 
+        // Act
         await _employeeRepository.PatchAllAsync(
             q => q,
             new ScriptPatch("ctx._source.name = 'Changed';"),
             o => o.ImmediateConsistency());
 
-        using var cts7 = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        await countdownEvent.WaitAsync(cts7.Token);
+        // Assert
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await countdownEvent.WaitAsync(cts.Token);
         Assert.Equal(0, countdownEvent.CurrentCount);
     }
 
     [Fact]
     public async Task PatchAllAsync_NotificationsSuppressed_DoesNotSendNotification()
     {
+        // Arrange
         await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(3), o => o.ImmediateConsistency());
         _messageBus.ResetMessagesSent();
 
+        // Act
         await _employeeRepository.PatchAllAsync(
             q => q,
             new ScriptPatch("ctx._source.name = 'Changed';"),
             o => o.ImmediateConsistency().Notifications(false));
 
+        // Assert
         await Task.Delay(TimeSpan.FromMilliseconds(250), TestCancellationToken);
         Assert.Equal(0, _messageBus.MessagesSent);
     }
