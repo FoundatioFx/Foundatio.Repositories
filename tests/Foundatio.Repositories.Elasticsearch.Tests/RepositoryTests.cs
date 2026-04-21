@@ -2471,7 +2471,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'Changed';"));
 
-        await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(2)).Token);
+        using var cts1 = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await countdownEvent.WaitAsync(cts1.Token);
         Assert.Equal(0, countdownEvent.CurrentCount);
     }
 
@@ -2490,7 +2491,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'Changed';"));
 
-        await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(2)).Token);
+        using var cts2 = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await countdownEvent.WaitAsync(cts2.Token);
         Assert.Equal(0, countdownEvent.CurrentCount);
     }
 
@@ -2512,7 +2514,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         await _employeeRepository.PatchAsync(employee.Id, new PartialPatch(new { name = "Changed" }));
 
-        await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(2)).Token);
+        using var cts3 = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await countdownEvent.WaitAsync(cts3.Token);
         Assert.Equal(0, countdownEvent.CurrentCount);
     }
 
@@ -2534,7 +2537,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => e.Name = "Changed"));
 
-        await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(2)).Token);
+        using var cts4 = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await countdownEvent.WaitAsync(cts4.Token);
         Assert.Equal(0, countdownEvent.CurrentCount);
     }
 
@@ -2554,7 +2558,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => e.Name = "Changed"));
 
-        await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(2)).Token);
+        using var cts5 = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await countdownEvent.WaitAsync(cts5.Token);
         Assert.Equal(0, countdownEvent.CurrentCount);
     }
 
@@ -2615,7 +2620,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             new ScriptPatch("ctx._source.name = 'Changed';"),
             o => o.ImmediateConsistency());
 
-        await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(2)).Token);
+        using var cts6 = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await countdownEvent.WaitAsync(cts6.Token);
         Assert.Equal(0, countdownEvent.CurrentCount);
     }
 
@@ -2637,7 +2643,8 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             new ScriptPatch("ctx._source.name = 'Changed';"),
             o => o.ImmediateConsistency());
 
-        await countdownEvent.WaitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(2)).Token);
+        using var cts7 = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await countdownEvent.WaitAsync(cts7.Token);
         Assert.Equal(0, countdownEvent.CurrentCount);
     }
 
