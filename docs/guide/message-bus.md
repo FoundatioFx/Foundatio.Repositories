@@ -20,12 +20,12 @@ public class MyElasticConfiguration : ElasticConfiguration
     public MyElasticConfiguration(
         ICacheClient cache,
         IMessageBus messageBus,
-        ILoggerFactory loggerFactory) 
+        ILoggerFactory loggerFactory)
         : base(cache: cache, messageBus: messageBus, loggerFactory: loggerFactory)
     {
         AddIndex(Employees = new EmployeeIndex(this));
     }
-    
+
     public EmployeeIndex Employees { get; }
 }
 ```
@@ -37,11 +37,11 @@ public class MyElasticConfiguration : ElasticConfiguration
 services.AddSingleton<IMessageBus>(new InMemoryMessageBus());
 
 // Redis
-services.AddSingleton<IMessageBus>(sp => 
+services.AddSingleton<IMessageBus>(sp =>
     new RedisMessageBus(new RedisConnection("localhost:6379")));
 
 // RabbitMQ
-services.AddSingleton<IMessageBus>(sp => 
+services.AddSingleton<IMessageBus>(sp =>
     new RabbitMQMessageBus(new RabbitMQOptions { ConnectionString = "amqp://localhost" }));
 ```
 
@@ -85,7 +85,8 @@ Patch operations always use `ChangeType.Saved`. The `Id` field in the `EntityCha
 | Method | Id Field | Notes |
 |--------|----------|-------|
 | `PatchAsync(id, ...)` | Document ID | One message per patched document |
-| `PatchAsync(Ids, ...)` | Document ID | One message **per modified ID** (noop IDs excluded) |
+| `PatchAsync(Ids, ScriptPatch/PartialPatch)` | Document ID | One message **per modified ID** (noop IDs excluded) |
+| `PatchAsync(Ids, JsonPatch/ActionPatch)` | Document ID | Delegates to `PatchAllAsync` with explicit IDs — one message **per ID** in the query |
 | `PatchAllAsync` with explicit IDs | Document ID | One message **per ID** in the query |
 | `PatchAllAsync` with filter-only query | `null` | Single type-level notification |
 
@@ -93,7 +94,7 @@ Patch operations always use `ChangeType.Saved`. The `Id` field in the `EntityCha
 When `PatchAllAsync` is called with a filter-only query (no explicit IDs), the `EntityChanged` message has `Id = null`. Subscribers that depend on `msg.Id` to look up specific documents should handle this case, for example by re-querying the affected documents.
 :::
 
-**In-process events:** The `DocumentsChanged` event fires for all patch types, but `args.Documents` is empty for `ScriptPatch`, `PartialPatch`, and single-doc `JsonPatch` because the modified document is not available client-side. Only `ActionPatch` populates the documents list. The `DocumentsSaving` and `DocumentsSaved` events do **not** fire for patch operations.
+**In-process events:** The `DocumentsChanged` event fires for all patch types, but `args.Documents` is empty for `ScriptPatch`, `PartialPatch`, and single-doc `JsonPatch` because the modified document is not available client-side. Only single-document `ActionPatch` (`PatchAsync(id, ActionPatch)`) populates the documents list. Bulk operations — including `PatchAllAsync` and `PatchAsync(Ids)` for `ActionPatch`/`JsonPatch` (which delegates to `PatchAllAsync`) — fire `DocumentsChanged` with an **empty** documents list even though the documents may have been loaded during processing. The `DocumentsSaving` and `DocumentsSaved` events do **not** fire for patch operations.
 
 **Soft-delete detection:** Patch operations do not detect `IsDeleted` transitions. The `ChangeType` is always `Saved`, even if a patch sets `IsDeleted = true`. Use `SaveAsync` with `OriginalsEnabled = true` for soft-delete transition detection.
 
@@ -187,7 +188,7 @@ public class EmployeeHub : Hub
                 });
             }
         });
-        
+
         await base.OnConnectedAsync();
     }
 }
@@ -283,7 +284,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>
         // Add custom data to the notification
         args.Message.Data["TenantId"] = _tenantId;
         args.Message.Data["ModifiedBy"] = _currentUserId;
-        
+
         return Task.CompletedTask;
     }
 }
@@ -299,10 +300,10 @@ BeforePublishEntityChanged.AddHandler((sender, args) =>
     {
         args.Cancel = true;
     }
-    
+
     // Don't publish for certain entity states
     // (Note: You'd need to fetch the document to check this)
-    
+
     return Task.CompletedTask;
 });
 ```
@@ -315,7 +316,7 @@ BeforePublishEntityChanged.AddHandler((sender, args) =>
     // Add metadata to all notifications
     args.Message.Data["Timestamp"] = DateTime.UtcNow;
     args.Message.Data["Source"] = Environment.MachineName;
-    
+
     return Task.CompletedTask;
 });
 ```
@@ -492,7 +493,7 @@ await messageBus.SubscribeAsync<EntityChanged>(async (msg, ct) =>
     }
     catch (Exception ex)
     {
-        _logger.LogError(ex, "Failed to process notification for {Type} {Id}", 
+        _logger.LogError(ex, "Failed to process notification for {Type} {Id}",
             msg.Type, msg.Id);
         // Don't rethrow - allow other subscribers to process
     }

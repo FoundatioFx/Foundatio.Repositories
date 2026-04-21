@@ -2691,4 +2691,70 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Assert — publish is awaited inside PatchAllAsync, so no delay needed
         Assert.Equal(0, _messageBus.MessagesSent);
     }
+
+    [Fact]
+    public async Task PatchAsync_MultipleIds_SendsPerIdNotification()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(3);
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        _messageBus.ResetMessagesSent();
+
+        var receivedIds = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var countdownEvent = new AsyncCountdownEvent(3);
+        await _messageBus.SubscribeAsync<EntityChanged>((msg, ct) =>
+        {
+            Assert.Equal(nameof(Employee), msg.Type);
+            Assert.Equal(ChangeType.Saved, msg.ChangeType);
+            receivedIds.Add(msg.Id!);
+            countdownEvent.Signal();
+            return Task.CompletedTask;
+        }, TestCancellationToken);
+
+        // Act
+        var ids = new Ids(employees.Select(e => (Id)e.Id));
+        await _employeeRepository.PatchAsync(ids, new ScriptPatch("ctx._source.name = 'Changed';"));
+
+        // Assert
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await countdownEvent.WaitAsync(cts.Token);
+        Assert.Equal(0, countdownEvent.CurrentCount);
+        Assert.Equal(3, receivedIds.Count);
+        foreach (var emp in employees)
+            Assert.Contains(emp.Id, receivedIds);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_ExplicitIds_SendsPerIdNotification()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(3);
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        _messageBus.ResetMessagesSent();
+
+        var receivedIds = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var countdownEvent = new AsyncCountdownEvent(3);
+        await _messageBus.SubscribeAsync<EntityChanged>((msg, ct) =>
+        {
+            Assert.Equal(nameof(Employee), msg.Type);
+            Assert.Equal(ChangeType.Saved, msg.ChangeType);
+            receivedIds.Add(msg.Id!);
+            countdownEvent.Signal();
+            return Task.CompletedTask;
+        }, TestCancellationToken);
+
+        // Act
+        await _employeeRepository.PatchAllAsync(
+            q => q.Id(employees.Select(e => e.Id).ToArray()),
+            new ScriptPatch("ctx._source.name = 'Changed';"),
+            o => o.ImmediateConsistency());
+
+        // Assert
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await countdownEvent.WaitAsync(cts.Token);
+        Assert.Equal(0, countdownEvent.CurrentCount);
+        Assert.Equal(3, receivedIds.Count);
+        foreach (var emp in employees)
+            Assert.Contains(emp.Id, receivedIds);
+    }
 }

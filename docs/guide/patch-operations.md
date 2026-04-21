@@ -83,16 +83,16 @@ Update specific fields with new values:
 await repository.PatchAsync(id, new PartialPatch(new { Name = "John Smith" }));
 
 // Update multiple fields
-await repository.PatchAsync(id, new PartialPatch(new 
-{ 
+await repository.PatchAsync(id, new PartialPatch(new
+{
     Name = "John Smith",
     Age = 32,
     Department = "Engineering"
 }));
 
 // Update nested object
-await repository.PatchAsync(id, new PartialPatch(new 
-{ 
+await repository.PatchAsync(id, new PartialPatch(new
+{
     Address = new { City = "Seattle", State = "WA" }
 }));
 ```
@@ -614,12 +614,14 @@ await repository.PatchAsync(id, new ScriptPatch("ctx._source.name = 'Changed';")
 No-op patches (e.g., `ScriptPatch` with `ctx.op = 'none'`, `ActionPatch` returning `false`, or empty operations) do **not** send notifications.
 
 ::: warning DocumentsChanged fires with an empty document list
-For `ScriptPatch`, `PartialPatch`, and single-doc `JsonPatch`, the `DocumentsChanged` event fires but `args.Documents` is **empty** because the modified document is not available client-side. Only `ActionPatch` provides the full document in `DocumentsChanged`. If your `DocumentsChanged` handler iterates over `args.Documents`, it will simply see zero items for server-side patch types.
+For `ScriptPatch`, `PartialPatch`, and single-doc `JsonPatch`, the `DocumentsChanged` event fires but `args.Documents` is **empty** because the modified document is not available client-side. Only single-document `ActionPatch` (`PatchAsync(id, ActionPatch)`) provides the full document in `DocumentsChanged`. Bulk operations — including `PatchAllAsync` and `PatchAsync(Ids)` for `ActionPatch`/`JsonPatch` (which delegates to `PatchAllAsync`) — also fire `DocumentsChanged` with an **empty** documents list. If your `DocumentsChanged` handler iterates over `args.Documents`, it will see zero items for all patch types except single-document `ActionPatch`.
 :::
 
 ### PatchAsync (Multi-ID)
 
-`PatchAsync(Ids, ...)` sends one `EntityChanged` message **per modified ID**. IDs that result in a noop (e.g., `ScriptPatch` with `ctx.op = 'none'`) are excluded from notifications:
+`PatchAsync(Ids, ...)` behavior depends on the patch type:
+
+- **`ScriptPatch` / `PartialPatch`**: Sends one `EntityChanged` message **per modified ID**. IDs that result in a noop (e.g., `ScriptPatch` with `ctx.op = 'none'`) are excluded from notifications:
 
 ```csharp
 await repository.PatchAsync(new Ids(id1, id2, id3), new ScriptPatch("ctx._source.name = 'Changed';"));
@@ -628,7 +630,7 @@ await repository.PatchAsync(new Ids(id1, id2, id3), new ScriptPatch("ctx._source
 // EntityChanged { Type = "Employee", Id = "<id3>", ChangeType = Saved }
 ```
 
-For `JsonPatch` and `ActionPatch<T>`, the multi-ID overload delegates to `PatchAllAsync` internally, so the same query-based notification rules apply.
+- **`JsonPatch` / `ActionPatch<T>`**: The multi-ID overload delegates to `PatchAllAsync` internally with the IDs set in the query. This means query-based notification rules apply — one `EntityChanged` per ID in the query when at least one document is modified, regardless of whether a particular ID was a noop.
 
 ### PatchAllAsync (Query-Based)
 
