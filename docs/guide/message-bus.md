@@ -52,10 +52,10 @@ services.AddSingleton<IMessageBus>(sp =>
 ```csharp
 public class EntityChanged : IHaveData
 {
-    public string Type { get; set; }      // Entity type name (e.g., "Employee")
-    public string Id { get; set; }        // Document ID
+    public string? Type { get; set; }      // Entity type name (e.g., "Employee"); null for non-entity-specific notifications
+    public string? Id { get; set; }        // Document ID; null for bulk/type-level notifications
     public ChangeType ChangeType { get; set; }  // Added, Saved, or Removed
-    public IDictionary<string, object> Data { get; set; }  // Custom data
+    public IDictionary<string, object?> Data { get; set; }  // Custom data
 }
 
 public enum ChangeType : byte
@@ -372,7 +372,7 @@ await messageBus.SubscribeAsync<EntityChanged>(async (msg, ct) =>
 | Timing | Synchronous | Asynchronous |
 | Reliability | Guaranteed | Depends on bus |
 | Use Case | Local side effects | Cross-service |
-| Access to Document | Full document (`SaveAsync`, `ActionPatch`) or empty list (server-side patches) | ID only (or `null` for type-level) |
+| Access to Document | Full document for `SaveAsync` and single-doc `PatchAsync(id, ActionPatch)` only; empty list for all other patch paths | ID only (or `null` for type-level) |
 
 ## Distributed Cache Invalidation
 
