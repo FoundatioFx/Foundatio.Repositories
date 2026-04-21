@@ -2588,8 +2588,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Act
         await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx.op = 'none';"));
 
-        // Assert
-        await Task.Delay(TimeSpan.FromMilliseconds(250), TestCancellationToken);
+        // Assert — publish is awaited inside PatchAsync, so no delay needed
         Assert.Equal(0, _messageBus.MessagesSent);
     }
 
@@ -2603,8 +2602,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Act
         await _employeeRepository.PatchAsync(employee.Id, new ActionPatch<Employee>(e => false));
 
-        // Assert
-        await Task.Delay(TimeSpan.FromMilliseconds(250), TestCancellationToken);
+        // Assert — publish is awaited inside PatchAsync, so no delay needed
         Assert.Equal(0, _messageBus.MessagesSent);
     }
 
@@ -2618,8 +2616,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         // Act
         await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.name = 'Changed';"), o => o.Notifications(false));
 
-        // Assert
-        await Task.Delay(TimeSpan.FromMilliseconds(250), TestCancellationToken);
+        // Assert — publish is awaited inside PatchAsync, so no delay needed
         Assert.Equal(0, _messageBus.MessagesSent);
     }
 
@@ -2691,8 +2688,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             new ScriptPatch("ctx._source.name = 'Changed';"),
             o => o.ImmediateConsistency().Notifications(false));
 
-        // Assert
-        await Task.Delay(TimeSpan.FromMilliseconds(250), TestCancellationToken);
+        // Assert — publish is awaited inside PatchAllAsync, so no delay needed
         Assert.Equal(0, _messageBus.MessagesSent);
     }
 }

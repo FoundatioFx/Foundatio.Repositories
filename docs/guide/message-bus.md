@@ -73,6 +73,7 @@ public enum ChangeType : byte
 | `Added` | `AddAsync` - New document created |
 | `Saved` | `SaveAsync` - Document updated |
 | `Saved` | `PatchAsync` - Document patched (with document ID) |
+| `Saved` | `PatchAsync(Ids)` - Documents patched (one message per modified ID) |
 | `Saved` | `PatchAllAsync` - Documents patched (per ID or type-level) |
 | `Removed` | `RemoveAsync` - Document deleted |
 | `Removed` | Soft delete transition (`IsDeleted: false → true`) via `SaveAsync` |
@@ -84,6 +85,7 @@ Patch operations always use `ChangeType.Saved`. The `Id` field in the `EntityCha
 | Method | Id Field | Notes |
 |--------|----------|-------|
 | `PatchAsync(id, ...)` | Document ID | One message per patched document |
+| `PatchAsync(Ids, ...)` | Document ID | One message **per modified ID** (noop IDs excluded) |
 | `PatchAllAsync` with explicit IDs | Document ID | One message **per ID** in the query |
 | `PatchAllAsync` with filter-only query | `null` | Single type-level notification |
 
