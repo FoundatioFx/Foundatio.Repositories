@@ -807,8 +807,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
 
         var withValue = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
         Assert.NotNull(withValue);
-        Assert.True(withValue.Data.ContainsKey("UpdCalc"));
-        var updCalcValue = withValue.Data["UpdCalc"];
+        Assert.True(withValue.Data.TryGetValue("UpdCalc", out var updCalcValue));
         Assert.NotNull(updCalcValue);
         Assert.Equal(3, Convert.ToInt32(updCalcValue));
         var indexedBefore = await _employeeRepository.FindAsync(q => q.Company("1").FilterExpression("updcalc:3"), o => o.QueryLogLevel(LogLevel.Information));
