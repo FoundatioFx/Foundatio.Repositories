@@ -57,6 +57,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 return;
 
             var index = ctx.Options.GetElasticIndex();
+            if (index is null)
+                return;
+
             foreach (var childQuery in childQueries)
             {
                 var childOptions = ctx.Options.Clone();

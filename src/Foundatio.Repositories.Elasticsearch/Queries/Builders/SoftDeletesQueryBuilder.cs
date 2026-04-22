@@ -27,7 +27,7 @@ public class SoftDeletesQueryBuilder : IElasticQueryBuilder
             return Task.CompletedTask;
 
         var documentType = ctx.Options.DocumentType();
-        var property = documentType.GetProperty(nameof(ISupportSoftDeletes.IsDeleted));
+        var property = documentType?.GetProperty(nameof(ISupportSoftDeletes.IsDeleted));
         var index = ctx.Options.GetElasticIndex();
 
         string fieldName = property != null ? index?.Configuration.Client.Infer.Field(new Field(property)) ?? "isDeleted" : "isDeleted";

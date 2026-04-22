@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
 
@@ -16,6 +17,7 @@ public interface IOptionsDictionary : IEnumerable<KeyValuePair<string, object>>
     void Set(string name, object value);
     bool Contains(string name);
     bool Remove(string name);
+    [return: MaybeNull]
     T Get<T>(string name, T defaultValue = default!);
 }
 
@@ -92,6 +94,7 @@ public static class OptionsExtensions
         return options;
     }
 
+    [return: MaybeNull]
     public static T SafeGetOption<T>(this IOptions? options, string name, T defaultValue = default!)
     {
         if (options == null)
@@ -113,7 +116,7 @@ public static class OptionsExtensions
         if (options == null)
             return new List<T>();
 
-        return options.Values.Get(name, new List<T>());
+        return options.Values.Get(name, new List<T>())!;
     }
 
     public static TOptions AddCollectionOptionValue<TOptions, TValue>(this TOptions options, string name, TValue value) where TOptions : IOptions
@@ -121,7 +124,7 @@ public static class OptionsExtensions
         if (options == null)
             throw new ArgumentNullException(nameof(options));
 
-        var setOption = options.SafeGetOption(name, new List<TValue>());
+        var setOption = options.SafeGetOption(name, new List<TValue>())!;
         setOption.Add(value);
         options.Values.Set(name, setOption);
 
@@ -133,19 +136,19 @@ public static class OptionsExtensions
         if (options == null)
             throw new ArgumentNullException(nameof(options));
 
-        var setOption = options.SafeGetOption(name, new List<TValue>());
+        var setOption = options.SafeGetOption(name, new List<TValue>())!;
         setOption.AddRange(values);
         options.Values.Set(name, setOption);
 
         return options;
     }
 
-    public static ISet<T> SafeGetSet<T>(this IOptions options, string name)
+    public static ISet<T> SafeGetSet<T>(this IOptions? options, string name)
     {
         if (options == null)
             return new HashSet<T>();
 
-        return options.Values.Get(name, new HashSet<T>());
+        return options.Values.Get(name, new HashSet<T>())!;
     }
 
     public static T AddSetOptionValue<T>(this T options, string name, string value) where T : IOptions
@@ -153,7 +156,7 @@ public static class OptionsExtensions
         if (options == null)
             throw new ArgumentNullException(nameof(options));
 
-        var setOption = options.SafeGetOption(name, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        var setOption = options.SafeGetOption(name, new HashSet<string>(StringComparer.OrdinalIgnoreCase))!;
         setOption.Add(value);
         options.Values.Set(name, setOption);
 
@@ -165,7 +168,7 @@ public static class OptionsExtensions
         if (options == null)
             throw new ArgumentNullException(nameof(options));
 
-        var setOption = options.SafeGetOption(name, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        var setOption = options.SafeGetOption(name, new HashSet<string>(StringComparer.OrdinalIgnoreCase))!;
         setOption.AddRange(values);
         options.Values.Set(name, setOption);
 

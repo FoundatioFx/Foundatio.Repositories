@@ -20,7 +20,7 @@ namespace Foundatio.Repositories.Options
     {
         public static TimeProvider GetTimeProvider(this IOptions options)
         {
-            return options.SafeGetOption(SetTimeProviderOptionsExtensions.TimeProviderKey, TimeProvider.System);
+            return options.SafeGetOption(SetTimeProviderOptionsExtensions.TimeProviderKey, TimeProvider.System)!;
         }
     }
 }

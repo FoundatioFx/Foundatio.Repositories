@@ -86,17 +86,17 @@ namespace Foundatio.Repositories.Options
 {
     public static class ReadQueryExpressionsExtensions
     {
-        public static ISystemFilter GetSystemFilter(this IRepositoryQuery query)
+        public static ISystemFilter? GetSystemFilter(this IRepositoryQuery query)
         {
             return query.SafeGetOption<ISystemFilter>(QueryExpressionsExtensions.SystemFilterKey);
         }
 
-        public static string GetFilterExpression(this IRepositoryQuery query)
+        public static string? GetFilterExpression(this IRepositoryQuery query)
         {
             return query.SafeGetOption<string>(QueryExpressionsExtensions.FilterKey);
         }
 
-        public static string GetSearchExpression(this IRepositoryQuery query)
+        public static string? GetSearchExpression(this IRepositoryQuery query)
         {
             return query.SafeGetOption<string>(QueryExpressionsExtensions.SearchKey);
         }
@@ -106,7 +106,7 @@ namespace Foundatio.Repositories.Options
             return query.SafeGetOption<SearchOperator>(QueryExpressionsExtensions.CriteriaDefaultOperatorKey, SearchOperator.Or);
         }
 
-        public static string GetSortExpression(this IRepositoryQuery query)
+        public static string? GetSortExpression(this IRepositoryQuery query)
         {
             return query.SafeGetOption<string>(QueryExpressionsExtensions.SortKey);
         }
@@ -129,9 +129,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
-            string filter = ctx.Source.GetFilterExpression();
-            string search = ctx.Source.GetSearchExpression();
-            string sort = ctx.Source.GetSortExpression();
+            string? filter = ctx.Source.GetFilterExpression();
+            string? search = ctx.Source.GetSearchExpression();
+            string? sort = ctx.Source.GetSortExpression();
 
             if (!String.IsNullOrEmpty(filter))
             {
@@ -202,9 +202,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
-            string filter = ctx.Source.GetFilterExpression();
-            string search = ctx.Source.GetSearchExpression();
-            string sort = ctx.Source.GetSortExpression();
+            string? filter = ctx.Source.GetFilterExpression();
+            string? search = ctx.Source.GetSearchExpression();
+            string? sort = ctx.Source.GetSortExpression();
 
             if (!String.IsNullOrEmpty(filter))
                 ctx.Filter &= new QueryStringQuery
@@ -247,9 +247,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
-            string filter = ctx.Source.GetFilterExpression();
-            string search = ctx.Source.GetSearchExpression();
-            string sort = ctx.Source.GetSortExpression();
+            string? filter = ctx.Source.GetFilterExpression();
+            string? search = ctx.Source.GetSearchExpression();
+            string? sort = ctx.Source.GetSortExpression();
 
             // NOTE: Calling UseScoring here to keep the query from being wrapped in a filter which happens ElasticQueryBuilderExtensions.BuildQuery
             if (!String.IsNullOrEmpty(filter))
