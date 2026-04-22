@@ -832,9 +832,11 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
     [Fact]
     public void CustomFieldHelpers_OnNonCustomFieldType_ThrowsRepositoryException()
     {
+        // Arrange
         var repo = new CustomFieldHelperTestRepository(_configuration.Employees);
         var employee = EmployeeGenerator.Generate();
 
+        // Act & Assert
         Assert.Throws<RepositoryException>(() => { repo.TestGetDocumentCustomFields(employee); });
         Assert.Throws<RepositoryException>(() => { repo.TestGetDocumentCustomField(employee, "field"); });
         Assert.Throws<RepositoryException>(() => repo.TestSetDocumentCustomField(employee, "field", "value"));
