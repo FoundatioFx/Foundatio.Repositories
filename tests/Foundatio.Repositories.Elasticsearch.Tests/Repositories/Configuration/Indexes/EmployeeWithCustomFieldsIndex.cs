@@ -83,13 +83,13 @@ public sealed class EmployeeWithCustomFieldsIndex : VersionedIndex<EmployeeWithC
 
     private async Task<string?> ResolveIncludeAsync(string name)
     {
-        await Task.Delay(100, global::Xunit.TestContext.Current.CancellationToken);
+        await Task.Delay(100);
         return "aliasedage:10";
     }
 
     private async Task<ElasticRuntimeField?> ResolveRuntimeFieldAsync(string name)
     {
-        await Task.Delay(100, global::Xunit.TestContext.Current.CancellationToken);
+        await Task.Delay(100);
 
         if (name.Equals("unmappedEmailAddress", StringComparison.OrdinalIgnoreCase))
             return new ElasticRuntimeField { Name = "unmappedEmailAddress" };
