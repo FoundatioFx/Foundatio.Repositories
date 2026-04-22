@@ -830,16 +830,16 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public void CustomFieldHelpers_OnNonCustomFieldType_ThrowRepositoryException()
+    public void CustomFieldHelpers_OnNonCustomFieldType_ThrowsRepositoryException()
     {
         var repo = new CustomFieldHelperTestRepository(_configuration.Employees);
         var employee = EmployeeGenerator.Generate();
 
-        Assert.Throws<RepositoryException>(new Action(() => repo.TestGetDocumentCustomFields(employee)));
-        Assert.Throws<RepositoryException>(new Action(() => repo.TestGetDocumentCustomField(employee, "field")));
-        Assert.Throws<RepositoryException>(new Action(() => repo.TestSetDocumentCustomField(employee, "field", "value")));
-        Assert.Throws<RepositoryException>(new Action(() => repo.TestRemoveDocumentCustomField(employee, "field")));
-        Assert.Throws<RepositoryException>(new Action(() => repo.TestGetDocumentIdx(employee)));
+        Assert.Throws<RepositoryException>(() => { repo.TestGetDocumentCustomFields(employee); });
+        Assert.Throws<RepositoryException>(() => { repo.TestGetDocumentCustomField(employee, "field"); });
+        Assert.Throws<RepositoryException>(() => repo.TestSetDocumentCustomField(employee, "field", "value"));
+        Assert.Throws<RepositoryException>(() => repo.TestRemoveDocumentCustomField(employee, "field"));
+        Assert.Throws<RepositoryException>(() => { repo.TestGetDocumentIdx(employee); });
     }
 }
 

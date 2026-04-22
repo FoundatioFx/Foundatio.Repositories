@@ -1316,7 +1316,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         {
             IHaveCustomFields f => f.Data,
             IHaveVirtualCustomFields v => v.GetCustomFields(),
-            _ => throw new RepositoryException($"Document type {typeof(T).Name} does not implement IHaveCustomFields or IHaveVirtualCustomFields.")
+            _ => throw new RepositoryException($"Document type {document.GetType().Name} does not implement IHaveCustomFields or IHaveVirtualCustomFields.")
         };
     }
 
@@ -1341,7 +1341,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 v.SetCustomField(name, value);
                 return;
             default:
-                throw new RepositoryException($"Document type {typeof(T).Name} does not implement IHaveCustomFields or IHaveVirtualCustomFields.");
+                throw new RepositoryException($"Document type {document.GetType().Name} does not implement IHaveCustomFields or IHaveVirtualCustomFields.");
         }
     }
 
@@ -1361,7 +1361,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 v.RemoveCustomField(name);
                 return;
             default:
-                throw new RepositoryException($"Document type {typeof(T).Name} does not implement IHaveCustomFields or IHaveVirtualCustomFields.");
+                throw new RepositoryException($"Document type {document.GetType().Name} does not implement IHaveCustomFields or IHaveVirtualCustomFields.");
         }
     }
 
@@ -1374,7 +1374,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         {
             IHaveCustomFields f => f.Data.GetValueOrDefault(name),
             IHaveVirtualCustomFields v => v.GetCustomField(name),
-            _ => throw new RepositoryException($"Document type {typeof(T).Name} does not implement IHaveCustomFields or IHaveVirtualCustomFields.")
+            _ => throw new RepositoryException($"Document type {document.GetType().Name} does not implement IHaveCustomFields or IHaveVirtualCustomFields.")
         };
     }
 
@@ -1387,7 +1387,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         {
             IHaveCustomFields f => f.Idx,
             IHaveVirtualCustomFields v => v.Idx,
-            _ => throw new RepositoryException($"Document type {typeof(T).Name} does not implement IHaveCustomFields or IHaveVirtualCustomFields.")
+            _ => throw new RepositoryException($"Document type {document.GetType().Name} does not implement IHaveCustomFields or IHaveVirtualCustomFields.")
         };
     }
 
