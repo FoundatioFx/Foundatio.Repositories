@@ -1312,6 +1312,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// </summary>
     protected IDictionary<string, object?> GetDocumentCustomFields(T document)
     {
+        ArgumentNullException.ThrowIfNull(document);
+
         return document switch
         {
             IHaveCustomFields f => f.Data,
@@ -1326,6 +1328,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// </summary>
     protected void SetDocumentCustomField(T document, string name, object? value)
     {
+        ArgumentNullException.ThrowIfNull(document);
+
         if (value is null)
         {
             RemoveDocumentCustomField(document, name);
@@ -1352,6 +1356,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// </summary>
     protected void RemoveDocumentCustomField(T document, string name)
     {
+        ArgumentNullException.ThrowIfNull(document);
+
         switch (document)
         {
             case IHaveCustomFields f:
@@ -1370,6 +1376,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// </summary>
     protected object? GetDocumentCustomField(T document, string name)
     {
+        ArgumentNullException.ThrowIfNull(document);
+
         return document switch
         {
             IHaveCustomFields f => f.Data.GetValueOrDefault(name),
@@ -1383,6 +1391,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// </summary>
     protected IDictionary<string, object> GetDocumentIdx(T document)
     {
+        ArgumentNullException.ThrowIfNull(document);
+
         return document switch
         {
             IHaveCustomFields f => f.Idx,
