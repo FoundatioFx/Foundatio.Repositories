@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Caching;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
@@ -827,4 +828,28 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
         var noHit = await _employeeRepository.FindAsync(q => q.Company("1").FilterExpression("updcalc:3"), o => o.QueryLogLevel(LogLevel.Information));
         Assert.Empty(noHit.Documents);
     }
+
+    [Fact]
+    public void CustomFieldHelpers_OnNonCustomFieldType_ThrowRepositoryException()
+    {
+        var repo = new CustomFieldHelperTestRepository(_configuration.Employees);
+        var employee = EmployeeGenerator.Generate();
+
+        Assert.Throws<RepositoryException>(new Action(() => repo.TestGetDocumentCustomFields(employee)));
+        Assert.Throws<RepositoryException>(new Action(() => repo.TestGetDocumentCustomField(employee, "field")));
+        Assert.Throws<RepositoryException>(new Action(() => repo.TestSetDocumentCustomField(employee, "field", "value")));
+        Assert.Throws<RepositoryException>(new Action(() => repo.TestRemoveDocumentCustomField(employee, "field")));
+        Assert.Throws<RepositoryException>(new Action(() => repo.TestGetDocumentIdx(employee)));
+    }
+}
+
+internal sealed class CustomFieldHelperTestRepository : ElasticRepositoryBase<Employee>
+{
+    public CustomFieldHelperTestRepository(IIndex index) : base(index) { }
+
+    public IDictionary<string, object?> TestGetDocumentCustomFields(Employee doc) => GetDocumentCustomFields(doc);
+    public object? TestGetDocumentCustomField(Employee doc, string name) => GetDocumentCustomField(doc, name);
+    public void TestSetDocumentCustomField(Employee doc, string name, object? value) => SetDocumentCustomField(doc, name, value);
+    public void TestRemoveDocumentCustomField(Employee doc, string name) => RemoveDocumentCustomField(doc, name);
+    public IDictionary<string, object> TestGetDocumentIdx(Employee doc) => GetDocumentIdx(doc);
 }
