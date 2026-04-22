@@ -115,7 +115,7 @@ namespace Foundatio.Repositories.Options
 
         public static Type ParentDocumentType(this ICommandOptions options)
         {
-            return options.SafeGetOption<Type>(ParentDocumentTypeKey, typeof(object))!;
+            return options.SafeGetOption<Type>(ParentDocumentTypeKey, typeof(object));
         }
 
         internal const string QueryFieldResolverKey = "@QueryFieldResolver";

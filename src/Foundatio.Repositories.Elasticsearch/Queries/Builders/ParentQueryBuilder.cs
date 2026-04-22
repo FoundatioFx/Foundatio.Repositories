@@ -80,8 +80,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 ctx.Filter &= new TermQuery { Field = "discriminator", Value = discriminator };
 
             var parentQueries = ctx.Source.GetParentQueries();
-            if (parentQueries.Count > 0 && index is not null)
+            if (parentQueries.Count > 0)
             {
+                var resolvedIndex = index
+                    ?? throw new InvalidOperationException("ElasticIndex must be set on options to build parent queries.");
+
                 foreach (var parentQuery in parentQueries)
                 {
                     var parentOptions = ctx.Options.Clone();
@@ -93,7 +96,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
                     var parentContext = new QueryBuilderContext<object>(parentQuery, parentOptions);
 
-                    await index.QueryBuilder.BuildAsync(parentContext);
+                    await resolvedIndex.QueryBuilder.BuildAsync(parentContext);
 
                     if (parentContext.Filter != null && ((IQueryContainer)parentContext.Filter).IsConditionless == false)
                         ctx.Filter &= new HasParentQuery
