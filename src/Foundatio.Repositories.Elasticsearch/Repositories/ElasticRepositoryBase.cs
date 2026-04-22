@@ -1181,7 +1181,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         var definitionRepo = ElasticIndex.Configuration.CustomFieldDefinitionRepository;
         if (definitionRepo is null)
+        {
+            _logger.LogWarning("CustomFieldDefinitionRepository is not configured for index {IndexName}; custom field query resolution skipped", ElasticIndex.Name);
             return;
+        }
 
         var fieldMapping = await definitionRepo.GetFieldMappingAsync(EntityTypeName, tenantKey);
         var mapping = fieldMapping.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.GetIdxName(), StringComparer.OrdinalIgnoreCase);
@@ -1194,6 +1197,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         var definitionRepo = ElasticIndex.Configuration.CustomFieldDefinitionRepository;
         if (definitionRepo is null)
         {
+            _logger.LogWarning("CustomFieldDefinitionRepository is not configured for index {IndexName}; clearing Idx for all documents", ElasticIndex.Name);
+
             foreach (var doc in args.Documents.Select(d => d.Value))
             {
                 var idx = GetDocumentIdx(doc);
