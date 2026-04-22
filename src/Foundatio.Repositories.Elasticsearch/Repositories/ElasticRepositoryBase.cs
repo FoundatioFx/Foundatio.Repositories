@@ -1202,7 +1202,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             foreach (var doc in args.Documents.Select(d => d.Value))
             {
                 var idx = GetDocumentIdx(doc);
-                idx?.Clear();
+                idx.Clear();
             }
 
             return;
@@ -1217,14 +1217,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             foreach (var doc in tenant)
             {
                 var idx = GetDocumentIdx(doc);
-                if (idx == null)
-                    continue;
-
                 idx.Clear();
 
                 var customFields = GetDocumentCustomFields(doc);
-                if (customFields == null)
-                    continue;
 
                 foreach (var customField in customFields)
                 {
@@ -1315,13 +1310,15 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// Gets the custom fields dictionary from the document (<c>Data</c> for <see cref="IHaveCustomFields"/>,
     /// or the virtual fields collection for <see cref="IHaveVirtualCustomFields"/>).
     /// </summary>
-    protected IDictionary<string, object?>? GetDocumentCustomFields(T document)
+    protected IDictionary<string, object?> GetDocumentCustomFields(T document)
     {
+        ArgumentNullException.ThrowIfNull(document);
+
         return document switch
         {
             IHaveCustomFields f => f.Data,
             IHaveVirtualCustomFields v => v.GetCustomFields(),
-            _ => null
+            _ => throw new RepositoryException($"Document type {document.GetType().Name} does not implement IHaveCustomFields or IHaveVirtualCustomFields.")
         };
     }
 
@@ -1331,6 +1328,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// </summary>
     protected void SetDocumentCustomField(T document, string name, object? value)
     {
+        ArgumentNullException.ThrowIfNull(document);
+
         if (value is null)
         {
             RemoveDocumentCustomField(document, name);
@@ -1345,6 +1344,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             case IHaveVirtualCustomFields v:
                 v.SetCustomField(name, value);
                 return;
+            default:
+                throw new RepositoryException($"Document type {document.GetType().Name} does not implement IHaveCustomFields or IHaveVirtualCustomFields.");
         }
     }
 
@@ -1355,6 +1356,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// </summary>
     protected void RemoveDocumentCustomField(T document, string name)
     {
+        ArgumentNullException.ThrowIfNull(document);
+
         switch (document)
         {
             case IHaveCustomFields f:
@@ -1363,6 +1366,8 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             case IHaveVirtualCustomFields v:
                 v.RemoveCustomField(name);
                 return;
+            default:
+                throw new RepositoryException($"Document type {document.GetType().Name} does not implement IHaveCustomFields or IHaveVirtualCustomFields.");
         }
     }
 
@@ -1371,24 +1376,28 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// </summary>
     protected object? GetDocumentCustomField(T document, string name)
     {
+        ArgumentNullException.ThrowIfNull(document);
+
         return document switch
         {
             IHaveCustomFields f => f.Data.GetValueOrDefault(name),
             IHaveVirtualCustomFields v => v.GetCustomField(name),
-            _ => null,
+            _ => throw new RepositoryException($"Document type {document.GetType().Name} does not implement IHaveCustomFields or IHaveVirtualCustomFields.")
         };
     }
 
     /// <summary>
     /// Gets the indexed custom field values dictionary (<c>Idx</c>) from the document.
     /// </summary>
-    protected IDictionary<string, object>? GetDocumentIdx(T document)
+    protected IDictionary<string, object> GetDocumentIdx(T document)
     {
+        ArgumentNullException.ThrowIfNull(document);
+
         return document switch
         {
             IHaveCustomFields f => f.Idx,
             IHaveVirtualCustomFields v => v.Idx,
-            _ => null,
+            _ => throw new RepositoryException($"Document type {document.GetType().Name} does not implement IHaveCustomFields or IHaveVirtualCustomFields.")
         };
     }
 
