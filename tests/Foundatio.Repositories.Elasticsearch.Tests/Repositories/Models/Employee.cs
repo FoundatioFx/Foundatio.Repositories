@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 using Exceptionless;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
@@ -102,6 +103,7 @@ public class Employee : IIdentity, IHaveDates, IVersioned, ISupportSoftDeletes
     }
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum EmploymentType
 {
     FullTime,
