@@ -8,7 +8,7 @@ public class BooleanFieldType : ICustomFieldType
     public static string IndexType = "bool";
     public string Type => "bool";
 
-    public virtual Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class
+    public virtual Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object? value, CustomFieldDefinition fieldDefinition) where T : class
     {
         return Task.FromResult(new ProcessFieldValueResult { Value = value });
     }

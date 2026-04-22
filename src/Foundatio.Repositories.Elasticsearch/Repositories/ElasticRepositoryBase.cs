@@ -1179,7 +1179,14 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (String.IsNullOrEmpty(tenantKey))
             return;
 
-        var fieldMapping = await ElasticIndex.Configuration.CustomFieldDefinitionRepository!.GetFieldMappingAsync(EntityTypeName, tenantKey);
+        var definitionRepo = ElasticIndex.Configuration.CustomFieldDefinitionRepository;
+        if (definitionRepo is null)
+        {
+            _logger.LogWarning("CustomFieldDefinitionRepository is not configured for index {IndexName}; custom field query resolution skipped", ElasticIndex.Name);
+            return;
+        }
+
+        var fieldMapping = await definitionRepo.GetFieldMappingAsync(EntityTypeName, tenantKey);
         var mapping = fieldMapping.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.GetIdxName(), StringComparer.OrdinalIgnoreCase);
 
         args.Options.QueryFieldResolver(mapping.ToHierarchicalFieldResolver("idx."));
@@ -1187,11 +1194,25 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     protected virtual async Task OnCustomFieldsDocumentsChanging(object sender, DocumentsChangeEventArgs<T> args)
     {
+        var definitionRepo = ElasticIndex.Configuration.CustomFieldDefinitionRepository;
+        if (definitionRepo is null)
+        {
+            _logger.LogWarning("CustomFieldDefinitionRepository is not configured for index {IndexName}; clearing Idx for all documents", ElasticIndex.Name);
+
+            foreach (var doc in args.Documents.Select(d => d.Value))
+            {
+                var idx = GetDocumentIdx(doc);
+                idx?.Clear();
+            }
+
+            return;
+        }
+
         var tenantGroups = args.Documents.Select(d => d.Value).GroupBy(GetDocumentTenantKey).Where(g => g.Key != null).ToList();
 
         foreach (var tenant in tenantGroups)
         {
-            var fieldDefinitions = await ElasticIndex.Configuration.CustomFieldDefinitionRepository!.GetFieldMappingAsync(EntityTypeName, tenant.Key!);
+            var fieldDefinitions = await definitionRepo.GetFieldMappingAsync(EntityTypeName, tenant.Key!);
 
             foreach (var doc in tenant)
             {
@@ -1226,11 +1247,15 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     }
 
                     var result = await fieldType.ProcessValueAsync(doc, customField.Value, fieldDefinition);
-                    SetDocumentCustomField(doc, customField.Key, result.Value!);
-                    idx[fieldDefinition.GetIdxName()] = (result.Idx ?? result.Value)!;
+
+                    SetDocumentCustomField(doc, customField.Key, result.Value);
+
+                    object? idxValue = result.Idx ?? result.Value;
+                    if (idxValue is not null)
+                        idx[fieldDefinition.GetIdxName()] = idxValue;
 
                     if (result.IsCustomFieldDefinitionModified)
-                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository!.SaveAsync(fieldDefinition).AnyContext();
+                        await definitionRepo.SaveAsync(fieldDefinition).AnyContext();
                 }
 
                 foreach (var alwaysProcessField in fieldDefinitions.Values.Where(f => f.ProcessMode == CustomFieldProcessMode.AlwaysProcess))
@@ -1242,12 +1267,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     }
 
                     object? value = GetDocumentCustomField(doc, alwaysProcessField.Name);
-                    var result = await fieldType.ProcessValueAsync(doc, value!, alwaysProcessField);
-                    SetDocumentCustomField(doc, alwaysProcessField.Name, result.Value!);
-                    idx[alwaysProcessField.GetIdxName()] = (result.Idx ?? result.Value)!;
+                    var result = await fieldType.ProcessValueAsync(doc, value, alwaysProcessField);
+
+                    SetDocumentCustomField(doc, alwaysProcessField.Name, result.Value);
+
+                    object? alwaysIdxValue = result.Idx ?? result.Value;
+                    if (alwaysIdxValue is not null)
+                        idx[alwaysProcessField.GetIdxName()] = alwaysIdxValue;
 
                     if (result.IsCustomFieldDefinitionModified)
-                        await ElasticIndex.Configuration.CustomFieldDefinitionRepository!.SaveAsync(alwaysProcessField).AnyContext();
+                        await definitionRepo.SaveAsync(alwaysProcessField).AnyContext();
                 }
             }
         }
@@ -1262,9 +1291,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         if (String.IsNullOrEmpty(tenantKey))
             return null;
 
-        return await ElasticIndex.Configuration.CustomFieldDefinitionRepository!.AddFieldAsync(EntityTypeName, GetDocumentTenantKey(document)!, name, StringFieldType.IndexType);
+        var definitionRepo = ElasticIndex.Configuration.CustomFieldDefinitionRepository;
+        if (definitionRepo is null)
+            throw new RepositoryException("Custom field definition repository is not configured.");
+
+        return await definitionRepo.AddFieldAsync(EntityTypeName, GetDocumentTenantKey(document)!, name, StringFieldType.IndexType);
     }
 
+    /// <summary>
+    /// Gets the tenant key from the document for custom field tenant-scoped lookups.
+    /// </summary>
     protected string? GetDocumentTenantKey(T document)
     {
         return document switch
@@ -1275,6 +1311,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         };
     }
 
+    /// <summary>
+    /// Gets the custom fields dictionary from the document (<c>Data</c> for <see cref="IHaveCustomFields"/>,
+    /// or the virtual fields collection for <see cref="IHaveVirtualCustomFields"/>).
+    /// </summary>
     protected IDictionary<string, object?>? GetDocumentCustomFields(T document)
     {
         return document switch
@@ -1285,8 +1325,18 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         };
     }
 
-    protected void SetDocumentCustomField(T document, string name, object value)
+    /// <summary>
+    /// Sets a custom field value on the document. If <paramref name="value"/> is <c>null</c>,
+    /// the field is removed via <see cref="RemoveDocumentCustomField"/> to prevent stale data.
+    /// </summary>
+    protected void SetDocumentCustomField(T document, string name, object? value)
     {
+        if (value is null)
+        {
+            RemoveDocumentCustomField(document, name);
+            return;
+        }
+
         switch (document)
         {
             case IHaveCustomFields f:
@@ -1298,6 +1348,27 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
     }
 
+    /// <summary>
+    /// Removes a custom field from the document's data store. For <see cref="IHaveCustomFields"/>
+    /// documents this removes the key from <c>Data</c>; for <see cref="IHaveVirtualCustomFields"/>
+    /// it delegates to <see cref="IHaveVirtualCustomFields.RemoveCustomField"/>.
+    /// </summary>
+    protected void RemoveDocumentCustomField(T document, string name)
+    {
+        switch (document)
+        {
+            case IHaveCustomFields f:
+                f.Data.Remove(name);
+                return;
+            case IHaveVirtualCustomFields v:
+                v.RemoveCustomField(name);
+                return;
+        }
+    }
+
+    /// <summary>
+    /// Gets a single custom field value by name from the document.
+    /// </summary>
     protected object? GetDocumentCustomField(T document, string name)
     {
         return document switch
@@ -1308,6 +1379,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         };
     }
 
+    /// <summary>
+    /// Gets the indexed custom field values dictionary (<c>Idx</c>) from the document.
+    /// </summary>
     protected IDictionary<string, object>? GetDocumentIdx(T document)
     {
         return document switch
@@ -1324,6 +1398,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     }
 
     public AsyncEvent<DocumentsEventArgs<T>> DocumentsAdding { get; } = new AsyncEvent<DocumentsEventArgs<T>>();
+
+    private static string GetDocumentJoinKey(T? document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+
+        if (String.IsNullOrEmpty(document.Id))
+            throw new ArgumentException("Document is missing an Id before save.", nameof(document));
+
+        return document.Id;
+    }
 
     private async Task OnDocumentsAddingAsync(IReadOnlyCollection<T> documents, ICommandOptions options)
     {
@@ -1377,8 +1461,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         documents.EnsureIds(ElasticIndex.CreateDocumentId, ElasticIndex.Configuration.TimeProvider);
 
         var modifiedDocs = originalDocuments.FullOuterJoin(
-            documents, cf => cf!.Id!, cf => cf!.Id!,
-            (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m => new ModifiedDocument<T>(m.Modified!, m.Original!)).ToList();
+            documents, GetDocumentJoinKey, GetDocumentJoinKey,
+            (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m =>
+            {
+                T current = m.Modified ?? m.Original ?? throw new DocumentException($"Full outer join produced no document for id {m.Id}.");
+                return new ModifiedDocument<T>(current, m.Modified is not null ? m.Original : null);
+            }).ToList();
 
         if (DocumentsSaving is { HasHandlers: true })
             await DocumentsSaving.InvokeAsync(this, new ModifiedDocumentsEventArgs<T>(modifiedDocs, this, options)).AnyContext();
@@ -1391,8 +1479,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     private async Task OnDocumentsSavedAsync(IReadOnlyCollection<T> documents, IReadOnlyCollection<T> originalDocuments, ICommandOptions options)
     {
         var modifiedDocs = originalDocuments.FullOuterJoin(
-            documents, cf => cf!.Id!, cf => cf!.Id!,
-            (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m => new ModifiedDocument<T>(m.Modified!, m.Original!)).ToList();
+            documents, GetDocumentJoinKey, GetDocumentJoinKey,
+            (original, modified, id) => new { Id = id, Original = original, Modified = modified }).Select(m =>
+            {
+                T current = m.Modified ?? m.Original ?? throw new DocumentException($"Full outer join produced no document for id {m.Id}.");
+                return new ModifiedDocument<T>(current, m.Modified is not null ? m.Original : null);
+            }).ToList();
 
         if (SupportsSoftDeletes && IsCacheEnabled)
         {

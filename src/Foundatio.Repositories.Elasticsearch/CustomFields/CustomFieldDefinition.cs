@@ -38,7 +38,7 @@ public record CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes
 
     /// <summary>
     /// Sets the process mode for this custom field instance. Default is to only process the field when there is a value. <see cref="CustomFieldProcessMode.ProcessOnValue"/>
-    /// Can be set to <see cref="CustomFieldProcessMode.AlwaysProcess"/> in order to always run the <see cref="ICustomFieldType.ProcessValueAsync{T}(T, object, CustomFieldDefinition)"/>
+    /// Can be set to <see cref="CustomFieldProcessMode.AlwaysProcess"/> in order to always run the <see cref="ICustomFieldType.ProcessValueAsync{T}(T, object?, CustomFieldDefinition)"/>
     /// even when a value is not present.
     /// </summary>
     public CustomFieldProcessMode ProcessMode { get; set; } = CustomFieldProcessMode.ProcessOnValue;
@@ -96,7 +96,7 @@ public record CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes
 }
 
 /// <summary>
-/// Controls when a custom field's <see cref="ICustomFieldType.ProcessValueAsync{T}(T, object, CustomFieldDefinition)"/> is invoked during document save.
+/// Controls when a custom field's <see cref="ICustomFieldType.ProcessValueAsync{T}(T, object?, CustomFieldDefinition)"/> is invoked during document save.
 /// </summary>
 public enum CustomFieldProcessMode
 {

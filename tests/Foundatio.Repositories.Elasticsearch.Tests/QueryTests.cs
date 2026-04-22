@@ -580,7 +580,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
     public async Task GetByEmailAddressFilter()
     {
         var findResult = await _employeeRepository.GetByEmailAddressAsync(EmployeeGenerator.Default.EmailAddress);
-        Assert.Null(findResult);
+        Assert.Null(findResult.Document);
         Assert.Equal(1, _cache.Writes);
         Assert.Equal(1, _cache.Count);
         Assert.Equal(0, _cache.Hits);
@@ -589,7 +589,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         // missing value should be cached
         findResult = await _employeeRepository.GetByEmailAddressAsync(EmployeeGenerator.Default.EmailAddress);
         Assert.DoesNotContain(Log.LogEntries, l => l.LogLevel == LogLevel.Error);
-        Assert.Null(findResult);
+        Assert.Null(findResult.Document);
         Assert.Equal(1, _cache.Writes);
         Assert.Equal(1, _cache.Count);
         Assert.Equal(1, _cache.Hits);
@@ -632,7 +632,7 @@ public sealed class QueryTests : ElasticRepositoryTestBase
         Assert.Equal(2, _cache.Misses);
 
         findResult = await _employeeRepository.GetByEmailAddressAsync(employee.EmailAddress);
-        Assert.Null(findResult);
+        Assert.Null(findResult.Document);
         Assert.Equal(1, _cache.Count);
         Assert.Equal(4, _cache.Hits);
         Assert.Equal(4, _cache.Misses);

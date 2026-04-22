@@ -22,7 +22,7 @@ public class CalculatedIntegerFieldType : IntegerFieldType
         _scriptService = scriptService;
     }
 
-    public override async Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class
+    public override async Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object? value, CustomFieldDefinition fieldDefinition) where T : class
     {
         if (!fieldDefinition.Data.TryGetValue("Expression", out object? expression) || expression is null)
             return await base.ProcessValueAsync(document, value, fieldDefinition);

@@ -8,7 +8,7 @@ public class DateFieldType : ICustomFieldType
     public static string IndexType = "date";
     public string Type => IndexType;
 
-    public virtual Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class
+    public virtual Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object? value, CustomFieldDefinition fieldDefinition) where T : class
     {
         return Task.FromResult(new ProcessFieldValueResult { Value = value });
     }

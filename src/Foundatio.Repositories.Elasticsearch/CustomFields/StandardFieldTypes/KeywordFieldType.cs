@@ -8,7 +8,7 @@ public class KeywordFieldType : ICustomFieldType
     public static string IndexType = "keyword";
     public string Type => IndexType;
 
-    public virtual Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class
+    public virtual Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object? value, CustomFieldDefinition fieldDefinition) where T : class
     {
         return Task.FromResult(new ProcessFieldValueResult { Value = value });
     }
