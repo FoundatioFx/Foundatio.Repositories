@@ -65,7 +65,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     protected string? DefaultPipeline { get; set; } = null;
     protected bool AutoCreateCustomFields { get; set; } = false;
 
-    public Task<T> AddAsync(T document, CommandOptionsDescriptor<T> options)
+    public Task<T> AddAsync(T document, CommandOptionsDescriptor<T>? options)
     {
         return AddAsync(document, options?.Configure());
     }
@@ -79,7 +79,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return document;
     }
 
-    public Task AddAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options)
+    public Task AddAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T>? options)
     {
         return AddAsync(documents, options?.Configure());
     }
@@ -117,7 +117,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
     protected virtual Task ValidateAndThrowAsync(T document) { return Task.CompletedTask; }
 
-    public Task<T> SaveAsync(T document, CommandOptionsDescriptor<T> options)
+    public Task<T> SaveAsync(T document, CommandOptionsDescriptor<T>? options)
     {
         return SaveAsync(document, options?.Configure());
     }
@@ -131,7 +131,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return document;
     }
 
-    public Task SaveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options)
+    public Task SaveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T>? options)
     {
         return SaveAsync(documents, options?.Configure());
     }
@@ -175,7 +175,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             ThrowForBulkErrors(result, isCreateOperation: false);
     }
 
-    public Task<bool> PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T> options)
+    public Task<bool> PatchAsync(Id id, IPatchOperation operation, CommandOptionsDescriptor<T>? options)
     {
         return PatchAsync(id, operation, options?.Configure());
     }
@@ -531,7 +531,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return modified;
     }
 
-    public Task<long> PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T> options)
+    public Task<long> PatchAsync(Ids ids, IPatchOperation operation, CommandOptionsDescriptor<T>? options)
     {
         return PatchAsync(ids, operation, options?.Configure());
     }
@@ -636,7 +636,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return result.ModifiedCount;
     }
 
-    public Task RemoveAsync(Id id, CommandOptionsDescriptor<T> options)
+    public Task RemoveAsync(Id id, CommandOptionsDescriptor<T>? options)
     {
         return RemoveAsync(id, options?.Configure());
     }
@@ -649,7 +649,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return RemoveAsync((Ids)id, options);
     }
 
-    public Task RemoveAsync(Ids ids, CommandOptionsDescriptor<T> options)
+    public Task RemoveAsync(Ids ids, CommandOptionsDescriptor<T>? options)
     {
         return RemoveAsync(ids, options?.Configure());
     }
@@ -672,7 +672,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         await RemoveAsync(documents, options).AnyContext();
     }
 
-    public Task RemoveAsync(T document, CommandOptionsDescriptor<T> options)
+    public Task RemoveAsync(T document, CommandOptionsDescriptor<T>? options)
     {
         return RemoveAsync(document, options?.Configure());
     }
@@ -685,7 +685,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         return RemoveAsync(new[] { document }, options);
     }
 
-    public Task RemoveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T> options)
+    public Task RemoveAsync(IEnumerable<T> documents, CommandOptionsDescriptor<T>? options)
     {
         return RemoveAsync(documents, options?.Configure());
     }

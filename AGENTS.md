@@ -103,6 +103,18 @@ samples
 - Write complete, runnable code—no placeholders, TODOs, or `// existing code...` comments
 - Use modern C# features: pattern matching, nullable references, `is` expressions, target-typed `new()`
 - Follow SOLID, DRY principles; remove unused code and parameters
+
+### Nullable Reference Types (NRT) Conventions
+
+The codebase has NRT enabled. Follow these patterns:
+
+- **Entity/model properties** (`= null!`): Acceptable for properties set by deserialization or Elasticsearch mapping. Prefer `required` keyword where construction is controlled.
+- **Expression tree `!`**: Required when expressions box nullable value types to `object?` but the delegate expects `object` (e.g., `SortDescending`, `InferField`). The value is never evaluated.
+- **`.Where(x => x is not null).Select(x => x!)`**: The compiler can't prove non-null through a lambda boundary after filtering. This is the idiomatic post-filter pattern.
+- **`null!` in test `Assert.Throws` calls**: Intentional contract violation to test null guards.
+- **`CommandOptionsDescriptor<T>?`**: The descriptor parameter is nullable on all repository interfaces. Use `options?.Configure()` to convert to `ICommandOptions?` when forwarding, or pass directly since implementations handle null.
+- **`SafeGetOption<T>` returns `[MaybeNull]`**: Callers that omit the default value for reference types must null-check the result. Use `?.` or pattern matching before dereferencing.
+- **Avoid `!` to forward nullable parameters**: Prefer making the parameter nullable on the interface, or using an overload that accepts nullable.
 - Clear, descriptive naming; prefer explicit over clever
 - Use `AnyContext()` (e.g., `ConfigureAwait(false)`) in library code (not in tests)
 - Prefer `ValueTask<T>` for hot paths that may complete synchronously

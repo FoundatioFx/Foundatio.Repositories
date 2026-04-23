@@ -66,7 +66,7 @@ namespace Foundatio.Repositories.Options
             return options.SafeGetOption<bool?>(RuntimeFieldsOptionsExtensions.EnableRuntimeFieldResolverKey);
         }
 
-        public static RuntimeFieldResolver GetRuntimeFieldResolver(this ICommandOptions options)
+        public static RuntimeFieldResolver? GetRuntimeFieldResolver(this ICommandOptions options)
         {
             return options.SafeGetOption<RuntimeFieldResolver>(RuntimeFieldsOptionsExtensions.RuntimeFieldResolverKey);
         }

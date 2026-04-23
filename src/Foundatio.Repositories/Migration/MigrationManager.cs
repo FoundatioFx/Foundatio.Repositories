@@ -138,7 +138,8 @@ public class MigrationManager
                 {
                     _logger.LogError(ex, "Failed running migration {Id}", migrationInfo.Migration.GetId());
 
-                    migrationInfo.State!.ErrorMessage = ex.Message;
+                    Debug.Assert(migrationInfo.State is not null, "State is set by MarkMigrationStartedAsync before try block");
+                    migrationInfo.State.ErrorMessage = ex.Message;
                     await _migrationStatusRepository.SaveAsync(migrationInfo.State).AnyContext();
 
                     return MigrationResult.Failed;
@@ -183,7 +184,8 @@ public class MigrationManager
 
     private async Task MarkMigrationCompleteAsync(MigrationInfo info)
     {
-        info.State!.CompletedUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        Debug.Assert(info.State is not null, "State is set by MarkMigrationStartedAsync");
+        info.State.CompletedUtc = _timeProvider.GetUtcNow().UtcDateTime;
         info.State.ErrorMessage = null;
         await _migrationStatusRepository.SaveAsync(info.State).AnyContext();
         _logger.LogInformation("Completed migration {Id}", info.State.Id);

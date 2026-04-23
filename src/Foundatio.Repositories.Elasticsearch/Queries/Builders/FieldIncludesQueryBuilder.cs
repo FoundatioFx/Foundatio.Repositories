@@ -293,7 +293,7 @@ namespace Foundatio.Repositories.Options
             return options.SafeGetCollection<Field>(FieldIncludesQueryExtensions.IncludesKey);
         }
 
-        public static string GetIncludeMask(this IRepositoryQuery options)
+        public static string? GetIncludeMask(this IRepositoryQuery options)
         {
             return options.SafeGetOption<string>(FieldIncludesQueryExtensions.IncludesMaskKey);
         }
@@ -303,7 +303,7 @@ namespace Foundatio.Repositories.Options
             return options.SafeGetCollection<Field>(FieldIncludesQueryExtensions.ExcludesKey);
         }
 
-        public static string GetExcludeMask(this IRepositoryQuery options)
+        public static string? GetExcludeMask(this IRepositoryQuery options)
         {
             return options.SafeGetOption<string>(FieldIncludesQueryExtensions.ExcludesMaskKey);
         }
@@ -316,7 +316,7 @@ namespace Foundatio.Repositories.Options
             return options.SafeGetCollection<Field>(FieldIncludesCommandExtensions.IncludesKey);
         }
 
-        public static string GetIncludeMask(this ICommandOptions options)
+        public static string? GetIncludeMask(this ICommandOptions options)
         {
             return options.SafeGetOption<string>(FieldIncludesCommandExtensions.IncludesMaskKey);
         }
@@ -326,7 +326,7 @@ namespace Foundatio.Repositories.Options
             return options.SafeGetCollection<Field>(FieldIncludesCommandExtensions.ExcludesKey);
         }
 
-        public static string GetExcludeMask(this ICommandOptions options)
+        public static string? GetExcludeMask(this ICommandOptions options)
         {
             return options.SafeGetOption<string>(FieldIncludesCommandExtensions.ExcludesMaskKey);
         }
@@ -369,11 +369,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             includes.AddRange(ctx.Source.GetIncludes());
             includes.AddRange(ctx.Options.GetIncludes());
 
-            string queryIncludeMask = ctx.Source.GetIncludeMask();
+            string? queryIncludeMask = ctx.Source.GetIncludeMask();
             if (!String.IsNullOrEmpty(queryIncludeMask))
                 includes.AddRange(FieldIncludeParser.ParseFieldPaths(queryIncludeMask).Select(f => (Field)f));
 
-            string optionIncludeMask = ctx.Options.GetIncludeMask();
+            string? optionIncludeMask = ctx.Options.GetIncludeMask();
             if (!String.IsNullOrEmpty(optionIncludeMask))
                 includes.AddRange(FieldIncludeParser.ParseFieldPaths(optionIncludeMask).Select(f => (Field)f));
 
@@ -381,11 +381,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             excludes.AddRange(ctx.Source.GetExcludes());
             excludes.AddRange(ctx.Options.GetExcludes());
 
-            string queryExcludeMask = ctx.Source.GetExcludeMask();
+            string? queryExcludeMask = ctx.Source.GetExcludeMask();
             if (!String.IsNullOrEmpty(queryExcludeMask))
                 excludes.AddRange(FieldIncludeParser.ParseFieldPaths(queryExcludeMask).Select(f => (Field)f));
 
-            string optionExcludeMask = ctx.Options.GetExcludeMask();
+            string? optionExcludeMask = ctx.Options.GetExcludeMask();
             if (!String.IsNullOrEmpty(optionExcludeMask))
                 excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
 

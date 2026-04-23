@@ -97,25 +97,25 @@ namespace Foundatio.Repositories.Options
             return options.SafeGetOption<bool>(SearchAfterQueryExtensions.SearchAfterPagingKey, false);
         }
 
-        public static object[] GetSearchAfter(this ICommandOptions options)
+        public static object[]? GetSearchAfter(this ICommandOptions options)
         {
             return options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchAfterKey);
         }
 
         public static bool HasSearchAfter(this ICommandOptions options)
         {
-            object[] sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchAfterKey);
+            object[]? sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchAfterKey);
             return sorts != null && sorts.Length > 0;
         }
 
-        public static object[] GetSearchBefore(this ICommandOptions options)
+        public static object[]? GetSearchBefore(this ICommandOptions options)
         {
             return options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchBeforeKey);
         }
 
         public static bool HasSearchBefore(this ICommandOptions options)
         {
-            object[] sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchBeforeKey);
+            object[]? sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchBeforeKey);
             return sorts != null && sorts.Length > 0;
         }
     }

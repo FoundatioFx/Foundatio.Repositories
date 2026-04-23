@@ -68,7 +68,7 @@ namespace Foundatio.Repositories.Options
             return options;
         }
 
-        public static IIndex GetElasticIndex(this ICommandOptions options)
+        public static IIndex? GetElasticIndex(this ICommandOptions options)
         {
             return options.SafeGetOption<IIndex>(ElasticIndexKey);
         }
@@ -97,7 +97,7 @@ namespace Foundatio.Repositories.Options
             return options;
         }
 
-        public static Type DocumentType(this ICommandOptions options)
+        public static Type? DocumentType(this ICommandOptions options)
         {
             return options.SafeGetOption<Type>(DocumentTypeKey);
         }
@@ -125,7 +125,7 @@ namespace Foundatio.Repositories.Options
             return options;
         }
 
-        public static QueryFieldResolver GetQueryFieldResolver(this ICommandOptions options)
+        public static QueryFieldResolver? GetQueryFieldResolver(this ICommandOptions options)
         {
             return options.SafeGetOption<QueryFieldResolver>(QueryFieldResolverKey);
         }
@@ -137,7 +137,7 @@ namespace Foundatio.Repositories.Options
             return options;
         }
 
-        public static IncludeResolver GetIncludeResolver(this ICommandOptions options)
+        public static IncludeResolver? GetIncludeResolver(this ICommandOptions options)
         {
             return options.SafeGetOption<IncludeResolver>(IncludeResolverKey);
         }

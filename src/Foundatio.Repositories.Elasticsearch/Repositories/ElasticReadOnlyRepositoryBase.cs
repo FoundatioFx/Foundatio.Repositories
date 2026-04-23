@@ -867,7 +867,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             includes.AddRange(query.GetIncludes());
         includes.AddRange(options.GetIncludes());
 
-        string optionIncludeMask = options.GetIncludeMask();
+        string? optionIncludeMask = options.GetIncludeMask();
         if (!String.IsNullOrEmpty(optionIncludeMask))
             includes.AddRange(FieldIncludeParser.ParseFieldPaths(optionIncludeMask).Select(f => (Field)f));
 
@@ -876,7 +876,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             excludes.AddRange(query.GetExcludes());
         excludes.AddRange(options.GetExcludes());
 
-        string optionExcludeMask = options.GetExcludeMask();
+        string? optionExcludeMask = options.GetExcludeMask();
         if (!String.IsNullOrEmpty(optionExcludeMask))
             excludes.AddRange(FieldIncludeParser.ParseFieldPaths(optionExcludeMask).Select(f => (Field)f));
 
