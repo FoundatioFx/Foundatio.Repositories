@@ -22,7 +22,7 @@ namespace Foundatio.Repositories.Options
 {
     public static class ReadEmailAddressQueryExtensions
     {
-        public static string GetEmailAddress(this IRepositoryQuery query)
+        public static string? GetEmailAddress(this IRepositoryQuery query)
         {
             return query.SafeGetOption<string>(EmailAddressQueryExtensions.EmailAddressKey);
         }
@@ -35,7 +35,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries
     {
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
-            string emailAddress = ctx.Source.GetEmailAddress();
+            string? emailAddress = ctx.Source.GetEmailAddress();
             if (String.IsNullOrEmpty(emailAddress))
                 return Task.CompletedTask;
 

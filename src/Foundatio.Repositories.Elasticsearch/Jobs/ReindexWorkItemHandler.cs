@@ -25,12 +25,14 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
         if (workItem is not ReindexWorkItem reindexWorkItem)
             return Task.FromResult<ILock?>(null);
 
-        return _lockProvider.AcquireAsync(String.Join(":", "reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex), TimeSpan.FromMinutes(20), cancellationToken)!;
+        return _lockProvider.AcquireAsync(String.Join(":", "reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex), TimeSpan.FromMinutes(20), cancellationToken);
     }
 
     public override Task HandleItemAsync(WorkItemContext context)
     {
         var workItem = context.GetData<ReindexWorkItem>();
-        return _reindexer.ReindexAsync(workItem!, context.ReportProgressAsync);
+        ArgumentNullException.ThrowIfNull(workItem);
+
+        return _reindexer.ReindexAsync(workItem, context.ReportProgressAsync);
     }
 }
