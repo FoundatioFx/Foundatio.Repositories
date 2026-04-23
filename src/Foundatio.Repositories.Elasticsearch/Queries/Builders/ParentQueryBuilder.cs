@@ -69,8 +69,6 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
     {
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
-            var index = ctx.Options.GetElasticIndex();
-
             var parentId = ctx.Source.GetParentId();
             if (!String.IsNullOrEmpty(parentId.Item2))
                 ctx.Filter &= new ParentIdQuery { Id = parentId.ParentId, Type = parentId.Relation };
@@ -82,7 +80,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             var parentQueries = ctx.Source.GetParentQueries();
             if (parentQueries.Count > 0)
             {
-                var resolvedIndex = index
+                var index = ctx.Options.GetElasticIndex()
                     ?? throw new InvalidOperationException("ElasticIndex must be set on options to build parent queries.");
 
                 foreach (var parentQuery in parentQueries)
@@ -96,7 +94,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
                     var parentContext = new QueryBuilderContext<object>(parentQuery, parentOptions);
 
-                    await resolvedIndex.QueryBuilder.BuildAsync(parentContext);
+                    await index.QueryBuilder.BuildAsync(parentContext);
 
                     if (parentContext.Filter != null && ((IQueryContainer)parentContext.Filter).IsConditionless == false)
                         ctx.Filter &= new HasParentQuery
