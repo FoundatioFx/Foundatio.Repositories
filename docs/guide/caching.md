@@ -5,6 +5,7 @@ Foundatio.Repositories provides built-in distributed caching with automatic inva
 ## Overview
 
 Caching in Foundatio.Repositories is built on Foundatio's `ICacheClient` abstraction, supporting:
+
 - In-memory caching (development/testing)
 - Redis (distributed)
 - Hybrid (in-memory L1 + distributed L2 for reduced network round trips)
@@ -21,12 +22,12 @@ using Foundatio.Caching;
 
 public class MyElasticConfiguration : ElasticConfiguration
 {
-    public MyElasticConfiguration(ICacheClient cache, ILoggerFactory loggerFactory) 
+    public MyElasticConfiguration(ICacheClient cache, ILoggerFactory loggerFactory)
         : base(cache: cache, loggerFactory: loggerFactory)
     {
         AddIndex(Employees = new EmployeeIndex(this));
     }
-    
+
     public EmployeeIndex Employees { get; }
 }
 ```
@@ -67,7 +68,7 @@ You can override the cache client for a specific repository by calling `SetCache
 public class MyRepository : ElasticRepositoryBase<MyDocument>
 {
     public MyRepository(
-        MyElasticConfiguration elasticConfig, 
+        MyElasticConfiguration elasticConfig,
         [FromKeyedServices("hybrid")] ICacheClient cacheClient
     ) : base(elasticConfig.MyIndex)
     {
@@ -81,7 +82,7 @@ You can also disable caching entirely for a repository:
 ```csharp
 public class UncachedRepository : ElasticRepositoryBase<MyDocument>
 {
-    public UncachedRepository(MyElasticConfiguration elasticConfig) 
+    public UncachedRepository(MyElasticConfiguration elasticConfig)
         : base(elasticConfig.MyIndex)
     {
         DisableCache();
@@ -104,7 +105,7 @@ var hit = await repository.FindOneAsync(
 var employee = hit?.Document;
 
 // Cache with custom expiration
-var employee = await repository.GetByIdAsync(id, 
+var employee = await repository.GetByIdAsync(id,
     o => o.Cache().CacheExpiresIn(TimeSpan.FromMinutes(30)));
 ```
 
@@ -270,28 +271,28 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>
 {
     // Override to invalidate email cache when documents change
     protected override async Task InvalidateCacheAsync(
-        IReadOnlyCollection<ModifiedDocument<Employee>> documents, 
+        IReadOnlyCollection<ModifiedDocument<Employee>> documents,
         ChangeType? changeType = null)
     {
         // Call base implementation for ID-based invalidation
         await base.InvalidateCacheAsync(documents, changeType);
-        
+
         // Invalidate custom cache keys for current email addresses
         var emailKeys = documents
             .Where(d => !string.IsNullOrEmpty(d.Value.Email))
             .Select(d => $"employee:email:{d.Value.Email.ToLowerInvariant()}")
             .ToList();
-        
+
         if (emailKeys.Count > 0)
             await Cache.RemoveAllAsync(emailKeys);
-        
+
         // Also invalidate original email if it changed
         var originalEmailKeys = documents
             .Where(d => d.Original != null && !string.IsNullOrEmpty(d.Original.Email))
             .Where(d => d.Original.Email != d.Value.Email)
             .Select(d => $"employee:email:{d.Original.Email.ToLowerInvariant()}")
             .ToList();
-        
+
         if (originalEmailKeys.Count > 0)
             await Cache.RemoveAllAsync(originalEmailKeys);
     }
@@ -333,6 +334,7 @@ var results = await repository.FindAsync(query);
 ### Purpose
 
 This handles the eventual consistency window where:
+
 1. Document is soft-deleted
 2. Elasticsearch hasn't indexed the change yet
 3. Cache knows about the deletion
@@ -387,11 +389,11 @@ o.Cache($"employee:email:{email}")  // May not match invalidation
 
 ```csharp
 protected override async Task InvalidateCacheAsync(
-    IReadOnlyCollection<ModifiedDocument<Employee>> documents, 
+    IReadOnlyCollection<ModifiedDocument<Employee>> documents,
     ChangeType? changeType = null)
 {
     await base.InvalidateCacheAsync(documents, changeType);
-    
+
     // Add custom key invalidation
     var customKeys = documents.Select(d => $"custom:{d.Value.CustomField}");
     await Cache.RemoveAllAsync(customKeys);
@@ -440,61 +442,17 @@ Console.WriteLine($"Hits: {stats.Hits}, Misses: {stats.Misses}");
 | `RemoveAllAsync` | Partial | No | Use `o.Cache()` or add listeners |
 | Direct ES | No | No | Always use repository |
 
-## Advanced: Real-Time Reads vs Eventual Consistency
+## Advanced: How Caching Handles Dirty Reads
 
-### Understanding Elasticsearch Segments
+Elasticsearch's search path is eventually consistent -- see [Consistency and Dirty Reads](consistency.md) for the full explanation of which operations are real-time vs. near real-time.
 
-Elasticsearch uses a **near real-time** search model. When you index a document, it's not immediately searchable—it must first be written to a segment and refreshed (default: every 1 second).
-
-However, **Get by ID operations are real-time**. They read directly from the transaction log, bypassing the segment refresh cycle.
-
-```mermaid
-graph LR
-    A[Index Document] --> B[Transaction Log]
-    B --> C[Memory Buffer]
-    C -->|Refresh 1s| D[Searchable Segment]
-    
-    E[GetById] -->|Real-time| B
-    F[Search/Find] -->|Near real-time| D
-```
-
-### Operations That Are Real-Time
-
-| Operation | Real-Time? | Notes |
-|-----------|------------|-------|
-| `GetByIdAsync` | ✅ Yes | Uses Multi-Get API, reads from transaction log |
-| `GetByIdsAsync` | ✅ Yes | Uses Multi-Get API |
-| `ExistsAsync(id)` | ✅ Yes | Uses Document Exists API (unless soft deletes) |
-| `FindAsync` | ❌ No | Uses Search API, subject to refresh interval |
-| `FindOneAsync` | ❌ No | Uses Search API |
-| `CountAsync` | ❌ No | Uses Count/Search API |
-
-### The Dirty Read Problem
-
-When using `FindAsync` or `FindOneAsync`, you may get stale results during the refresh window:
-
-```csharp
-// Add a new employee
-var employee = await repository.AddAsync(new Employee { Email = "john@example.com" });
-
-// This might NOT find the employee (dirty read)
-var found = await repository.FindOneAsync(q => q.FieldEquals(e => e.Email, "john@example.com"));
-// found could be null!
-
-// But this WILL find it (real-time)
-var byId = await repository.GetByIdAsync(employee.Id);
-// byId is guaranteed to exist
-```
-
-### Solving Dirty Reads with Caching
-
-The repository handles this by **not caching dirty reads by ID**:
+The cache layer is aware of this. When a search-based method like `FindOneAsync` returns results without `ImmediateConsistency`, the repository treats them as a potential dirty read and skips caching them by document ID. This prevents stale search results from polluting the ID-based cache that `GetByIdAsync` relies on:
 
 ```csharp
 // Internal behavior in AddDocumentsToCacheAsync:
 protected virtual async Task AddDocumentsToCacheAsync(
-    ICollection<FindHit<T>> findHits, 
-    ICommandOptions options, 
+    ICollection<FindHit<T>> findHits,
+    ICommandOptions options,
     bool isDirtyRead)
 {
     // Custom cache keys are always cached (you explicitly requested it)
@@ -513,7 +471,7 @@ protected virtual async Task AddDocumentsToCacheAsync(
 }
 ```
 
-### Pattern: Custom Cache Keys for Eventual Consistency
+### Custom Cache Keys for Eventual Consistency
 
 You can use custom cache keys to make `FindOneAsync` work reliably without requiring immediate consistency:
 
@@ -526,19 +484,19 @@ public class UserRepository : ElasticRepositoryBase<User>
             return null;
 
         emailAddress = emailAddress.Trim().ToLowerInvariant();
-        
+
         // Use a custom cache key - this caches the result even for dirty reads
         var hit = await FindOneAsync(
             q => q.FieldEquals(u => u.EmailAddress, emailAddress),
             o => o.Cache(EmailCacheKey(emailAddress)));
-        
+
         return hit?.Document;
     }
 
     // Override to add documents to cache by email
     protected override async Task AddDocumentsToCacheAsync(
-        ICollection<FindHit<User>> findHits, 
-        ICommandOptions options, 
+        ICollection<FindHit<User>> findHits,
+        ICommandOptions options,
         bool isDirtyRead)
     {
         await base.AddDocumentsToCacheAsync(findHits, options, isDirtyRead);
@@ -554,7 +512,7 @@ public class UserRepository : ElasticRepositoryBase<User>
 
     // Override to invalidate email cache when documents change
     protected override Task InvalidateCacheAsync(
-        IReadOnlyCollection<ModifiedDocument<User>> documents, 
+        IReadOnlyCollection<ModifiedDocument<User>> documents,
         ChangeType? changeType = null)
     {
         // Union originals and modified values to handle field renames
@@ -562,13 +520,13 @@ public class UserRepository : ElasticRepositoryBase<User>
             .Where(u => !string.IsNullOrEmpty(u.EmailAddress))
             .Select(u => EmailCacheKey(u.EmailAddress))
             .Distinct();
-        
+
         return Task.WhenAll(
-            Cache.RemoveAllAsync(keysToRemove), 
+            Cache.RemoveAllAsync(keysToRemove),
             base.InvalidateCacheAsync(documents, changeType));
     }
 
-    private static string EmailCacheKey(string emailAddress) 
+    private static string EmailCacheKey(string emailAddress)
         => String.Concat("Email:", emailAddress.Trim().ToLowerInvariant());
 }
 ```
@@ -620,8 +578,8 @@ DocumentsChanging.AddHandler(async (sender, args) =>
             if (doc.Original.Email != doc.Value.Email)
             {
                 _logger.LogInformation(
-                    "Email changed from {Old} to {New}", 
-                    doc.Original.Email, 
+                    "Email changed from {Old} to {New}",
+                    doc.Original.Email,
                     doc.Value.Email);
             }
         }
@@ -635,14 +593,14 @@ A common pattern for cache invalidation is to collect keys from both the origina
 
 ```csharp
 protected override Task InvalidateCacheAsync(
-    IReadOnlyCollection<ModifiedDocument<User>> documents, 
+    IReadOnlyCollection<ModifiedDocument<User>> documents,
     ChangeType? changeType = null)
 {
     var keysToRemove = documents.UnionOriginalAndModified()
         .Where(u => !string.IsNullOrEmpty(u.EmailAddress))
         .Select(u => EmailCacheKey(u.EmailAddress))
         .Distinct();
-    
+
     return Task.WhenAll(
         Cache.RemoveAllAsync(keysToRemove),
         base.InvalidateCacheAsync(documents, changeType));
@@ -708,6 +666,7 @@ The repository automatically registers these as required fields:
 
 ## Next Steps
 
+- [Consistency and Dirty Reads](consistency.md) - Which operations are real-time vs. eventually consistent
 - [Message Bus](/guide/message-bus) - Distributed cache invalidation
 - [Configuration](/guide/configuration) - Cache configuration options
 - [Soft Deletes](/guide/soft-deletes) - Soft delete cache behavior
