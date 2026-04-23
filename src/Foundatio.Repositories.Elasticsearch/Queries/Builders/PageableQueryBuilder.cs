@@ -23,9 +23,9 @@ public class PageableQueryBuilder : IElasticQueryBuilder
         // can only use search_after or skip
         // Note: skip (from) is not allowed in scroll context, so only apply if not snapshot paging
         if (ctx.Options.HasSearchAfter())
-            ctx.Search.SearchAfter(ctx.Options.GetSearchAfter().Select(FieldValueHelper.ToFieldValue).ToList());
+            ctx.Search.SearchAfter(ctx.Options.GetSearchAfter()!.Select(FieldValueHelper.ToFieldValue).ToList());
         else if (ctx.Options.HasSearchBefore())
-            ctx.Search.SearchAfter(ctx.Options.GetSearchBefore().Select(FieldValueHelper.ToFieldValue).ToList());
+            ctx.Search.SearchAfter(ctx.Options.GetSearchBefore()!.Select(FieldValueHelper.ToFieldValue).ToList());
         // Skip (from) is intentionally ignored during snapshot paging because Elasticsearch
         // does not support the 'from' parameter in a point-in-time / scroll context.
         else if (ctx.Options.ShouldUseSkip() && !ctx.Options.ShouldUseSnapshotPaging())

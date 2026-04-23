@@ -105,7 +105,7 @@ namespace Foundatio.Repositories.Options
         public static bool HasSearchAfter(this ICommandOptions options)
         {
             object[]? sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchAfterKey);
-            return sorts != null && sorts.Length > 0;
+            return sorts is { Length: > 0 };
         }
 
         public static object[]? GetSearchBefore(this ICommandOptions options)
@@ -116,7 +116,7 @@ namespace Foundatio.Repositories.Options
         public static bool HasSearchBefore(this ICommandOptions options)
         {
             object[]? sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchBeforeKey);
-            return sorts != null && sorts.Length > 0;
+            return sorts is { Length: > 0 };
         }
     }
 }
@@ -171,7 +171,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             }
 
             // Apply sorts to search descriptor if we have any
-            if (sortFields != null && sortFields.Count > 0)
+            if (sortFields is { Count: > 0 })
             {
                 ctx.Search.Sort(sortFields);
             }
