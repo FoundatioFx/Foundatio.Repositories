@@ -1,5 +1,3 @@
-<!-- Build 1 -->
-
 ![Foundatio](https://raw.githubusercontent.com/FoundatioFx/Foundatio/master/media/foundatio-dark-bg.svg#gh-dark-mode-only "Foundatio")![Foundatio](https://raw.githubusercontent.com/FoundatioFx/Foundatio/master/media/foundatio.svg#gh-light-mode-only "Foundatio")
 
 [![Build status](https://github.com/FoundatioFx/Foundatio.Repositories/workflows/Build/badge.svg)](https://github.com/FoundatioFx/Foundatio.Repositories/actions)
@@ -45,7 +43,7 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 
 public sealed class EmployeeIndex : VersionedIndex<Employee>
 {
-    public EmployeeIndex(IElasticConfiguration configuration) 
+    public EmployeeIndex(IElasticConfiguration configuration)
         : base(configuration, "employees", version: 1) { }
 
     public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
@@ -72,7 +70,7 @@ public interface IEmployeeRepository : ISearchableRepository<Employee> { }
 
 public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepository
 {
-    public EmployeeRepository(MyElasticConfiguration configuration) 
+    public EmployeeRepository(MyElasticConfiguration configuration)
         : base(configuration.Employees) { }
 }
 ```
@@ -81,11 +79,11 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
 
 ```csharp
 // Add
-var employee = await repository.AddAsync(new Employee 
-{ 
-    Name = "John Doe", 
+var employee = await repository.AddAsync(new Employee
+{
+    Name = "John Doe",
     Email = "john@example.com",
-    Age = 30 
+    Age = 30
 });
 
 // Query
