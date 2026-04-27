@@ -688,7 +688,7 @@ await configuration.ConfigureIndexesAsync();
 await configuration.ConfigureIndexesAsync();
 
 // Passing explicit indexes bypasses the lock and cache marker
-await configuration.ConfigureIndexesAsync(indexes: new[] { myIndex });
+await configuration.ConfigureIndexesAsync([myIndex]);
 ```
 
 ### Maintain Indexes
