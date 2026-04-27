@@ -1455,4 +1455,22 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         response = await _client.Indices.ExistsAsync(index.GetIndex(id2), ct: TestCancellationToken);
         Assert.False(response.Exists);
     }
+
+    [Fact]
+    public Task ConfigureIndexesAsync_ConcurrentCalls_Serialized()
+    {
+        // Multiple concurrent calls should all complete without errors.
+        var tasks = new List<Task>();
+        for (int i = 0; i < 5; i++)
+            tasks.Add(_configuration.ConfigureIndexesAsync());
+
+        return Task.WhenAll(tasks);
+    }
+
+    [Fact]
+    public Task ConfigureIndexesAsync_WithExplicitIndexes_BypassesLock()
+    {
+        // Explicit indexes bypass the distributed lock.
+        return _configuration.ConfigureIndexesAsync(indexes: _configuration.Indexes);
+    }
 }

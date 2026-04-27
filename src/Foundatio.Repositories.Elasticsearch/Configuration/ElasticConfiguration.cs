@@ -126,6 +126,7 @@ public class ElasticConfiguration : IElasticConfiguration
 
     public async Task ConfigureIndexesAsync(IEnumerable<IIndex>? indexes = null, bool beginReindexingOutdated = true)
     {
+        // Explicit indexes bypass lock — caller knows exactly what to configure.
         if (indexes is not null)
         {
             var tasks = new List<Task>();
@@ -136,61 +137,17 @@ public class ElasticConfiguration : IElasticConfiguration
             return;
         }
 
-        try
-        {
-            if (await Cache.ExistsAsync(ConfigureIndexesCacheKey).AnyContext())
-                return;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogWarning(ex, "Error checking configure-indexes cache marker, will configure indexes");
-        }
+        // Serialize concurrent callers with a distributed lock so only one process
+        // runs the full configure pass at a time. Returns null on timeout — in that
+        // case we proceed without the lock since ConfigureAsync is idempotent.
+        await using var configLock = await _lockProvider.AcquireAsync(
+            ConfigureIndexesCacheKey, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1)).AnyContext();
 
-        ILock configLock = null;
-        try
-        {
-            configLock = await _lockProvider.AcquireAsync(ConfigureIndexesCacheKey,
-                TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1)).AnyContext();
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogWarning(ex, "Error acquiring configure-indexes lock, continuing without lock");
-        }
+        var allTasks = new List<Task>();
+        foreach (var idx in Indexes)
+            allTasks.Add(ConfigureIndexInternalAsync(idx, beginReindexingOutdated));
 
-        await using (configLock)
-        {
-            if (configLock is not null)
-            {
-                try
-                {
-                    if (await Cache.ExistsAsync(ConfigureIndexesCacheKey).AnyContext())
-                        return;
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    _logger.LogWarning(ex, "Error checking configure-indexes cache marker after lock, will configure indexes");
-                }
-            }
-            else
-            {
-                _logger.LogWarning("Unable to acquire configure-indexes lock, continuing without lock");
-            }
-
-            var allTasks = new List<Task>();
-            foreach (var idx in Indexes)
-                allTasks.Add(ConfigureIndexInternalAsync(idx, beginReindexingOutdated));
-
-            await Task.WhenAll(allTasks).AnyContext();
-
-            try
-            {
-                await Cache.SetAsync(ConfigureIndexesCacheKey, true, TimeSpan.FromMinutes(5)).AnyContext();
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogWarning(ex, "Error setting configure-indexes cache marker");
-            }
-        }
+        await Task.WhenAll(allTasks).AnyContext();
     }
 
     private async Task ConfigureIndexInternalAsync(IIndex idx, bool beginReindexingOutdated)
@@ -222,7 +179,7 @@ public class ElasticConfiguration : IElasticConfiguration
         await _beginReindexLockProvider.TryUsingAsync(enqueueReindexLockName, async () => { await _workItemQueue.EnqueueAsync(reindexWorkItem).AnyContext(); }, TimeSpan.Zero, new CancellationToken(true)).AnyContext();
     }
 
-    public async Task MaintainIndexesAsync(IEnumerable<IIndex>? indexes = null)
+    public Task MaintainIndexesAsync(IEnumerable<IIndex>? indexes = null)
     {
         if (indexes is null)
             indexes = Indexes;
@@ -231,17 +188,10 @@ public class ElasticConfiguration : IElasticConfiguration
         foreach (var idx in indexes)
             tasks.Add(idx.MaintainAsync());
 
-        try
-        {
-            await Task.WhenAll(tasks).AnyContext();
-        }
-        finally
-        {
-            await InvalidateConfigureIndexesCacheAsync().AnyContext();
-        }
+        return Task.WhenAll(tasks);
     }
 
-    public async Task DeleteIndexesAsync(IEnumerable<IIndex>? indexes = null)
+    public Task DeleteIndexesAsync(IEnumerable<IIndex>? indexes = null)
     {
         if (indexes is null)
             indexes = Indexes;
@@ -250,19 +200,12 @@ public class ElasticConfiguration : IElasticConfiguration
         foreach (var idx in indexes)
             tasks.Add(idx.DeleteAsync());
 
-        try
-        {
-            await Task.WhenAll(tasks).AnyContext();
-        }
-        finally
-        {
-            await InvalidateConfigureIndexesCacheAsync().AnyContext();
-        }
+        return Task.WhenAll(tasks);
     }
 
     public async Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null)
     {
-        if (indexes == null)
+        if (indexes is null)
             indexes = Indexes;
 
         var outdatedIndexes = new List<IVersionedIndex>();
@@ -293,20 +236,6 @@ public class ElasticConfiguration : IElasticConfiguration
             {
                 _logger.LogError(ex, "Failed to begin reindex for {IndexName} after retries", outdatedIndex.Name);
             }
-        }
-
-        await InvalidateConfigureIndexesCacheAsync().AnyContext();
-    }
-
-    private async Task InvalidateConfigureIndexesCacheAsync()
-    {
-        try
-        {
-            await Cache.RemoveAsync(ConfigureIndexesCacheKey).AnyContext();
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogWarning(ex, "Error removing configure-indexes cache marker");
         }
     }
 
