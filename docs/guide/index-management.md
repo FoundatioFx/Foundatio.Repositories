@@ -678,7 +678,7 @@ When multiple distributed processes (pods, workers, migration runners) call `Con
 
 The cache marker key includes a stable hash of all index names and versions, so deploying a new configuration (adding indexes, changing versions) automatically bypasses stale markers from a previous configuration. Old markers expire naturally after 5 minutes.
 
-The marker is explicitly cleared by `DeleteIndexesAsync`, `MaintainIndexesAsync`, and `ReindexAsync` so the next configure call re-validates after any structural change.
+The marker is explicitly cleared by `DeleteIndexesAsync` and `ReindexAsync` so the next configure call re-validates after any structural change. `MaintainIndexesAsync` does not clear the marker because it does not change index structure (names or versions).
 
 ```csharp
 // First call configures and sets the marker

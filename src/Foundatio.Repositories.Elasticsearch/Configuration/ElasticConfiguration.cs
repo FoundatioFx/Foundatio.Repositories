@@ -36,6 +36,7 @@ public class ElasticConfiguration : IElasticConfiguration
     protected readonly bool _shouldDisposeCache;
     private readonly bool _shouldDisposeMessageBus;
     private const string ConfigureIndexesLockName = "configure-indexes";
+    public const string ConfigureIndexesCacheKeyPrefix = "configure-indexes:";
     private int _disposed;
 
     public ElasticConfiguration(IQueue<WorkItemData>? workItemQueue = null, ICacheClient? cacheClient = null, IMessageBus? messageBus = null, TimeProvider? timeProvider = null, IResiliencePolicyProvider? resiliencePolicyProvider = null, ILoggerFactory? loggerFactory = null)
@@ -132,7 +133,7 @@ public class ElasticConfiguration : IElasticConfiguration
         {
             var indexList = indexes as ICollection<IIndex> ?? indexes.ToArray();
             _logger.LogInformation("Configuring {IndexCount} explicit indexes (beginReindexingOutdated={BeginReindexingOutdated})", indexList.Count, beginReindexingOutdated);
-            var tasks = new List<Task>();
+            var tasks = new List<Task>(indexList.Count);
             foreach (var idx in indexList)
                 tasks.Add(ConfigureIndexInternalAsync(idx, beginReindexingOutdated));
 
@@ -142,7 +143,7 @@ public class ElasticConfiguration : IElasticConfiguration
 
         string cacheKey = GetConfigureIndexesCacheKey();
 
-        if (await Cache.ExistsAsync(cacheKey).AnyContext())
+        if (await TryCheckCacheMarkerAsync(cacheKey).AnyContext())
         {
             _logger.LogInformation("Skipping index configuration, already configured recently");
             return;
@@ -157,7 +158,7 @@ public class ElasticConfiguration : IElasticConfiguration
             return;
         }
 
-        if (await Cache.ExistsAsync(cacheKey).AnyContext())
+        if (await TryCheckCacheMarkerAsync(cacheKey).AnyContext())
         {
             _logger.LogInformation("Skipping index configuration, configured by another process while waiting for lock");
             return;
@@ -165,13 +166,13 @@ public class ElasticConfiguration : IElasticConfiguration
 
         _logger.LogInformation("Configuring {IndexCount} indexes (beginReindexingOutdated={BeginReindexingOutdated})...", Indexes.Count, beginReindexingOutdated);
 
-        var allTasks = new List<Task>();
+        var allTasks = new List<Task>(Indexes.Count);
         foreach (var idx in Indexes)
             allTasks.Add(ConfigureIndexInternalAsync(idx, beginReindexingOutdated));
 
         await Task.WhenAll(allTasks).AnyContext();
 
-        await Cache.SetAsync(cacheKey, true, TimeSpan.FromMinutes(5)).AnyContext();
+        await TrySetCacheMarkerAsync(cacheKey).AnyContext();
         _logger.LogInformation("Index configuration complete, marker set for 5 minutes");
     }
 
@@ -213,14 +214,7 @@ public class ElasticConfiguration : IElasticConfiguration
         foreach (var idx in indexes)
             tasks.Add(idx.MaintainAsync());
 
-        try
-        {
-            await Task.WhenAll(tasks).AnyContext();
-        }
-        finally
-        {
-            await Cache.RemoveByPrefixAsync("configure-indexes:").AnyContext();
-        }
+        await Task.WhenAll(tasks).AnyContext();
     }
 
     public async Task DeleteIndexesAsync(IEnumerable<IIndex>? indexes = null)
@@ -238,7 +232,7 @@ public class ElasticConfiguration : IElasticConfiguration
         }
         finally
         {
-            await Cache.RemoveByPrefixAsync("configure-indexes:").AnyContext();
+            await TryRemoveCacheMarkerAsync().AnyContext();
         }
     }
 
@@ -277,15 +271,57 @@ public class ElasticConfiguration : IElasticConfiguration
             }
         }
 
-        await Cache.RemoveByPrefixAsync("configure-indexes:").AnyContext();
+        await TryRemoveCacheMarkerAsync().AnyContext();
     }
 
     private string GetConfigureIndexesCacheKey()
     {
-        var key = String.Join(",", Indexes
-            .OrderBy(i => i.Name)
-            .Select(i => i is IVersionedIndex v ? $"{i.Name}:v{v.Version}" : i.Name));
-        return $"configure-indexes:{XxHash64.HashToUInt64(MemoryMarshal.AsBytes(key.AsSpan())):x}";
+        var hasher = new XxHash64();
+        foreach (var index in Indexes.OrderBy(i => i.Name))
+        {
+            hasher.Append(MemoryMarshal.AsBytes(index.Name.AsSpan()));
+            if (index is IVersionedIndex v)
+                hasher.Append(MemoryMarshal.AsBytes(v.Version.ToString().AsSpan()));
+        }
+
+        return $"{ConfigureIndexesCacheKeyPrefix}{hasher.GetCurrentHashAsUInt64():x}";
+    }
+
+    private async Task<bool> TryCheckCacheMarkerAsync(string cacheKey)
+    {
+        try
+        {
+            return await Cache.ExistsAsync(cacheKey).AnyContext();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Error checking configure-indexes cache marker: {Message}", ex.Message);
+            return false;
+        }
+    }
+
+    private async Task TrySetCacheMarkerAsync(string cacheKey)
+    {
+        try
+        {
+            await Cache.SetAsync(cacheKey, true, TimeSpan.FromMinutes(5)).AnyContext();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Error setting configure-indexes cache marker: {Message}", ex.Message);
+        }
+    }
+
+    private async Task TryRemoveCacheMarkerAsync()
+    {
+        try
+        {
+            await Cache.RemoveByPrefixAsync(ConfigureIndexesCacheKeyPrefix).AnyContext();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Error removing configure-indexes cache marker: {Message}", ex.Message);
+        }
     }
 
     public virtual void Dispose()
