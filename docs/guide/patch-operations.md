@@ -83,16 +83,16 @@ Update specific fields with new values:
 await repository.PatchAsync(id, new PartialPatch(new { Name = "John Smith" }));
 
 // Update multiple fields
-await repository.PatchAsync(id, new PartialPatch(new 
-{ 
+await repository.PatchAsync(id, new PartialPatch(new
+{
     Name = "John Smith",
     Age = 32,
     Department = "Engineering"
 }));
 
 // Update nested object
-await repository.PatchAsync(id, new PartialPatch(new 
-{ 
+await repository.PatchAsync(id, new PartialPatch(new
+{
     Address = new { City = "Seattle", State = "WA" }
 }));
 ```
@@ -598,8 +598,81 @@ Patch operations handle cache invalidation differently depending on whether the 
 If your repository overrides `InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<T>>)` to compute custom cache keys from document properties (e.g., composite keys, secondary lookups), those overrides will **not** fire for `ScriptPatch`, `PartialPatch`, or single-doc `JsonPatch`. Only the standard ID-based cache key is removed. Consider using `ActionPatch` with `Func<T, bool>` if you need full document-based cache invalidation for conditional updates.
 :::
 
+## Notifications
+
+Patch operations publish `EntityChanged` messages (with `ChangeType.Saved`) to the message bus and fire the in-process `DocumentsChanged` event when documents are modified. The behavior varies by patch type and method.
+
+### PatchAsync (Single Document)
+
+All patch types publish an `EntityChanged` message with the document's ID when the patch modifies the document:
+
+```csharp
+await repository.PatchAsync(id, new ScriptPatch("ctx._source.name = 'Changed';"));
+// EntityChanged { Type = "Employee", Id = "<id>", ChangeType = Saved }
+```
+
+No-op patches (e.g., `ScriptPatch` with `ctx.op = 'none'`, `ActionPatch` returning `false`, or empty operations) do **not** send notifications.
+
+::: warning DocumentsChanged fires with an empty document list
+For `ScriptPatch`, `PartialPatch`, and single-doc `JsonPatch`, the `DocumentsChanged` event fires but `args.Documents` is **empty** because the modified document is not available client-side. Only single-document `ActionPatch` (`PatchAsync(id, ActionPatch)`) provides the full document in `DocumentsChanged`. Bulk operations — including `PatchAllAsync` and `PatchAsync(Ids)` for `ActionPatch`/`JsonPatch` (which delegates to `PatchAllAsync`) — also fire `DocumentsChanged` with an **empty** documents list. If your `DocumentsChanged` handler iterates over `args.Documents`, it will see zero items for all patch types except single-document `ActionPatch`.
+:::
+
+### PatchAsync (Multi-ID)
+
+`PatchAsync(Ids, ...)` behavior depends on the patch type:
+
+- **`ScriptPatch` / `PartialPatch`**: Sends one `EntityChanged` message **per modified ID**. IDs that result in a noop (e.g., `ScriptPatch` with `ctx.op = 'none'`) are excluded from notifications:
+
+```csharp
+await repository.PatchAsync(new Ids(id1, id2, id3), new ScriptPatch("ctx._source.name = 'Changed';"));
+// EntityChanged { Type = "Employee", Id = "<id1>", ChangeType = Saved }
+// EntityChanged { Type = "Employee", Id = "<id2>", ChangeType = Saved }
+// EntityChanged { Type = "Employee", Id = "<id3>", ChangeType = Saved }
+```
+
+- **`JsonPatch` / `ActionPatch<T>`**: The multi-ID overload delegates to `PatchAllAsync` internally with the IDs set in the query. This means query-based notification rules apply — one `EntityChanged` per ID in the query when at least one document is modified, regardless of whether a particular ID was a noop.
+
+### PatchAllAsync (Query-Based)
+
+`PatchAllAsync` notification behavior depends on whether the query contains explicit IDs:
+
+| Query Type | Notification Behavior |
+|------------|----------------------|
+| Query with explicit IDs | One `EntityChanged` message **per ID** |
+| Filter-only query (no IDs) | One `EntityChanged` message with `Id = null` (type-level notification) |
+
+```csharp
+// Filter-only query: sends a single type-level notification (Id = null)
+await repository.PatchAllAsync(
+    q => q.FieldEquals(e => e.Department, "Sales"),
+    new PartialPatch(new { Region = "West" }));
+// EntityChanged { Type = "Employee", Id = null, ChangeType = Saved }
+```
+
+::: warning Type-level notifications lack document IDs
+When `PatchAllAsync` is called with a filter-only query (no explicit IDs), subscribers receive a single `EntityChanged` message with `Id = null`. If your subscriber needs to know which specific documents changed, either restructure the query to use explicit IDs or re-query the affected documents.
+:::
+
+### DocumentsSaving / DocumentsSaved Events
+
+Unlike `SaveAsync`, patch operations do **not** fire `DocumentsSaving` or `DocumentsSaved` events. Only `DocumentsChanged` is fired. This is important if you have handlers on those events expecting to see patched documents.
+
+### Suppressing Notifications
+
+```csharp
+await repository.PatchAsync(id, patch, o => o.Notifications(false));
+await repository.PatchAllAsync(q => q, patch, o => o.Notifications(false));
+```
+
+See [Message Bus](/guide/message-bus) for full details on `EntityChanged` subscriptions, `BeforePublishEntityChanged`, and notification configuration.
+
+### Soft Delete Detection on Patches
+
+Patch operations do **not** detect soft-delete transitions (`IsDeleted: false → true`). The `ChangeType` for a patch is always `Saved`, even if the patch sets `IsDeleted = true`. Soft-delete transition detection requires `OriginalsEnabled` and only works with `SaveAsync`.
+
 ## Next Steps
 
 - [CRUD Operations](/guide/crud-operations) - Full document operations
 - [Caching](/guide/caching) - Cache behavior with patches
 - [Soft Deletes](/guide/soft-deletes) - Patch behavior with soft deletes
+- [Message Bus](/guide/message-bus) - Notification subscriptions and configuration

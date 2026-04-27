@@ -254,6 +254,9 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
             case ComparisonOperator.GreaterThanOrEqual:
             case ComparisonOperator.LessThan:
             case ComparisonOperator.LessThanOrEqual:
+                if (condition.Value is null)
+                    throw new ArgumentException($"Value is required for {condition.Operator} operator on field '{resolvedField}'.");
+
                 return BuildRangeQuery(resolvedField, condition.Operator, condition.Value);
             default:
                 throw new ArgumentOutOfRangeException(nameof(condition.Operator), condition.Operator, "Unknown comparison operator.");
@@ -402,7 +405,7 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
         return query;
     }
 
-    private static async Task<QueryContainer> TranslateGroupAsync<T>(
+    private static async Task<QueryContainer?> TranslateGroupAsync<T>(
         FieldConditionGroup group, ElasticMappingResolver resolver, QueryBuilderContext<T> ctx) where T : class, new()
     {
         var clauses = new List<QueryContainer>();
@@ -441,13 +444,13 @@ public class FieldConditionsQueryBuilder : IElasticQueryBuilder
 
         if (ctx is IQueryVisitorContextWithFieldResolver { FieldResolver: not null } fieldResolverCtx)
         {
-            string customResolved = await fieldResolverCtx.FieldResolver(resolved, ctx).AnyContext();
+            string? customResolved = await fieldResolverCtx.FieldResolver(resolved, ctx).AnyContext();
             if (!String.IsNullOrWhiteSpace(customResolved))
                 resolved = customResolved;
         }
 
         if (nonAnalyzed)
-            resolved = resolver.GetNonAnalyzedFieldName(resolved);
+            resolved = resolver.GetNonAnalyzedFieldName(resolved)!;
 
         return resolved;
     }

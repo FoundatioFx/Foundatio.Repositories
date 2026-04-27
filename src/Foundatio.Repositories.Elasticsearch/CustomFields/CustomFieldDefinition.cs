@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using Foundatio.Repositories.Models;
 using Foundatio.Utility;
 
@@ -7,28 +8,28 @@ namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
 public record CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes, IHaveData
 {
-    public string Id { get; set; }
+    public string Id { get; set; } = null!;
 
     /// <summary>
     /// The entity type that this custom field is for.
     /// </summary>
-    public string EntityType { get; set; }
+    public string EntityType { get; set; } = null!;
 
     /// <summary>
     /// The tenant key which could be a composite key that this custom field belongs to. Each tenant can have it's own
     /// set of custom fields for an entity.
     /// </summary>
-    public string TenantKey { get; set; }
+    public string TenantKey { get; set; } = null!;
 
     /// <summary>
     /// The friendly custom field name.
     /// </summary>
-    public string Name { get; set; }
+    public string Name { get; set; } = null!;
 
     /// <summary>
     /// The custom field description.
     /// </summary>
-    public string Description { get; set; }
+    public string? Description { get; set; }
 
     /// <summary>
     /// Gets or sets the display order.
@@ -37,7 +38,7 @@ public record CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes
 
     /// <summary>
     /// Sets the process mode for this custom field instance. Default is to only process the field when there is a value. <see cref="CustomFieldProcessMode.ProcessOnValue"/>
-    /// Can be set to <see cref="CustomFieldProcessMode.AlwaysProcess"/> in order to always run the <see cref="ICustomFieldType.ProcessValueAsync{T}(T, object, CustomFieldDefinition)"/>
+    /// Can be set to <see cref="CustomFieldProcessMode.AlwaysProcess"/> in order to always run the <see cref="ICustomFieldType.ProcessValueAsync{T}(T, object?, CustomFieldDefinition)"/>
     /// even when a value is not present.
     /// </summary>
     public CustomFieldProcessMode ProcessMode { get; set; } = CustomFieldProcessMode.ProcessOnValue;
@@ -51,7 +52,7 @@ public record CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes
     /// <summary>
     /// The type of index this custom field value should be stored in. (ie. string, number, float, address)
     /// </summary>
-    public string IndexType { get; set; }
+    public string IndexType { get; set; } = null!;
 
     /// <summary>
     /// The reserved indexing slot for this custom field. This name will be pooled across tenants for the same index
@@ -62,7 +63,8 @@ public record CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes
     /// <summary>
     /// Any additional custom data that needs to be associated to this custom field.
     /// </summary>
-    public IDictionary<string, object> Data { get; set; } = new Dictionary<string, object>();
+    [DisallowNull]
+    public IDictionary<string, object?> Data { get => field; set => field = value ?? new Dictionary<string, object?>(); } = new Dictionary<string, object?>();
 
     /// <summary>
     /// Date the custom field was last updated.
@@ -79,7 +81,7 @@ public record CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes
     /// </summary>
     public bool IsDeleted { get; set; }
 
-    private string _idxName = null;
+    private string? _idxName = null;
     /// <summary>
     /// Returns the Elasticsearch sub-field name used under the <c>idx</c> object for this definition.
     /// The format is <c>{IndexType}-{IndexSlot}</c> (e.g., <c>"string-1"</c>, <c>"int-3"</c>).
@@ -94,7 +96,7 @@ public record CustomFieldDefinition : IIdentity, IHaveDates, ISupportSoftDeletes
 }
 
 /// <summary>
-/// Controls when a custom field's <see cref="ICustomFieldType.ProcessValueAsync{T}(T, object, CustomFieldDefinition)"/> is invoked during document save.
+/// Controls when a custom field's <see cref="ICustomFieldType.ProcessValueAsync{T}(T, object?, CustomFieldDefinition)"/> is invoked during document save.
 /// </summary>
 public enum CustomFieldProcessMode
 {
@@ -120,7 +122,7 @@ public interface IHaveVirtualCustomFields
     /// <summary>
     /// Returns all custom field values for this entity.
     /// </summary>
-    IDictionary<string, object> GetCustomFields();
+    IDictionary<string, object?> GetCustomFields();
 
     /// <summary>
     /// Returns the value of a custom field by name, or <c>null</c> if not set.

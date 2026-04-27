@@ -42,6 +42,10 @@ var results = await repository.FindAsync(q => q.FilterExpression("name:John*"));
 var results = await repository.FindAsync(q => q.FilterExpression("_exists_:email"));
 ```
 
+::: tip Prefer Strongly-Typed Queries
+Filter expressions are convenient for dynamic or user-supplied queries, but for application code we recommend using [Strongly-Typed Queries](#strongly-typed-queries) whenever possible. Strongly-typed queries provide compile-time field name checking, full IDE support (Find References, Rename/Refactor, Go to Definition), and runtime field-type validation that catches misuse like `FieldEquals` on text-only fields with a `QueryValidationException`.
+:::
+
 ### Find with Search Expression
 
 Full-text search across analyzed fields:
@@ -49,6 +53,56 @@ Full-text search across analyzed fields:
 ```csharp
 var results = await repository.FindAsync(q => q.SearchExpression("john developer"));
 ```
+
+#### Default Search Fields
+
+`SearchExpression` generates a multi-match query across a set of **default search fields**. Without explicit configuration, Elasticsearch uses its own `index.query.default_field` setting (typically `*`, which matches all top-level fields). You can control exactly which fields are searched by overriding `ConfigureQueryParser` on your `Index<T>` class:
+
+```csharp
+public sealed class EmployeeIndex : Index<Employee>
+{
+    // ... constructor, ConfigureIndex, ConfigureIndexMapping ...
+
+    protected override void ConfigureQueryParser(ElasticQueryParserConfiguration config)
+    {
+        base.ConfigureQueryParser(config);
+        config.SetDefaultFields([
+            nameof(Employee.Name).ToLowerInvariant(),
+            nameof(Employee.EmailAddress).ToLowerInvariant()
+        ]);
+    }
+}
+```
+
+With this configuration, `SearchExpression("john")` generates a multi-match query targeting only `name` and `emailAddress` rather than every field in the index.
+
+#### Alternative: CopyTo with a Catch-All Field
+
+Instead of multi-match, you can copy field values into a single analyzed field at index time using `CopyTo`:
+
+```csharp
+public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(
+    TypeMappingDescriptor<Employee> map)
+{
+    return map
+        .Dynamic(false)
+        .Properties(p => p
+            .SetupDefaults()
+            .Text(f => f.Name("_all"))
+            .Text(f => f.Name(e => e.Name).AddKeywordAndSortFields()
+                .CopyTo(c => c.Field("_all")))
+            .Keyword(f => f.Name(e => e.EmailAddress)
+                .CopyTo(c => c.Field("_all")))
+        );
+}
+```
+
+| Approach | Trade-offs |
+|---|---|
+| `SetDefaultFields` | No extra index storage; generates a multi-match query at search time. Keeps the index lean. |
+| `CopyTo` catch-all | Increases index size (field values stored twice); single-field match at search time, which can be faster for high-throughput queries. |
+
+Both approaches can be combined. For nested field support in default search fields, see [Default Fields with Nested Paths](#default-fields-with-nested-paths) in the Nested Queries section.
 
 ### Find One
 
@@ -539,7 +593,7 @@ var results = await repository.FindAsync(q => q
 
 ### Default Fields with Nested Paths
 
-Nested fields can be included in default search fields via `SetDefaultFields` in your query parser configuration. This allows unqualified search terms to match against nested fields:
+When [default search fields](#default-search-fields) include nested field paths, the framework automatically wraps the corresponding portion of the multi-match query in a `nested` query. No additional configuration is needed beyond including the dotted path in `SetDefaultFields`:
 
 ```csharp
 protected override void ConfigureQueryParser(ElasticQueryParserConfiguration config)
@@ -548,12 +602,12 @@ protected override void ConfigureQueryParser(ElasticQueryParserConfiguration con
     config.SetDefaultFields([
         nameof(Employee.Id).ToLowerInvariant(),
         nameof(Employee.Name).ToLowerInvariant(),
-        "peerReviews.reviewerEmployeeId"
+        "peerReviews.reviewerEmployeeId"  // nested field
     ]);
 }
 ```
 
-With this configuration, a bare search term like `bob_456` will match against `id`, `name`, and `peerReviews.reviewerEmployeeId`:
+With this configuration, a bare search term like `bob_456` will match against `id` and `name` (root-level) as well as `peerReviews.reviewerEmployeeId` (nested). The nested portion is automatically detected via the index mapping:
 
 ```csharp
 // Searches id, name, AND the nested peerReviews.reviewerEmployeeId field
@@ -857,7 +911,7 @@ if (results.Total == 0 && results.IsAsyncQueryRunning())
 {
     // Query is still running, get the ID
     var queryId = results.GetAsyncQueryId();
-    
+
     // Check later
     var laterResults = await repository.FindAsync(
         query,

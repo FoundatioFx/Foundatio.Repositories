@@ -48,7 +48,7 @@ public interface ICustomFieldDefinitionRepository : ISearchableRepository<Custom
     /// <exception cref="Foundatio.Repositories.Exceptions.DocumentValidationException">
     /// Thrown when a definition with the same name but a different type already exists for this tenant.
     /// </exception>
-    Task<CustomFieldDefinition> AddFieldAsync(string entityType, string tenantKey, string name, string indexType, string description = null, int displayOrder = 0, IDictionary<string, object> data = null);
+    Task<CustomFieldDefinition> AddFieldAsync(string entityType, string tenantKey, string name, string indexType, string? description = null, int displayOrder = 0, IDictionary<string, object?>? data = null);
 }
 
 public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomFieldDefinition>, ICustomFieldDefinitionRepository
@@ -117,7 +117,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         return RemoveAllAsync(q => q.FieldEquals(cf => cf.EntityType, entityType).FieldEquals(cf => cf.TenantKey, tenantKey));
     }
 
-    public Task<CustomFieldDefinition> AddFieldAsync(string entityType, string tenantKey, string name, string indexType, string description = null, int displayOrder = 0, IDictionary<string, object> data = null)
+    public Task<CustomFieldDefinition> AddFieldAsync(string entityType, string tenantKey, string name, string indexType, string? description = null, int displayOrder = 0, IDictionary<string, object?>? data = null)
     {
         var customField = new CustomFieldDefinition
         {
@@ -135,7 +135,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         return AddAsync(customField);
     }
 
-    public override async Task AddAsync(IEnumerable<CustomFieldDefinition> documents, ICommandOptions options = null)
+    public override async Task AddAsync(IEnumerable<CustomFieldDefinition> documents, ICommandOptions? options = null)
     {
         var documentArray = documents as CustomFieldDefinition[] ?? documents.ToArray();
         _logger.LogTrace("Adding {DocumentCount} new custom field definitions", documentArray.Length);
@@ -246,18 +246,21 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         return Task.CompletedTask;
     }
 
-    private async Task OnDocumentsChanged(object source, DocumentsChangeEventArgs<CustomFieldDefinition> args)
+    private async Task OnDocumentsChanged(object? source, DocumentsChangeEventArgs<CustomFieldDefinition> args)
     {
         if (args.ChangeType == ChangeType.Saved)
         {
             foreach (var doc in args.Documents)
             {
-                if (doc.Original.EntityType != doc.Value.EntityType)
-                    throw new DocumentValidationException("EntityType can't be changed.");
-                if (doc.Original.TenantKey != doc.Value.TenantKey)
-                    throw new DocumentValidationException("TenantKey can't be changed.");
-                if (doc.Original.IndexSlot != doc.Value.IndexSlot)
-                    throw new DocumentValidationException("IndexSlot can't be changed.");
+                if (doc.Original is not null)
+                {
+                    if (doc.Original.EntityType != doc.Value.EntityType)
+                        throw new DocumentValidationException("EntityType can't be changed.");
+                    if (doc.Original.TenantKey != doc.Value.TenantKey)
+                        throw new DocumentValidationException("TenantKey can't be changed.");
+                    if (doc.Original.IndexSlot != doc.Value.IndexSlot)
+                        throw new DocumentValidationException("IndexSlot can't be changed.");
+                }
 
                 if (doc.Value.IsDeleted)
                 {
@@ -307,7 +310,7 @@ public class CustomFieldDefinitionRepository : ElasticRepositoryBase<CustomField
         if (entityTypeCondition == null || String.IsNullOrEmpty(entityTypeCondition.Value?.ToString()))
             return;
 
-        await _cache.RemoveAsync(GetMappingCacheKey(entityTypeCondition.Value.ToString(), GetTenantKey(query))).AnyContext();
+        await _cache.RemoveAsync(GetMappingCacheKey(entityTypeCondition.Value!.ToString()!, GetTenantKey(query)!)).AnyContext();
     }
 
     protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<CustomFieldDefinition>> documents, ChangeType? changeType = null)

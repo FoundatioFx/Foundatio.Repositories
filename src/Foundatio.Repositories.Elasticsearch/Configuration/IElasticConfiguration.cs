@@ -21,13 +21,13 @@ public interface IElasticConfiguration : IDisposable
     IResiliencePolicyProvider ResiliencePolicyProvider { get; }
     TimeProvider TimeProvider { get; set; }
     IReadOnlyCollection<IIndex> Indexes { get; }
-    ICustomFieldDefinitionRepository CustomFieldDefinitionRepository { get; }
+    ICustomFieldDefinitionRepository? CustomFieldDefinitionRepository { get; }
 
-    IIndex GetIndex(string name);
+    IIndex? GetIndex(string name);
     void ConfigureGlobalQueryBuilders(ElasticQueryBuilder builder);
     void ConfigureGlobalQueryParsers(ElasticQueryParserConfiguration config);
-    Task ConfigureIndexesAsync(IEnumerable<IIndex> indexes = null, bool beginReindexingOutdated = true);
-    Task MaintainIndexesAsync(IEnumerable<IIndex> indexes = null);
-    Task DeleteIndexesAsync(IEnumerable<IIndex> indexes = null);
-    Task ReindexAsync(IEnumerable<IIndex> indexes = null, Func<int, string, Task> progressCallbackAsync = null);
+    Task ConfigureIndexesAsync(IEnumerable<IIndex>? indexes = null, bool beginReindexingOutdated = true);
+    Task MaintainIndexesAsync(IEnumerable<IIndex>? indexes = null);
+    Task DeleteIndexesAsync(IEnumerable<IIndex>? indexes = null);
+    Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null);
 }

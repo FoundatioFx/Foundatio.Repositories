@@ -17,14 +17,14 @@ public interface ILazyDocument
     /// </summary>
     /// <typeparam name="T">The type to deserialize to.</typeparam>
     /// <returns>The deserialized document, or <c>null</c> if the document data is empty.</returns>
-    T As<T>() where T : class;
+    T? As<T>() where T : class;
 
     /// <summary>
     /// Deserializes the document to the specified type.
     /// </summary>
     /// <param name="objectType">The type to deserialize to.</param>
     /// <returns>The deserialized document, or <c>null</c> if the document data is empty.</returns>
-    object As(Type objectType);
+    object? As(Type objectType);
 }
 
 /// <summary>
@@ -40,14 +40,14 @@ public class LazyDocument : ILazyDocument
     /// </summary>
     /// <param name="data">The raw document data.</param>
     /// <param name="serializer">The serializer to use for deserialization. Defaults to JSON.</param>
-    public LazyDocument(byte[] data, ITextSerializer serializer = null)
+    public LazyDocument(byte[] data, ITextSerializer? serializer = null)
     {
         _data = data;
         _serializer = serializer ?? new JsonNetSerializer();
     }
 
     /// <inheritdoc/>
-    public T As<T>() where T : class
+    public T? As<T>() where T : class
     {
         if (_data == null || _data.Length == 0)
             return default;
@@ -56,7 +56,7 @@ public class LazyDocument : ILazyDocument
     }
 
     /// <inheritdoc/>
-    public object As(Type objectType)
+    public object? As(Type objectType)
     {
         if (_data == null || _data.Length == 0)
             return null;

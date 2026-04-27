@@ -5,7 +5,7 @@ namespace Foundatio.Repositories.Utility;
 
 public class AddOperation : Operation
 {
-    public JToken Value { get; set; }
+    public JToken? Value { get; set; }
 
     public override void Write(JsonWriter writer)
     {

@@ -1,4 +1,5 @@
-﻿using System.Threading.Tasks;
+﻿using System;
+using System.Threading.Tasks;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Nest;
@@ -26,7 +27,8 @@ public class SoftDeletesQueryBuilder : IElasticQueryBuilder
         if (!ctx.Options.SupportsSoftDeletes())
             return Task.CompletedTask;
 
-        var documentType = ctx.Options.DocumentType();
+        var documentType = ctx.Options.DocumentType()
+            ?? throw new InvalidOperationException("DocumentType must be set on options when SupportsSoftDeletes is enabled.");
         var property = documentType.GetProperty(nameof(ISupportSoftDeletes.IsDeleted));
         var index = ctx.Options.GetElasticIndex();
 

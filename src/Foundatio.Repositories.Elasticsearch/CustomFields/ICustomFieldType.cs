@@ -24,7 +24,7 @@ public interface ICustomFieldType
     /// <param name="value">The current value from <c>Data</c> (may be <c>null</c> for <see cref="CustomFieldProcessMode.AlwaysProcess"/> fields).</param>
     /// <param name="fieldDefinition">The custom field definition for this field.</param>
     /// <returns>A <see cref="ProcessFieldValueResult"/> containing the processed value.</returns>
-    Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object value, CustomFieldDefinition fieldDefinition) where T : class;
+    Task<ProcessFieldValueResult> ProcessValueAsync<T>(T document, object? value, CustomFieldDefinition fieldDefinition) where T : class;
 
     /// <summary>
     /// Configures the Elasticsearch mapping for index slots of this type.
@@ -41,13 +41,13 @@ public class ProcessFieldValueResult
     /// <summary>
     /// The processed value to store back in the document's <c>Data</c> dictionary.
     /// </summary>
-    public object Value { get; set; }
+    public object? Value { get; set; }
 
     /// <summary>
     /// An optional separate value to store in the <c>Idx</c> dictionary for indexing.
     /// When <c>null</c>, <see cref="Value"/> is used for both storage and indexing.
     /// </summary>
-    public object Idx { get; set; }
+    public object? Idx { get; set; }
 
     /// <summary>
     /// Set to <c>true</c> if the processor modified the <see cref="CustomFieldDefinition"/> itself

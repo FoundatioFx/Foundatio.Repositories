@@ -21,48 +21,48 @@ public interface IReadOnlyRepository<T> where T : class, new()
     /// </summary>
     /// <param name="id">The document identifier.</param>
     /// <param name="options">Options to control caching, soft delete filtering, and other behaviors.</param>
-    Task<T> GetByIdAsync(Id id, CommandOptionsDescriptor<T> options);
+    Task<T?> GetByIdAsync(Id id, CommandOptionsDescriptor<T>? options);
 
     /// <inheritdoc cref="GetByIdAsync(Id, CommandOptionsDescriptor{T})"/>
-    Task<T> GetByIdAsync(Id id, ICommandOptions options = null);
+    Task<T?> GetByIdAsync(Id id, ICommandOptions? options = null);
 
     /// <summary>
     /// Retrieves multiple documents by their unique identifiers.
     /// </summary>
     /// <param name="ids">The document identifiers.</param>
     /// <param name="options">Options to control caching, soft delete filtering, and other behaviors.</param>
-    Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, CommandOptionsDescriptor<T> options);
+    Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, CommandOptionsDescriptor<T>? options);
 
     /// <inheritdoc cref="GetByIdsAsync(Ids, CommandOptionsDescriptor{T})"/>
-    Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, ICommandOptions options = null);
+    Task<IReadOnlyCollection<T>> GetByIdsAsync(Ids ids, ICommandOptions? options = null);
 
     /// <summary>
     /// Retrieves all documents in the repository.
     /// </summary>
     /// <param name="options">Options to control paging, caching, soft delete filtering, and other behaviors.</param>
-    Task<FindResults<T>> GetAllAsync(CommandOptionsDescriptor<T> options);
+    Task<FindResults<T>> GetAllAsync(CommandOptionsDescriptor<T>? options);
 
     /// <inheritdoc cref="GetAllAsync(CommandOptionsDescriptor{T})"/>
-    Task<FindResults<T>> GetAllAsync(ICommandOptions options = null);
+    Task<FindResults<T>> GetAllAsync(ICommandOptions? options = null);
 
     /// <summary>
     /// Checks whether a document with the specified identifier exists.
     /// </summary>
     /// <param name="id">The document identifier.</param>
     /// <param name="options">Options to control caching, soft delete filtering, and other behaviors.</param>
-    Task<bool> ExistsAsync(Id id, CommandOptionsDescriptor<T> options);
+    Task<bool> ExistsAsync(Id id, CommandOptionsDescriptor<T>? options);
 
     /// <inheritdoc cref="ExistsAsync(Id, CommandOptionsDescriptor{T})"/>
-    Task<bool> ExistsAsync(Id id, ICommandOptions options = null);
+    Task<bool> ExistsAsync(Id id, ICommandOptions? options = null);
 
     /// <summary>
     /// Gets the total count of documents in the repository.
     /// </summary>
     /// <param name="options">Options to control caching, soft delete filtering, and other behaviors.</param>
-    Task<CountResult> CountAsync(CommandOptionsDescriptor<T> options);
+    Task<CountResult> CountAsync(CommandOptionsDescriptor<T>? options);
 
     /// <inheritdoc cref="CountAsync(CommandOptionsDescriptor{T})"/>
-    Task<CountResult> CountAsync(ICommandOptions options = null);
+    Task<CountResult> CountAsync(ICommandOptions? options = null);
 
     /// <summary>
     /// Invalidates cached data for the specified document.

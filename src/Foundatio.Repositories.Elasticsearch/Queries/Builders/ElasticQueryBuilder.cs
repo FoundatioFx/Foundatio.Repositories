@@ -6,13 +6,14 @@ using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.LuceneQueries.Visitors;
 using Foundatio.Repositories.Extensions;
+using Microsoft.Extensions.Logging;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders;
 
 public class ElasticQueryBuilder : IElasticQueryBuilder
 {
     private readonly List<ElasticQueryBuilderRegistration> _registrations = new();
-    private IElasticQueryBuilder[] _queryBuilders = null;
+    private IElasticQueryBuilder[]? _queryBuilders = null;
 
     public ElasticQueryBuilder(bool registerDefaultBuilders = true)
     {
@@ -138,10 +139,10 @@ public class ElasticQueryBuilder : IElasticQueryBuilder
         RegisterAfter<ParsedExpressionQueryBuilder, AggregationsQueryBuilder>();
     }
 
-    public void UseAliases(QueryFieldResolver aliasMap)
+    public void UseAliases(QueryFieldResolver aliasMap, ILogger<FieldResolverQueryBuilder>? logger = null)
     {
         Unregister<ExpressionQueryBuilder>();
-        Register(new FieldResolverQueryBuilder(aliasMap));
+        Register(new FieldResolverQueryBuilder(aliasMap, logger));
     }
 
     public void RegisterDefaults()

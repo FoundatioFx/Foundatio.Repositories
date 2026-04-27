@@ -11,5 +11,5 @@ public class ValueAggregate : MetricAggregateBase
 [DebuggerDisplay("Value: {Value}")]
 public class ValueAggregate<T> : MetricAggregateBase
 {
-    public T Value { get; set; }
+    public T Value { get; set; } = default!;
 }

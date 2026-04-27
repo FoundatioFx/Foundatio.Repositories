@@ -28,21 +28,23 @@ public class Index : IIndex
     private readonly Lazy<IElasticQueryBuilder> _queryBuilder;
     private readonly Lazy<ElasticQueryParser> _queryParser;
     private readonly Lazy<ElasticMappingResolver> _mappingResolver;
-    private readonly Lazy<QueryFieldResolver> _fieldResolver;
+    private readonly Lazy<QueryFieldResolver?> _fieldResolver;
     private readonly ConcurrentDictionary<string, ICustomFieldType> _customFieldTypes = new();
     private readonly AsyncLock _lock = new();
     private readonly CancellationTokenSource _disposedCancellationTokenSource = new();
     private int _disposed;
     protected readonly ILogger _logger;
 
-    public Index(IElasticConfiguration configuration, string name = null)
+    public Index(IElasticConfiguration configuration, string name)
     {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+
         Name = name;
         Configuration = configuration;
         _queryBuilder = new Lazy<IElasticQueryBuilder>(CreateQueryBuilder);
         _queryParser = new Lazy<ElasticQueryParser>(CreateQueryParser);
         _mappingResolver = new Lazy<ElasticMappingResolver>(CreateMappingResolver);
-        _fieldResolver = new Lazy<QueryFieldResolver>(CreateQueryFieldResolver);
+        _fieldResolver = new Lazy<QueryFieldResolver?>(CreateQueryFieldResolver);
         _logger = configuration.LoggerFactory?.CreateLogger(GetType()) ?? NullLogger.Instance;
     }
 
@@ -103,7 +105,7 @@ public class Index : IIndex
         return parser;
     }
 
-    protected virtual QueryFieldResolver CreateQueryFieldResolver() => null;
+    protected virtual QueryFieldResolver? CreateQueryFieldResolver() => null;
 
     protected virtual void ConfigureQueryParser(ElasticQueryParserConfiguration config) { }
 
@@ -125,7 +127,7 @@ public class Index : IIndex
         };
     }
 
-    private string[] _indexes;
+    private string[]? _indexes;
     public virtual string[] GetIndexesByQuery(IRepositoryQuery query)
     {
         return _indexes ??= new[] { Name };
@@ -150,7 +152,7 @@ public class Index : IIndex
     }
 
     private bool _isEnsured = false;
-    public virtual async Task EnsureIndexAsync(object target)
+    public virtual async Task EnsureIndexAsync(object? target)
     {
         if (_isEnsured)
             return;
@@ -178,7 +180,7 @@ public class Index : IIndex
     public IElasticQueryBuilder QueryBuilder => _queryBuilder.Value;
     public ElasticQueryParser QueryParser => _queryParser.Value;
     public ElasticMappingResolver MappingResolver => _mappingResolver.Value;
-    public QueryFieldResolver FieldResolver => _fieldResolver.Value;
+    public QueryFieldResolver? FieldResolver => _fieldResolver.Value;
 
     public int BulkBatchSize { get; set; } = 1000;
 
@@ -191,7 +193,7 @@ public class Index : IIndex
         }
     }
 
-    protected virtual async Task CreateIndexAsync(string name, Func<CreateIndexDescriptor, CreateIndexDescriptor> descriptor = null)
+    protected virtual async Task CreateIndexAsync(string name, Func<CreateIndexDescriptor, CreateIndexDescriptor>? descriptor = null)
     {
         if (name == null)
             throw new ArgumentNullException(nameof(name));
@@ -212,7 +214,7 @@ public class Index : IIndex
         throw new RepositoryException(response.GetErrorMessage($"Error creating the index {name}"), response.OriginalException);
     }
 
-    protected virtual async Task UpdateIndexAsync(string name, Func<UpdateIndexSettingsDescriptor, UpdateIndexSettingsDescriptor> descriptor = null)
+    protected virtual async Task UpdateIndexAsync(string name, Func<UpdateIndexSettingsDescriptor, UpdateIndexSettingsDescriptor>? descriptor = null)
     {
         var updateIndexDescriptor = new UpdateIndexSettingsDescriptor(name);
         if (descriptor != null)
@@ -343,7 +345,7 @@ public class Index : IIndex
         throw new RepositoryException(response.GetErrorMessage($"Error checking to see if index {name} exists"), response.OriginalException);
     }
 
-    public virtual Task ReindexAsync(Func<int, string, Task> progressCallbackAsync = null)
+    public virtual Task ReindexAsync(Func<int, string?, Task>? progressCallbackAsync = null)
     {
         var reindexWorkItem = new ReindexWorkItem
         {
@@ -357,7 +359,7 @@ public class Index : IIndex
         return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
     }
 
-    protected virtual string GetTimeStampField()
+    protected virtual string? GetTimeStampField()
     {
         return null;
     }
@@ -381,11 +383,10 @@ public class Index : IIndex
 
 public class Index<T> : Index, IIndex<T> where T : class
 {
-    private readonly string _typeName = typeof(T).Name.ToLower();
+    private static readonly string _typeName = typeof(T).Name.ToLower();
 
-    public Index(IElasticConfiguration configuration, string name = null) : base(configuration, name)
+    public Index(IElasticConfiguration configuration, string? name = null) : base(configuration, name ?? _typeName)
     {
-        Name = name ?? _typeName;
     }
 
     protected override ElasticMappingResolver CreateMappingResolver()
@@ -418,7 +419,7 @@ public class Index<T> : Index, IIndex<T> where T : class
         });
     }
 
-    protected override async Task UpdateIndexAsync(string name, Func<UpdateIndexSettingsDescriptor, UpdateIndexSettingsDescriptor> descriptor = null)
+    protected override async Task UpdateIndexAsync(string name, Func<UpdateIndexSettingsDescriptor, UpdateIndexSettingsDescriptor>? descriptor = null)
     {
         await base.UpdateIndexAsync(name, descriptor).AnyContext();
 
@@ -454,7 +455,7 @@ public class Index<T> : Index, IIndex<T> where T : class
         settings.DefaultMappingFor<T>(d => d.IndexName(Name));
     }
 
-    protected override string GetTimeStampField()
+    protected override string? GetTimeStampField()
     {
         if (typeof(IHaveDates).IsAssignableFrom(typeof(T)))
             return InferField(f => ((IHaveDates)f).UpdatedUtc);

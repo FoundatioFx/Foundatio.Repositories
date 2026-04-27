@@ -6,7 +6,7 @@ namespace Foundatio.Repositories.Migrations;
 
 public abstract class MigrationBase : IMigration
 {
-    protected ILogger _logger;
+    protected ILogger _logger = NullLogger.Instance;
 
     public MigrationBase()
     {

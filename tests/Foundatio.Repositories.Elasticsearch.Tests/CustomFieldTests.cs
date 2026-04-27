@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Caching;
+using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
@@ -19,9 +20,10 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
 
     public CustomFieldTests(ITestOutputHelper output) : base(output)
     {
+        Assert.NotNull(_configuration.CustomFieldDefinitionRepository);
         _customFieldDefinitionRepository = _configuration.CustomFieldDefinitionRepository;
         _employeeRepository = new EmployeeWithCustomFieldsRepository(_configuration);
-        _repocache = _configuration.Cache as InMemoryCacheClient;
+        _repocache = Assert.IsType<InMemoryCacheClient>(_configuration.Cache);
     }
 
     public override async ValueTask InitializeAsync()
@@ -339,7 +341,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
                 Name = "Calculated",
                 IndexType = IntegerFieldType.IndexType,
                 ProcessMode = CustomFieldProcessMode.AlwaysProcess,
-                Data = new Dictionary<string, object> { { "Expression", "source.Data.Field1 + source.Data.Field2" } }
+                Data = new Dictionary<string, object?> { { "Expression", "(source.Data.Field1 || 0) + (source.Data.Field2 || 0)" } }
             }
         ]);
 
@@ -647,7 +649,7 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
                 Name = "Calculated",
                 IndexType = IntegerFieldType.IndexType,
                 ProcessMode = CustomFieldProcessMode.AlwaysProcess,
-                Data = new Dictionary<string, object> { { "Expression", "source.Data.Field1 + source.Data.Field2" } }
+                Data = new Dictionary<string, object?> { { "Expression", "(source.Data.Field1 || 0) + (source.Data.Field2 || 0)" } }
             }
         ]);
 
@@ -662,4 +664,194 @@ public sealed class CustomFieldTests : ElasticRepositoryTestBase
         var employees = results.Documents.ToArray();
         Assert.Single(employees);
     }
+
+    [Fact]
+    public async Task CalculatedField_InputsRemoved_ClearsStaleDataValue()
+    {
+        // Arrange — raw sum (no || 0); missing operands become NaN in JS → null calculated value
+        await _customFieldDefinitionRepository.AddAsync([
+            new CustomFieldDefinition
+            {
+                EntityType = nameof(EmployeeWithCustomFields),
+                TenantKey = "1",
+                Name = "SumA",
+                IndexType = IntegerFieldType.IndexType
+            },
+            new CustomFieldDefinition
+            {
+                EntityType = nameof(EmployeeWithCustomFields),
+                TenantKey = "1",
+                Name = "SumB",
+                IndexType = IntegerFieldType.IndexType
+            },
+            new CustomFieldDefinition
+            {
+                EntityType = nameof(EmployeeWithCustomFields),
+                TenantKey = "1",
+                Name = "SumCalc",
+                IndexType = IntegerFieldType.IndexType,
+                ProcessMode = CustomFieldProcessMode.AlwaysProcess,
+                Data = new Dictionary<string, object?> { { "Expression", "source.Data.SumA + source.Data.SumB" } }
+            }
+        ]);
+
+        var employee = EmployeeWithCustomFieldsGenerator.Generate(age: 21);
+        employee.CompanyId = "1";
+        employee.Data["SumA"] = 10;
+        employee.Data["SumB"] = 20;
+        await _employeeRepository.AddAsync(employee, o => o.ImmediateConsistency());
+
+        var indexed = await _employeeRepository.FindAsync(q => q.Company("1").FilterExpression("sumcalc:30"), o => o.QueryLogLevel(LogLevel.Information));
+        Assert.Single(indexed.Documents);
+
+        // Act — remove inputs; expression yields NaN → ProcessValueAsync returns null → Data must drop SumCalc
+        var loaded = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        Assert.NotNull(loaded);
+        loaded.Data.Remove("SumA");
+        loaded.Data.Remove("SumB");
+        await _employeeRepository.SaveAsync(loaded, o => o.ImmediateConsistency());
+
+        // Assert
+        var after = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        Assert.NotNull(after);
+        Assert.False(after.Data.ContainsKey("SumCalc"));
+
+        var staleSearch = await _employeeRepository.FindAsync(q => q.Company("1").FilterExpression("sumcalc:30"), o => o.QueryLogLevel(LogLevel.Information));
+        Assert.Empty(staleSearch.Documents);
+    }
+
+    [Fact]
+    public async Task CalculatedField_PartialInputs_ComputesFromAvailableValues()
+    {
+        // Arrange
+        await _customFieldDefinitionRepository.AddAsync([
+            new CustomFieldDefinition
+            {
+                EntityType = nameof(EmployeeWithCustomFields),
+                TenantKey = "1",
+                Name = "Part1",
+                IndexType = IntegerFieldType.IndexType
+            },
+            new CustomFieldDefinition
+            {
+                EntityType = nameof(EmployeeWithCustomFields),
+                TenantKey = "1",
+                Name = "Part2",
+                IndexType = IntegerFieldType.IndexType
+            },
+            new CustomFieldDefinition
+            {
+                EntityType = nameof(EmployeeWithCustomFields),
+                TenantKey = "1",
+                Name = "PartSum",
+                IndexType = IntegerFieldType.IndexType,
+                ProcessMode = CustomFieldProcessMode.AlwaysProcess,
+                Data = new Dictionary<string, object?> { { "Expression", "(source.Data.Part1 || 0) + (source.Data.Part2 || 0)" } }
+            }
+        ]);
+
+        var employee = EmployeeWithCustomFieldsGenerator.Generate(age: 22);
+        employee.CompanyId = "1";
+        employee.Data["Part1"] = 5;
+        await _employeeRepository.AddAsync(employee, o => o.ImmediateConsistency());
+
+        // Assert — only Part1 present → sum 5
+        var r5 = await _employeeRepository.FindAsync(q => q.Company("1").FilterExpression("partsum:5"), o => o.QueryLogLevel(LogLevel.Information));
+        Assert.Single(r5.Documents);
+
+        // Act — add Part2
+        var loaded = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        Assert.NotNull(loaded);
+        loaded.Data["Part2"] = 3;
+        await _employeeRepository.SaveAsync(loaded, o => o.ImmediateConsistency());
+
+        // Assert — 5 + 3 = 8
+        var r8 = await _employeeRepository.FindAsync(q => q.Company("1").FilterExpression("partsum:8"), o => o.QueryLogLevel(LogLevel.Information));
+        Assert.Single(r8.Documents);
+    }
+
+    [Fact]
+    public async Task CalculatedField_UpdateTransitionsToNull_RemovesFromDataAndIdx()
+    {
+        // Arrange
+        await _customFieldDefinitionRepository.AddAsync([
+            new CustomFieldDefinition
+            {
+                EntityType = nameof(EmployeeWithCustomFields),
+                TenantKey = "1",
+                Name = "Upd1",
+                IndexType = IntegerFieldType.IndexType
+            },
+            new CustomFieldDefinition
+            {
+                EntityType = nameof(EmployeeWithCustomFields),
+                TenantKey = "1",
+                Name = "Upd2",
+                IndexType = IntegerFieldType.IndexType
+            },
+            new CustomFieldDefinition
+            {
+                EntityType = nameof(EmployeeWithCustomFields),
+                TenantKey = "1",
+                Name = "UpdCalc",
+                IndexType = IntegerFieldType.IndexType,
+                ProcessMode = CustomFieldProcessMode.AlwaysProcess,
+                Data = new Dictionary<string, object?> { { "Expression", "source.Data.Upd1 + source.Data.Upd2" } }
+            }
+        ]);
+
+        var employee = EmployeeWithCustomFieldsGenerator.Generate(age: 23);
+        employee.CompanyId = "1";
+        employee.Data["Upd1"] = 1;
+        employee.Data["Upd2"] = 2;
+        await _employeeRepository.AddAsync(employee, o => o.ImmediateConsistency());
+
+        var withValue = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        Assert.NotNull(withValue);
+        Assert.True(withValue.Data.TryGetValue("UpdCalc", out var updCalcValue));
+        Assert.NotNull(updCalcValue);
+        Assert.Equal(3, Convert.ToInt32(updCalcValue));
+        var indexedBefore = await _employeeRepository.FindAsync(q => q.Company("1").FilterExpression("updcalc:3"), o => o.QueryLogLevel(LogLevel.Information));
+        Assert.Single(indexedBefore.Documents);
+
+        // Act — remove inputs → NaN → null calculated
+        withValue.Data.Remove("Upd1");
+        withValue.Data.Remove("Upd2");
+        await _employeeRepository.SaveAsync(withValue, o => o.ImmediateConsistency());
+
+        // Assert
+        var cleared = await _employeeRepository.GetByIdAsync(employee.Id, o => o.Cache(false));
+        Assert.NotNull(cleared);
+        Assert.False(cleared.Data.ContainsKey("UpdCalc"));
+
+        // Assert — indexed field (idx.*) no longer matches previous value (verifies Idx side in ES, not only Data)
+        var noHit = await _employeeRepository.FindAsync(q => q.Company("1").FilterExpression("updcalc:3"), o => o.QueryLogLevel(LogLevel.Information));
+        Assert.Empty(noHit.Documents);
+    }
+
+    [Fact]
+    public void CustomFieldHelpers_OnNonCustomFieldType_ThrowsRepositoryException()
+    {
+        // Arrange
+        var repo = new CustomFieldHelperTestRepository(_configuration.Employees);
+        var employee = EmployeeGenerator.Generate();
+
+        // Act & Assert
+        Assert.Throws<RepositoryException>(() => { repo.TestGetDocumentCustomFields(employee); });
+        Assert.Throws<RepositoryException>(() => { repo.TestGetDocumentCustomField(employee, "field"); });
+        Assert.Throws<RepositoryException>(() => repo.TestSetDocumentCustomField(employee, "field", "value"));
+        Assert.Throws<RepositoryException>(() => repo.TestRemoveDocumentCustomField(employee, "field"));
+        Assert.Throws<RepositoryException>(() => { repo.TestGetDocumentIdx(employee); });
+    }
+}
+
+internal sealed class CustomFieldHelperTestRepository : ElasticRepositoryBase<Employee>
+{
+    public CustomFieldHelperTestRepository(IIndex index) : base(index) { }
+
+    public IDictionary<string, object?> TestGetDocumentCustomFields(Employee doc) => GetDocumentCustomFields(doc);
+    public object? TestGetDocumentCustomField(Employee doc, string name) => GetDocumentCustomField(doc, name);
+    public void TestSetDocumentCustomField(Employee doc, string name, object? value) => SetDocumentCustomField(doc, name, value);
+    public void TestRemoveDocumentCustomField(Employee doc, string name) => RemoveDocumentCustomField(doc, name);
+    public IDictionary<string, object> TestGetDocumentIdx(Employee doc) => GetDocumentIdx(doc);
 }

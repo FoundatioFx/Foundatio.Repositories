@@ -56,12 +56,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             if (childQueries.Count == 0)
                 return;
 
-            var index = ctx.Options.GetElasticIndex();
+            var index = ctx.Options.GetElasticIndex()
+                ?? throw new InvalidOperationException("ElasticIndex must be set on options to build child queries.");
+
             foreach (var childQuery in childQueries)
             {
                 var childOptions = ctx.Options.Clone();
                 childOptions.DocumentType(childQuery.GetDocumentType());
-                var childContext = new QueryBuilderContext<object>(childQuery, childOptions, null);
+                var childContext = new QueryBuilderContext<object>(childQuery, childOptions);
 
                 await index.QueryBuilder.BuildAsync(childContext);
 

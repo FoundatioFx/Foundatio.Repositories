@@ -11,17 +11,17 @@ namespace Foundatio.Repositories
             return options.BuildOption(CacheEnabledKey, enabled);
         }
 
-        public static T Cache<T>(this T options, string cacheKey) where T : ICommandOptions
+        public static T Cache<T>(this T options, string? cacheKey) where T : ICommandOptions
         {
             return options.Cache().CacheKey(cacheKey);
         }
 
-        public static T Cache<T>(this T options, string cacheKey, TimeSpan? expiresIn) where T : ICommandOptions
+        public static T Cache<T>(this T options, string? cacheKey, TimeSpan? expiresIn) where T : ICommandOptions
         {
             return options.Cache().CacheKey(cacheKey).CacheExpiresIn(expiresIn);
         }
 
-        public static T Cache<T>(this T options, string cacheKey, DateTime? expiresAtUtc) where T : ICommandOptions
+        public static T Cache<T>(this T options, string? cacheKey, DateTime? expiresAtUtc) where T : ICommandOptions
         {
             return options.Cache().CacheKey(cacheKey).CacheExpiresAt(expiresAtUtc);
         }
@@ -33,7 +33,7 @@ namespace Foundatio.Repositories
         }
 
         internal const string CacheKeyKey = "@CacheKey";
-        public static T CacheKey<T>(this T options, string cacheKey) where T : ICommandOptions
+        public static T CacheKey<T>(this T options, string? cacheKey) where T : ICommandOptions
         {
             if (!String.IsNullOrEmpty(cacheKey))
                 return options.BuildOption(CacheKeyKey, cacheKey);
@@ -42,7 +42,7 @@ namespace Foundatio.Repositories
         }
 
         internal const string DefaultCacheKeyKey = "@DefaultCacheKey";
-        public static T DefaultCacheKey<T>(this T options, string defaultCacheKey) where T : ICommandOptions
+        public static T DefaultCacheKey<T>(this T options, string? defaultCacheKey) where T : ICommandOptions
         {
             if (!String.IsNullOrEmpty(defaultCacheKey))
                 return options.BuildOption(DefaultCacheKeyKey, defaultCacheKey);
@@ -102,14 +102,14 @@ namespace Foundatio.Repositories.Options
             return options.SafeHasOption(SetCacheOptionsExtensions.CacheKeyKey) || options.SafeHasOption(SetCacheOptionsExtensions.DefaultCacheKeyKey);
         }
 
-        public static string GetCacheKey(this ICommandOptions options, string defaultCacheKey = null)
+        public static string? GetCacheKey(this ICommandOptions options, string? defaultCacheKey = null)
         {
-            return options.SafeGetOption<string>(SetCacheOptionsExtensions.CacheKeyKey, defaultCacheKey ?? options.GetDefaultCacheKey());
+            return options.SafeGetOption<string>(SetCacheOptionsExtensions.CacheKeyKey, defaultCacheKey ?? options.GetDefaultCacheKey()!);
         }
 
-        public static string GetDefaultCacheKey(this ICommandOptions options)
+        public static string? GetDefaultCacheKey(this ICommandOptions options)
         {
-            return options.SafeGetOption<string>(SetCacheOptionsExtensions.DefaultCacheKeyKey, null);
+            return options.SafeGetOption<string?>(SetCacheOptionsExtensions.DefaultCacheKeyKey, null);
         }
 
         private static TimeSpan DefaultCacheExpiration { get; set; } = TimeSpan.FromSeconds(60 * 5);

@@ -53,7 +53,7 @@ public class PatchDocument
     {
         var root = new PatchDocument();
 
-        if (document == null)
+        if (document is null)
             return root;
 
         foreach (var child in document.Children())
@@ -70,12 +70,12 @@ public class PatchDocument
 
     public static PatchDocument Parse(string jsondocument)
     {
-        var root = JToken.Parse(jsondocument) as JArray;
+        var root = JArray.Parse(jsondocument);
 
         return Load(root);
     }
 
-    public static Operation CreateOperation(string op)
+    public static Operation? CreateOperation(string op)
     {
         switch (op)
         {

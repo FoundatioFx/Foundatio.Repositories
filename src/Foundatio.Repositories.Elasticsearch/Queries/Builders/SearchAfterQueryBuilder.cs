@@ -33,13 +33,14 @@ namespace Foundatio.Repositories
             return options;
         }
 
-        public static T SearchAfterToken<T>(this T options, string searchAfterToken) where T : ICommandOptions
+        public static T SearchAfterToken<T>(this T options, string? searchAfterToken) where T : ICommandOptions
         {
             options.SearchAfterPaging();
             if (!String.IsNullOrEmpty(searchAfterToken))
             {
-                object[] values = FindHitExtensions.DecodeSortToken(searchAfterToken);
-                options.Values.Set(SearchAfterKey, values);
+                object[]? values = FindHitExtensions.DecodeSortToken(searchAfterToken);
+                if (values is not null)
+                    options.Values.Set(SearchAfterKey, values);
             }
             else
             {
@@ -64,13 +65,14 @@ namespace Foundatio.Repositories
             return options;
         }
 
-        public static T SearchBeforeToken<T>(this T options, string searchBeforeToken) where T : ICommandOptions
+        public static T SearchBeforeToken<T>(this T options, string? searchBeforeToken) where T : ICommandOptions
         {
             options.SearchAfterPaging();
             if (!String.IsNullOrEmpty(searchBeforeToken))
             {
-                object[] values = FindHitExtensions.DecodeSortToken(searchBeforeToken);
-                options.Values.Set(SearchBeforeKey, values);
+                object[]? values = FindHitExtensions.DecodeSortToken(searchBeforeToken);
+                if (values is not null)
+                    options.Values.Set(SearchBeforeKey, values);
             }
             else
             {
@@ -91,25 +93,25 @@ namespace Foundatio.Repositories.Options
             return options.SafeGetOption<bool>(SearchAfterQueryExtensions.SearchAfterPagingKey, false);
         }
 
-        public static object[] GetSearchAfter(this ICommandOptions options)
+        public static object[]? GetSearchAfter(this ICommandOptions options)
         {
             return options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchAfterKey);
         }
 
         public static bool HasSearchAfter(this ICommandOptions options)
         {
-            object[] sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchAfterKey);
+            object[]? sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchAfterKey);
             return sorts != null && sorts.Length > 0;
         }
 
-        public static object[] GetSearchBefore(this ICommandOptions options)
+        public static object[]? GetSearchBefore(this ICommandOptions options)
         {
             return options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchBeforeKey);
         }
 
         public static bool HasSearchBefore(this ICommandOptions options)
         {
-            object[] sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchBeforeKey);
+            object[]? sorts = options.SafeGetOption<object[]>(SearchAfterQueryExtensions.SearchBeforeKey);
             return sorts != null && sorts.Length > 0;
         }
     }

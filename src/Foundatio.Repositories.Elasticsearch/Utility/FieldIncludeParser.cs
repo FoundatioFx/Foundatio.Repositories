@@ -28,7 +28,7 @@ public ref struct FieldIncludeParser
     private int _position;
     private readonly FieldIncludeParseResult _result = new();
     private readonly Stack<FieldInclude> _includeStack = new();
-    private FieldInclude _current = null;
+    private FieldInclude? _current = null;
     private int _openParenCount = 0;
 
     public FieldIncludeParser(in ReadOnlySpan<char> source)
@@ -163,12 +163,12 @@ public class FieldIncludeParseResult
 {
     public IList<FieldInclude> Fields { get; set; } = new List<FieldInclude>();
     public bool IsValid { get; set; } = true;
-    public string ValidationMessage { get; set; }
+    public string? ValidationMessage { get; set; }
 
     public override string ToString()
     {
         if (!IsValid)
-            return ValidationMessage;
+            return ValidationMessage!;
 
         if (Fields.Count == 0)
             return String.Empty;

@@ -24,15 +24,15 @@ public class QueryValidationException : RepositoryException
 
     public QueryValidationException(string message) : base(message) { }
 
-    public QueryValidationException(string message, string field, string op = null) : base(message)
+    public QueryValidationException(string message, string field, string? op = null) : base(message)
     {
         Field = field;
         Operator = op;
     }
 
     /// <summary>The resolved Elasticsearch field name that caused the validation failure.</summary>
-    public string Field { get; }
+    public string? Field { get; }
 
     /// <summary>The comparison operator that was used (e.g., "Equals", "Contains", "GreaterThan"), if applicable.</summary>
-    public string Operator { get; }
+    public string? Operator { get; }
 }

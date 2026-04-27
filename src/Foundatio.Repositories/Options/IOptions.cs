@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Utility;
 
@@ -16,7 +17,9 @@ public interface IOptionsDictionary : IEnumerable<KeyValuePair<string, object>>
     void Set(string name, object value);
     bool Contains(string name);
     bool Remove(string name);
-    T Get<T>(string name, T defaultValue = default);
+    [return: MaybeNull]
+    [return: NotNullIfNotNull(nameof(defaultValue))]
+    T Get<T>(string name, T defaultValue = default!);
 }
 
 public class OptionsDictionary : IOptionsDictionary
@@ -44,11 +47,17 @@ public class OptionsDictionary : IOptionsDictionary
             return defaultValue;
 
         object data = _options[name];
-        if (!(data is T))
+        if (data is null)
+            return defaultValue;
+
+        if (data is not T)
         {
             try
             {
-                return TypeHelper.ToType<T>(data);
+                if (TypeHelper.ToType<T>(data) is T converted)
+                    return converted;
+
+                return defaultValue;
             }
             catch
             {
@@ -86,7 +95,9 @@ public static class OptionsExtensions
         return options;
     }
 
-    public static T SafeGetOption<T>(this IOptions options, string name, T defaultValue = default)
+    [return: MaybeNull]
+    [return: NotNullIfNotNull(nameof(defaultValue))]
+    public static T SafeGetOption<T>(this IOptions? options, string name, T defaultValue = default!)
     {
         if (options == null)
             return defaultValue;
@@ -94,7 +105,7 @@ public static class OptionsExtensions
         return options.Values.Get(name, defaultValue);
     }
 
-    public static bool SafeHasOption(this IOptions options, string name)
+    public static bool SafeHasOption(this IOptions? options, string name)
     {
         if (options == null)
             return false;
@@ -102,7 +113,7 @@ public static class OptionsExtensions
         return options.Values.Contains(name);
     }
 
-    public static ICollection<T> SafeGetCollection<T>(this IOptions options, string name)
+    public static ICollection<T> SafeGetCollection<T>(this IOptions? options, string name)
     {
         if (options == null)
             return new List<T>();
@@ -134,7 +145,7 @@ public static class OptionsExtensions
         return options;
     }
 
-    public static ISet<T> SafeGetSet<T>(this IOptions options, string name)
+    public static ISet<T> SafeGetSet<T>(this IOptions? options, string name)
     {
         if (options == null)
             return new HashSet<T>();

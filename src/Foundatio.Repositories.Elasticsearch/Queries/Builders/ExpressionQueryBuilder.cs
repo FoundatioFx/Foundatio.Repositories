@@ -2,6 +2,8 @@
 using System.Linq;
 using System.Threading.Tasks;
 using Foundatio.Parsers.ElasticQueries;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Parsers.ElasticQueries.Visitors;
 using Foundatio.Parsers.LuceneQueries;
@@ -35,8 +37,14 @@ namespace Foundatio.Repositories
         /// <summary>
         /// Default Search operator is AND. Does boolean matching and no scoring will occur.
         /// </summary>
-        public static T FilterExpression<T>(this T query, string filter) where T : IRepositoryQuery
+        public static T FilterExpression<T>(this T query, string? filter) where T : IRepositoryQuery
         {
+            if (String.IsNullOrEmpty(filter))
+            {
+                query.Values.Remove(FilterKey);
+                return query;
+            }
+
             return query.BuildOption(FilterKey, filter);
         }
 
@@ -46,16 +54,29 @@ namespace Foundatio.Repositories
         /// <summary>
         /// Default Search operator is OR and scoring will occur.
         /// </summary>
-        public static T SearchExpression<T>(this T query, string search, SearchOperator defaultOperator = SearchOperator.Or) where T : IRepositoryQuery
+        public static T SearchExpression<T>(this T query, string? search, SearchOperator defaultOperator = SearchOperator.Or) where T : IRepositoryQuery
         {
+            if (String.IsNullOrEmpty(search))
+            {
+                query.Values.Remove(SearchKey);
+                query.Values.Remove(CriteriaDefaultOperatorKey);
+                return query;
+            }
+
             query.Values.Set(SearchKey, search);
             return query.BuildOption(CriteriaDefaultOperatorKey, defaultOperator);
         }
 
         internal const string SortKey = "@SortExpression";
 
-        public static T SortExpression<T>(this T query, string sort) where T : IRepositoryQuery
+        public static T SortExpression<T>(this T query, string? sort) where T : IRepositoryQuery
         {
+            if (String.IsNullOrEmpty(sort))
+            {
+                query.Values.Remove(SortKey);
+                return query;
+            }
+
             return query.BuildOption(SortKey, sort);
         }
     }
@@ -65,17 +86,17 @@ namespace Foundatio.Repositories.Options
 {
     public static class ReadQueryExpressionsExtensions
     {
-        public static ISystemFilter GetSystemFilter(this IRepositoryQuery query)
+        public static ISystemFilter? GetSystemFilter(this IRepositoryQuery query)
         {
             return query.SafeGetOption<ISystemFilter>(QueryExpressionsExtensions.SystemFilterKey);
         }
 
-        public static string GetFilterExpression(this IRepositoryQuery query)
+        public static string? GetFilterExpression(this IRepositoryQuery query)
         {
             return query.SafeGetOption<string>(QueryExpressionsExtensions.FilterKey);
         }
 
-        public static string GetSearchExpression(this IRepositoryQuery query)
+        public static string? GetSearchExpression(this IRepositoryQuery query)
         {
             return query.SafeGetOption<string>(QueryExpressionsExtensions.SearchKey);
         }
@@ -85,7 +106,7 @@ namespace Foundatio.Repositories.Options
             return query.SafeGetOption<SearchOperator>(QueryExpressionsExtensions.CriteriaDefaultOperatorKey, SearchOperator.Or);
         }
 
-        public static string GetSortExpression(this IRepositoryQuery query)
+        public static string? GetSortExpression(this IRepositoryQuery query)
         {
             return query.SafeGetOption<string>(QueryExpressionsExtensions.SortKey);
         }
@@ -98,53 +119,77 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
     {
         private readonly QueryFieldResolver _resolver;
         private readonly LuceneQueryParser _parser = new();
+        private readonly ILogger _logger;
 
-        public FieldResolverQueryBuilder(QueryFieldResolver aliasMap)
+        public FieldResolverQueryBuilder(QueryFieldResolver aliasMap, ILogger<FieldResolverQueryBuilder>? logger = null)
         {
             _resolver = aliasMap;
+            _logger = logger ?? NullLogger<FieldResolverQueryBuilder>.Instance;
         }
 
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
-            string filter = ctx.Source.GetFilterExpression();
-            string search = ctx.Source.GetSearchExpression();
-            string sort = ctx.Source.GetSortExpression();
+            string? filter = ctx.Source.GetFilterExpression();
+            string? search = ctx.Source.GetSearchExpression();
+            string? sort = ctx.Source.GetSortExpression();
 
             if (!String.IsNullOrEmpty(filter))
             {
                 var result = _parser.Parse(filter);
-                filter = GenerateQueryVisitor.Run(FieldResolverQueryVisitor.Run(result, _resolver, ctx), ctx);
-
-                ctx.Filter &= new QueryStringQuery
+                var resolved = FieldResolverQueryVisitor.Run(result, _resolver, ctx);
+                if (resolved is not null)
                 {
-                    Query = filter,
-                    DefaultOperator = Operator.And,
-                    AnalyzeWildcard = false
-                };
+                    filter = GenerateQueryVisitor.Run(resolved, ctx);
+
+                    ctx.Filter &= new QueryStringQuery
+                    {
+                        Query = filter,
+                        DefaultOperator = Operator.And,
+                        AnalyzeWildcard = false
+                    };
+                }
+                else
+                {
+                    _logger.LogWarning("No resolved query root; filter omitted for: {Expression}", filter);
+                }
             }
 
             if (!String.IsNullOrEmpty(search))
             {
                 var result = _parser.Parse(search);
-                search = GenerateQueryVisitor.Run(FieldResolverQueryVisitor.Run(result, _resolver, ctx), ctx);
-
-                ctx.Query &= new QueryStringQuery
+                var resolved = FieldResolverQueryVisitor.Run(result, _resolver, ctx);
+                if (resolved is not null)
                 {
-                    Query = search,
-                    DefaultOperator = ctx.Source.GetSearchExpressionDefaultOperator() == SearchOperator.Or ? Operator.Or : Operator.And,
-                    AnalyzeWildcard = true
-                };
+                    search = GenerateQueryVisitor.Run(resolved, ctx);
+
+                    ctx.Query &= new QueryStringQuery
+                    {
+                        Query = search,
+                        DefaultOperator = ctx.Source.GetSearchExpressionDefaultOperator() == SearchOperator.Or ? Operator.Or : Operator.And,
+                        AnalyzeWildcard = true
+                    };
+                }
+                else
+                {
+                    _logger.LogWarning("No resolved query root; search omitted for: {Expression}", search);
+                }
             }
 
             if (!String.IsNullOrEmpty(sort))
             {
                 var result = _parser.Parse(sort);
                 TermToFieldVisitor.Run(result, ctx);
-                FieldResolverQueryVisitor.Run(result, _resolver, ctx);
+                var resolved = FieldResolverQueryVisitor.Run(result, _resolver, ctx);
+                if (resolved is null)
+                {
+                    _logger.LogWarning("No resolved query root; sort omitted for: {Expression}", sort);
+                }
+                else
+                {
+                    var sortFields = GetSortFieldsVisitor.Run(resolved, ctx).ToList();
 
-                var sortFields = GetSortFieldsVisitor.Run(result, ctx).ToList();
-
-                ctx.Search.Sort(sortFields);
+                    ctx.Search.Sort(sortFields);
+                }
             }
 
             return Task.CompletedTask;
@@ -157,9 +202,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
-            string filter = ctx.Source.GetFilterExpression();
-            string search = ctx.Source.GetSearchExpression();
-            string sort = ctx.Source.GetSortExpression();
+            string? filter = ctx.Source.GetFilterExpression();
+            string? search = ctx.Source.GetSearchExpression();
+            string? sort = ctx.Source.GetSortExpression();
 
             if (!String.IsNullOrEmpty(filter))
                 ctx.Filter &= new QueryStringQuery
@@ -202,9 +247,9 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
-            string filter = ctx.Source.GetFilterExpression();
-            string search = ctx.Source.GetSearchExpression();
-            string sort = ctx.Source.GetSortExpression();
+            string? filter = ctx.Source.GetFilterExpression();
+            string? search = ctx.Source.GetSearchExpression();
+            string? sort = ctx.Source.GetSortExpression();
 
             // NOTE: Calling UseScoring here to keep the query from being wrapped in a filter which happens ElasticQueryBuilderExtensions.BuildQuery
             if (!String.IsNullOrEmpty(filter))

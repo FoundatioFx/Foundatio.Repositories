@@ -18,7 +18,7 @@ using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
-public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLifetime
+public abstract class ElasticRepositoryTestBase : TestWithLoggingBase
 {
     protected readonly MyAppElasticConfiguration _configuration;
     protected readonly InMemoryCacheClient _cache;
@@ -38,8 +38,9 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
     }
 
     private static bool _elasticsearchReady;
-    public virtual async ValueTask InitializeAsync()
+    public override async ValueTask InitializeAsync()
     {
+        await base.InitializeAsync();
         if (!_elasticsearchReady)
             await _client.WaitForReadyAsync(new CancellationTokenSource(TimeSpan.FromMinutes(1)).Token);
 
@@ -70,5 +71,5 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase, IAsyncLif
         Log.DefaultLogLevel = minimumLevel;
     }
 
-    public virtual ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public override ValueTask DisposeAsync() => base.DisposeAsync();
 }

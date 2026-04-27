@@ -10,8 +10,14 @@ namespace Foundatio.Repositories
     {
         internal const string AggregationsKey = "@AggregationsExpressionKey";
 
-        public static T AggregationsExpression<T>(this T options, string aggregations) where T : IRepositoryQuery
+        public static T AggregationsExpression<T>(this T options, string? aggregations) where T : IRepositoryQuery
         {
+            if (aggregations is null)
+            {
+                options.Values?.Remove(AggregationsKey);
+                return options;
+            }
+
             return options.BuildOption(AggregationsKey, aggregations);
         }
     }
@@ -21,9 +27,9 @@ namespace Foundatio.Repositories.Options
 {
     public static class ReadAggregationQueryExtensions
     {
-        public static string GetAggregationsExpression(this IRepositoryQuery query)
+        public static string? GetAggregationsExpression(this IRepositoryQuery query)
         {
-            return query.SafeGetOption<string>(AggregationQueryExtensions.AggregationsKey, null);
+            return query.SafeGetOption<string?>(AggregationQueryExtensions.AggregationsKey, null);
         }
     }
 }
@@ -38,12 +44,13 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
             if (elasticIndex?.QueryParser == null)
                 return;
 
-            string aggregations = ctx.Source.GetAggregationsExpression();
+            string? aggregations = ctx.Source.GetAggregationsExpression();
             if (String.IsNullOrEmpty(aggregations))
                 return;
 
             var result = await elasticIndex.QueryParser.BuildAggregationsAsync(aggregations, ctx).AnyContext();
-            ctx.Search.Aggregations(result);
+            if (result is not null)
+                ctx.Search.Aggregations(result);
         }
     }
 }

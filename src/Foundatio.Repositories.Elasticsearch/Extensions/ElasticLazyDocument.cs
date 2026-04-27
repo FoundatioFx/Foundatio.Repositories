@@ -10,21 +10,21 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions;
 public class ElasticLazyDocument : ILazyDocument
 {
     private readonly Nest.ILazyDocument _inner;
-    private IElasticsearchSerializer _requestResponseSerializer;
+    private IElasticsearchSerializer? _requestResponseSerializer;
 
     public ElasticLazyDocument(Nest.ILazyDocument inner)
     {
         _inner = inner;
     }
 
-    private static readonly Lazy<Func<Nest.ILazyDocument, IElasticsearchSerializer>> _getSerializer =
+    private static readonly Lazy<Func<Nest.ILazyDocument, IElasticsearchSerializer?>> _getSerializer =
         new(() =>
         {
             var serializerField = typeof(Nest.LazyDocument).GetField("_requestResponseSerializer", BindingFlags.GetField | BindingFlags.NonPublic | BindingFlags.Instance);
             return lazyDocument =>
             {
                 var d = lazyDocument as Nest.LazyDocument;
-                if (d == null)
+                if (d is null)
                     return null;
 
                 var serializer = serializerField?.GetValue(d) as IElasticsearchSerializer;
@@ -32,14 +32,14 @@ public class ElasticLazyDocument : ILazyDocument
             };
         });
 
-    private static readonly Lazy<Func<Nest.ILazyDocument, byte[]>> _getBytes =
+    private static readonly Lazy<Func<Nest.ILazyDocument, byte[]?>> _getBytes =
         new(() =>
         {
             var bytesProperty = typeof(Nest.LazyDocument).GetProperty("Bytes", BindingFlags.GetProperty | BindingFlags.NonPublic | BindingFlags.Instance);
             return lazyDocument =>
             {
                 var d = lazyDocument as Nest.LazyDocument;
-                if (d == null)
+                if (d is null)
                     return null;
 
                 var bytes = bytesProperty?.GetValue(d) as byte[];
@@ -47,17 +47,19 @@ public class ElasticLazyDocument : ILazyDocument
             };
         });
 
-    public T As<T>() where T : class
+    public T? As<T>() where T : class
     {
-        if (_requestResponseSerializer == null)
-            _requestResponseSerializer = _getSerializer.Value(_inner);
+        _requestResponseSerializer ??= _getSerializer.Value(_inner);
 
         var bytes = _getBytes.Value(_inner);
+        if (bytes is null || _requestResponseSerializer is null)
+            return null;
+
         var hit = _requestResponseSerializer.Deserialize<IHit<T>>(new MemoryStream(bytes));
         return hit?.Source;
     }
 
-    public object As(Type objectType)
+    public object? As(Type objectType)
     {
         var hitType = typeof(IHit<>).MakeGenericType(objectType);
         return _inner.As(hitType);

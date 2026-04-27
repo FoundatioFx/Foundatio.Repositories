@@ -5,7 +5,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 
 public record FileAccessHistory : IIdentity
 {
-    public string Id { get; set; }
+    public string Id { get; set; } = null!;
     public DateTime AccessedDateUtc { get; set; }
-    public string Path { get; set; }
+    public string Path { get; set; } = null!;
 }

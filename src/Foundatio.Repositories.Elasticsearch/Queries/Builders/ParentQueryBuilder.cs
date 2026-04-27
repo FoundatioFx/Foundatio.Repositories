@@ -56,7 +56,7 @@ namespace Foundatio.Repositories.Options
             return query.SafeGetOption<(string Relation, string ParentId)>(ParentQueryExtensions.ParentIdKey);
         }
 
-        public static string GetDiscriminator(this IRepositoryQuery query)
+        public static string? GetDiscriminator(this IRepositoryQuery query)
         {
             return query.SafeGetOption<string>(ParentQueryExtensions.DiscriminatorKey);
         }
@@ -69,19 +69,20 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
     {
         public async Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
-            var index = ctx.Options.GetElasticIndex();
-
             var parentId = ctx.Source.GetParentId();
             if (!String.IsNullOrEmpty(parentId.Item2))
                 ctx.Filter &= new ParentIdQuery { Id = parentId.ParentId, Type = parentId.Relation };
 
-            string discriminator = ctx.Source.GetDiscriminator();
+            string? discriminator = ctx.Source.GetDiscriminator();
             if (discriminator != null)
                 ctx.Filter &= new TermQuery { Field = "discriminator", Value = discriminator };
 
             var parentQueries = ctx.Source.GetParentQueries();
             if (parentQueries.Count > 0)
             {
+                var index = ctx.Options.GetElasticIndex()
+                    ?? throw new InvalidOperationException("ElasticIndex must be set on options to build parent queries.");
+
                 foreach (var parentQuery in parentQueries)
                 {
                     var parentOptions = ctx.Options.Clone();
@@ -91,7 +92,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                     if (parentQuery.GetDocumentType() == typeof(object))
                         parentQuery.DocumentType(ctx.Options.ParentDocumentType());
 
-                    var parentContext = new QueryBuilderContext<object>(parentQuery, parentOptions, null);
+                    var parentContext = new QueryBuilderContext<object>(parentQuery, parentOptions);
 
                     await index.QueryBuilder.BuildAsync(parentContext);
 
