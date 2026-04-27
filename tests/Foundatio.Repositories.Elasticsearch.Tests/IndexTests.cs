@@ -1457,20 +1457,74 @@ public sealed class IndexTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public Task ConfigureIndexesAsync_ConcurrentCalls_Serialized()
+    public async Task ConfigureIndexesAsync_ConcurrentCalls_Serialized()
     {
-        // Multiple concurrent calls should all complete without errors.
+        // Arrange
+        await _configuration.DeleteIndexesAsync();
+
+        // Act
         var tasks = new List<Task>();
         for (int i = 0; i < 5; i++)
             tasks.Add(_configuration.ConfigureIndexesAsync());
+        await Task.WhenAll(tasks);
 
-        return Task.WhenAll(tasks);
+        // Assert: cache marker should be set after successful configuration
+        Assert.Contains(_cache.Keys, k => k.StartsWith("configure-indexes:"));
     }
 
     [Fact]
-    public Task ConfigureIndexesAsync_WithExplicitIndexes_BypassesLock()
+    public async Task ConfigureIndexesAsync_SecondCall_SkipsWhenMarkerExists()
     {
-        // Explicit indexes bypass the distributed lock.
-        return _configuration.ConfigureIndexesAsync(indexes: _configuration.Indexes);
+        // Arrange
+        await _configuration.DeleteIndexesAsync();
+        await _configuration.ConfigureIndexesAsync();
+        Assert.Contains(_cache.Keys, k => k.StartsWith("configure-indexes:"));
+
+        // Act: second call should skip (fast path via cache marker)
+        await _configuration.ConfigureIndexesAsync();
+
+        // Assert: marker still exists
+        Assert.Contains(_cache.Keys, k => k.StartsWith("configure-indexes:"));
+    }
+
+    [Fact]
+    public async Task ConfigureIndexesAsync_WithExplicitIndexes_DoesNotSetMarker()
+    {
+        // Arrange
+        await _configuration.DeleteIndexesAsync();
+
+        // Act
+        await _configuration.ConfigureIndexesAsync(indexes: _configuration.Indexes);
+
+        // Assert: explicit indexes bypass lock+cache entirely
+        Assert.DoesNotContain(_cache.Keys, k => k.StartsWith("configure-indexes:"));
+    }
+
+    [Fact]
+    public async Task ConfigureIndexesAsync_AfterDelete_ReconfiguresSuccessfully()
+    {
+        // Arrange
+        await _configuration.ConfigureIndexesAsync();
+        Assert.Contains(_cache.Keys, k => k.StartsWith("configure-indexes:"));
+
+        // Act
+        await _configuration.DeleteIndexesAsync();
+
+        // Assert: delete should clear the marker so next configure runs fully
+        Assert.DoesNotContain(_cache.Keys, k => k.StartsWith("configure-indexes:"));
+    }
+
+    [Fact]
+    public async Task ConfigureIndexesAsync_AfterMaintain_ReconfiguresSuccessfully()
+    {
+        // Arrange
+        await _configuration.ConfigureIndexesAsync();
+        Assert.Contains(_cache.Keys, k => k.StartsWith("configure-indexes:"));
+
+        // Act
+        await _configuration.MaintainIndexesAsync();
+
+        // Assert: maintain should clear the marker
+        Assert.DoesNotContain(_cache.Keys, k => k.StartsWith("configure-indexes:"));
     }
 }

@@ -666,6 +666,31 @@ Options:
 - Creates aliases
 - Starts reindexing for outdated indexes
 
+#### Concurrency Protection
+
+When multiple distributed processes (pods, workers, migration runners) call `ConfigureIndexesAsync` on startup, a distributed lock and cache marker prevent redundant Elasticsearch admin API calls:
+
+1. **Cache check**: If a configuration marker exists in the distributed cache, the call returns immediately with zero Elasticsearch calls and zero lock overhead.
+2. **Distributed lock**: A distributed lock serializes concurrent callers so only one process runs the full configure pass at a time.
+3. **Double-check**: After acquiring the lock, the cache is checked again in case another process finished while waiting.
+4. **Configure**: The full configure and maintain pass runs on all indexes in parallel.
+5. **Set cache marker**: A 5-minute TTL marker is set in the distributed cache so subsequent callers skip.
+
+The cache marker key includes a stable hash of all index names and versions, so deploying a new configuration (adding indexes, changing versions) automatically bypasses stale markers from a previous configuration. Old markers expire naturally after 5 minutes.
+
+The marker is explicitly cleared by `DeleteIndexesAsync`, `MaintainIndexesAsync`, and `ReindexAsync` so the next configure call re-validates after any structural change.
+
+```csharp
+// First call configures and sets the marker
+await configuration.ConfigureIndexesAsync();
+
+// Subsequent calls within 5 minutes skip (fast path)
+await configuration.ConfigureIndexesAsync();
+
+// Passing explicit indexes bypasses the lock and cache marker
+await configuration.ConfigureIndexesAsync(indexes: new[] { myIndex });
+```
+
 ### Maintain Indexes
 
 Run maintenance tasks:
