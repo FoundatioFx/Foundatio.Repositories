@@ -2,23 +2,15 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
-using Nest;
+using Foundatio.Serializer;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 public static class FindHitExtensions
 {
-    private static JsonSerializerOptions _options;
-    static FindHitExtensions()
-    {
-        _options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        _options.Converters.Add(new ObjectConverter());
-    }
-
     public static string? GetIndex<T>(this FindHit<T> hit)
     {
         return hit?.Data?.GetString(ElasticDataKeys.Index);
@@ -29,8 +21,39 @@ public static class FindHitExtensions
         if (hit is null || !hit.Data.TryGetValue(ElasticDataKeys.Sorts, out object? sorts))
             return Array.Empty<object>();
 
-        object[]? sortsArray = sorts as object[];
-        return sortsArray;
+        // Handle different collection types - new ES client returns IReadOnlyCollection<FieldValue>
+        if (sorts is object[] sortsArray)
+            return sortsArray;
+
+        if (sorts is IEnumerable<FieldValue> fieldValues)
+        {
+            // Extract actual values from FieldValue objects
+            return fieldValues.Select(GetFieldValueAsObject).ToArray()!;
+        }
+
+        if (sorts is IEnumerable<object> sortsList)
+            return sortsList.ToArray();
+
+        return Array.Empty<object>();
+    }
+
+    private static object? GetFieldValueAsObject(FieldValue fv)
+    {
+        // FieldValue is a tagged union in the new ES client
+        // We need to extract the actual value based on the variant
+        if (fv.TryGetLong(out var longVal))
+            return longVal;
+        if (fv.TryGetDouble(out var doubleVal))
+            return doubleVal;
+        if (fv.TryGetString(out var strVal))
+            return strVal;
+        if (fv.TryGetBool(out var boolVal))
+            return boolVal;
+        if (fv.IsNull)
+            return null;
+
+        // Fallback - return the FieldValue itself
+        return fv;
     }
 
     public static string? GetSearchBeforeToken<T>(this FindResults<T> results) where T : class
@@ -49,45 +72,66 @@ public static class FindHitExtensions
         return results.Data.GetString(ElasticDataKeys.SearchAfterToken, null);
     }
 
-    internal static void SetSearchBeforeToken<T>(this FindResults<T> results) where T : class
+    internal static void SetSearchBeforeToken<T>(this FindResults<T> results, ITextSerializer serializer) where T : class
     {
         if (results == null || results.Hits.Count == 0)
             return;
 
-        string? token = results.Hits.First().GetSortToken();
+        string? token = results.Hits.First().GetSortToken(serializer);
         if (!String.IsNullOrEmpty(token))
             results.Data[ElasticDataKeys.SearchBeforeToken] = token;
     }
 
-    internal static void SetSearchAfterToken<T>(this FindResults<T> results) where T : class
+    internal static void SetSearchAfterToken<T>(this FindResults<T> results, ITextSerializer serializer) where T : class
     {
         if (results == null || results.Hits.Count == 0)
             return;
 
-        string? token = results.Hits.Last().GetSortToken();
+        string? token = results.Hits.Last().GetSortToken(serializer);
         if (!String.IsNullOrEmpty(token))
             results.Data[ElasticDataKeys.SearchAfterToken] = token;
     }
 
-    public static string? GetSortToken<T>(this FindHit<T> hit)
+    public static string? GetSortToken<T>(this FindHit<T> hit, ITextSerializer serializer)
     {
         object[]? sorts = hit?.GetSorts();
         if (sorts == null || sorts.Length == 0)
             return null;
 
-        return Encode(JsonSerializer.Serialize(sorts));
+        return Encode(serializer.SerializeToString(sorts));
     }
 
-    public static ISort? ReverseOrder(this ISort? sort)
+    public static SortOptions? ReverseOrder(this SortOptions? sort)
     {
         if (sort == null)
             return null;
 
-        sort.Order = !sort.Order.HasValue || sort.Order == SortOrder.Ascending ? SortOrder.Descending : SortOrder.Ascending;
+        // SortOptions is a discriminated union - we need to reverse the order on the underlying variant
+        if (sort.Field != null)
+        {
+            sort.Field.Order = !sort.Field.Order.HasValue || sort.Field.Order == SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
+        }
+        else if (sort.Score != null)
+        {
+            sort.Score.Order = !sort.Score.Order.HasValue || sort.Score.Order == SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
+        }
+        else if (sort.Doc != null)
+        {
+            sort.Doc.Order = !sort.Doc.Order.HasValue || sort.Doc.Order == SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
+        }
+        else if (sort.GeoDistance != null)
+        {
+            sort.GeoDistance.Order = !sort.GeoDistance.Order.HasValue || sort.GeoDistance.Order == SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
+        }
+        else if (sort.Script != null)
+        {
+            sort.Script.Order = !sort.Script.Order.HasValue || sort.Script.Order == SortOrder.Asc ? SortOrder.Desc : SortOrder.Asc;
+        }
+
         return sort;
     }
 
-    public static IEnumerable<ISort>? ReverseOrder(this IEnumerable<ISort>? sorts)
+    public static IEnumerable<SortOptions>? ReverseOrder(this IEnumerable<SortOptions>? sorts)
     {
         if (sorts == null)
             return null;
@@ -97,9 +141,9 @@ public static class FindHitExtensions
         return sortList;
     }
 
-    public static object[]? DecodeSortToken(string sortToken)
+    public static object[]? DecodeSortToken(string sortToken, ITextSerializer serializer)
     {
-        return JsonSerializer.Deserialize<object[]>(Decode(sortToken), _options);
+        return serializer.Deserialize<object[]>(Decode(sortToken));
     }
 
     private static string Encode(string text)
@@ -135,35 +179,4 @@ public static class ElasticDataKeys
     public const string Sorts = "sorts";
     public const string SearchBeforeToken = nameof(SearchBeforeToken);
     public const string SearchAfterToken = nameof(SearchAfterToken);
-}
-
-public class ObjectConverter : JsonConverter<object>
-{
-    public override object? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-    {
-        return reader.TokenType switch
-        {
-            JsonTokenType.Number => GetNumber(reader),
-            JsonTokenType.String => reader.GetString(),
-            JsonTokenType.True => reader.GetBoolean(),
-            JsonTokenType.False => reader.GetBoolean(),
-            JsonTokenType.Null => null,
-            _ => throw new JsonException($"Unexpected token type: {reader.TokenType}")
-        };
-    }
-
-    private object GetNumber(Utf8JsonReader reader)
-    {
-        if (reader.TryGetInt64(out var l))
-            return l;
-        else if (reader.TryGetDecimal(out var d))
-            return d;
-        else
-            throw new InvalidOperationException("Value is not a number");
-    }
-
-    public override void Write(Utf8JsonWriter writer, object value, JsonSerializerOptions options)
-    {
-        throw new NotImplementedException();
-    }
 }

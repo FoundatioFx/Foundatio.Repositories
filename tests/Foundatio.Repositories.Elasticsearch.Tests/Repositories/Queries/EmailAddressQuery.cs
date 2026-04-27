@@ -1,9 +1,10 @@
 ﻿using System;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories
 {
@@ -39,7 +40,7 @@ namespace Foundatio.Repositories.Elasticsearch.Tests.Repositories.Queries
             if (String.IsNullOrEmpty(emailAddress))
                 return Task.CompletedTask;
 
-            ctx.Filter &= Query<Employee>.Term(f => f.EmailAddress, emailAddress);
+            ctx.Filter &= new TermQuery { Field = Infer.Field<Employee>(f => f.EmailAddress), Value = emailAddress };
 
             return Task.CompletedTask;
         }

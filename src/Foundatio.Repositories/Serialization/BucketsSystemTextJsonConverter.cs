@@ -2,7 +2,7 @@ using System;
 using System.Text.Json;
 using Foundatio.Repositories.Models;
 
-namespace Foundatio.Repositories.Utility;
+namespace Foundatio.Repositories.Serialization;
 
 public class BucketsSystemTextJsonConverter : System.Text.Json.Serialization.JsonConverter<IBucket>
 {
@@ -51,6 +51,9 @@ public class BucketsSystemTextJsonConverter : System.Text.Json.Serialization.Jso
                     break;
                 case "double":
                     value = element.Deserialize<KeyedBucket<double>>(options);
+                    break;
+                case "geohash":
+                    value = element.Deserialize<KeyedBucket<string>>(options);
                     break;
                 case "object":
                     value = element.Deserialize<KeyedBucket<object>>(options);

@@ -2,12 +2,12 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
 
@@ -117,12 +117,12 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
 
     public Task<CountResult> GetNumberOfEmployeesWithMissingCompanyName(string company)
     {
-        return CountAsync(q => q.Company(company).ElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.CompanyName))));
+        return CountAsync(q => q.Company(company).ElasticFilter(new BoolQuery { MustNot = [new ExistsQuery { Field = "companyName" }] }));
     }
 
     public Task<CountResult> GetNumberOfEmployeesWithMissingName(string company)
     {
-        return CountAsync(q => q.Company(company).ElasticFilter(!Query<Employee>.Exists(f => f.Field(e => e.Name))));
+        return CountAsync(q => q.Company(company).ElasticFilter(new BoolQuery { MustNot = [new ExistsQuery { Field = "name" }] }));
     }
 
     /// <summary>
@@ -162,7 +162,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
 
         var cacheEntries = new Dictionary<string, FindHit<Employee>>();
         foreach (var hit in findHits.Where(h => h.Document?.EmailAddress is { Length: > 0 }))
-            cacheEntries.Add($"email:{hit.Document!.EmailAddress.ToLowerInvariant()}", hit);
+            cacheEntries.Add($"email:{hit.Document!.EmailAddress!.ToLowerInvariant()}", hit);
 
         await AddDocumentsToCacheWithKeyAsync(cacheEntries, options.GetExpiresIn());
     }
@@ -170,7 +170,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
     protected override async Task InvalidateCacheAsync(IReadOnlyCollection<ModifiedDocument<Employee>> documents, ChangeType? changeType = null)
     {
         await base.InvalidateCacheAsync(documents, changeType);
-        await Cache.RemoveAllAsync(documents.Where(d => !String.IsNullOrEmpty(d.Value.EmailAddress)).Select(d => $"email:{d.Value.EmailAddress.ToLowerInvariant()}"));
+        await Cache.RemoveAllAsync(documents.Where(d => !String.IsNullOrEmpty(d.Value.EmailAddress)).Select(d => $"email:{d.Value.EmailAddress!.ToLowerInvariant()}"));
     }
 }
 

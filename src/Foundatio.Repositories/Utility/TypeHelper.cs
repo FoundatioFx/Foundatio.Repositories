@@ -12,6 +12,7 @@ public static class TypeHelper
         if (value is null)
             return default;
 
+        Type underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
         TypeConverter converter = TypeDescriptor.GetConverter(targetType);
         Type valueType = value.GetType();
 
@@ -42,6 +43,9 @@ public static class TypeHelper
             if (convertedValue is T typedValue)
                 return typedValue;
 
+            if (convertedValue is not null && underlyingType != targetType)
+                return (T)convertedValue;
+
             return default;
         }
 
@@ -50,11 +54,8 @@ public static class TypeHelper
 
         try
         {
-            object? convertedValue = Convert.ChangeType(value, targetType);
-            if (convertedValue is T typedConvertedValue)
-                return typedConvertedValue;
-
-            return default;
+            object convertedValue = Convert.ChangeType(value, underlyingType);
+            return (T)convertedValue;
         }
         catch (Exception e)
         {

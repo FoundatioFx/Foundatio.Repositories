@@ -70,7 +70,7 @@ public class MyRepository : ElasticRepositoryBase<MyEntity>
 | `GetUpdatedUtcFieldPath()` | Returns the Elasticsearch field path for the updated timestamp | Returns the inferred `UpdatedUtc` field name. Throws `RepositoryException` if `HasDateTracking` is `true` but no field path is available |
 | `SetDocumentDates(T, TimeProvider)` | Sets date properties on the C# object (used by Add, Save, ActionPatch, JsonPatch bulk) | Sets `CreatedUtc` and `UpdatedUtc` on `IHaveDates` models |
 
-The `ApplyDateTracking` overloads for `ScriptPatch`, `PartialPatch`, and `JToken` are also virtual and can be overridden for full control over how dates are injected into each patch type. For nested fields, the script parameter key uses the last segment of the field path (e.g., `dateUpdatedUtc` for `metaData.dateUpdatedUtc`).
+The `ApplyDateTracking` overloads for `ScriptPatch`, `PartialPatch`, and `JsonNode` are also virtual and can be overridden for full control over how dates are injected into each patch type. For nested fields, the script parameter key uses the last segment of the field path (e.g., `dateUpdatedUtc` for `metaData.dateUpdatedUtc`).
 
 ## Patch Types
 

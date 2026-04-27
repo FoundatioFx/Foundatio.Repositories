@@ -7,5 +7,5 @@ public class DuplicateDocumentException : DocumentException
 {
     public DuplicateDocumentException() : base() { }
     public DuplicateDocumentException(string message) : base(message) { }
-    public DuplicateDocumentException(string message, Exception innerException) : base(message, innerException) { }
+    public DuplicateDocumentException(string message, Exception? innerException) : base(message, innerException) { }
 }

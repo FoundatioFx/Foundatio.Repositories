@@ -1,5 +1,6 @@
+using System;
 using System.Threading.Tasks;
-using Nest;
+using Elastic.Clients.Elasticsearch.Mapping;
 
 namespace Foundatio.Repositories.Elasticsearch.CustomFields;
 
@@ -30,7 +31,7 @@ public interface ICustomFieldType
     /// Configures the Elasticsearch mapping for index slots of this type.
     /// This is used in dynamic templates to map <c>idx.{type}-*</c> fields.
     /// </summary>
-    IProperty ConfigureMapping<T>(SingleMappingSelector<T> map) where T : class;
+    Func<PropertyFactory<T>, IProperty> ConfigureMapping<T>() where T : class;
 }
 
 /// <summary>

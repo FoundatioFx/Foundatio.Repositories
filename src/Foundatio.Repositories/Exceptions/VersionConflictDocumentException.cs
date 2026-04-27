@@ -7,5 +7,5 @@ public class VersionConflictDocumentException : DocumentException
 {
     public VersionConflictDocumentException() : base() { }
     public VersionConflictDocumentException(string message) : base(message) { }
-    public VersionConflictDocumentException(string message, Exception innerException) : base(message, innerException) { }
+    public VersionConflictDocumentException(string message, Exception? innerException) : base(message, innerException) { }
 }

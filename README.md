@@ -43,19 +43,18 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 
 public sealed class EmployeeIndex : VersionedIndex<Employee>
 {
-    public EmployeeIndex(IElasticConfiguration configuration) 
+    public EmployeeIndex(IElasticConfiguration configuration)
         : base(configuration, "employees", version: 1) { }
 
-    public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(
-        TypeMappingDescriptor<Employee> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
     {
-        return map
-            .Dynamic(false)
+        map
+            .Dynamic(DynamicMapping.False)
             .Properties(p => p
                 .SetupDefaults()
-                .Text(f => f.Name(e => e.Name).AddKeywordAndSortFields())
-                .Text(f => f.Name(e => e.Email).AddKeywordAndSortFields())
-                .Number(f => f.Name(e => e.Age).Type(NumberType.Integer))
+                .Text(e => e.Name, t => t.AddKeywordAndSortFields())
+                .Text(e => e.Email, t => t.AddKeywordAndSortFields())
+                .IntegerNumber(e => e.Age)
             );
     }
 }
@@ -71,7 +70,7 @@ public interface IEmployeeRepository : ISearchableRepository<Employee> { }
 
 public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepository
 {
-    public EmployeeRepository(MyElasticConfiguration configuration) 
+    public EmployeeRepository(MyElasticConfiguration configuration)
         : base(configuration.Employees) { }
 }
 ```
@@ -80,11 +79,11 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>, IEmployeeRepo
 
 ```csharp
 // Add
-var employee = await repository.AddAsync(new Employee 
-{ 
-    Name = "John Doe", 
+var employee = await repository.AddAsync(new Employee
+{
+    Name = "John Doe",
     Email = "john@example.com",
-    Age = 30 
+    Age = 30
 });
 
 // Query

@@ -3,12 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Core.Search;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Utility;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories
 {
@@ -39,19 +40,19 @@ namespace Foundatio.Repositories
         }
 
         /// <inheritdoc cref="Include{T}(T, Field)"/>
-        public static IRepositoryQuery Include<T>(this IRepositoryQuery query, Expression<Func<T, object>> objectPath)
+        public static IRepositoryQuery Include<T>(this IRepositoryQuery query, Expression<Func<T, object?>> objectPath)
         {
             return query.AddCollectionOptionValue<IRepositoryQuery, Field>(IncludesKey, objectPath);
         }
 
         /// <inheritdoc cref="Include{T}(T, Field)"/>
-        public static IRepositoryQuery<T> Include<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath) where T : class
+        public static IRepositoryQuery<T> Include<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath) where T : class
         {
             return query.AddCollectionOptionValue<IRepositoryQuery<T>, Field>(IncludesKey, objectPath);
         }
 
         /// <inheritdoc cref="Include{T}(T, Field)"/>
-        public static IRepositoryQuery<T> Include<T>(this IRepositoryQuery<T> query, params Expression<Func<T, object>>[] objectPaths) where T : class
+        public static IRepositoryQuery<T> Include<T>(this IRepositoryQuery<T> query, params Expression<Func<T, object?>>[] objectPaths) where T : class
         {
             if (objectPaths.Length is 0)
                 return query;
@@ -105,13 +106,13 @@ namespace Foundatio.Repositories
         }
 
         /// <inheritdoc cref="Exclude{T}(T, Field)"/>
-        public static IRepositoryQuery<T> Exclude<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath) where T : class
+        public static IRepositoryQuery<T> Exclude<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath) where T : class
         {
             return query.AddCollectionOptionValue<IRepositoryQuery<T>, Field>(ExcludesKey, objectPath);
         }
 
         /// <inheritdoc cref="Exclude{T}(T, Field)"/>
-        public static IRepositoryQuery<T> Exclude<T>(this IRepositoryQuery<T> query, params Expression<Func<T, object>>[] objectPaths) where T : class
+        public static IRepositoryQuery<T> Exclude<T>(this IRepositoryQuery<T> query, params Expression<Func<T, object?>>[] objectPaths) where T : class
         {
             if (objectPaths.Length is 0)
                 return query;
@@ -172,19 +173,19 @@ namespace Foundatio.Repositories
         }
 
         /// <inheritdoc cref="Include{T}(T, Field)"/>
-        public static ICommandOptions Include<T>(this ICommandOptions options, Expression<Func<T, object>> objectPath)
+        public static ICommandOptions Include<T>(this ICommandOptions options, Expression<Func<T, object?>> objectPath)
         {
             return options.AddCollectionOptionValue<ICommandOptions, Field>(IncludesKey, objectPath);
         }
 
         /// <inheritdoc cref="Include{T}(T, Field)"/>
-        public static ICommandOptions<T> Include<T>(this ICommandOptions<T> options, Expression<Func<T, object>> objectPath) where T : class
+        public static ICommandOptions<T> Include<T>(this ICommandOptions<T> options, Expression<Func<T, object?>> objectPath) where T : class
         {
             return options.AddCollectionOptionValue<ICommandOptions<T>, Field>(IncludesKey, objectPath);
         }
 
         /// <inheritdoc cref="Include{T}(T, Field)"/>
-        public static ICommandOptions<T> Include<T>(this ICommandOptions<T> options, params Expression<Func<T, object>>[] objectPaths) where T : class
+        public static ICommandOptions<T> Include<T>(this ICommandOptions<T> options, params Expression<Func<T, object?>>[] objectPaths) where T : class
         {
             if (objectPaths.Length is 0)
                 return options;
@@ -234,13 +235,13 @@ namespace Foundatio.Repositories
         }
 
         /// <inheritdoc cref="Exclude{T}(T, Field)"/>
-        public static ICommandOptions<T> Exclude<T>(this ICommandOptions<T> options, Expression<Func<T, object>> objectPath) where T : class
+        public static ICommandOptions<T> Exclude<T>(this ICommandOptions<T> options, Expression<Func<T, object?>> objectPath) where T : class
         {
             return options.AddCollectionOptionValue<ICommandOptions<T>, Field>(ExcludesKey, objectPath);
         }
 
         /// <inheritdoc cref="Exclude{T}(T, Field)"/>
-        public static ICommandOptions<T> Exclude<T>(this ICommandOptions<T> options, params Expression<Func<T, object>>[] objectPaths) where T : class
+        public static ICommandOptions<T> Exclude<T>(this ICommandOptions<T> options, params Expression<Func<T, object?>>[] objectPaths) where T : class
         {
             if (objectPaths.Length is 0)
                 return options;
@@ -404,12 +405,16 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 resolvedExcludes = resolvedExcludes.Where(f => !resolvedRequiredFields.Contains(f)).ToArray();
             }
 
-            if (resolvedIncludes.Length > 0 && resolvedExcludes.Length > 0)
-                ctx.Search.Source(s => s.Includes(i => i.Fields(resolvedIncludes)).Excludes(i => i.Fields(resolvedExcludes)));
-            else if (resolvedIncludes.Length > 0)
-                ctx.Search.Source(s => s.Includes(i => i.Fields(resolvedIncludes)));
-            else if (resolvedExcludes.Length > 0)
-                ctx.Search.Source(s => s.Excludes(i => i.Fields(resolvedExcludes)));
+            if (resolvedIncludes.Length > 0 || resolvedExcludes.Length > 0)
+            {
+                var filter = new SourceFilter();
+                if (resolvedIncludes.Length > 0)
+                    filter.Includes = resolvedIncludes;
+                if (resolvedExcludes.Length > 0)
+                    filter.Excludes = resolvedExcludes;
+
+                ctx.Search.Source(new SourceConfig(filter));
+            }
 
             return Task.CompletedTask;
         }

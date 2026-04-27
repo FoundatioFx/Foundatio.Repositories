@@ -2,81 +2,83 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Reflection;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.AsyncSearch;
+using Elastic.Clients.Elasticsearch.Core.Bulk;
+using Elastic.Clients.Elasticsearch.Core.Search;
+using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
+using Foundatio.Serializer;
 using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
+using ElasticAggregations = Elastic.Clients.Elasticsearch.Aggregations;
 
 namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 public static class ElasticIndexExtensions
 {
-    public static Nest.AsyncSearchSubmitDescriptor<T> ToAsyncSearchSubmitDescriptor<T>(this Nest.SearchDescriptor<T> searchDescriptor) where T : class, new()
+    public static SubmitAsyncSearchRequest ToAsyncSearchSubmitRequest<T>(this SearchRequest searchRequest) where T : class, new()
     {
-        var asyncSearchDescriptor = new Nest.AsyncSearchSubmitDescriptor<T>();
+        var asyncSearchRequest = new SubmitAsyncSearchRequest(searchRequest.Indices)
+        {
+            Aggregations = searchRequest.Aggregations,
+            Collapse = searchRequest.Collapse,
+            DocvalueFields = searchRequest.DocvalueFields,
+            Explain = searchRequest.Explain,
+            From = searchRequest.From,
+            Highlight = searchRequest.Highlight,
+            IndicesBoost = searchRequest.IndicesBoost,
+            MinScore = searchRequest.MinScore,
+            PostFilter = searchRequest.PostFilter,
+            Profile = searchRequest.Profile,
+            Query = searchRequest.Query,
+            Rescore = searchRequest.Rescore,
+            ScriptFields = searchRequest.ScriptFields,
+            SearchAfter = searchRequest.SearchAfter,
+            Size = searchRequest.Size,
+            Sort = searchRequest.Sort,
+            Source = searchRequest.Source,
+            StoredFields = searchRequest.StoredFields,
+            Suggest = searchRequest.Suggest,
+            TerminateAfter = searchRequest.TerminateAfter,
+            Timeout = searchRequest.Timeout,
+            TrackScores = searchRequest.TrackScores,
+            TrackTotalHits = searchRequest.TrackTotalHits,
+            Version = searchRequest.Version,
+            RuntimeMappings = searchRequest.RuntimeMappings,
+            SeqNoPrimaryTerm = searchRequest.SeqNoPrimaryTerm
+        };
 
-        var searchRequest = (Nest.ISearchRequest)searchDescriptor;
-        var asyncSearchRequest = (Nest.IAsyncSearchSubmitRequest)asyncSearchDescriptor;
-
-        asyncSearchRequest.RequestParameters.QueryString = searchRequest.RequestParameters.QueryString;
-        asyncSearchRequest.RequestParameters.RequestConfiguration = searchRequest.RequestParameters.RequestConfiguration;
-        asyncSearchDescriptor.Index(searchRequest.Index);
-        asyncSearchDescriptor.SequenceNumberPrimaryTerm(searchRequest.RequestParameters.SequenceNumberPrimaryTerm);
-        asyncSearchDescriptor.IgnoreUnavailable(searchRequest.RequestParameters.IgnoreUnavailable);
-        asyncSearchDescriptor.TrackTotalHits(searchRequest.RequestParameters.TrackTotalHits);
-
-        asyncSearchRequest.Aggregations = searchRequest.Aggregations;
-        asyncSearchRequest.Collapse = searchRequest.Collapse;
-        asyncSearchRequest.DocValueFields = searchRequest.DocValueFields;
-        asyncSearchRequest.Explain = searchRequest.Explain;
-        asyncSearchRequest.From = searchRequest.From;
-        asyncSearchRequest.Highlight = searchRequest.Highlight;
-        asyncSearchRequest.IndicesBoost = searchRequest.IndicesBoost;
-        asyncSearchRequest.MinScore = searchRequest.MinScore;
-        asyncSearchRequest.PostFilter = searchRequest.PostFilter;
-        asyncSearchRequest.Profile = searchRequest.Profile;
-        asyncSearchRequest.Query = searchRequest.Query;
-        asyncSearchRequest.Rescore = searchRequest.Rescore;
-        asyncSearchRequest.ScriptFields = searchRequest.ScriptFields;
-        asyncSearchRequest.SearchAfter = searchRequest.SearchAfter;
-        asyncSearchRequest.Size = searchRequest.Size;
-        asyncSearchRequest.Sort = searchRequest.Sort;
-        asyncSearchRequest.Source = searchRequest.Source;
-        asyncSearchRequest.StoredFields = searchRequest.StoredFields;
-        asyncSearchRequest.Suggest = searchRequest.Suggest;
-        asyncSearchRequest.TerminateAfter = searchRequest.TerminateAfter;
-        asyncSearchRequest.Timeout = searchRequest.Timeout;
-        asyncSearchRequest.TrackScores = searchRequest.TrackScores;
-        asyncSearchRequest.TrackTotalHits = searchRequest.TrackTotalHits;
-        asyncSearchRequest.Version = searchRequest.Version;
-        asyncSearchRequest.RuntimeFields = searchRequest.RuntimeFields;
-
-        return asyncSearchDescriptor;
+        return asyncSearchRequest;
     }
 
-    public static FindResults<T> ToFindResults<T>(this Nest.ISearchResponse<T> response, ICommandOptions options, ILogger? logger = null) where T : class, new()
+    public static FindResults<T> ToFindResults<T>(this SearchResponse<T> response, ICommandOptions options, ITextSerializer serializer, ILogger? logger = null) where T : class, new()
     {
-        if (!response.IsValid)
+        ArgumentNullException.ThrowIfNull(response);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(serializer);
+
+        if (!response.IsValidResponse)
         {
-            if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 return new FindResults<T>();
 
-            throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException);
+            throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());
         }
 
         int limit = options.GetLimit();
         var docs = response.Hits.Take(limit).ToFindHits().ToList();
 
         var data = new DataDictionary();
-        if (response.ScrollId != null)
-            data.Add(ElasticDataKeys.ScrollId, response.ScrollId);
+        if (response.ScrollId is not null)
+            data.Add(ElasticDataKeys.ScrollId, response.ScrollId.ToString());
 
-        var results = new FindResults<T>(docs, response.Total, response.ToAggregations(logger), null, data);
+        var results = new FindResults<T>(docs, response.Total, response.ToAggregations(serializer, logger), null, data);
         var protectedResults = (IFindResults<T>)results;
         if (options.ShouldUseSnapshotPaging())
             protectedResults.HasMore = response.Hits.Count >= limit;
@@ -85,21 +87,21 @@ public static class ElasticIndexExtensions
 
         if (options.HasSearchAfter())
         {
-            results.SetSearchBeforeToken();
+            results.SetSearchBeforeToken(serializer);
             if (results.HasMore)
-                results.SetSearchAfterToken();
+                results.SetSearchAfterToken(serializer);
         }
         else if (options.HasSearchBefore())
         {
             // reverse results
             protectedResults.Reverse();
-            results.SetSearchAfterToken();
+            results.SetSearchAfterToken(serializer);
             if (results.HasMore)
-                results.SetSearchBeforeToken();
+                results.SetSearchBeforeToken(serializer);
         }
         else if (results.HasMore)
         {
-            results.SetSearchAfterToken();
+            results.SetSearchAfterToken(serializer);
         }
 
         protectedResults.Page = options.GetPage();
@@ -107,14 +109,18 @@ public static class ElasticIndexExtensions
         return results;
     }
 
-    public static FindResults<T> ToFindResults<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options, ILogger? logger = null) where T : class, new()
+    public static FindResults<T> ToFindResults<T>(this SubmitAsyncSearchResponse<T> response, ICommandOptions options, ITextSerializer serializer, ILogger? logger = null) where T : class, new()
     {
-        if (!response.IsValid)
+        ArgumentNullException.ThrowIfNull(response);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(serializer);
+
+        if (!response.IsValidResponse)
         {
-            if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 return new FindResults<T>();
 
-            throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException);
+            throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());
         }
 
         int limit = options.GetLimit();
@@ -122,7 +128,7 @@ public static class ElasticIndexExtensions
 
         var data = new DataDictionary
         {
-            { AsyncQueryDataKeys.AsyncQueryId, response.Id },
+            { AsyncQueryDataKeys.AsyncQueryId, response.Id! },
             { AsyncQueryDataKeys.IsRunning, response.IsRunning },
             { AsyncQueryDataKeys.IsPartial, response.IsPartial }
         };
@@ -130,7 +136,7 @@ public static class ElasticIndexExtensions
         if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
             data.Remove(AsyncQueryDataKeys.AsyncQueryId);
 
-        var results = new FindResults<T>(docs, response.Response.Total, response.ToAggregations(logger), null, data);
+        var results = new FindResults<T>(docs, response.Response.Total, response.ToAggregations(serializer, logger), null, data);
         var protectedResults = (IFindResults<T>)results;
         if (options.ShouldUseSnapshotPaging())
             protectedResults.HasMore = response.Response.Hits.Count >= limit;
@@ -139,21 +145,21 @@ public static class ElasticIndexExtensions
 
         if (options.HasSearchAfter())
         {
-            results.SetSearchBeforeToken();
+            results.SetSearchBeforeToken(serializer);
             if (results.HasMore)
-                results.SetSearchAfterToken();
+                results.SetSearchAfterToken(serializer);
         }
         else if (options.HasSearchBefore())
         {
             // reverse results
             protectedResults.Reverse();
-            results.SetSearchAfterToken();
+            results.SetSearchAfterToken(serializer);
             if (results.HasMore)
-                results.SetSearchBeforeToken();
+                results.SetSearchBeforeToken(serializer);
         }
         else if (results.HasMore)
         {
-            results.SetSearchAfterToken();
+            results.SetSearchAfterToken(serializer);
         }
 
         protectedResults.Page = options.GetPage();
@@ -161,41 +167,41 @@ public static class ElasticIndexExtensions
         return results;
     }
 
-    public static IEnumerable<FindHit<T>> ToFindHits<T>(this IEnumerable<Nest.IHit<T>> hits) where T : class
+    public static IEnumerable<FindHit<T>> ToFindHits<T>(this IEnumerable<Hit<T>> hits) where T : class
     {
         return hits.Select(h => h.ToFindHit());
     }
 
-    public static CountResult ToCountResult<T>(this Nest.ISearchResponse<T> response, ICommandOptions options, ILogger? logger = null) where T : class, new()
+    public static CountResult ToCountResult<T>(this SearchResponse<T> response, ICommandOptions options, ITextSerializer serializer, ILogger? logger = null) where T : class, new()
     {
-        if (!response.IsValid)
+        if (!response.IsValidResponse)
         {
-            if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 return new FindResults<T>();
 
-            throw new DocumentException(response.GetErrorMessage("Error while counting"), response.OriginalException);
+            throw new DocumentException(response.GetErrorMessage("Error while counting"), response.OriginalException());
         }
 
         var data = new DataDictionary();
-        if (response.ScrollId != null)
-            data.Add(ElasticDataKeys.ScrollId, response.ScrollId);
+        if (response.ScrollId is not null)
+            data.Add(ElasticDataKeys.ScrollId, response.ScrollId.ToString());
 
-        return new CountResult(response.Total, response.ToAggregations(logger), data);
+        return new CountResult(response.Total, response.ToAggregations(serializer, logger), data);
     }
 
-    public static CountResult ToCountResult<T>(this Nest.IAsyncSearchResponse<T> response, ICommandOptions options, ILogger? logger = null) where T : class, new()
+    public static CountResult ToCountResult<T>(this SubmitAsyncSearchResponse<T> response, ICommandOptions options, ITextSerializer serializer, ILogger? logger = null) where T : class, new()
     {
-        if (!response.IsValid)
+        if (!response.IsValidResponse)
         {
-            if (response.ApiCall.HttpStatusCode.GetValueOrDefault() == 404)
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
                 return new FindResults<T>();
 
-            throw new DocumentException(response.GetErrorMessage("Error while counting"), response.OriginalException);
+            throw new DocumentException(response.GetErrorMessage("Error while counting"), response.OriginalException());
         }
 
         var data = new DataDictionary
         {
-            { AsyncQueryDataKeys.AsyncQueryId, response.Id },
+            { AsyncQueryDataKeys.AsyncQueryId, response.Id! },
             { AsyncQueryDataKeys.IsRunning, response.IsRunning },
             { AsyncQueryDataKeys.IsPartial, response.IsPartial }
         };
@@ -203,40 +209,149 @@ public static class ElasticIndexExtensions
         if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
             data.Remove(AsyncQueryDataKeys.AsyncQueryId);
 
-        return new CountResult(response.Response.Total, response.ToAggregations(logger), data);
+        return new CountResult(response.Response.Total, response.ToAggregations(serializer, logger), data);
     }
 
-    public static FindHit<T> ToFindHit<T>(this Nest.GetResponse<T> hit) where T : class
+    public static FindResults<T> ToFindResults<T>(this GetAsyncSearchResponse<T> response, ICommandOptions options, ITextSerializer serializer, ILogger? logger = null) where T : class, new()
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(serializer);
+
+        if (!response.IsValidResponse)
+        {
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
+                return new FindResults<T>();
+
+            throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());
+        }
+
+        int limit = options.GetLimit();
+        var docs = response.Response.Hits.Take(limit).ToFindHits().ToList();
+
+        var data = new DataDictionary
+        {
+            { AsyncQueryDataKeys.AsyncQueryId, response.Id! },
+            { AsyncQueryDataKeys.IsRunning, response.IsRunning },
+            { AsyncQueryDataKeys.IsPartial, response.IsPartial }
+        };
+
+        if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
+            data.Remove(AsyncQueryDataKeys.AsyncQueryId);
+
+        var results = new FindResults<T>(docs, response.Response.Total, response.ToAggregations(serializer, logger), null, data);
+        var protectedResults = (IFindResults<T>)results;
+        if (options.ShouldUseSnapshotPaging())
+            protectedResults.HasMore = response.Response.Hits.Count >= limit;
+        else
+            protectedResults.HasMore = response.Response.Hits.Count > limit || response.Response.Hits.Count >= options.GetMaxLimit();
+
+        if (options.HasSearchAfter())
+        {
+            results.SetSearchBeforeToken(serializer);
+            if (results.HasMore)
+                results.SetSearchAfterToken(serializer);
+        }
+        else if (options.HasSearchBefore())
+        {
+            protectedResults.Reverse();
+            results.SetSearchAfterToken(serializer);
+            if (results.HasMore)
+                results.SetSearchBeforeToken(serializer);
+        }
+        else if (results.HasMore)
+        {
+            results.SetSearchAfterToken(serializer);
+        }
+
+        protectedResults.Page = options.GetPage();
+
+        return results;
+    }
+
+    public static CountResult ToCountResult<T>(this GetAsyncSearchResponse<T> response, ICommandOptions options, ITextSerializer serializer, ILogger? logger = null) where T : class, new()
+    {
+        if (!response.IsValidResponse)
+        {
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
+                return new FindResults<T>();
+
+            throw new DocumentException(response.GetErrorMessage("Error while counting"), response.OriginalException());
+        }
+
+        var data = new DataDictionary
+        {
+            { AsyncQueryDataKeys.AsyncQueryId, response.Id! },
+            { AsyncQueryDataKeys.IsRunning, response.IsRunning },
+            { AsyncQueryDataKeys.IsPartial, response.IsPartial }
+        };
+
+        if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
+            data.Remove(AsyncQueryDataKeys.AsyncQueryId);
+
+        return new CountResult(response.Response.Total, response.ToAggregations(serializer, logger), data);
+    }
+
+    public static FindResults<T> ToFindResults<T>(this ScrollResponse<T> response, ICommandOptions options, ITextSerializer serializer, ILogger? logger = null) where T : class, new()
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(serializer);
+
+        if (!response.IsValidResponse)
+        {
+            if (response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() == 404)
+                return new FindResults<T>();
+
+            throw new DocumentException(response.GetErrorMessage("Error while searching"), response.OriginalException());
+        }
+
+        int limit = options.GetLimit();
+        var docs = response.Hits.Take(limit).ToFindHits().ToList();
+
+        var data = new DataDictionary();
+        if (response.ScrollId is not null)
+            data.Add(ElasticDataKeys.ScrollId, response.ScrollId.ToString());
+
+        var results = new FindResults<T>(docs, response.Total, response.ToAggregations(serializer, logger), null, data);
+        var protectedResults = (IFindResults<T>)results;
+        protectedResults.HasMore = response.Hits.Count > 0 && response.Hits.Count >= limit;
+
+        protectedResults.Page = options.GetPage();
+
+        return results;
+    }
+
+    public static FindHit<T> ToFindHit<T>(this GetResponse<T> hit) where T : class
     {
         var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
 
-        var versionedDoc = hit.Source as IVersioned;
-        if (versionedDoc != null)
+        if (hit.Source is IVersioned versionedDoc)
             versionedDoc.Version = hit.GetElasticVersion();
 
         return new FindHit<T>(hit.Id, hit.Source, 0, hit.GetElasticVersion(), hit.Routing, data);
     }
 
-    public static ElasticDocumentVersion GetElasticVersion<T>(this Nest.GetResponse<T> hit) where T : class
+    public static ElasticDocumentVersion GetElasticVersion<T>(this GetResponse<T> hit) where T : class
     {
-        if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
+        if (!hit.PrimaryTerm.HasValue || !hit.SeqNo.HasValue)
             return ElasticDocumentVersion.Empty;
 
-        if (hit.PrimaryTerm.Value == 0 && hit.SequenceNumber.Value == 0)
+        if (hit.PrimaryTerm.Value == 0 && hit.SeqNo.Value == 0)
             return ElasticDocumentVersion.Empty;
 
-        return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SequenceNumber.Value);
+        return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SeqNo.Value);
     }
 
-    public static ElasticDocumentVersion GetElasticVersion<T>(this Nest.IHit<T> hit) where T : class
+    public static ElasticDocumentVersion GetElasticVersion<T>(this Hit<T> hit) where T : class
     {
-        if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
+        if (!hit.PrimaryTerm.HasValue || !hit.SeqNo.HasValue)
             return ElasticDocumentVersion.Empty;
 
-        if (hit.PrimaryTerm.Value == 0 && hit.SequenceNumber.Value == 0)
+        if (hit.PrimaryTerm.Value == 0 && hit.SeqNo.Value == 0)
             return ElasticDocumentVersion.Empty;
 
-        return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SequenceNumber.Value);
+        return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SeqNo.Value);
     }
 
     public static ElasticDocumentVersion GetElasticVersion<T>(this FindHit<T> hit) where T : class
@@ -247,28 +362,20 @@ public static class ElasticIndexExtensions
         return hit.Version;
     }
 
-    public static ElasticDocumentVersion GetElasticVersion(this Nest.IndexResponse hit)
+    public static ElasticDocumentVersion GetElasticVersion(this IndexResponse hit)
     {
-        if (hit.PrimaryTerm == 0 && hit.SequenceNumber == 0)
+        if (hit.PrimaryTerm.GetValueOrDefault() == 0 && hit.SeqNo.GetValueOrDefault() == 0)
             return ElasticDocumentVersion.Empty;
 
-        return new ElasticDocumentVersion(hit.PrimaryTerm, hit.SequenceNumber);
+        return new ElasticDocumentVersion(hit.PrimaryTerm.GetValueOrDefault(), hit.SeqNo.GetValueOrDefault());
     }
 
-    public static ElasticDocumentVersion GetElasticVersion<T>(this Nest.IMultiGetHit<T> hit) where T : class
+    public static ElasticDocumentVersion GetElasticVersion(this ResponseItem hit)
     {
-        if (!hit.PrimaryTerm.HasValue || !hit.SequenceNumber.HasValue)
+        if (hit.PrimaryTerm.GetValueOrDefault() == 0 && hit.SeqNo.GetValueOrDefault() == 0)
             return ElasticDocumentVersion.Empty;
 
-        return new ElasticDocumentVersion(hit.PrimaryTerm.Value, hit.SequenceNumber.Value);
-    }
-
-    public static ElasticDocumentVersion GetElasticVersion(this Nest.BulkResponseItemBase hit)
-    {
-        if (hit.PrimaryTerm == 0 && hit.SequenceNumber == 0)
-            return ElasticDocumentVersion.Empty;
-
-        return new ElasticDocumentVersion(hit.PrimaryTerm, hit.SequenceNumber);
+        return new ElasticDocumentVersion(hit.PrimaryTerm.GetValueOrDefault(), hit.SeqNo.GetValueOrDefault());
     }
 
     public static ElasticDocumentVersion GetElasticVersion(this IVersioned versioned)
@@ -279,160 +386,433 @@ public static class ElasticIndexExtensions
         return versioned.Version;
     }
 
-    public static FindHit<T> ToFindHit<T>(this Nest.IHit<T> hit) where T : class
+    public static FindHit<T> ToFindHit<T>(this Hit<T> hit) where T : class
     {
         var data = new DataDictionary {
-            { ElasticDataKeys.Index, hit.Index },
-            { ElasticDataKeys.Sorts, hit.Sorts }
+            { ElasticDataKeys.Index, hit.Index }
         };
 
-        var versionedDoc = hit.Source as IVersioned;
-        if (versionedDoc != null && hit.PrimaryTerm.HasValue)
+        // Only add sorts if they exist
+        if (hit.Sort != null && hit.Sort.Count > 0)
+            data[ElasticDataKeys.Sorts] = hit.Sort;
+
+        if (hit.Source is IVersioned versionedDoc && hit.PrimaryTerm.HasValue)
             versionedDoc.Version = hit.GetElasticVersion();
 
         return new FindHit<T>(hit.Id, hit.Source, hit.Score.GetValueOrDefault(), hit.GetElasticVersion(), hit.Routing, data);
     }
 
-    public static FindHit<T> ToFindHit<T>(this Nest.IMultiGetHit<T> hit) where T : class
+    public static IEnumerable<FindHit<T>> ToFindHits<T>(this MultiGetResponse<T> response, ILogger? logger = null) where T : class
     {
-        var data = new DataDictionary { { ElasticDataKeys.Index, hit.Index } };
+        foreach (var doc in response.Docs)
+        {
+            FindHit<T>? findHit = null;
+            doc.Match(
+                result =>
+                {
+                    if (result is null)
+                    {
+                        return;
+                    }
 
-        var versionedDoc = hit.Source as IVersioned;
-        if (versionedDoc != null)
-            versionedDoc.Version = hit.GetElasticVersion();
+                    if (result.Found)
+                    {
+                        var data = new DataDictionary { { ElasticDataKeys.Index, result.Index } };
 
-        return new FindHit<T>(hit.Id, hit.Source, 0, hit.GetElasticVersion(), hit.Routing, data);
+                        var version = ElasticDocumentVersion.Empty;
+                        if (result.PrimaryTerm.HasValue && result.SeqNo.HasValue && (result.PrimaryTerm.Value != 0 || result.SeqNo.Value != 0))
+                            version = new ElasticDocumentVersion(result.PrimaryTerm.Value, result.SeqNo.Value);
+
+                        if (result.Source is IVersioned versionedDoc)
+                            versionedDoc.Version = version;
+
+                        findHit = new FindHit<T>(result.Id, result.Source, 0, version, result.Routing, data);
+                    }
+                    else
+                    {
+                        logger?.LogDebug("MultiGet document not found: index={Index}, id={Id}", result.Index, result.Id);
+                    }
+                },
+                error =>
+                {
+                    if (error is null)
+                    {
+                        return;
+                    }
+
+                    logger?.LogWarning("MultiGet document error: index={Index}, id={Id}, reason={Reason}", error.Index, error.Id, error.Error?.Reason);
+                }
+            );
+            if (findHit is not null)
+                yield return findHit;
+        }
     }
 
     private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
+    private static readonly IReadOnlyDictionary<string, object> _stringBucketData = new ReadOnlyDictionary<string, object>(new Dictionary<string, object> { { "@type", "string" } });
+    private static readonly IReadOnlyDictionary<string, object> _doubleBucketData = new ReadOnlyDictionary<string, object>(new Dictionary<string, object> { { "@type", "double" } });
+    private static readonly IReadOnlyDictionary<string, object> _rangeBucketData = new ReadOnlyDictionary<string, object>(new Dictionary<string, object> { { "@type", "range" } });
+    private static readonly IReadOnlyDictionary<string, object> _geohashBucketData = new ReadOnlyDictionary<string, object>(new Dictionary<string, object> { { "@type", "geohash" } });
 
-    private static readonly Lazy<Func<Nest.TopHitsAggregate, IList<Nest.LazyDocument>?>> _getHits =
-        new(() =>
-        {
-            var hitsField = typeof(Nest.TopHitsAggregate).GetField("_hits", BindingFlags.GetField | BindingFlags.NonPublic | BindingFlags.Instance);
-            return agg => hitsField?.GetValue(agg) as IList<Nest.LazyDocument>;
-        });
-
-    public static IAggregate? ToAggregate(this Nest.IAggregate aggregate, string? name = null, ILogger? logger = null)
+    public static IAggregate? ToAggregate(this ElasticAggregations.IAggregate aggregate, string key, ITextSerializer serializer, ILogger? logger = null)
     {
-        if (aggregate is Nest.ValueAggregate valueAggregate)
+        switch (aggregate)
         {
-            if (valueAggregate.Meta is not null && valueAggregate.Meta.TryGetValue("@field_type", out object? value))
-            {
-                string? type = value.ToString();
-                if (type == "date" && valueAggregate.Value.HasValue)
+            case ElasticAggregations.AverageAggregate avg:
+                return new ValueAggregate { Value = avg.Value, Data = avg.Meta.ToReadOnlyData<ValueAggregate>() };
+
+            case ElasticAggregations.SumAggregate sum:
+                return new ValueAggregate { Value = sum.Value, Data = sum.Meta.ToReadOnlyData<ValueAggregate>() };
+
+            case ElasticAggregations.MinAggregate min:
+                return ToValueAggregate(min.Value, min.Meta);
+
+            case ElasticAggregations.MaxAggregate max:
+                return ToValueAggregate(max.Value, max.Meta);
+
+            case ElasticAggregations.CardinalityAggregate cardinality:
+                return new ValueAggregate { Value = cardinality.Value, Data = cardinality.Meta.ToReadOnlyData<ValueAggregate>() };
+
+            case ElasticAggregations.ValueCountAggregate valueCount:
+                return new ValueAggregate { Value = valueCount.Value, Data = valueCount.Meta.ToReadOnlyData<ValueAggregate>() };
+
+            case ElasticAggregations.ScriptedMetricAggregate scripted:
+                return new ObjectValueAggregate
                 {
-                    return new ValueAggregate<DateTime>
+                    Value = scripted.Value,
+                    Data = scripted.Meta.ToReadOnlyData<ObjectValueAggregate>()
+                };
+
+            case ElasticAggregations.ExtendedStatsAggregate extendedStats:
+                return new ExtendedStatsAggregate
+                {
+                    Count = extendedStats.Count,
+                    Min = extendedStats.Min,
+                    Max = extendedStats.Max,
+                    Average = extendedStats.Avg,
+                    Sum = extendedStats.Sum,
+                    StdDeviation = extendedStats.StdDeviation,
+                    StdDeviationBounds = extendedStats.StdDeviationBounds != null ? new StandardDeviationBounds
                     {
-                        Value = GetDate(valueAggregate),
-                        Data = valueAggregate.Meta.ToReadOnlyData<ValueAggregate<DateTime>>()
-                    };
-                }
-            }
+                        Lower = extendedStats.StdDeviationBounds.Lower,
+                        Upper = extendedStats.StdDeviationBounds.Upper
+                    } : null,
+                    SumOfSquares = extendedStats.SumOfSquares,
+                    Variance = extendedStats.Variance,
+                    Data = extendedStats.Meta.ToReadOnlyData<ExtendedStatsAggregate>()
+                };
 
-            return new ValueAggregate { Value = valueAggregate.Value, Data = valueAggregate.Meta?.ToReadOnlyData<ValueAggregate>() };
-        }
-
-        if (aggregate is Nest.ScriptedMetricAggregate scriptedAggregate)
-            return new ObjectValueAggregate
-            {
-                Value = scriptedAggregate.Value<object>(),
-                Data = scriptedAggregate.Meta.ToReadOnlyData<ObjectValueAggregate>()
-            };
-
-        if (aggregate is Nest.ExtendedStatsAggregate extendedStatsAggregate)
-            return new ExtendedStatsAggregate
-            {
-                Count = extendedStatsAggregate.Count,
-                Min = extendedStatsAggregate.Min,
-                Max = extendedStatsAggregate.Max,
-                Average = extendedStatsAggregate.Average,
-                Sum = extendedStatsAggregate.Sum,
-                StdDeviation = extendedStatsAggregate.StdDeviation,
-                StdDeviationBounds = new StandardDeviationBounds
+            case ElasticAggregations.StatsAggregate stats:
+                return new StatsAggregate
                 {
-                    Lower = extendedStatsAggregate.StdDeviationBounds.Lower,
-                    Upper = extendedStatsAggregate.StdDeviationBounds.Upper
-                },
-                SumOfSquares = extendedStatsAggregate.SumOfSquares,
-                Variance = extendedStatsAggregate.Variance,
-                Data = extendedStatsAggregate.Meta.ToReadOnlyData<ExtendedStatsAggregate>()
-            };
+                    Count = stats.Count,
+                    Min = stats.Min,
+                    Max = stats.Max,
+                    Average = stats.Avg,
+                    Sum = stats.Sum,
+                    Data = stats.Meta.ToReadOnlyData<StatsAggregate>()
+                };
 
-        if (aggregate is Nest.StatsAggregate statsAggregate)
-            return new StatsAggregate
-            {
-                Count = statsAggregate.Count,
-                Min = statsAggregate.Min,
-                Max = statsAggregate.Max,
-                Average = statsAggregate.Average,
-                Sum = statsAggregate.Sum,
-                Data = statsAggregate.Meta.ToReadOnlyData<StatsAggregate>()
-            };
+            case ElasticAggregations.TopHitsAggregate topHits:
+                var docs = topHits.Hits?.Hits?.Select(h => new ElasticLazyDocument(h, serializer)).Cast<ILazyDocument>().ToList();
+                var rawHits = topHits.Hits?.Hits?
+                    .Select(h => h.Source != null ? serializer.SerializeToString(h.Source) : null)
+                    .Where(s => s != null)
+                    .Cast<string>()
+                    .ToList();
+                return new TopHitsAggregate(docs ?? [])
+                {
+                    Total = topHits.Hits?.Total?.Match<long>(t => t!.Value, l => l) ?? 0,
+                    MaxScore = topHits.Hits?.MaxScore,
+                    Hits = rawHits ?? [],
+                    Data = topHits.Meta.ToReadOnlyData<TopHitsAggregate>()
+                };
 
-        if (aggregate is Nest.TopHitsAggregate topHitsAggregate)
-        {
-            var hits = _getHits.Value(topHitsAggregate);
-            var docs = hits?.Select(h => new ElasticLazyDocument(h)).Cast<ILazyDocument>().ToList();
+            case ElasticAggregations.TDigestPercentilesAggregate percentiles:
+                var items = percentiles.Values?.Select(item => new PercentileItem
+                {
+                    Percentile = item.Key,
+                    Value = item.Value
+                }) ?? Enumerable.Empty<PercentileItem>();
+                return new PercentilesAggregate(items)
+                {
+                    Data = percentiles.Meta.ToReadOnlyData<PercentilesAggregate>()
+                };
 
-            return new TopHitsAggregate(docs ?? [])
-            {
-                Total = topHitsAggregate.Total.Value,
-                MaxScore = topHitsAggregate.MaxScore,
-                Data = topHitsAggregate.Meta.ToReadOnlyData<TopHitsAggregate>()
-            };
+            case ElasticAggregations.HdrPercentilesAggregate hdrPercentiles:
+                var hdrItems = hdrPercentiles.Values?.Select(item => new PercentileItem
+                {
+                    Percentile = item.Key,
+                    Value = item.Value
+                }) ?? Enumerable.Empty<PercentileItem>();
+                return new PercentilesAggregate(hdrItems)
+                {
+                    Data = hdrPercentiles.Meta.ToReadOnlyData<PercentilesAggregate>()
+                };
+
+            case ElasticAggregations.FilterAggregate filter:
+                return new SingleBucketAggregate(filter.ToAggregations(serializer, logger))
+                {
+                    Data = filter.Meta.ToReadOnlyData<SingleBucketAggregate>(),
+                    Total = filter.DocCount
+                };
+
+            case ElasticAggregations.GlobalAggregate globalAgg:
+                return new SingleBucketAggregate(globalAgg.ToAggregations(serializer, logger))
+                {
+                    Data = globalAgg.Meta.ToReadOnlyData<SingleBucketAggregate>(),
+                    Total = globalAgg.DocCount
+                };
+
+            case ElasticAggregations.MissingAggregate missing:
+                return new SingleBucketAggregate(missing.ToAggregations(serializer, logger))
+                {
+                    Data = missing.Meta.ToReadOnlyData<SingleBucketAggregate>(),
+                    Total = missing.DocCount
+                };
+
+            case ElasticAggregations.NestedAggregate nested:
+                return new SingleBucketAggregate(nested.ToAggregations(serializer, logger))
+                {
+                    Data = nested.Meta.ToReadOnlyData<SingleBucketAggregate>(),
+                    Total = nested.DocCount
+                };
+
+            case ElasticAggregations.ReverseNestedAggregate reverseNested:
+                return new SingleBucketAggregate(reverseNested.ToAggregations(serializer, logger))
+                {
+                    Data = reverseNested.Meta.ToReadOnlyData<SingleBucketAggregate>(),
+                    Total = reverseNested.DocCount
+                };
+
+            case ElasticAggregations.DateHistogramAggregate dateHistogram:
+                return ToDateHistogramBucketAggregate(dateHistogram, serializer, logger);
+
+            case ElasticAggregations.StringTermsAggregate stringTerms:
+                return ToTermsBucketAggregate(stringTerms, key, serializer, logger);
+
+            case ElasticAggregations.LongTermsAggregate longTerms:
+                return ToTermsBucketAggregate(longTerms, key, serializer, logger);
+
+            case ElasticAggregations.DoubleTermsAggregate doubleTerms:
+                return ToTermsBucketAggregate(doubleTerms, key, serializer, logger);
+
+            case ElasticAggregations.DateRangeAggregate dateRange:
+                return ToRangeBucketAggregate(dateRange, serializer, logger);
+
+            case ElasticAggregations.RangeAggregate range:
+                return ToRangeBucketAggregate(range, serializer, logger);
+
+            case ElasticAggregations.GeohashGridAggregate geohashGrid:
+                return ToGeohashGridBucketAggregate(geohashGrid, serializer, logger);
+
+            default:
+                return null;
         }
-
-        if (aggregate is Nest.PercentilesAggregate percentilesAggregate)
-            return new PercentilesAggregate(percentilesAggregate.Items.Select(i => new PercentileItem { Percentile = i.Percentile, Value = i.Value }))
-            {
-                Data = percentilesAggregate.Meta.ToReadOnlyData<PercentilesAggregate>()
-            };
-
-        if (aggregate is Nest.SingleBucketAggregate singleBucketAggregate)
-            return new SingleBucketAggregate(singleBucketAggregate.ToAggregations(logger))
-            {
-                Data = singleBucketAggregate.Meta.ToReadOnlyData<SingleBucketAggregate>(),
-                Total = singleBucketAggregate.DocCount
-            };
-
-        if (aggregate is Nest.BucketAggregate bucketAggregation)
-        {
-            var data = new Dictionary<string, object>((IDictionary<string, object>)bucketAggregation.Meta ?? new Dictionary<string, object>());
-            if (bucketAggregation.DocCountErrorUpperBound.GetValueOrDefault() > 0)
-            {
-                logger?.LogWarning("Terms aggregation {AggregationName} has doc_count_error_upper_bound of {DocCountErrorUpperBound}. Results may be inaccurate. Consider increasing shard_size.", name, bucketAggregation.DocCountErrorUpperBound);
-                data.Add(nameof(bucketAggregation.DocCountErrorUpperBound), bucketAggregation.DocCountErrorUpperBound!);
-            }
-            if (bucketAggregation.SumOtherDocCount.GetValueOrDefault() > 0)
-                data.Add(nameof(bucketAggregation.SumOtherDocCount), bucketAggregation.SumOtherDocCount!);
-
-            return new BucketAggregate
-            {
-                Items = bucketAggregation.Items.Select(i => i.ToBucket(data, logger)).ToList()!,
-                Data = new ReadOnlyDictionary<string, object>(data).ToReadOnlyData<BucketAggregate>(),
-                Total = bucketAggregation.DocCount
-            };
-        }
-
-        return null;
     }
 
-    private static DateTime GetDate(Nest.ValueAggregate valueAggregate)
+    private static BucketAggregate ToDateHistogramBucketAggregate(ElasticAggregations.DateHistogramAggregate aggregate, ITextSerializer serializer, ILogger? logger = null)
     {
-        if (valueAggregate?.Value == null)
-            throw new ArgumentNullException(nameof(valueAggregate));
+        var data = aggregate.Meta is not null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
 
-        var kind = DateTimeKind.Utc;
-        long ticks = _epochTicks + ((long)valueAggregate.Value * TimeSpan.TicksPerMillisecond);
+        // Check if there's a timezone offset in the metadata
+        bool hasTimezone = data.TryGetValue("@timezone", out object? timezoneValue) && timezoneValue is not null;
 
-        if (valueAggregate.Meta.TryGetValue("@timezone", out object? value) && value is not null)
+        var buckets = aggregate.Buckets.Select(b =>
         {
-            kind = DateTimeKind.Unspecified;
-            ticks -= Exceptionless.DateTimeExtensions.TimeUnit.Parse(value.ToString()!).Ticks;
+            // When there's a timezone, the bucket key from Elasticsearch already represents the local time boundary
+            // We use Unspecified kind since the dates are adjusted for the timezone
+            DateTime date = hasTimezone
+                ? DateTime.SpecifyKind(b.Key.UtcDateTime, DateTimeKind.Unspecified)
+                : b.Key.UtcDateTime;
+            var keyAsLong = b.Key.ToUnixTimeMilliseconds();
+            // Propagate timezone metadata to bucket data for round-trip serialization
+            var bucketData = new Dictionary<string, object> { { "@type", "datehistogram" } };
+            if (hasTimezone && timezoneValue is not null)
+                bucketData["@timezone"] = timezoneValue;
+
+            return (IBucket)new DateHistogramBucket(date, b.ToAggregations(serializer, logger))
+            {
+                Total = b.DocCount,
+                Key = keyAsLong,
+                KeyAsString = b.KeyAsString ?? date.ToString("O"),
+                Data = bucketData
+            };
+        }).ToList();
+
+        return new BucketAggregate
+        {
+            Items = buckets,
+            Data = new ReadOnlyDictionary<string, object>(data).ToReadOnlyData<BucketAggregate>()
+        };
+    }
+
+    private static BucketAggregate ToTermsBucketAggregate(ElasticAggregations.StringTermsAggregate aggregate, string name, ITextSerializer serializer, ILogger? logger = null)
+    {
+        var data = aggregate.Meta is not null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
+        if (aggregate.DocCountErrorUpperBound.GetValueOrDefault() > 0)
+        {
+            logger?.LogWarning("Terms aggregation {AggregationName} has doc_count_error_upper_bound of {DocCountErrorUpperBound}. Results may be inaccurate. Consider increasing shard_size.", name, aggregate.DocCountErrorUpperBound);
+            data.Add(nameof(aggregate.DocCountErrorUpperBound), aggregate.DocCountErrorUpperBound.GetValueOrDefault());
+        }
+        if (aggregate.SumOtherDocCount.GetValueOrDefault() > 0)
+            data.Add(nameof(aggregate.SumOtherDocCount), aggregate.SumOtherDocCount.GetValueOrDefault());
+
+        var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<string>(b.ToAggregations(serializer, logger))
+        {
+            Total = b.DocCount,
+            Key = b.Key.ToString(),
+            KeyAsString = b.Key.ToString(),
+            Data = _stringBucketData
+        }).ToList();
+
+        return new BucketAggregate
+        {
+            Items = buckets,
+            Data = new ReadOnlyDictionary<string, object>(data).ToReadOnlyData<BucketAggregate>()
+        };
+    }
+
+    private static BucketAggregate ToTermsBucketAggregate(ElasticAggregations.LongTermsAggregate aggregate, string name, ITextSerializer serializer, ILogger? logger = null)
+    {
+        var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
+        if (aggregate.DocCountErrorUpperBound.GetValueOrDefault() > 0)
+        {
+            logger?.LogWarning("Terms aggregation {AggregationName} has doc_count_error_upper_bound of {DocCountErrorUpperBound}. Results may be inaccurate. Consider increasing shard_size.", name, aggregate.DocCountErrorUpperBound);
+            data.Add(nameof(aggregate.DocCountErrorUpperBound), aggregate.DocCountErrorUpperBound.GetValueOrDefault());
+        }
+        if (aggregate.SumOtherDocCount.GetValueOrDefault() > 0)
+            data.Add(nameof(aggregate.SumOtherDocCount), aggregate.SumOtherDocCount.GetValueOrDefault());
+
+        var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<double>(b.ToAggregations(serializer, logger))
+        {
+            Total = b.DocCount,
+            Key = b.Key,
+            KeyAsString = b.KeyAsString ?? b.Key.ToString(),
+            Data = _doubleBucketData
+        }).ToList();
+
+        return new BucketAggregate
+        {
+            Items = buckets,
+            Data = new ReadOnlyDictionary<string, object>(data).ToReadOnlyData<BucketAggregate>()
+        };
+    }
+
+    private static BucketAggregate ToTermsBucketAggregate(ElasticAggregations.DoubleTermsAggregate aggregate, string name, ITextSerializer serializer, ILogger? logger = null)
+    {
+        var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
+        if (aggregate.DocCountErrorUpperBound.GetValueOrDefault() > 0)
+        {
+            logger?.LogWarning("Terms aggregation {AggregationName} has doc_count_error_upper_bound of {DocCountErrorUpperBound}. Results may be inaccurate. Consider increasing shard_size.", name, aggregate.DocCountErrorUpperBound);
+            data.Add(nameof(aggregate.DocCountErrorUpperBound), aggregate.DocCountErrorUpperBound.GetValueOrDefault());
+        }
+        if (aggregate.SumOtherDocCount.GetValueOrDefault() > 0)
+            data.Add(nameof(aggregate.SumOtherDocCount), aggregate.SumOtherDocCount.GetValueOrDefault());
+
+        var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<double>(b.ToAggregations(serializer, logger))
+        {
+            Total = b.DocCount,
+            Key = b.Key,
+            KeyAsString = b.KeyAsString ?? b.Key.ToString(),
+            Data = _doubleBucketData
+        }).ToList();
+
+        return new BucketAggregate
+        {
+            Items = buckets,
+            Data = new ReadOnlyDictionary<string, object>(data).ToReadOnlyData<BucketAggregate>()
+        };
+    }
+
+    private static BucketAggregate ToRangeBucketAggregate(ElasticAggregations.DateRangeAggregate aggregate, ITextSerializer serializer, ILogger? logger = null)
+    {
+        var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
+
+        var buckets = aggregate.Buckets.Select(b => (IBucket)new RangeBucket(b.ToAggregations(serializer, logger))
+        {
+            Total = b.DocCount,
+            Key = b.Key,
+            From = b.From,
+            FromAsString = b.FromAsString,
+            To = b.To,
+            ToAsString = b.ToAsString,
+            Data = _rangeBucketData
+        }).ToList();
+
+        return new BucketAggregate
+        {
+            Items = buckets,
+            Data = new ReadOnlyDictionary<string, object>(data).ToReadOnlyData<BucketAggregate>()
+        };
+    }
+
+    private static BucketAggregate ToRangeBucketAggregate(ElasticAggregations.RangeAggregate aggregate, ITextSerializer serializer, ILogger? logger = null)
+    {
+        var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
+
+        var buckets = aggregate.Buckets.Select(b => (IBucket)new RangeBucket(b.ToAggregations(serializer, logger))
+        {
+            Total = b.DocCount,
+            Key = b.Key,
+            From = b.From,
+            FromAsString = b.FromAsString,
+            To = b.To,
+            ToAsString = b.ToAsString,
+            Data = _rangeBucketData
+        }).ToList();
+
+        return new BucketAggregate
+        {
+            Items = buckets,
+            Data = new ReadOnlyDictionary<string, object>(data).ToReadOnlyData<BucketAggregate>()
+        };
+    }
+
+    private static BucketAggregate ToGeohashGridBucketAggregate(ElasticAggregations.GeohashGridAggregate aggregate, ITextSerializer serializer, ILogger? logger = null)
+    {
+        var data = aggregate.Meta != null ? new Dictionary<string, object>(aggregate.Meta) : new Dictionary<string, object>();
+
+        var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<string>(b.ToAggregations(serializer, logger))
+        {
+            Total = b.DocCount,
+            Key = b.Key,
+            KeyAsString = b.Key,
+            Data = _geohashBucketData
+        }).ToList();
+
+        return new BucketAggregate
+        {
+            Items = buckets,
+            Data = new ReadOnlyDictionary<string, object>(data).ToReadOnlyData<BucketAggregate>()
+        };
+    }
+
+    private static IAggregate? ToValueAggregate(double? value, IReadOnlyDictionary<string, object>? meta)
+    {
+        if (meta is not null && meta.TryGetValue("@field_type", out object? fieldType))
+        {
+            string? type = fieldType?.ToString();
+            if (type == "date" && value.HasValue)
+            {
+                var kind = DateTimeKind.Utc;
+                long ticks = _epochTicks + ((long)value.Value * TimeSpan.TicksPerMillisecond);
+
+                if (meta.TryGetValue("@timezone", out object? timezoneValue) && timezoneValue is not null)
+                {
+                    kind = DateTimeKind.Unspecified;
+                    ticks -= Exceptionless.DateTimeExtensions.TimeUnit.Parse(timezoneValue.ToString()!).Ticks;
+                }
+
+                return new ValueAggregate<DateTime>
+                {
+                    Value = GetDate(ticks, kind),
+                    Data = meta.ToReadOnlyData<ValueAggregate<DateTime>>()
+                };
+            }
         }
 
-        return GetDate(ticks, kind);
+        return new ValueAggregate { Value = value, Data = meta.ToReadOnlyData<ValueAggregate>() };
     }
 
     private static DateTime GetDate(long ticks, DateTimeKind kind)
@@ -446,86 +826,103 @@ public static class ElasticIndexExtensions
         return new DateTime(ticks, kind);
     }
 
-    public static IBucket? ToBucket(this Nest.IBucket bucket, IDictionary<string, object>? parentData = null, ILogger? logger = null)
+    private static IReadOnlyDictionary<string, IAggregate>? ToAggregationsDictionary(ElasticAggregations.AggregateDictionary? aggregations, ITextSerializer serializer, ILogger? logger)
     {
-        if (bucket is Nest.DateHistogramBucket dateHistogramBucket)
+        if (aggregations is null)
+            return null;
+
+        var dict = new Dictionary<string, IAggregate>();
+        foreach (var a in aggregations)
         {
-            bool hasTimezone = parentData != null && parentData.ContainsKey("@timezone");
-            var kind = hasTimezone ? DateTimeKind.Unspecified : DateTimeKind.Utc;
-            long ticks = _epochTicks + ((long)dateHistogramBucket.Key * TimeSpan.TicksPerMillisecond);
-            var date = GetDate(ticks, kind);
-            var data = new Dictionary<string, object> { { "@type", "datehistogram" } };
-
-            if (hasTimezone)
-                data.Add("@timezone", parentData!["@timezone"]);
-
-            return new DateHistogramBucket(date, dateHistogramBucket.ToAggregations(logger))
-            {
-                Total = dateHistogramBucket.DocCount,
-                Key = dateHistogramBucket.Key,
-                KeyAsString = date.ToString("O"),
-                Data = data
-            };
+            IAggregate? converted = a.Value.ToAggregate(a.Key, serializer, logger);
+            if (converted is not null)
+                dict[a.Key] = converted;
         }
 
-        if (bucket is Nest.RangeBucket rangeBucket)
-            return new RangeBucket(rangeBucket.ToAggregations(logger))
-            {
-                Total = rangeBucket.DocCount,
-                Key = rangeBucket.Key,
-                From = rangeBucket.From,
-                FromAsString = rangeBucket.FromAsString,
-                To = rangeBucket.To,
-                ToAsString = rangeBucket.ToAsString,
-                Data = new Dictionary<string, object> { { "@type", "range" } }
-            };
-
-        if (bucket is Nest.KeyedBucket<string> stringKeyedBucket)
-            return new KeyedBucket<string>(stringKeyedBucket.ToAggregations(logger))
-            {
-                Total = stringKeyedBucket.DocCount,
-                Key = stringKeyedBucket.Key,
-                KeyAsString = stringKeyedBucket.KeyAsString,
-                Data = new Dictionary<string, object> { { "@type", "string" } }
-            };
-
-        if (bucket is Nest.KeyedBucket<double> doubleKeyedBucket)
-            return new KeyedBucket<double>(doubleKeyedBucket.ToAggregations(logger))
-            {
-                Total = doubleKeyedBucket.DocCount,
-                Key = doubleKeyedBucket.Key,
-                KeyAsString = doubleKeyedBucket.KeyAsString,
-                Data = new Dictionary<string, object> { { "@type", "double" } }
-            };
-
-        if (bucket is Nest.KeyedBucket<object> objectKeyedBucket)
-            return new KeyedBucket<object>(objectKeyedBucket.ToAggregations(logger))
-            {
-                Total = objectKeyedBucket.DocCount,
-                Key = objectKeyedBucket.Key,
-                KeyAsString = objectKeyedBucket.KeyAsString,
-                Data = new Dictionary<string, object> { { "@type", "object" } }
-            };
-
-        return null;
+        return dict;
     }
 
-    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations(this IReadOnlyDictionary<string, Nest.IAggregate> aggregations, ILogger? logger = null)
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations(this ElasticAggregations.AggregateDictionary? aggregations, ITextSerializer serializer, ILogger? logger = null)
     {
-        return aggregations?.ToDictionary(a => a.Key, a => a.Value.ToAggregate(a.Key, logger)!);
+        return ToAggregationsDictionary(aggregations, serializer, logger);
     }
 
-    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations<T>(this Nest.ISearchResponse<T> res, ILogger? logger = null) where T : class
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations(this ElasticAggregations.DateHistogramBucket bucket, ITextSerializer serializer, ILogger? logger = null)
     {
-        return res.Aggregations.ToAggregations(logger);
+        return ToAggregationsDictionary(bucket.Aggregations, serializer, logger);
     }
 
-    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations<T>(this Nest.IAsyncSearchResponse<T> res, ILogger? logger = null) where T : class
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations(this ElasticAggregations.StringTermsBucket bucket, ITextSerializer serializer, ILogger? logger = null)
     {
-        return res.Response.Aggregations.ToAggregations(logger);
+        return ToAggregationsDictionary(bucket.Aggregations, serializer, logger);
     }
 
-    public static Nest.PropertiesDescriptor<T> SetupDefaults<T>(this Nest.PropertiesDescriptor<T> pd) where T : class
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations(this ElasticAggregations.LongTermsBucket bucket, ITextSerializer serializer, ILogger? logger = null)
+    {
+        return ToAggregationsDictionary(bucket.Aggregations, serializer, logger);
+    }
+
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations(this ElasticAggregations.DoubleTermsBucket bucket, ITextSerializer serializer, ILogger? logger = null)
+    {
+        return ToAggregationsDictionary(bucket.Aggregations, serializer, logger);
+    }
+
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations(this ElasticAggregations.RangeBucket bucket, ITextSerializer serializer, ILogger? logger = null)
+    {
+        return ToAggregationsDictionary(bucket.Aggregations, serializer, logger);
+    }
+
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations(this ElasticAggregations.GeohashGridBucket bucket, ITextSerializer serializer, ILogger? logger = null)
+    {
+        return ToAggregationsDictionary(bucket.Aggregations, serializer, logger);
+    }
+
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations(this ElasticAggregations.FilterAggregate aggregate, ITextSerializer serializer, ILogger? logger = null)
+    {
+        return ToAggregationsDictionary(aggregate.Aggregations, serializer, logger);
+    }
+
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations(this ElasticAggregations.GlobalAggregate aggregate, ITextSerializer serializer, ILogger? logger = null)
+    {
+        return ToAggregationsDictionary(aggregate.Aggregations, serializer, logger);
+    }
+
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations(this ElasticAggregations.MissingAggregate aggregate, ITextSerializer serializer, ILogger? logger = null)
+    {
+        return ToAggregationsDictionary(aggregate.Aggregations, serializer, logger);
+    }
+
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations(this ElasticAggregations.NestedAggregate aggregate, ITextSerializer serializer, ILogger? logger = null)
+    {
+        return ToAggregationsDictionary(aggregate.Aggregations, serializer, logger);
+    }
+
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations(this ElasticAggregations.ReverseNestedAggregate aggregate, ITextSerializer serializer, ILogger? logger = null)
+    {
+        return ToAggregationsDictionary(aggregate.Aggregations, serializer, logger);
+    }
+
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations<T>(this SearchResponse<T> res, ITextSerializer serializer, ILogger? logger = null) where T : class
+    {
+        return res.Aggregations.ToAggregations(serializer, logger);
+    }
+
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations<T>(this SubmitAsyncSearchResponse<T> res, ITextSerializer serializer, ILogger? logger = null) where T : class
+    {
+        return res.Response?.Aggregations.ToAggregations(serializer, logger);
+    }
+
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations<T>(this GetAsyncSearchResponse<T> res, ITextSerializer serializer, ILogger? logger = null) where T : class
+    {
+        return res.Response?.Aggregations.ToAggregations(serializer, logger);
+    }
+
+    public static IReadOnlyDictionary<string, IAggregate>? ToAggregations<T>(this ScrollResponse<T> res, ITextSerializer serializer, ILogger? logger = null) where T : class
+    {
+        return res.Aggregations.ToAggregations(serializer, logger);
+    }
+
+    public static PropertiesDescriptor<T> SetupDefaults<T>(this PropertiesDescriptor<T> pd) where T : class
     {
         bool hasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
         bool hasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
@@ -535,19 +932,28 @@ public static class ElasticIndexExtensions
         bool hasVirtualCustomFields = typeof(IHaveVirtualCustomFields).IsAssignableFrom(typeof(T));
 
         if (hasIdentity)
-            pd.Keyword(p => p.Name(d => ((IIdentity)d).Id));
+            pd.Keyword(d => ((IIdentity)d).Id);
 
         if (supportsSoftDeletes)
-            pd.Boolean(p => p.Name(d => ((ISupportSoftDeletes)d).IsDeleted)).FieldAlias(a => a.Path(p => ((ISupportSoftDeletes)p).IsDeleted).Name("deleted"));
+        {
+            pd.Boolean(d => ((ISupportSoftDeletes)d).IsDeleted);
+            pd.FieldAlias("deleted", a => a.Path(p => ((ISupportSoftDeletes)p).IsDeleted));
+        }
 
         if (hasCreatedDate)
-            pd.Date(p => p.Name(d => ((IHaveCreatedDate)d).CreatedUtc)).FieldAlias(a => a.Path(p => ((IHaveCreatedDate)p).CreatedUtc).Name("created"));
+        {
+            pd.Date(d => ((IHaveCreatedDate)d).CreatedUtc);
+            pd.FieldAlias("created", a => a.Path(p => ((IHaveCreatedDate)p).CreatedUtc));
+        }
 
         if (hasDates)
-            pd.Date(p => p.Name(d => ((IHaveDates)d).UpdatedUtc)).FieldAlias(a => a.Path(p => ((IHaveDates)p).UpdatedUtc).Name("updated"));
+        {
+            pd.Date(d => ((IHaveDates)d).UpdatedUtc);
+            pd.FieldAlias("updated", a => a.Path(p => ((IHaveDates)p).UpdatedUtc));
+        }
 
         if (hasCustomFields || hasVirtualCustomFields)
-            pd.Object<object>(f => f.Name("idx").Dynamic());
+            pd.Object("idx", f => f.Dynamic(DynamicMapping.True));
 
         return pd;
     }
