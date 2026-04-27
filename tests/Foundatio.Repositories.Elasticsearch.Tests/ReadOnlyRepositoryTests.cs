@@ -1269,6 +1269,35 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task ExistsAsync_WithFieldFilter_IsStaleWithoutImmediateConsistency()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(
+            EmployeeGenerator.Generate(age: 25, employmentType: EmploymentType.FullTime),
+            o => o.ImmediateConsistency());
+
+        Assert.True(await _employeeRepository.ExistsAsync(
+            q => q.Id(employee.Id).FieldEquals(e => e.EmploymentType, EmploymentType.FullTime)));
+        Assert.False(await _employeeRepository.ExistsAsync(
+            q => q.Id(employee.Id).FieldEquals(e => e.EmploymentType, EmploymentType.Contract)));
+
+        // Act: update the field WITHOUT ImmediateConsistency -- the search index is stale
+        employee.EmploymentType = EmploymentType.Contract;
+        await _employeeRepository.SaveAsync(employee);
+
+        // Assert: realtime GET proves the document is already updated in Elasticsearch
+        var fetched = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(fetched);
+        Assert.Equal(EmploymentType.Contract, fetched.EmploymentType);
+
+        // Assert: query-based ExistsAsync still sees the OLD value (stale search index)
+        Assert.True(await _employeeRepository.ExistsAsync(
+            q => q.Id(employee.Id).FieldEquals(e => e.EmploymentType, EmploymentType.FullTime)));
+        Assert.False(await _employeeRepository.ExistsAsync(
+            q => q.Id(employee.Id).FieldEquals(e => e.EmploymentType, EmploymentType.Contract)));
+    }
+
+    [Fact]
     public async Task ShouldNotIncludeWhenDeletedAsync()
     {
         var deletedEmployee = EmployeeGenerator.Generate(age: 20, name: "Deleted");
