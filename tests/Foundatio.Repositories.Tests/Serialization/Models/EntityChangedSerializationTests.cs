@@ -3,7 +3,6 @@ using System.Threading.Tasks;
 using Foundatio.AsyncEx;
 using Foundatio.Messaging;
 using Foundatio.Repositories.Models;
-using Foundatio.Repositories.Tests.Utility;
 using Foundatio.Serializer;
 using Foundatio.Tests.Extensions;
 using Foundatio.Utility;
