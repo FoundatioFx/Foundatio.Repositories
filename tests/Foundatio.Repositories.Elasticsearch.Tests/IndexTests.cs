@@ -1458,7 +1458,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
     private bool HasConfigureIndexesCacheMarker()
     {
-        return _cache.Keys.Any(k => k.StartsWith(ElasticConfiguration.ConfigureIndexesResourceName + ":"));
+        return _cache.Keys.Any(k => k.StartsWith(ElasticConfiguration.ConfigureIndexesResourceName + ":", StringComparison.Ordinal));
     }
 
     [Fact]
