@@ -11,7 +11,7 @@ Basic index for simple entities:
 ```csharp
 public sealed class EmployeeIndex : Index<Employee>
 {
-    public EmployeeIndex(IElasticConfiguration configuration) 
+    public EmployeeIndex(IElasticConfiguration configuration)
         : base(configuration, "employees") { }
 
     public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(
@@ -35,7 +35,7 @@ Index with schema versioning for evolving schemas:
 ```csharp
 public sealed class EmployeeIndex : VersionedIndex<Employee>
 {
-    public EmployeeIndex(IElasticConfiguration configuration) 
+    public EmployeeIndex(IElasticConfiguration configuration)
         : base(configuration, "employees", version: 2) { }
 
     public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(
@@ -65,7 +65,7 @@ Time-series index with daily partitioning:
 ```csharp
 public sealed class LogEventIndex : DailyIndex<LogEvent>
 {
-    public LogEventIndex(IElasticConfiguration configuration) 
+    public LogEventIndex(IElasticConfiguration configuration)
         : base(configuration, "logs", version: 1)
     {
         MaxIndexAge = TimeSpan.FromDays(90);
@@ -98,7 +98,7 @@ Time-series index with monthly partitioning:
 ```csharp
 public sealed class AuditLogIndex : MonthlyIndex<AuditLog>
 {
-    public AuditLogIndex(IElasticConfiguration configuration) 
+    public AuditLogIndex(IElasticConfiguration configuration)
         : base(configuration, "audit", version: 1)
     {
         MaxIndexAge = TimeSpan.FromDays(365);
@@ -162,7 +162,7 @@ var results = await repository.FindAsync(q => q
 
 ```csharp
 // In index configuration
-public LogEventIndex(IElasticConfiguration configuration) 
+public LogEventIndex(IElasticConfiguration configuration)
     : base(configuration, "logs", version: 1)
 {
     MaxIndexAge = TimeSpan.FromDays(90);
@@ -206,25 +206,25 @@ public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(
         .Dynamic(false)  // Disable dynamic mapping
         .Properties(p => p
             .SetupDefaults()  // Configure Id, CreatedUtc, UpdatedUtc, IsDeleted
-            
+
             // Keyword fields (exact match, aggregations)
             .Keyword(f => f.Name(e => e.CompanyId))
             .Keyword(f => f.Name(e => e.Status))
-            
+
             // Text fields with keywords (full-text + exact match)
             .Text(f => f.Name(e => e.Name).AddKeywordAndSortFields())
             .Text(f => f.Name(e => e.Email).AddKeywordAndSortFields())
-            
+
             // Numeric fields
             .Number(f => f.Name(e => e.Age).Type(NumberType.Integer))
             .Number(f => f.Name(e => e.Salary).Type(NumberType.Double))
-            
+
             // Date fields
             .Date(f => f.Name(e => e.HireDate))
-            
+
             // Boolean fields
             .Boolean(f => f.Name(e => e.IsActive))
-            
+
             // Nested objects
             .Nested<Address>(n => n
                 .Name(e => e.Addresses)
@@ -283,7 +283,7 @@ When you increment the version and call `ConfigureIndexesAsync()`, the following
 // Step 1: Increment version and add migration scripts
 public sealed class EmployeeIndex : VersionedIndex<Employee>
 {
-    public EmployeeIndex(IElasticConfiguration configuration) 
+    public EmployeeIndex(IElasticConfiguration configuration)
         : base(configuration, "employees", version: 2)  // Changed from 1 to 2
     {
         // Scripts run during reindex from v1 to v2
@@ -305,12 +305,12 @@ await configuration.ConfigureIndexesAsync();
 Use `RenameFieldScript` to rename a field during reindex:
 
 ```csharp
-public EmployeeIndex(IElasticConfiguration configuration) 
+public EmployeeIndex(IElasticConfiguration configuration)
     : base(configuration, "employees", version: 2)
 {
     // Rename 'dept' to 'department' in version 2
     RenameFieldScript(2, "dept", "department");
-    
+
     // By default, the original field is removed
     // To keep both fields:
     RenameFieldScript(2, "oldName", "newName", removeOriginal: false);
@@ -319,11 +319,11 @@ public EmployeeIndex(IElasticConfiguration configuration)
 
 The generated Painless script:
 ```javascript
-if (ctx._source.containsKey('dept')) { 
-    ctx._source.department = ctx._source.dept; 
+if (ctx._source.containsKey('dept')) {
+    ctx._source.department = ctx._source.dept;
 }
-if (ctx._source.containsKey('dept')) { 
-    ctx._source.remove('dept'); 
+if (ctx._source.containsKey('dept')) {
+    ctx._source.remove('dept');
 }
 ```
 
@@ -332,11 +332,11 @@ if (ctx._source.containsKey('dept')) {
 `RenameFieldScript` supports dotted paths for nested properties:
 
 ```csharp
-public EmployeeIndex(IElasticConfiguration configuration) 
+public EmployeeIndex(IElasticConfiguration configuration)
     : base(configuration, "employees", version: 2)
 {
     RenameFieldScript(2, "data.oldField", "data.newField");
-    
+
     // Deeply nested paths are also supported:
     RenameFieldScript(2, "metadata.author.name", "metadata.author.displayName");
 }
@@ -344,12 +344,12 @@ public EmployeeIndex(IElasticConfiguration configuration)
 
 The generated Painless script for nested paths includes null-safety guards:
 ```javascript
-if (ctx._source.data != null && ctx._source.data.containsKey('oldField')) { 
-    if (ctx._source.data == null) { ctx._source.data = [:]; } 
-    ctx._source.data.newField = ctx._source.data.oldField; 
+if (ctx._source.data != null && ctx._source.data.containsKey('oldField')) {
+    if (ctx._source.data == null) { ctx._source.data = [:]; }
+    ctx._source.data.newField = ctx._source.data.oldField;
 }
-if (ctx._source.data != null && ctx._source.data.containsKey('oldField')) { 
-    ctx._source.data.remove('oldField'); 
+if (ctx._source.data != null && ctx._source.data.containsKey('oldField')) {
+    ctx._source.data.remove('oldField');
 }
 ```
 
@@ -358,7 +358,7 @@ if (ctx._source.data != null && ctx._source.data.containsKey('oldField')) {
 Use `RemoveFieldScript` to remove a field:
 
 ```csharp
-public EmployeeIndex(IElasticConfiguration configuration) 
+public EmployeeIndex(IElasticConfiguration configuration)
     : base(configuration, "employees", version: 3)
 {
     RemoveFieldScript(3, "deprecatedField");
@@ -370,7 +370,7 @@ public EmployeeIndex(IElasticConfiguration configuration)
 `RemoveFieldScript` also supports dotted paths:
 
 ```csharp
-public EmployeeIndex(IElasticConfiguration configuration) 
+public EmployeeIndex(IElasticConfiguration configuration)
     : base(configuration, "employees", version: 3)
 {
     RemoveFieldScript(3, "data.legacyField");
@@ -382,7 +382,7 @@ public EmployeeIndex(IElasticConfiguration configuration)
 Use `AddReindexScript` for complex transformations:
 
 ```csharp
-public EmployeeIndex(IElasticConfiguration configuration) 
+public EmployeeIndex(IElasticConfiguration configuration)
     : base(configuration, "employees", version: 4)
 {
     // Custom Painless script for complex transformation
@@ -391,13 +391,13 @@ public EmployeeIndex(IElasticConfiguration configuration)
         if (ctx._source.containsKey('firstName') && ctx._source.containsKey('lastName')) {
             ctx._source.fullName = ctx._source.firstName + ' ' + ctx._source.lastName;
         }
-        
+
         // Convert status string to boolean
         if (ctx._source.containsKey('status')) {
             ctx._source.isActive = ctx._source.status == 'active';
             ctx._source.remove('status');
         }
-        
+
         // Set default values
         if (!ctx._source.containsKey('createdUtc')) {
             ctx._source.createdUtc = '2024-01-01T00:00:00Z';
@@ -411,12 +411,12 @@ public EmployeeIndex(IElasticConfiguration configuration)
 Scripts are applied incrementally. When upgrading, only scripts with a version greater than the current index version (and less than or equal to the target version) are applied. If upgrading from v1 to v3, both v2 and v3 scripts run:
 
 ```csharp
-public EmployeeIndex(IElasticConfiguration configuration) 
+public EmployeeIndex(IElasticConfiguration configuration)
     : base(configuration, "employees", version: 3)
 {
     // v2 scripts (run when upgrading from v1)
     RenameFieldScript(2, "dept", "department");
-    
+
     // v3 scripts (run when upgrading from v1 or v2)
     AddReindexScript(3, "ctx._source.version = 3;");
 }
@@ -428,7 +428,7 @@ When a single script applies, it is sent directly to Elasticsearch. When multipl
 void f000(def ctx) { /* v2 rename script */ }
 void f001(def ctx) { /* v2 remove script */ }
 void f002(def ctx) { /* v3 custom script */ }
-f000(ctx); f001(ctx); f002(ctx); 
+f000(ctx); f001(ctx); f002(ctx);
 ```
 
 Note that `RenameFieldScript` with `removeOriginal: true` (the default) generates **two** scripts at the same version number — one to copy the value and one to remove the original field. Both are included in the combined script.
@@ -438,7 +438,7 @@ Note that `RenameFieldScript` with `removeOriginal: true` (the default) generate
 If an index is multiple versions behind (e.g., v1 upgrading to v5), all intermediate scripts run in order:
 
 ```csharp
-public EmployeeIndex(IElasticConfiguration configuration) 
+public EmployeeIndex(IElasticConfiguration configuration)
     : base(configuration, "employees", version: 5)
 {
     RenameFieldScript(2, "dept", "department");           // v2
@@ -463,12 +463,12 @@ RenameFieldScript(4, "companyName", "data.company");      // Demote top-level to
 ### Controlling Old Index Deletion
 
 ```csharp
-public EmployeeIndex(IElasticConfiguration configuration) 
+public EmployeeIndex(IElasticConfiguration configuration)
     : base(configuration, "employees", version: 2)
 {
     // Delete old index after successful reindex (default: true)
     DiscardIndexesOnReindex = true;
-    
+
     // Keep old index for rollback capability
     // DiscardIndexesOnReindex = false;
 }
@@ -482,7 +482,7 @@ Monitor reindex progress with a callback:
 await configuration.ReindexAsync(async (progress, message) =>
 {
     _logger.LogInformation("Reindex {Progress}%: {Message}", progress, message);
-    
+
     // Update UI or metrics
     await UpdateProgressAsync(progress, message);
 });
@@ -513,12 +513,12 @@ For `DailyIndex` and `MonthlyIndex`, configure retention with `MaxIndexAge`:
 ```csharp
 public sealed class LogEventIndex : DailyIndex<LogEvent>
 {
-    public LogEventIndex(IElasticConfiguration configuration) 
+    public LogEventIndex(IElasticConfiguration configuration)
         : base(configuration, "logs", version: 1)
     {
         // Keep indexes for 90 days
         MaxIndexAge = TimeSpan.FromDays(90);
-        
+
         // Automatically delete expired indexes during maintenance
         DiscardExpiredIndexes = true;
     }
@@ -572,8 +572,8 @@ The library prevents writing to indexes that have exceeded `MaxIndexAge`:
 ```csharp
 // If MaxIndexAge is 90 days and you try to write a document
 // with a date older than 90 days, an ArgumentException is thrown
-var oldDocument = new LogEvent 
-{ 
+var oldDocument = new LogEvent
+{
     CreatedUtc = DateTime.UtcNow.AddDays(-100)  // Older than MaxIndexAge
 };
 
@@ -586,12 +586,12 @@ await repository.AddAsync(oldDocument);
 Create aliases that automatically include only recent indexes:
 
 ```csharp
-public LogEventIndex(IElasticConfiguration configuration) 
+public LogEventIndex(IElasticConfiguration configuration)
     : base(configuration, "logs", version: 1)
 {
     MaxIndexAge = TimeSpan.FromDays(90);
     DiscardExpiredIndexes = true;
-    
+
     // Create aliases for recent data windows
     AddAlias("logs-last-7-days", TimeSpan.FromDays(7));
     AddAlias("logs-last-30-days", TimeSpan.FromDays(30));
@@ -610,7 +610,7 @@ For `MonthlyIndex`, retention works the same way but with monthly granularity:
 ```csharp
 public sealed class AuditLogIndex : MonthlyIndex<AuditLog>
 {
-    public AuditLogIndex(IElasticConfiguration configuration) 
+    public AuditLogIndex(IElasticConfiguration configuration)
         : base(configuration, "audit", version: 1)
     {
         // Keep audit logs for 1 year
@@ -743,7 +743,7 @@ public interface IIndex : IDisposable
     ElasticMappingResolver MappingResolver { get; }
     ElasticQueryParser QueryParser { get; }
     IElasticConfiguration Configuration { get; }
-    
+
     Task ConfigureAsync();
     Task EnsureIndexAsync(object target);
     Task MaintainAsync(bool includeOptionalTasks = true);
@@ -763,7 +763,7 @@ public class Index<T>
     public string Name { get; }
     public bool HasMultipleIndexes { get; }
     public int BulkBatchSize { get; set; } = 1000;
-    
+
     // Query field restrictions
     public ISet<string> AllowedQueryFields { get; }
     public ISet<string> AllowedAggregationFields { get; }
