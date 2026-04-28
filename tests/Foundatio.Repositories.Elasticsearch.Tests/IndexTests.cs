@@ -1456,39 +1456,44 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         Assert.False(response.Exists);
     }
 
+    private bool HasConfigureIndexesCacheMarker()
+    {
+        return _cache.Keys.Any(k => k.StartsWith(ElasticConfiguration.ConfigureIndexesResourceName + ":"));
+    }
+
     [Fact]
-    public async Task ConfigureIndexesAsync_ConcurrentCalls_Serialized()
+    public async Task CanSerializeConcurrentConfigureIndexesCalls()
     {
         // Arrange
         await _configuration.DeleteIndexesAsync();
 
         // Act
-        var tasks = new List<Task>();
-        for (int i = 0; i < 5; i++)
-            tasks.Add(_configuration.ConfigureIndexesAsync());
+        var tasks = Enumerable.Range(0, 5)
+            .Select(_ => _configuration.ConfigureIndexesAsync())
+            .ToList();
         await Task.WhenAll(tasks);
 
         // Assert: cache marker should be set after successful configuration
-        Assert.Contains(_cache.Keys, k => k.StartsWith(ElasticConfiguration.ConfigureIndexesResourceName + ":"));
+        Assert.True(HasConfigureIndexesCacheMarker());
     }
 
     [Fact]
-    public async Task ConfigureIndexesAsync_SecondCall_SkipsWhenMarkerExists()
+    public async Task ConfigureIndexesSkipsWhenMarkerExists()
     {
         // Arrange
         await _configuration.DeleteIndexesAsync();
         await _configuration.ConfigureIndexesAsync();
-        Assert.Contains(_cache.Keys, k => k.StartsWith(ElasticConfiguration.ConfigureIndexesResourceName + ":"));
+        Assert.True(HasConfigureIndexesCacheMarker());
 
         // Act: second call should skip (fast path via cache marker)
         await _configuration.ConfigureIndexesAsync();
 
         // Assert: marker still exists
-        Assert.Contains(_cache.Keys, k => k.StartsWith(ElasticConfiguration.ConfigureIndexesResourceName + ":"));
+        Assert.True(HasConfigureIndexesCacheMarker());
     }
 
     [Fact]
-    public async Task ConfigureIndexesAsync_WithExplicitIndexes_DoesNotSetMarker()
+    public async Task ConfigureExplicitIndexesDoesNotSetMarker()
     {
         // Arrange
         await _configuration.DeleteIndexesAsync();
@@ -1497,34 +1502,34 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await _configuration.ConfigureIndexesAsync(indexes: _configuration.Indexes);
 
         // Assert: explicit indexes bypass lock+cache entirely
-        Assert.DoesNotContain(_cache.Keys, k => k.StartsWith(ElasticConfiguration.ConfigureIndexesResourceName + ":"));
+        Assert.False(HasConfigureIndexesCacheMarker());
     }
 
     [Fact]
-    public async Task ConfigureIndexesAsync_AfterDelete_ReconfiguresSuccessfully()
+    public async Task DeleteIndexesClearsConfigureMarker()
     {
         // Arrange
         await _configuration.ConfigureIndexesAsync();
-        Assert.Contains(_cache.Keys, k => k.StartsWith(ElasticConfiguration.ConfigureIndexesResourceName + ":"));
+        Assert.True(HasConfigureIndexesCacheMarker());
 
         // Act
         await _configuration.DeleteIndexesAsync();
 
         // Assert: delete should clear the marker so next configure runs fully
-        Assert.DoesNotContain(_cache.Keys, k => k.StartsWith(ElasticConfiguration.ConfigureIndexesResourceName + ":"));
+        Assert.False(HasConfigureIndexesCacheMarker());
     }
 
     [Fact]
-    public async Task ConfigureIndexesAsync_AfterMaintain_MarkerPersists()
+    public async Task MaintainIndexesPreservesConfigureMarker()
     {
         // Arrange
         await _configuration.ConfigureIndexesAsync();
-        Assert.Contains(_cache.Keys, k => k.StartsWith(ElasticConfiguration.ConfigureIndexesResourceName + ":"));
+        Assert.True(HasConfigureIndexesCacheMarker());
 
         // Act
         await _configuration.MaintainIndexesAsync();
 
         // Assert: maintain does not change index structure, so marker should persist
-        Assert.Contains(_cache.Keys, k => k.StartsWith(ElasticConfiguration.ConfigureIndexesResourceName + ":"));
+        Assert.True(HasConfigureIndexesCacheMarker());
     }
 }
