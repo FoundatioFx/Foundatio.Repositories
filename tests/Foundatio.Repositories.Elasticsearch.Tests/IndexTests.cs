@@ -1462,7 +1462,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task CanSerializeConcurrentConfigureIndexesCalls()
+    public async Task ConfigureIndexesAsync_ConcurrentCalls_SetsMarker()
     {
         // Arrange
         await _configuration.DeleteIndexesAsync();
@@ -1473,27 +1473,27 @@ public sealed class IndexTests : ElasticRepositoryTestBase
             .ToList();
         await Task.WhenAll(tasks);
 
-        // Assert: cache marker should be set after successful configuration
+        // Assert
         Assert.True(HasConfigureIndexesCacheMarker());
     }
 
     [Fact]
-    public async Task ConfigureIndexesSkipsWhenMarkerExists()
+    public async Task ConfigureIndexesAsync_WhenMarkerExists_SkipsConfiguration()
     {
         // Arrange
         await _configuration.DeleteIndexesAsync();
         await _configuration.ConfigureIndexesAsync();
         Assert.True(HasConfigureIndexesCacheMarker());
 
-        // Act: second call should skip (fast path via cache marker)
+        // Act
         await _configuration.ConfigureIndexesAsync();
 
-        // Assert: marker still exists
+        // Assert
         Assert.True(HasConfigureIndexesCacheMarker());
     }
 
     [Fact]
-    public async Task ConfigureExplicitIndexesDoesNotSetMarker()
+    public async Task ConfigureIndexesAsync_WithExplicitIndexes_DoesNotSetMarker()
     {
         // Arrange
         await _configuration.DeleteIndexesAsync();
@@ -1501,12 +1501,12 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         // Act
         await _configuration.ConfigureIndexesAsync(indexes: _configuration.Indexes);
 
-        // Assert: explicit indexes bypass lock+cache entirely
+        // Assert
         Assert.False(HasConfigureIndexesCacheMarker());
     }
 
     [Fact]
-    public async Task DeleteIndexesClearsConfigureMarker()
+    public async Task DeleteIndexesAsync_WhenMarkerExists_ClearsMarker()
     {
         // Arrange
         await _configuration.ConfigureIndexesAsync();
@@ -1515,12 +1515,12 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         // Act
         await _configuration.DeleteIndexesAsync();
 
-        // Assert: delete should clear the marker so next configure runs fully
+        // Assert
         Assert.False(HasConfigureIndexesCacheMarker());
     }
 
     [Fact]
-    public async Task MaintainIndexesPreservesConfigureMarker()
+    public async Task MaintainIndexesAsync_WhenMarkerExists_PreservesMarker()
     {
         // Arrange
         await _configuration.ConfigureIndexesAsync();
@@ -1529,7 +1529,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         // Act
         await _configuration.MaintainIndexesAsync();
 
-        // Assert: maintain does not change index structure, so marker should persist
+        // Assert
         Assert.True(HasConfigureIndexesCacheMarker());
     }
 }

@@ -134,11 +134,7 @@ public class ElasticConfiguration : IElasticConfiguration
         {
             var indexList = indexes as ICollection<IIndex> ?? indexes.ToArray();
             _logger.LogInformation("Configuring {IndexCount} explicit indexes (beginReindexingOutdated={BeginReindexingOutdated})", indexList.Count, beginReindexingOutdated);
-            var tasks = new List<Task>(indexList.Count);
-            foreach (var idx in indexList)
-                tasks.Add(ConfigureIndexInternalAsync(idx, beginReindexingOutdated));
-
-            await Task.WhenAll(tasks).AnyContext();
+            await Task.WhenAll(indexList.Select(idx => ConfigureIndexInternalAsync(idx, beginReindexingOutdated))).AnyContext();
             return;
         }
 
@@ -167,11 +163,7 @@ public class ElasticConfiguration : IElasticConfiguration
 
         _logger.LogInformation("Configuring {IndexCount} indexes (beginReindexingOutdated={BeginReindexingOutdated})...", Indexes.Count, beginReindexingOutdated);
 
-        var allTasks = new List<Task>(Indexes.Count);
-        foreach (var idx in Indexes)
-            allTasks.Add(ConfigureIndexInternalAsync(idx, beginReindexingOutdated));
-
-        await Task.WhenAll(allTasks).AnyContext();
+        await Task.WhenAll(Indexes.Select(idx => ConfigureIndexInternalAsync(idx, beginReindexingOutdated))).AnyContext();
 
         await TrySetCacheMarkerAsync(cacheKey).AnyContext();
     }
