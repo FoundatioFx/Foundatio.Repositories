@@ -281,7 +281,11 @@ public class ElasticConfiguration : IElasticConfiguration
         {
             hasher.Append(MemoryMarshal.AsBytes(index.Name.AsSpan()));
             if (index is IVersionedIndex v)
+            {
+                hasher.Append([0xFF]);
                 hasher.Append(MemoryMarshal.AsBytes(v.Version.ToString().AsSpan()));
+            }
+            hasher.Append([0x00]);
         }
 
         return hasher.GetCurrentHashAsUInt64().ToString("x");
