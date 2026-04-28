@@ -1455,4 +1455,81 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         response = await _client.Indices.ExistsAsync(index.GetIndex(id2), ct: TestCancellationToken);
         Assert.False(response.Exists);
     }
+
+    private bool HasConfigureIndexesCacheMarker()
+    {
+        return _cache.Keys.Any(k => k.StartsWith(ElasticConfiguration.ConfigureIndexesResourceName + ":", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ConfigureIndexesAsync_ConcurrentCalls_SetsMarker()
+    {
+        // Arrange
+        await _configuration.DeleteIndexesAsync();
+
+        // Act
+        var tasks = Enumerable.Range(0, 5)
+            .Select(_ => _configuration.ConfigureIndexesAsync())
+            .ToList();
+        await Task.WhenAll(tasks);
+
+        // Assert
+        Assert.True(HasConfigureIndexesCacheMarker());
+    }
+
+    [Fact]
+    public async Task ConfigureIndexesAsync_WhenMarkerExists_SkipsConfiguration()
+    {
+        // Arrange
+        await _configuration.DeleteIndexesAsync();
+        await _configuration.ConfigureIndexesAsync();
+        Assert.True(HasConfigureIndexesCacheMarker());
+
+        // Act
+        await _configuration.ConfigureIndexesAsync();
+
+        // Assert
+        Assert.True(HasConfigureIndexesCacheMarker());
+    }
+
+    [Fact]
+    public async Task ConfigureIndexesAsync_WithExplicitIndexes_DoesNotSetMarker()
+    {
+        // Arrange
+        await _configuration.DeleteIndexesAsync();
+
+        // Act
+        await _configuration.ConfigureIndexesAsync(indexes: _configuration.Indexes);
+
+        // Assert
+        Assert.False(HasConfigureIndexesCacheMarker());
+    }
+
+    [Fact]
+    public async Task DeleteIndexesAsync_WhenMarkerExists_ClearsMarker()
+    {
+        // Arrange
+        await _configuration.ConfigureIndexesAsync();
+        Assert.True(HasConfigureIndexesCacheMarker());
+
+        // Act
+        await _configuration.DeleteIndexesAsync();
+
+        // Assert
+        Assert.False(HasConfigureIndexesCacheMarker());
+    }
+
+    [Fact]
+    public async Task MaintainIndexesAsync_WhenMarkerExists_PreservesMarker()
+    {
+        // Arrange
+        await _configuration.ConfigureIndexesAsync();
+        Assert.True(HasConfigureIndexesCacheMarker());
+
+        // Act
+        await _configuration.MaintainIndexesAsync();
+
+        // Assert
+        Assert.True(HasConfigureIndexesCacheMarker());
+    }
 }

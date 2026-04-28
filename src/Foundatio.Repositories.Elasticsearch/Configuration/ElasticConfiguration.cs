@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO.Hashing;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Elasticsearch.Net;
@@ -33,6 +35,8 @@ public class ElasticConfiguration : IElasticConfiguration
     private readonly Lazy<ICustomFieldDefinitionRepository?> _customFieldDefinitionRepository;
     protected readonly bool _shouldDisposeCache;
     private readonly bool _shouldDisposeMessageBus;
+    private readonly ICacheClient _configureIndexesCache;
+    public const string ConfigureIndexesResourceName = "configure-indexes";
     private int _disposed;
 
     public ElasticConfiguration(IQueue<WorkItemData>? workItemQueue = null, ICacheClient? cacheClient = null, IMessageBus? messageBus = null, TimeProvider? timeProvider = null, IResiliencePolicyProvider? resiliencePolicyProvider = null, ILoggerFactory? loggerFactory = null)
@@ -45,6 +49,7 @@ public class ElasticConfiguration : IElasticConfiguration
         ResiliencePolicy = ResiliencePolicyProvider.GetPolicy<ElasticConfiguration>(_logger, TimeProvider);
         Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { CloneValues = true, ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
         _shouldDisposeCache = cacheClient is null;
+        _configureIndexesCache = new ScopedCacheClient(Cache, ConfigureIndexesResourceName);
         _shouldDisposeMessageBus = messageBus is null;
         messageBus ??= new InMemoryMessageBus(new InMemoryMessageBusOptions { ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
         MessageBus = messageBus;
@@ -123,16 +128,44 @@ public class ElasticConfiguration : IElasticConfiguration
         return null;
     }
 
-    public Task ConfigureIndexesAsync(IEnumerable<IIndex>? indexes = null, bool beginReindexingOutdated = true)
+    public async Task ConfigureIndexesAsync(IEnumerable<IIndex>? indexes = null, bool beginReindexingOutdated = true)
     {
-        if (indexes == null)
-            indexes = Indexes;
+        if (indexes is not null)
+        {
+            var indexList = indexes as ICollection<IIndex> ?? indexes.ToArray();
+            _logger.LogInformation("Configuring {IndexCount} explicit indexes (beginReindexingOutdated={BeginReindexingOutdated})", indexList.Count, beginReindexingOutdated);
+            await Task.WhenAll(indexList.Select(idx => ConfigureIndexInternalAsync(idx, beginReindexingOutdated))).AnyContext();
+            return;
+        }
 
-        var tasks = new List<Task>();
-        foreach (var idx in indexes)
-            tasks.Add(ConfigureIndexInternalAsync(idx, beginReindexingOutdated));
+        string cacheKey = GetConfigureIndexesCacheKey();
 
-        return Task.WhenAll(tasks);
+        if (await TryCheckCacheMarkerAsync(cacheKey).AnyContext())
+        {
+            _logger.LogInformation("Skipping index configuration, already configured recently");
+            return;
+        }
+
+        await using var configLock = await _lockProvider.AcquireAsync(
+            ConfigureIndexesResourceName, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(1)).AnyContext();
+
+        if (configLock is null)
+        {
+            _logger.LogInformation("Skipping index configuration, another process is currently configuring");
+            return;
+        }
+
+        if (await TryCheckCacheMarkerAsync(cacheKey).AnyContext())
+        {
+            _logger.LogInformation("Skipping index configuration, configured by another process while waiting for lock");
+            return;
+        }
+
+        _logger.LogInformation("Configuring {IndexCount} indexes (beginReindexingOutdated={BeginReindexingOutdated})...", Indexes.Count, beginReindexingOutdated);
+
+        await Task.WhenAll(Indexes.Select(idx => ConfigureIndexInternalAsync(idx, beginReindexingOutdated))).AnyContext();
+
+        await TrySetCacheMarkerAsync(cacheKey).AnyContext();
     }
 
     private async Task ConfigureIndexInternalAsync(IIndex idx, bool beginReindexingOutdated)
@@ -166,7 +199,7 @@ public class ElasticConfiguration : IElasticConfiguration
 
     public Task MaintainIndexesAsync(IEnumerable<IIndex>? indexes = null)
     {
-        if (indexes == null)
+        if (indexes is null)
             indexes = Indexes;
 
         var tasks = new List<Task>();
@@ -176,21 +209,28 @@ public class ElasticConfiguration : IElasticConfiguration
         return Task.WhenAll(tasks);
     }
 
-    public Task DeleteIndexesAsync(IEnumerable<IIndex>? indexes = null)
+    public async Task DeleteIndexesAsync(IEnumerable<IIndex>? indexes = null)
     {
-        if (indexes == null)
+        if (indexes is null)
             indexes = Indexes;
 
         var tasks = new List<Task>();
         foreach (var idx in indexes)
             tasks.Add(idx.DeleteAsync());
 
-        return Task.WhenAll(tasks);
+        try
+        {
+            await Task.WhenAll(tasks).AnyContext();
+        }
+        finally
+        {
+            await TryRemoveCacheMarkerAsync().AnyContext();
+        }
     }
 
     public async Task ReindexAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null)
     {
-        if (indexes == null)
+        if (indexes is null)
             indexes = Indexes;
 
         var outdatedIndexes = new List<IVersionedIndex>();
@@ -221,6 +261,63 @@ public class ElasticConfiguration : IElasticConfiguration
             {
                 _logger.LogError(ex, "Failed to begin reindex for {IndexName} after retries", outdatedIndex.Name);
             }
+        }
+
+        await TryRemoveCacheMarkerAsync().AnyContext();
+    }
+
+    private string GetConfigureIndexesCacheKey()
+    {
+        var hasher = new XxHash64();
+        foreach (var index in Indexes.OrderBy(i => i.Name))
+        {
+            hasher.Append(MemoryMarshal.AsBytes(index.Name.AsSpan()));
+            if (index is IVersionedIndex v)
+            {
+                hasher.Append([0xFF]);
+                hasher.Append(MemoryMarshal.AsBytes(v.Version.ToString().AsSpan()));
+            }
+            hasher.Append([0x00]);
+        }
+
+        return hasher.GetCurrentHashAsUInt64().ToString("x");
+    }
+
+    private async Task<bool> TryCheckCacheMarkerAsync(string cacheKey)
+    {
+        try
+        {
+            return await _configureIndexesCache.ExistsAsync(cacheKey).AnyContext();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Error checking configure-indexes cache marker: {Message}", ex.Message);
+            return false;
+        }
+    }
+
+    private async Task TrySetCacheMarkerAsync(string cacheKey)
+    {
+        try
+        {
+            await _configureIndexesCache.SetAsync(cacheKey, true, TimeSpan.FromMinutes(5)).AnyContext();
+            _logger.LogInformation("Index configuration complete, marker set for 5 minutes");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Error setting configure-indexes cache marker: {Message}", ex.Message);
+        }
+    }
+
+    private async Task TryRemoveCacheMarkerAsync()
+    {
+        try
+        {
+            await _configureIndexesCache.RemoveAllAsync().AnyContext();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Error removing configure-indexes cache marker: {Message}", ex.Message);
         }
     }
 

@@ -293,6 +293,8 @@ This will:
 3. Create aliases
 4. Start reindexing for outdated indexes (if `beginReindexingOutdated` is true)
 
+When running at scale with multiple processes, `ConfigureIndexesAsync` uses a distributed lock and cache marker to prevent redundant Elasticsearch admin API calls. See [Index Management - Concurrency Protection](/guide/index-management#concurrency-protection) for details.
+
 ### Index Types
 
 Foundatio.Repositories provides several index types:
