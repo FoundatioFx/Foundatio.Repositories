@@ -35,8 +35,8 @@ public class ElasticConfiguration : IElasticConfiguration
     private readonly Lazy<ICustomFieldDefinitionRepository?> _customFieldDefinitionRepository;
     protected readonly bool _shouldDisposeCache;
     private readonly bool _shouldDisposeMessageBus;
-    private const string ConfigureIndexesLockName = "configure-indexes";
-    public const string ConfigureIndexesCacheKeyPrefix = "configure-indexes:";
+    private readonly ICacheClient _configureIndexesCache;
+    public const string ConfigureIndexesResourceName = "configure-indexes";
     private int _disposed;
 
     public ElasticConfiguration(IQueue<WorkItemData>? workItemQueue = null, ICacheClient? cacheClient = null, IMessageBus? messageBus = null, TimeProvider? timeProvider = null, IResiliencePolicyProvider? resiliencePolicyProvider = null, ILoggerFactory? loggerFactory = null)
@@ -49,6 +49,7 @@ public class ElasticConfiguration : IElasticConfiguration
         ResiliencePolicy = ResiliencePolicyProvider.GetPolicy<ElasticConfiguration>(_logger, TimeProvider);
         Cache = cacheClient ?? new InMemoryCacheClient(new InMemoryCacheClientOptions { CloneValues = true, ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
         _shouldDisposeCache = cacheClient is null;
+        _configureIndexesCache = new ScopedCacheClient(Cache, ConfigureIndexesResourceName);
         _shouldDisposeMessageBus = messageBus is null;
         messageBus ??= new InMemoryMessageBus(new InMemoryMessageBusOptions { ResiliencePolicyProvider = ResiliencePolicyProvider, TimeProvider = TimeProvider, LoggerFactory = LoggerFactory });
         MessageBus = messageBus;
@@ -150,7 +151,7 @@ public class ElasticConfiguration : IElasticConfiguration
         }
 
         await using var configLock = await _lockProvider.AcquireAsync(
-            ConfigureIndexesLockName, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1)).AnyContext();
+            ConfigureIndexesResourceName, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1)).AnyContext();
 
         if (configLock is null)
         {
@@ -173,7 +174,6 @@ public class ElasticConfiguration : IElasticConfiguration
         await Task.WhenAll(allTasks).AnyContext();
 
         await TrySetCacheMarkerAsync(cacheKey).AnyContext();
-        _logger.LogInformation("Index configuration complete, marker set for 5 minutes");
     }
 
     private async Task ConfigureIndexInternalAsync(IIndex idx, bool beginReindexingOutdated)
@@ -284,14 +284,14 @@ public class ElasticConfiguration : IElasticConfiguration
                 hasher.Append(MemoryMarshal.AsBytes(v.Version.ToString().AsSpan()));
         }
 
-        return $"{ConfigureIndexesCacheKeyPrefix}{hasher.GetCurrentHashAsUInt64():x}";
+        return hasher.GetCurrentHashAsUInt64().ToString("x");
     }
 
     private async Task<bool> TryCheckCacheMarkerAsync(string cacheKey)
     {
         try
         {
-            return await Cache.ExistsAsync(cacheKey).AnyContext();
+            return await _configureIndexesCache.ExistsAsync(cacheKey).AnyContext();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -304,7 +304,8 @@ public class ElasticConfiguration : IElasticConfiguration
     {
         try
         {
-            await Cache.SetAsync(cacheKey, true, TimeSpan.FromMinutes(5)).AnyContext();
+            await _configureIndexesCache.SetAsync(cacheKey, true, TimeSpan.FromMinutes(5)).AnyContext();
+            _logger.LogInformation("Index configuration complete, marker set for 5 minutes");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -316,7 +317,7 @@ public class ElasticConfiguration : IElasticConfiguration
     {
         try
         {
-            await Cache.RemoveByPrefixAsync(ConfigureIndexesCacheKeyPrefix).AnyContext();
+            await _configureIndexesCache.RemoveAllAsync().AnyContext();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
