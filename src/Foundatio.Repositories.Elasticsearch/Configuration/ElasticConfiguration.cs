@@ -205,7 +205,7 @@ public class ElasticConfiguration : IElasticConfiguration
         await _beginReindexLockProvider.TryUsingAsync(enqueueReindexLockName, async () => { await _workItemQueue.EnqueueAsync(reindexWorkItem).AnyContext(); }, TimeSpan.Zero, new CancellationToken(true)).AnyContext();
     }
 
-    public async Task MaintainIndexesAsync(IEnumerable<IIndex>? indexes = null)
+    public Task MaintainIndexesAsync(IEnumerable<IIndex>? indexes = null)
     {
         if (indexes is null)
             indexes = Indexes;
@@ -214,7 +214,7 @@ public class ElasticConfiguration : IElasticConfiguration
         foreach (var idx in indexes)
             tasks.Add(idx.MaintainAsync());
 
-        await Task.WhenAll(tasks).AnyContext();
+        return Task.WhenAll(tasks);
     }
 
     public async Task DeleteIndexesAsync(IEnumerable<IIndex>? indexes = null)
