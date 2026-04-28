@@ -160,7 +160,7 @@ public class JsonPatcher : AbstractPatcher<JsonNode>
             throw new InvalidOperationException($"Move source path '{operation.FromPath}' does not exist.");
 
         Remove(new RemoveOperation { Path = operation.FromPath }, target);
-        Add(new AddOperation { Path = operation.Path, Value = token?.DeepClone() }, target);
+        Add(new AddOperation { Path = operation.Path, Value = token.DeepClone() }, target);
     }
 
     protected override void Test(TestOperation operation, JsonNode target)
@@ -181,7 +181,7 @@ public class JsonPatcher : AbstractPatcher<JsonNode>
         if (token is null)
             throw new InvalidOperationException($"Copy source path '{operation.FromPath}' does not exist.");
 
-        Add(new AddOperation { Path = operation.Path, Value = token?.DeepClone() }, target);
+        Add(new AddOperation { Path = operation.Path, Value = token.DeepClone() }, target);
     }
 }
 

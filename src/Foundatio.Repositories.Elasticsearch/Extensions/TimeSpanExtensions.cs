@@ -10,16 +10,16 @@ internal static class TimeSpanExtensions
     /// </summary>
     public static string ToElasticDuration(this TimeSpan timeSpan)
     {
-        if (timeSpan.TotalDays >= 1 && timeSpan.TotalDays == Math.Truncate(timeSpan.TotalDays))
+        if (timeSpan.TotalDays >= 1 && timeSpan.Ticks % TimeSpan.TicksPerDay == 0)
             return $"{(int)timeSpan.TotalDays}d";
 
-        if (timeSpan.TotalHours >= 1 && timeSpan.TotalHours == Math.Truncate(timeSpan.TotalHours))
+        if (timeSpan.TotalHours >= 1 && timeSpan.Ticks % TimeSpan.TicksPerHour == 0)
             return $"{(int)timeSpan.TotalHours}h";
 
-        if (timeSpan.TotalMinutes >= 1 && timeSpan.TotalMinutes == Math.Truncate(timeSpan.TotalMinutes))
+        if (timeSpan.TotalMinutes >= 1 && timeSpan.Ticks % TimeSpan.TicksPerMinute == 0)
             return $"{(int)timeSpan.TotalMinutes}m";
 
-        if (timeSpan.TotalSeconds >= 1 && timeSpan.TotalSeconds == Math.Truncate(timeSpan.TotalSeconds))
+        if (timeSpan.TotalSeconds >= 1 && timeSpan.Ticks % TimeSpan.TicksPerSecond == 0)
             return $"{(int)timeSpan.TotalSeconds}s";
 
         return $"{(int)timeSpan.TotalMilliseconds}ms";
