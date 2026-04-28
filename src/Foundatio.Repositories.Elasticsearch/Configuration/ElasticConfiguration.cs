@@ -151,7 +151,7 @@ public class ElasticConfiguration : IElasticConfiguration
         }
 
         await using var configLock = await _lockProvider.AcquireAsync(
-            ConfigureIndexesResourceName, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1)).AnyContext();
+            ConfigureIndexesResourceName, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5)).AnyContext();
 
         if (configLock is null)
         {
