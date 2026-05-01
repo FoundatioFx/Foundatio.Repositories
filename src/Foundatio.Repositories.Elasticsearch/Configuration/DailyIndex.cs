@@ -366,7 +366,7 @@ public class DailyIndex : VersionedIndex
     {
         await base.DeleteIndexAsync(name).AnyContext();
 
-        if (name.EndsWith("*"))
+        if (name.EndsWith('*'))
             await _aliasCache.RemoveAllAsync().AnyContext();
         else
             await _aliasCache.RemoveAsync(GetIndexByDate(GetIndexDate(name))).AnyContext();
