@@ -269,6 +269,14 @@ graph LR
     style D fill:#f9f,stroke:#333,stroke-dasharray: 5 5
 ```
 
+::: tip When to bump the version
+Only increment the version when you need to **change an existing field's mapping type** (e.g., `text` to `keyword`) or run a **data transformation** via reindex script. Elasticsearch [does not allow in-place type changes](https://www.elastic.co/docs/manage-data/data-store/mapping/update-mappings-examples) on existing fields.
+
+**Adding a mapping for a brand-new field does NOT require a version bump.** `ConfigureIndexesAsync` applies new field mappings additively via the [PUT Mapping API](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-put-mapping-1). For `DailyIndex`/`MonthlyIndex`, new physical indexes get the full mapping on creation, but already-created daily indexes are not updated automatically.
+
+After adding a new field mapping without a version bump, only newly saved documents will be searchable on that field. Existing documents have the value in `_source` but no inverted index entry. To make them searchable, re-save them through the repository or run an Elasticsearch [update by query](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/update-by-query-api) with no script.
+:::
+
 ### Version Upgrade Process
 
 When you increment the version and call `ConfigureIndexesAsync()`, the following happens:

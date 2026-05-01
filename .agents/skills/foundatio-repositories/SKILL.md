@@ -2,12 +2,19 @@
 name: foundatio-repositories
 description: >
   Use when querying, counting, patching, or paginating data through
-  Foundatio.Repositories Elasticsearch abstractions. Covers filter expressions,
-  aggregation queries, partial and script patches, and search-after pagination.
-  Apply when working with any IRepository, ISearchableRepository, FindAsync,
-  CountAsync, PatchAsync, PatchAllAsync, or RemoveAllAsync method. Never use
-  raw IElasticClient directly -- always use repository methods. Use context7
-  MCP to fetch current API docs and examples.
+  Foundatio.Repositories Elasticsearch abstractions. Also use when configuring
+  index mappings (ConfigureIndexMapping), managing index lifecycle (VersionedIndex,
+  DailyIndex, MonthlyIndex), adding fields to models that need to be queryable,
+  bumping index versions, or planning reindex operations. Covers filter expressions,
+  aggregation queries, partial and script patches, search-after pagination, field
+  mapping rules, schema versioning, and the relationship between mappings and
+  queryability. Apply when working with any IRepository, ISearchableRepository,
+  FindAsync, CountAsync, PatchAsync, PatchAllAsync, RemoveAllAsync, Index<T>,
+  VersionedIndex<T>, DailyIndex<T>, or ConfigureIndexesAsync. Never use raw
+  IElasticClient directly -- always use repository methods. Use context7 MCP to
+  fetch current API docs and examples. See also Elastic docs for
+  [field mappings](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-put-mapping-1)
+  and [update by query](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/update-by-query-api).
 ---
 
 # Foundatio Repositories
@@ -352,8 +359,60 @@ bool exists = await repository.ExistsAsync(id);
 | `o => o.Originals()`            | Track original values for change detection   |
 | `o => o.IncludeSoftDeletes()`   | Include soft-deleted docs in queries         |
 
+## Index Mapping
+
+All index configurations use `.Dynamic(false)`, which disables Elasticsearch's automatic field mapping. This means **every field you query, filter, sort, or aggregate on MUST have an explicit mapping** in the index's `ConfigureIndexMapping` method. Unmapped fields are stored in `_source` but never indexed -- queries against them silently return zero results with no error.
+
+### Field Type Reference
+
+| C# / NEST Mapping | When to Use | ES Type |
+| --- | --- | --- |
+| `.Keyword(f => f.Name(e => e.Field))` | Exact match, filtering, aggregations | `keyword` |
+| `.Text(f => f.Name(e => e.Field).AddKeywordAndSortFields())` | Full-text search + exact match + sorting | `text` + `.keyword` + `.sort` sub-fields |
+| `.Scalar(f => f.Field, f => f.Name(e => e.Field))` | Numeric fields (int, long, double, decimal) | `integer` / `long` / `double` etc. |
+| `.Number(f => f.Name(e => e.Field).Type(NumberType.Integer))` | Numeric with explicit type | specified number type |
+| `.Date(f => f.Name(e => e.Field))` | DateTime / DateTimeOffset | `date` |
+| `.Boolean(f => f.Name(e => e.Field))` | Boolean flags | `boolean` |
+| `.GeoPoint(f => f.Name(e => e.Field))` | Latitude/longitude | `geo_point` |
+| `.Nested<T>(f => f.Name(e => e.Field).Properties(...))` | Nested objects needing independent querying | `nested` |
+| `.Object<T>(f => f.Name(e => e.Field).Properties(...))` | Embedded objects (flattened) | `object` |
+
+`.SetupDefaults()` automatically maps `Id` (keyword), `CreatedUtc` (date), `UpdatedUtc` (date), `IsDeleted` (boolean), and `Version` (keyword) based on which model interfaces are implemented.
+
+### When to Bump the Index Version
+
+**No version bump needed** -- adding a mapping for a brand-new field:
+
+- For `VersionedIndex<T>`: `ConfigureIndexesAsync` calls the [PUT Mapping API](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-put-mapping-1) on the existing index, adding the new field mapping additively.
+- For `DailyIndex<T>` / `MonthlyIndex<T>`: new daily/monthly physical indexes are created on-demand with the full current mapping. However, **already-created daily/monthly indexes are NOT updated** -- `DailyIndex.ConfigureAsync` is a no-op and never calls `UpdateIndexAsync` on existing physical indexes.
+
+**Version bump IS required** -- changing an existing field's type or analyzer (e.g., `Text` to `Keyword`). Elasticsearch [does not allow in-place type changes](https://www.elastic.co/docs/manage-data/data-store/mapping/update-mappings-examples). Bump the `VersionedIndex` version to trigger creation of a new index with the correct mapping and automatic reindexing of data.
+
+### Existing Documents After Adding a New Mapping
+
+After adding a mapping for a previously unmapped field, only **newly saved/indexed documents** will be searchable on that field. Existing documents already have the value in `_source` but Elasticsearch has no inverted index entry for it.
+
+To make existing documents searchable on the new field:
+
+- **Foundatio migration** -- create a `MigrationBase` subclass (versioned or resumable) that uses `PatchAllAsync` or `BatchProcessAsync` to touch all affected documents. This is the recommended approach for production deployments because migrations are tracked, run once, support retry, and can be run offline if needed. See [Migrations](/guide/migrations) documentation.
+- **Re-save** them through the repository (e.g., `BatchProcessAsync` with `ActionPatch` that touches each document)
+- **`PatchAllAsync`** with a no-op `ScriptPatch` (e.g., `ctx.op = 'none'` -- still triggers re-index of `_source`)
+- **Elasticsearch [Update By Query API](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/update-by-query-api)** with no script: `POST /{index}/_update_by_query` re-indexes every document in place without changing `_source` (see [Pick up a new property](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/update-by-query-api#docs-update-by-query-pick-up-a-new-property))
+
+For `DailyIndex`/`MonthlyIndex`, you must also apply the mapping to existing physical indexes (via the PUT Mapping API directly or by bumping the version) before the update-by-query will help.
+
+### Checklist: Adding a Queryable Model Field
+
+1. Add the property to the model class.
+2. Add the mapping in `ConfigureIndexMapping` (choose the correct field type from the table above).
+3. If changing an existing field's mapping, bump the index version and add a reindex script.
+4. If brand-new field, no version bump is needed.
+5. Add to `AllowedQueryFields` / `AllowedAggregationFields` / `AllowedSortFields` if the index restricts those sets.
+6. Decide whether existing documents need to be searchable on the new field immediately. If yes, create a Foundatio migration (`MigrationBase`) to backfill via `PatchAllAsync` or update-by-query. For daily/monthly indexes, remember that existing physical indexes also need the mapping applied first.
+
 ## Gotchas
 
+- **Unmapped fields silently return zero results**: Because `.Dynamic(false)` is standard, adding a model property without a corresponding mapping in `ConfigureIndexMapping` means the field is stored in `_source` but never indexed. Queries, filters, sorts, and aggregations on it silently return empty results with no error. Always add a mapping for any field you need to query. See the [Index Mapping](#index-mapping) section above.
 - **`.Index(start, end)` is only for DailyIndex/MonthlyIndex**: It routes to physical daily/monthly shards. On `VersionedIndex` (single index) it is a no-op. Always pair with `.DateRange()` which filters documents within whatever indexes are targeted.
 - **Painless uses `==` not `===`**: The `===` operator does not exist in Painless. Always use `==` for equality in ScriptPatch scripts.
 - **`NextPageAsync()` mutates in-place**: It returns `Task<bool>` and replaces `.Documents`/`.Hits` on the same result object. Do not hold references to the previous page.

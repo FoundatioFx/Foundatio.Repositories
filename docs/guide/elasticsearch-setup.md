@@ -16,7 +16,7 @@ using Nest;
 
 public class MyElasticConfiguration : ElasticConfiguration
 {
-    public MyElasticConfiguration(ILoggerFactory loggerFactory) 
+    public MyElasticConfiguration(ILoggerFactory loggerFactory)
         : base(loggerFactory: loggerFactory)
     {
         // Register indexes
@@ -84,7 +84,7 @@ Override `ConfigureSettings` to customize the NEST client:
 protected override void ConfigureSettings(ConnectionSettings settings)
 {
     base.ConfigureSettings(settings);
-    
+
     // Enable detailed logging in development
     if (_environment.IsDevelopment())
     {
@@ -92,13 +92,13 @@ protected override void ConfigureSettings(ConnectionSettings settings)
         settings.PrettyJson();
         settings.EnableDebugMode();
     }
-    
+
     // Set default timeout
     settings.RequestTimeout(TimeSpan.FromSeconds(30));
-    
+
     // Configure authentication
     settings.BasicAuthentication("username", "password");
-    
+
     // Or use API key
     settings.ApiKeyAuthentication("api-key-id", "api-key");
 }
@@ -114,7 +114,7 @@ NEST 7.x uses its own internal serializer by default. For custom JSON serializat
 protected override void ConfigureSettings(ConnectionSettings settings)
 {
     base.ConfigureSettings(settings);
-    
+
     // Use property names as-is (no camelCase conversion)
     settings.DefaultFieldNameInferrer(p => p);
 }
@@ -138,7 +138,7 @@ using Newtonsoft.Json.Serialization;
 protected override IElasticClient CreateElasticClient()
 {
     var pool = CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200"));
-    
+
     // Use JSON.NET serializer with custom settings
     var settings = new ConnectionSettings(pool, sourceSerializer: (builtin, connectionSettings) =>
         new JsonNetSerializer(builtin, connectionSettings, () => new JsonSerializerSettings
@@ -147,13 +147,13 @@ protected override IElasticClient CreateElasticClient()
             DateTimeZoneHandling = DateTimeZoneHandling.Utc
         },
         resolver => resolver.NamingStrategy = new CamelCaseNamingStrategy()));
-    
+
     settings.EnableApiVersioningHeader();
     ConfigureSettings(settings);
-    
+
     foreach (var index in Indexes)
         index.ConfigureSettings(settings);
-    
+
     return new ElasticClient(settings);
 }
 ```
@@ -172,7 +172,7 @@ using Newtonsoft.Json.Serialization;
 public class CustomJsonNetSerializer : ConnectionSettingsAwareSerializerBase
 {
     public CustomJsonNetSerializer(
-        IElasticsearchSerializer builtinSerializer, 
+        IElasticsearchSerializer builtinSerializer,
         IConnectionSettingsValues connectionSettings)
         : base(builtinSerializer, connectionSettings) { }
 
@@ -196,15 +196,15 @@ Then use it:
 protected override IElasticClient CreateElasticClient()
 {
     var pool = CreateConnectionPool() ?? new SingleNodeConnectionPool(new Uri("http://localhost:9200"));
-    var settings = new ConnectionSettings(pool, 
+    var settings = new ConnectionSettings(pool,
         sourceSerializer: (builtin, connSettings) => new CustomJsonNetSerializer(builtin, connSettings));
-    
+
     settings.EnableApiVersioningHeader();
     ConfigureSettings(settings);
-    
+
     foreach (var index in Indexes)
         index.ConfigureSettings(settings);
-    
+
     return new ElasticClient(settings);
 }
 ```
@@ -227,18 +227,18 @@ public class MyElasticConfiguration : ElasticConfiguration
     public MyElasticConfiguration(
         IConfiguration config,
         IWebHostEnvironment env,
-        ILoggerFactory loggerFactory) 
+        ILoggerFactory loggerFactory)
         : base(loggerFactory: loggerFactory)
     {
         _config = config;
         _env = env;
-        
+
         AddIndex(Employees = new EmployeeIndex(this));
     }
 
     protected override IConnectionPool CreateConnectionPool()
     {
-        var connectionString = _config.GetConnectionString("Elasticsearch") 
+        var connectionString = _config.GetConnectionString("Elasticsearch")
             ?? "http://localhost:9200";
         return new SingleNodeConnectionPool(new Uri(connectionString));
     }
@@ -246,7 +246,7 @@ public class MyElasticConfiguration : ElasticConfiguration
     protected override void ConfigureSettings(ConnectionSettings settings)
     {
         base.ConfigureSettings(settings);
-        
+
         if (_env.IsDevelopment())
         {
             settings.DisableDirectStreaming();
@@ -315,7 +315,7 @@ See [Index Management](/guide/index-management) for detailed documentation.
 ```csharp
 public sealed class EmployeeIndex : VersionedIndex<Employee>
 {
-    public EmployeeIndex(IElasticConfiguration configuration) 
+    public EmployeeIndex(IElasticConfiguration configuration)
         : base(configuration, "employees", version: 1) { }
 
     public override TypeMappingDescriptor<Employee> ConfigureIndexMapping(
@@ -332,6 +332,12 @@ public sealed class EmployeeIndex : VersionedIndex<Employee>
     }
 }
 ```
+
+::: warning Dynamic mapping is disabled
+All index configurations should use `.Dynamic(false)`. This means any model field you want to query, filter, sort, or aggregate on **must** have an explicit mapping in `ConfigureIndexMapping`. Unmapped fields are stored in `_source` but never indexed -- queries against them silently return zero results with no error.
+
+After adding a new field mapping to an existing index, only newly written documents will be searchable on that field. Existing documents are not automatically re-indexed. To backfill, re-save documents through the repository or run an Elasticsearch [update by query](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/update-by-query-api) with no script to re-index all documents in place.
+:::
 
 ### SetupDefaults Extension
 
@@ -415,12 +421,12 @@ public class MyElasticConfiguration : ElasticConfiguration
 {
     public MyElasticConfiguration(
         ICacheClient cache,
-        ILoggerFactory loggerFactory) 
+        ILoggerFactory loggerFactory)
         : base(cache: cache, loggerFactory: loggerFactory)
     {
         AddIndex(Employees = new EmployeeIndex(this));
     }
-    
+
     // ...
 }
 ```
@@ -435,12 +441,12 @@ public class MyElasticConfiguration : ElasticConfiguration
     public MyElasticConfiguration(
         ICacheClient cache,
         IMessageBus messageBus,
-        ILoggerFactory loggerFactory) 
+        ILoggerFactory loggerFactory)
         : base(cache: cache, messageBus: messageBus, loggerFactory: loggerFactory)
     {
         AddIndex(Employees = new EmployeeIndex(this));
     }
-    
+
     // ...
 }
 ```
@@ -458,12 +464,12 @@ public class MyElasticConfiguration : ElasticConfiguration
         IWebHostEnvironment env,
         ICacheClient cache,
         IMessageBus messageBus,
-        ILoggerFactory loggerFactory) 
+        ILoggerFactory loggerFactory)
         : base(cache: cache, messageBus: messageBus, loggerFactory: loggerFactory)
     {
         _config = config;
         _env = env;
-        
+
         AddIndex(Employees = new EmployeeIndex(this));
         AddIndex(Projects = new ProjectIndex(this));
         AddIndex(AuditLogs = new AuditLogIndex(this));
@@ -474,25 +480,25 @@ public class MyElasticConfiguration : ElasticConfiguration
         var connectionString = _config.GetConnectionString("Elasticsearch");
         if (string.IsNullOrEmpty(connectionString))
             connectionString = "http://localhost:9200";
-            
+
         var uris = connectionString.Split(',').Select(s => new Uri(s.Trim()));
-        
+
         if (uris.Count() == 1)
             return new SingleNodeConnectionPool(uris.First());
-            
+
         return new StaticConnectionPool(uris);
     }
 
     protected override void ConfigureSettings(ConnectionSettings settings)
     {
         base.ConfigureSettings(settings);
-        
+
         if (_env.IsDevelopment())
         {
             settings.DisableDirectStreaming();
             settings.PrettyJson();
         }
-        
+
         var username = _config["Elasticsearch:Username"];
         var password = _config["Elasticsearch:Password"];
         if (!string.IsNullOrEmpty(username))
@@ -564,11 +570,11 @@ using Nest;
 public class Organization : IParentChildDocument, IHaveDates, ISupportSoftDeletes
 {
     public string Id { get; set; }
-    
+
     // IParentChildDocument - parent doesn't need a ParentId
     string IParentChildDocument.ParentId { get; set; }
     JoinField IParentChildDocument.Discriminator { get; set; }
-    
+
     public string Name { get; set; }
     public DateTime CreatedUtc { get; set; }
     public DateTime UpdatedUtc { get; set; }
@@ -579,11 +585,11 @@ public class Organization : IParentChildDocument, IHaveDates, ISupportSoftDelete
 public class Employee : IParentChildDocument, IHaveDates, ISupportSoftDeletes
 {
     public string Id { get; set; }
-    
+
     // Child must have ParentId
     public string ParentId { get; set; }
     JoinField IParentChildDocument.Discriminator { get; set; }
-    
+
     public string Name { get; set; }
     public string Email { get; set; }
     public DateTime CreatedUtc { get; set; }
@@ -599,7 +605,7 @@ Create a single index with a join field mapping:
 ```csharp
 public sealed class OrganizationIndex : VersionedIndex
 {
-    public OrganizationIndex(IElasticConfiguration configuration) 
+    public OrganizationIndex(IElasticConfiguration configuration)
         : base(configuration, "organizations", version: 1) { }
 
     public override CreateIndexDescriptor ConfigureIndex(CreateIndexDescriptor idx)
@@ -641,7 +647,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>
     {
         HasParent = true;
         GetParentIdFunc = e => e.ParentId;
-        
+
         // Required for soft delete filtering on parent
         DocumentType = typeof(Employee);
         ParentDocumentType = typeof(Organization);
@@ -656,8 +662,8 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>
 var org = await orgRepository.AddAsync(new Organization { Name = "Acme Corp" });
 
 // Add child with parent reference
-var employee = await employeeRepository.AddAsync(new Employee 
-{ 
+var employee = await employeeRepository.AddAsync(new Employee
+{
     Name = "John Doe",
     Email = "john@acme.com",
     ParentId = org.Id  // Link to parent
@@ -720,8 +726,8 @@ services.AddHealthChecks()
         var config = services.BuildServiceProvider()
             .GetRequiredService<MyElasticConfiguration>();
         var response = config.Client.Ping();
-        return response.IsValid 
-            ? HealthCheckResult.Healthy() 
+        return response.IsValid
+            ? HealthCheckResult.Healthy()
             : HealthCheckResult.Unhealthy("Elasticsearch is not responding");
     });
 ```
