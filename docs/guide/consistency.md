@@ -41,7 +41,7 @@ This creates two fundamentally different read paths:
 |-----------|------------|-------------|-------|
 | `GetByIdAsync` | ✅ Yes | GET API | Falls back to Search when model has a parent and no routing is provided |
 | `GetByIdsAsync` | ✅ Yes | Multi-GET API | Falls back to Search for unrouted parent documents or multi-index |
-| `ExistsAsync(id)` | ⚠️ Depends | Document Exists API | Real-time only without soft deletes and without unrouted parents. Otherwise falls back to Search |
+| `ExistsAsync(id)` | ✅ Yes | GET API / Document Exists API | Uses Document Exists API (no soft deletes) or GET API with source filter (soft deletes). Falls back to Search only for unrouted parent documents |
 | `ExistsAsync(query)` | ❌ No | Search API (`size: 0`) | Always Search, even with `.Id(id)` combined with field filters |
 | `FindAsync` | ❌ No | Search API | Subject to refresh interval |
 | `FindOneAsync` | ❌ No | Search API (`size: 1`) | Subject to refresh interval |
@@ -92,16 +92,16 @@ bool freshIsContract = fresh is not null && fresh.EmploymentType == EmploymentTy
 
 ### ExistsAsync(id) with Soft Deletes
 
-When a model implements `ISupportSoftDeletes`, even `ExistsAsync(id)` falls back to the search path. The `IsDeleted` filter requires a query -- the Document Exists API has no filtering capability:
+When a model implements `ISupportSoftDeletes`, `ExistsAsync(id)` uses the real-time GET API with a source filter to fetch only the `IsDeleted` field, then checks it in code. This provides real-time accuracy with minimal payload:
 
 ```csharp
 // Employee implements ISupportSoftDeletes
 employee.IsDeleted = true;
 await repository.SaveAsync(employee);
 
-// Search path (not real-time) because Employee supports soft deletes
+// Real-time: uses GET API with _source_includes=isDeleted, then checks IsDeleted in code
 bool exists = await repository.ExistsAsync(employee.Id);
-// exists might still be true (stale -- hasn't refreshed yet)
+// exists is false -- the soft deletion is visible immediately via the GET path
 ```
 
 ## Solving Dirty Reads

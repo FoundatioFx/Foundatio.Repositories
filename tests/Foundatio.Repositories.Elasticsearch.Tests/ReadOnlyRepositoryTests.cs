@@ -1504,6 +1504,35 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task ExistsAsyncByIdShouldBeRealTimeForSoftDeleteModels()
+    {
+        // Arrange: add an active employee without ImmediateConsistency so search index is stale
+        var active = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 30), o => o.ImmediateConsistency());
+        Assert.NotNull(active.Id);
+
+        // Act/Assert: ExistsAsync(id) should return true immediately via the real-time GET path
+        Assert.True(await _employeeRepository.ExistsAsync(active.Id));
+
+        // Arrange: soft-delete the employee without refreshing the search index
+        active.IsDeleted = true;
+        await _employeeRepository.SaveAsync(active, o => o.Consistency(Consistency.Eventual));
+
+        // Act/Assert: ExistsAsync(id) uses GET + IsDeleted check, so it sees the deletion in real-time
+        Assert.False(await _employeeRepository.ExistsAsync(active.Id));
+
+        // Act/Assert: IncludeSoftDeletes returns true — document still exists physically
+        Assert.True(await _employeeRepository.ExistsAsync(active.Id, o => o.IncludeSoftDeletes()));
+
+        // Act/Assert: DeletedOnly mode returns true for the soft-deleted document
+        Assert.True(await _employeeRepository.ExistsAsync(active.Id, o => o.SoftDeleteMode(SoftDeleteQueryMode.DeletedOnly)));
+
+        // Arrange: add another employee and verify DeletedOnly mode returns false for active docs
+        var active2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25), o => o.ImmediateConsistency());
+        Assert.False(await _employeeRepository.ExistsAsync(active2.Id, o => o.SoftDeleteMode(SoftDeleteQueryMode.DeletedOnly)));
+        Assert.True(await _employeeRepository.ExistsAsync(active2.Id));
+    }
+
+    [Fact]
     public async Task OnlyIdsShouldNotReturnDocuments()
     {
         var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 20), o => o.ImmediateConsistency());
