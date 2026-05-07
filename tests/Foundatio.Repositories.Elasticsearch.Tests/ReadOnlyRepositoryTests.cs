@@ -1504,36 +1504,34 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task ExistsAsyncByIdShouldBeRealTimeForSoftDeleteModels()
+    public async Task ExistsAsync_WithSoftDeletedDocument_IsRealTimeWithoutRefresh()
     {
-        // Arrange: add an active employee without ImmediateConsistency so search index is stale
+        // Arrange
         var active = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 30), o => o.ImmediateConsistency());
         Assert.NotNull(active.Id);
 
-        // Act/Assert: ExistsAsync(id) should return true immediately via the real-time GET path
+        // Act/Assert
         Assert.True(await _employeeRepository.ExistsAsync(active.Id));
 
-        // Arrange: soft-delete the employee without refreshing the search index
+        // Arrange
         active.IsDeleted = true;
         await _employeeRepository.SaveAsync(active, o => o.Consistency(Consistency.Eventual));
 
-        // Act/Assert: ExistsAsync(id) uses GET + IsDeleted check, so it sees the deletion in real-time
+        // Act/Assert
         Assert.False(await _employeeRepository.ExistsAsync(active.Id));
-
-        // Act/Assert: IncludeSoftDeletes returns true — document still exists physically
         Assert.True(await _employeeRepository.ExistsAsync(active.Id, o => o.IncludeSoftDeletes()));
-
-        // Act/Assert: DeletedOnly mode returns true for the soft-deleted document
         Assert.True(await _employeeRepository.ExistsAsync(active.Id, o => o.SoftDeleteMode(SoftDeleteQueryMode.DeletedOnly)));
 
-        // Arrange: add another employee and verify DeletedOnly mode returns false for active docs
+        // Arrange
         var active2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 25), o => o.ImmediateConsistency());
+
+        // Act/Assert
         Assert.False(await _employeeRepository.ExistsAsync(active2.Id, o => o.SoftDeleteMode(SoftDeleteQueryMode.DeletedOnly)));
         Assert.True(await _employeeRepository.ExistsAsync(active2.Id));
     }
 
     [Fact]
-    public async Task GetByIdShouldHonorDeletedOnlyMode()
+    public async Task GetByIdAsync_WithDeletedOnlyMode_ReturnsOnlyDeletedDocuments()
     {
         // Arrange
         var active = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 30), o => o.ImmediateConsistency());
@@ -1555,7 +1553,7 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task GetByIdsShouldHonorDeletedOnlyMode()
+    public async Task GetByIdsAsync_WithDeletedOnlyMode_ReturnsOnlyDeletedDocuments()
     {
         // Arrange
         var active = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 30), o => o.ImmediateConsistency());
@@ -1580,9 +1578,9 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task ExistsAsyncByIdShouldReturnFalseForNonExistentDocument()
+    public async Task ExistsAsync_WithNonExistentIdOnSoftDeleteModel_ReturnsFalse()
     {
-        // Employee supports soft deletes — verify the GET path returns false for non-existent IDs
+        // Arrange/Act/Assert
         Assert.False(await _employeeRepository.ExistsAsync("non-existent-id-12345"));
         Assert.False(await _employeeRepository.ExistsAsync("non-existent-id-12345", o => o.IncludeSoftDeletes()));
         Assert.False(await _employeeRepository.ExistsAsync("non-existent-id-12345", o => o.SoftDeleteMode(SoftDeleteQueryMode.DeletedOnly)));
