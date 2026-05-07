@@ -40,6 +40,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected IReadOnlyList<Lazy<Field>> RequiredFields => _requiredFields;
     protected readonly Lazy<string>? _idField;
     protected readonly Lazy<string>? _updatedUtcField;
+    private readonly Lazy<Field>? _isDeletedField;
 
     protected readonly ILogger _logger;
     protected readonly Lazy<IElasticClient> _lazyClient;
@@ -59,6 +60,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             _idField = new Lazy<string>(() => InferField(d => ((IIdentity)d).Id) ?? "id");
         if (HasDates)
             _updatedUtcField = new Lazy<string>(() => InferField(d => ((IHaveDates)d).UpdatedUtc));
+        if (SupportsSoftDeletes)
+            _isDeletedField = new Lazy<Field>(() => new Field(InferField(d => ((ISupportSoftDeletes)d).IsDeleted) ?? "isDeleted"));
         _lazyClient = new Lazy<IElasticClient>(() => index.Configuration.Client);
 
         SetCacheClient(index.Configuration.Cache);
@@ -248,14 +251,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 return response.Exists;
             }
 
-            var isDeletedProperty = typeof(T).GetProperty(nameof(ISupportSoftDeletes.IsDeleted));
-            var isDeletedField = isDeletedProperty != null
-                ? new Field(isDeletedProperty)
-                : new Field(nameof(ISupportSoftDeletes.IsDeleted));
-
             var getRequest = new GetRequest(ElasticIndex.GetIndex(id), id.Value)
             {
-                SourceIncludes = new[] { isDeletedField }
+                SourceIncludes = new[] { _isDeletedField!.Value }
             };
             if (id.Routing != null)
                 getRequest.Routing = id.Routing;
