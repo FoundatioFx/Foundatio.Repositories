@@ -271,7 +271,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
 
         // Child documents without explicit routing require the Search API to locate the document
-        return await ExistsAsync(q => q.Id(id), o => options.As<T>()).AnyContext();
+        return await ExistsAsync(NewQuery().Id(id), options).AnyContext();
     }
 
     public Task<CountResult> CountAsync(CommandOptionsDescriptor<T>? options)
