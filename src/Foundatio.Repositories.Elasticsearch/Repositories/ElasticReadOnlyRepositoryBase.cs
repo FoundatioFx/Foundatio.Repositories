@@ -270,7 +270,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             return ShouldReturnDocument(getResponse.Source, options);
         }
 
-        // parent documents without routing require the Search API to locate the document
+        // Child documents without explicit routing require the Search API to locate the document
         return await ExistsAsync(q => q.Id(id), o => options.As<T>()).AnyContext();
     }
 
