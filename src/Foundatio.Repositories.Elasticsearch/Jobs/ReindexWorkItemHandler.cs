@@ -20,21 +20,12 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
         AutoRenewLockOnProgress = true;
     }
 
-    public override async Task<ILock?> GetWorkItemLockAsync(object workItem, CancellationToken cancellationToken = default)
+    public override Task<ILock?> GetWorkItemLockAsync(object workItem, CancellationToken cancellationToken = default)
     {
         if (workItem is not ReindexWorkItem reindexWorkItem)
-            return null;
+            return Task.FromResult<ILock?>(null);
 
-        var resource = string.Join(":", "reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex);
-
-        try
-        {
-            return await _lockProvider.AcquireAsync(resource, TimeSpan.FromMinutes(20), true, cancellationToken).ConfigureAwait(false);
-        }
-        catch (LockAcquisitionTimeoutException)
-        {
-            return null;
-        }
+        return _lockProvider.TryAcquireAsync(String.Join(":", "reindex", reindexWorkItem.Alias, reindexWorkItem.OldIndex, reindexWorkItem.NewIndex), TimeSpan.FromMinutes(20), cancellationToken);
     }
 
     public override Task HandleItemAsync(WorkItemContext context)
