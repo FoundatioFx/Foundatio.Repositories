@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Foundatio.Caching;
+using Foundatio.Lock;
 using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
@@ -17,6 +18,7 @@ public interface IElasticConfiguration : IDisposable
     IElasticClient Client { get; }
     ICacheClient Cache { get; }
     IMessageBus MessageBus { get; }
+    ILockProvider LockProvider { get; }
     ILoggerFactory LoggerFactory { get; }
     IResiliencePolicyProvider ResiliencePolicyProvider { get; }
     TimeProvider TimeProvider { get; set; }

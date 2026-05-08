@@ -851,3 +851,30 @@ AddReindexScript(2, @"
 - [Migrations](/guide/migrations) - Document migrations
 - [Jobs](/guide/jobs) - Index maintenance jobs
 - [Elasticsearch Setup](/guide/elasticsearch-setup) - Connection configuration
+
+## Concurrency Safety
+
+Reindexing is protected by a distributed lock keyed on the index alias to prevent concurrent reindex operations from corrupting data.
+
+### Lock Strategy
+
+- **Lock key**: `reindex:{alias}` (e.g., `reindex:employees`)
+- **Lock TTL**: 20 minutes, auto-renewed during long-running operations
+- Both direct (`ElasticConfiguration.ReindexAsync`) and work-item (`ReindexWorkItemHandler`) paths use the same lock
+- Only one reindex per logical index can run at a time — subsequent version transitions wait for the current one to complete
+
+### Why Alias-Only Keys
+
+Using the alias as the lock key ensures that sequential version transitions (v1→v2, then v2→v3) cannot overlap. If v2→v3 started before v1→v2 completed, v3 would contain incomplete data from v2.
+
+### Lock Renewal for Long-Running Reindexes
+
+For indexes with millions of documents that take hours to reindex, the lock is automatically renewed on every progress callback (every 1-10 seconds during the polling loop). This prevents lock expiration during legitimate long-running operations.
+
+### Crash Recovery
+
+If an instance crashes mid-reindex, the lock expires after 20 minutes. Another instance can then retry the reindex. `VersionedIndex.ReindexAsync()` is resume-safe — it picks up from the last document using timestamp-based or ID-based range queries.
+
+### Unique Index Names
+
+`ElasticConfiguration.AddIndex()` enforces unique index names (case-insensitive). Registering two indexes with the same alias throws an `ArgumentException` at startup, preventing conflicts before they can cause data corruption.

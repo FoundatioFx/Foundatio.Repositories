@@ -5,6 +5,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
 using System.Threading.Tasks;
+using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -251,8 +252,19 @@ public class VersionedIndex : Index, IVersionedIndex
             return;
 
         var reindexWorkItem = CreateReindexWorkItem(currentVersion);
+        string lockKey = String.Concat("reindex:", Name);
+
+        await using var reindexLock = await Configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(30)).AnyContext();
+
+        Func<int, string?, Task> wrappedCallback = async (progress, message) =>
+        {
+            await reindexLock.RenewAsync().AnyContext();
+            if (progressCallbackAsync is not null)
+                await progressCallbackAsync(progress, message).AnyContext();
+        };
+
         var reindexer = new ElasticReindexer(Configuration.Client, _logger);
-        await reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync).AnyContext();
+        await reindexer.ReindexAsync(reindexWorkItem, wrappedCallback).AnyContext();
     }
 
     public override async Task MaintainAsync(bool includeOptionalTasks = true)

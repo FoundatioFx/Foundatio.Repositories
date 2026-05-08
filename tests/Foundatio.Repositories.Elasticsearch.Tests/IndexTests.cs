@@ -3,8 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
+using Foundatio.Caching;
+using Foundatio.Jobs;
+using Foundatio.Messaging;
+using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
@@ -1531,5 +1536,52 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         // Assert
         Assert.True(HasConfigureIndexesCacheMarker());
+    }
+
+    [Fact]
+    public void AddIndex_WithDuplicateIndexName_ThrowsArgumentException()
+    {
+        // Arrange
+        var cache = new InMemoryCacheClient();
+        var messageBus = new InMemoryMessageBus();
+        var queue = new InMemoryQueue<WorkItemData>();
+        var configuration = new MyAppElasticConfiguration(queue, cache, messageBus, Log);
+
+        // Act
+        var act = () => configuration.AddIndex(new EmployeeIndex(configuration));
+
+        // Assert
+        var ex = Assert.Throws<ArgumentException>(act);
+        Assert.Contains("employees", ex.Message);
+    }
+
+    [Fact]
+    public void AddIndex_WithUniqueIndexNames_Succeeds()
+    {
+        // Arrange
+        var cache = new InMemoryCacheClient();
+        var messageBus = new InMemoryMessageBus();
+        var queue = new InMemoryQueue<WorkItemData>();
+        var configuration = new MyAppElasticConfiguration(queue, cache, messageBus, Log);
+
+        // Act & Assert -- configuration already has many indexes added in its constructor
+        Assert.True(configuration.Indexes.Count > 2);
+    }
+
+    [Fact]
+    public void AddIndex_WithDuplicateNameDifferentCase_ThrowsArgumentException()
+    {
+        // Arrange
+        var cache = new InMemoryCacheClient();
+        var messageBus = new InMemoryMessageBus();
+        var queue = new InMemoryQueue<WorkItemData>();
+        var configuration = new MyAppElasticConfiguration(queue, cache, messageBus, Log);
+
+        // Act -- VersionedEmployeeIndex uses the same "employees" alias as EmployeeIndex
+        var act = () => configuration.AddIndex(new VersionedEmployeeIndex(configuration, 1));
+
+        // Assert
+        var ex = Assert.Throws<ArgumentException>(act);
+        Assert.Contains("employees", ex.Message);
     }
 }

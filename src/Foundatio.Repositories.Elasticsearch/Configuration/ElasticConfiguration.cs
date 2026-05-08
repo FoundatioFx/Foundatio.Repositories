@@ -88,6 +88,7 @@ public class ElasticConfiguration : IElasticConfiguration
     public IElasticClient Client => _client.Value;
     public ICacheClient Cache { get; }
     public IMessageBus MessageBus { get; }
+    public ILockProvider LockProvider => _lockProvider;
     public ILoggerFactory LoggerFactory { get; }
     public IResiliencePolicyProvider ResiliencePolicyProvider { get; }
     public IResiliencePolicy ResiliencePolicy { get; }
@@ -115,6 +116,9 @@ public class ElasticConfiguration : IElasticConfiguration
     {
         if (_frozenIndexes.IsValueCreated)
             throw new InvalidOperationException("Can't add indexes after the list has been frozen.");
+
+        if (_indexes.Any(i => i.Name.Equals(index.Name, StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException($"An index with name '{index.Name}' has already been registered.", nameof(index));
 
         _indexes.Add(index);
     }
@@ -187,8 +191,7 @@ public class ElasticConfiguration : IElasticConfiguration
             throw new InvalidOperationException("Must specify work item queue and lock provider in order to migrate index versions.");
 
         var reindexWorkItem = versionedIndex.CreateReindexWorkItem(currentVersion);
-        bool isReindexing = await _lockProvider.IsLockedAsync(String.Join(":", "reindex", reindexWorkItem.Alias,
-            reindexWorkItem.OldIndex, reindexWorkItem.NewIndex)).AnyContext();
+        bool isReindexing = await _lockProvider.IsLockedAsync(String.Concat("reindex:", reindexWorkItem.Alias)).AnyContext();
         if (isReindexing)
             return;
 
