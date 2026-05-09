@@ -13,6 +13,7 @@ using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
+using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Resilience;
@@ -117,7 +118,7 @@ public class ElasticConfiguration : IElasticConfiguration
         if (_frozenIndexes.IsValueCreated)
             throw new InvalidOperationException("Can't add indexes after the list has been frozen.");
 
-        if (_indexes.Any(i => i.Name.Equals(index.Name, StringComparison.OrdinalIgnoreCase)))
+        if (_indexes.Any(i => String.Equals(i.Name, index.Name, StringComparison.OrdinalIgnoreCase)))
             throw new ArgumentException($"An index with name '{index.Name}' has already been registered.", nameof(index));
 
         _indexes.Add(index);
@@ -191,7 +192,7 @@ public class ElasticConfiguration : IElasticConfiguration
             throw new InvalidOperationException("Must specify work item queue and lock provider in order to migrate index versions.");
 
         var reindexWorkItem = versionedIndex.CreateReindexWorkItem(currentVersion);
-        bool isReindexing = await _lockProvider.IsLockedAsync(String.Concat("reindex:", reindexWorkItem.Alias)).AnyContext();
+        bool isReindexing = await _lockProvider.IsLockedAsync(ReindexWorkItem.GetLockName(versionedIndex.Name)).AnyContext();
         if (isReindexing)
             return;
 

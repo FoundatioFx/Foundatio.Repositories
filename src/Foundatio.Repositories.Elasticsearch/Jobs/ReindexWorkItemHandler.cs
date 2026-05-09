@@ -22,10 +22,10 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
 
     public override Task<ILock?> GetWorkItemLockAsync(object workItem, CancellationToken cancellationToken = default)
     {
-        if (workItem is not ReindexWorkItem reindexWorkItem)
+        if (workItem is not ReindexWorkItem reindexWorkItem || String.IsNullOrEmpty(reindexWorkItem.Alias))
             return Task.FromResult<ILock?>(null);
 
-        return _lockProvider.TryAcquireAsync(String.Concat("reindex:", reindexWorkItem.Alias), TimeSpan.FromMinutes(20), cancellationToken);
+        return _lockProvider.TryAcquireAsync(ReindexWorkItem.GetLockName(reindexWorkItem.Alias), TimeSpan.FromMinutes(20), cancellationToken);
     }
 
     public override Task HandleItemAsync(WorkItemContext context)

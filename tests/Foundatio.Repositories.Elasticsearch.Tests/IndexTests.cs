@@ -3,10 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
-using Foundatio.Caching;
-using Foundatio.Jobs;
-using Foundatio.Messaging;
-using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
@@ -1541,47 +1537,29 @@ public sealed class IndexTests : ElasticRepositoryTestBase
     [Fact]
     public void AddIndex_WithDuplicateIndexName_ThrowsArgumentException()
     {
-        // Arrange
-        var cache = new InMemoryCacheClient();
-        var messageBus = new InMemoryMessageBus();
-        var queue = new InMemoryQueue<WorkItemData>();
-        var configuration = new MyAppElasticConfiguration(queue, cache, messageBus, Log);
+        // Arrange — _configuration already has EmployeeIndex registered
 
-        // Act
-        var act = () => configuration.AddIndex(new EmployeeIndex(configuration));
-
-        // Assert
-        var ex = Assert.Throws<ArgumentException>(act);
+        // Act & Assert
+        var ex = Assert.Throws<ArgumentException>(() => _configuration.AddIndex(new EmployeeIndex(_configuration)));
         Assert.Contains("employees", ex.Message);
     }
 
     [Fact]
     public void AddIndex_WithUniqueIndexNames_Succeeds()
     {
-        // Arrange
-        var cache = new InMemoryCacheClient();
-        var messageBus = new InMemoryMessageBus();
-        var queue = new InMemoryQueue<WorkItemData>();
-        var configuration = new MyAppElasticConfiguration(queue, cache, messageBus, Log);
+        // Arrange & Act — _configuration registers many unique indexes in its constructor
 
-        // Act & Assert -- configuration already has many indexes added in its constructor
-        Assert.True(configuration.Indexes.Count > 2);
+        // Assert
+        Assert.True(_configuration.Indexes.Count > 2);
     }
 
     [Fact]
     public void AddIndex_WithDuplicateNameDifferentCase_ThrowsArgumentException()
     {
-        // Arrange
-        var cache = new InMemoryCacheClient();
-        var messageBus = new InMemoryMessageBus();
-        var queue = new InMemoryQueue<WorkItemData>();
-        var configuration = new MyAppElasticConfiguration(queue, cache, messageBus, Log);
+        // Arrange — _configuration already has EmployeeIndex ("employees") registered
 
-        // Act -- VersionedEmployeeIndex uses the same "employees" alias as EmployeeIndex
-        var act = () => configuration.AddIndex(new VersionedEmployeeIndex(configuration, 1));
-
-        // Assert
-        var ex = Assert.Throws<ArgumentException>(act);
+        // Act & Assert — VersionedEmployeeIndex uses the same "employees" alias
+        var ex = Assert.Throws<ArgumentException>(() => _configuration.AddIndex(new VersionedEmployeeIndex(_configuration, 1)));
         Assert.Contains("employees", ex.Message);
     }
 }

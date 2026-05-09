@@ -251,7 +251,7 @@ public class VersionedIndex : Index, IVersionedIndex
         if (currentVersion < 0 || currentVersion >= Version)
             return;
 
-        string lockKey = String.Concat("reindex:", Name);
+        string lockKey = ReindexWorkItem.GetLockName(Name);
         await using var reindexLock = await Configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(30)).AnyContext();
         if (reindexLock is null)
             throw new InvalidOperationException($"Unable to acquire reindex lock for '{Name}' after 30 minutes.");
@@ -264,7 +264,15 @@ public class VersionedIndex : Index, IVersionedIndex
 
         Func<int, string?, Task> wrappedCallback = async (progress, message) =>
         {
-            await reindexLock.RenewAsync().AnyContext();
+            try
+            {
+                await reindexLock.RenewAsync().AnyContext();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to renew reindex lock for {IndexName}", Name);
+            }
+
             if (progressCallbackAsync is not null)
                 await progressCallbackAsync(progress, message).AnyContext();
             else
