@@ -1537,29 +1537,32 @@ public sealed class IndexTests : ElasticRepositoryTestBase
     [Fact]
     public void AddIndex_WithDuplicateIndexName_ThrowsArgumentException()
     {
-        // Arrange — _configuration already has EmployeeIndex registered
+        // Arrange — fresh config so the index list isn't frozen
+        var config = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log);
 
         // Act & Assert
-        var ex = Assert.Throws<ArgumentException>(() => _configuration.AddIndex(new EmployeeIndex(_configuration)));
+        var ex = Assert.Throws<ArgumentException>(() => config.AddIndex(new EmployeeIndex(config)));
         Assert.Contains("employees", ex.Message);
     }
 
     [Fact]
     public void AddIndex_WithUniqueIndexNames_Succeeds()
     {
-        // Arrange & Act — _configuration registers many unique indexes in its constructor
+        // Arrange — fresh config registers many unique indexes in its constructor
+        var config = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log);
 
         // Assert
-        Assert.True(_configuration.Indexes.Count > 2);
+        Assert.True(config.Indexes.Count > 2);
     }
 
     [Fact]
     public void AddIndex_WithDuplicateNameDifferentCase_ThrowsArgumentException()
     {
-        // Arrange — _configuration already has EmployeeIndex ("employees") registered
+        // Arrange — fresh config so the index list isn't frozen
+        var config = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log);
 
         // Act & Assert — VersionedEmployeeIndex uses the same "employees" alias
-        var ex = Assert.Throws<ArgumentException>(() => _configuration.AddIndex(new VersionedEmployeeIndex(_configuration, 1)));
+        var ex = Assert.Throws<ArgumentException>(() => config.AddIndex(new VersionedEmployeeIndex(config, 1)));
         Assert.Contains("employees", ex.Message);
     }
 }
