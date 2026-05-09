@@ -274,9 +274,24 @@ public class VersionedIndex : Index, IVersionedIndex
             }
 
             if (progressCallbackAsync is not null)
-                await progressCallbackAsync(progress, message).AnyContext();
+            {
+                try
+                {
+                    await progressCallbackAsync(progress, message).AnyContext();
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Progress callback threw for {IndexName}", Name);
+                }
+            }
             else
+            {
                 _logger.LogInformation("Reindex Progress {Progress:F1}%: {Message}", progress, message);
+            }
         };
 
         var reindexer = new ElasticReindexer(Configuration.Client, _logger);

@@ -75,9 +75,9 @@ public class ElasticReindexer
 
         using var _ = _logger.BeginScope(new Dictionary<string, object>
         {
-            ["OldIndex"] = workItem.OldIndex,
-            ["NewIndex"] = workItem.NewIndex,
-            ["Alias"] = workItem.Alias ?? ""
+            [nameof(workItem.OldIndex)] = workItem.OldIndex,
+            [nameof(workItem.NewIndex)] = workItem.NewIndex,
+            [nameof(workItem.Alias)] = workItem.Alias ?? ""
         });
 
         _logger.LogInformation("Received reindex work item for {OldIndex} -> {NewIndex}", workItem.OldIndex, workItem.NewIndex);
@@ -362,6 +362,7 @@ public class ElasticReindexer
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             var response = await _client.Tasks.CancelAsync(c => c.TaskId(reindexTaskId), cts.Token).AnyContext();
+            _logger.LogRequest(response);
             if (response.IsValid)
                 _logger.LogInformation("Cancelled reindex task {ReindexTaskId} for {OldIndex} -> {NewIndex}", reindexTaskId.FullyQualifiedId, oldIndex, newIndex);
             else
