@@ -356,20 +356,20 @@ public class ElasticReindexer
     /// <summary>
     /// Attempts to cancel the Elasticsearch server-side reindex task. Best-effort — failures are logged but not propagated.
     /// </summary>
-    private async Task TryCancelTaskAsync(TaskId taskId, string oldIndex, string newIndex)
+    private async Task TryCancelTaskAsync(TaskId reindexTaskId, string oldIndex, string newIndex)
     {
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            var response = await _client.Tasks.CancelAsync(c => c.TaskId(taskId), cts.Token).AnyContext();
+            var response = await _client.Tasks.CancelAsync(c => c.TaskId(reindexTaskId), cts.Token).AnyContext();
             if (response.IsValid)
-                _logger.LogInformation("Cancelled reindex task {ReindexTaskId} for {OldIndex} -> {NewIndex}", taskId.FullyQualifiedId, oldIndex, newIndex);
+                _logger.LogInformation("Cancelled reindex task {ReindexTaskId} for {OldIndex} -> {NewIndex}", reindexTaskId.FullyQualifiedId, oldIndex, newIndex);
             else
-                _logger.LogWarning("Failed to cancel reindex task {ReindexTaskId} for {OldIndex} -> {NewIndex}: {Error}", taskId.FullyQualifiedId, oldIndex, newIndex, response.GetErrorMessage());
+                _logger.LogWarning("Failed to cancel reindex task {ReindexTaskId} for {OldIndex} -> {NewIndex}: {Error}", reindexTaskId.FullyQualifiedId, oldIndex, newIndex, response.GetErrorMessage());
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Exception cancelling reindex task {ReindexTaskId} for {OldIndex} -> {NewIndex}", taskId.FullyQualifiedId, oldIndex, newIndex);
+            _logger.LogWarning(ex, "Exception cancelling reindex task {ReindexTaskId} for {OldIndex} -> {NewIndex}", reindexTaskId.FullyQualifiedId, oldIndex, newIndex);
         }
     }
 
