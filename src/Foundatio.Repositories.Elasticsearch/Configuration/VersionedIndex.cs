@@ -264,14 +264,7 @@ public class VersionedIndex : Index, IVersionedIndex
 
         Func<int, string?, Task> wrappedCallback = async (progress, message) =>
         {
-            try
-            {
-                await reindexLock.RenewAsync().AnyContext();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to renew reindex lock for {IndexName}", Name);
-            }
+            await reindexLock.RenewAsync().AnyContext();
 
             if (progressCallbackAsync is not null)
             {
