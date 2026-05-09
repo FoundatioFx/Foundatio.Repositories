@@ -1008,7 +1008,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await repo.AddAsync(EmployeeGenerator.GenerateEmployees(100), o => o.ImmediateConsistency());
         await version2Index.ConfigureAsync();
 
-        string lockKey = ReindexWorkItem.GetLockName(version2Index.Name);
+        string lockKey = ElasticReindexer.GetLockName(version2Index.Name);
         await using var externalLock = await _configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(1), TestCancellationToken);
         Assert.NotNull(externalLock);
 
@@ -1048,7 +1048,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await version2Index.ConfigureAsync();
         await version3Index.ConfigureAsync();
 
-        string lockKey = ReindexWorkItem.GetLockName(version1Index.Name);
+        string lockKey = ElasticReindexer.GetLockName(version1Index.Name);
         await using var reindexLock = await _configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(1), TestCancellationToken);
         Assert.NotNull(reindexLock);
 

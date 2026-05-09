@@ -192,7 +192,7 @@ public class ElasticConfiguration : IElasticConfiguration
             throw new InvalidOperationException("Must specify work item queue and lock provider in order to migrate index versions.");
 
         var reindexWorkItem = versionedIndex.CreateReindexWorkItem(currentVersion);
-        bool isReindexing = await _lockProvider.IsLockedAsync(ReindexWorkItem.GetLockName(versionedIndex.Name)).AnyContext();
+        bool isReindexing = await _lockProvider.IsLockedAsync(ElasticReindexer.GetLockName(versionedIndex.Name)).AnyContext();
         if (isReindexing)
             return;
 

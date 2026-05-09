@@ -25,7 +25,7 @@ public class ReindexWorkItemHandler : WorkItemHandlerBase
         if (workItem is not ReindexWorkItem reindexWorkItem || String.IsNullOrEmpty(reindexWorkItem.Alias))
             return Task.FromResult<ILock?>(null);
 
-        return _lockProvider.TryAcquireAsync(ReindexWorkItem.GetLockName(reindexWorkItem.Alias), TimeSpan.FromMinutes(20), cancellationToken);
+        return _lockProvider.TryAcquireAsync(ElasticReindexer.GetLockName(reindexWorkItem.Alias), TimeSpan.FromMinutes(20), cancellationToken);
     }
 
     public override Task HandleItemAsync(WorkItemContext context)

@@ -28,6 +28,16 @@ public class ElasticReindexer
     private const string ID_FIELD = "id";
     private const int MAX_STATUS_FAILS = 10;
 
+    /// <summary>
+    /// Returns the distributed lock resource name for serializing reindex operations on the given alias.
+    /// </summary>
+    public static string GetLockName(string alias)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(alias);
+
+        return String.Concat("reindex:", alias);
+    }
+
     public ElasticReindexer(IElasticClient client, ILogger? logger = null) : this(client, TimeProvider.System, logger)
     {
     }

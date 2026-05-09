@@ -251,7 +251,7 @@ public class VersionedIndex : Index, IVersionedIndex
         if (currentVersion < 0 || currentVersion >= Version)
             return;
 
-        string lockKey = ReindexWorkItem.GetLockName(Name);
+        string lockKey = ElasticReindexer.GetLockName(Name);
         await using var reindexLock = await Configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(30)).AnyContext();
         if (reindexLock is null)
             throw new InvalidOperationException($"Unable to acquire reindex lock for '{Name}' after 30 minutes.");
