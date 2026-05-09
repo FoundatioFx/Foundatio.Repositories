@@ -275,18 +275,7 @@ public class VersionedIndex : Index, IVersionedIndex
 
             if (progressCallbackAsync is not null)
             {
-                try
-                {
-                    await progressCallbackAsync(progress, message).AnyContext();
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Progress callback threw for {IndexName}", Name);
-                }
+                await progressCallbackAsync(progress, message).AnyContext();
             }
             else
             {
