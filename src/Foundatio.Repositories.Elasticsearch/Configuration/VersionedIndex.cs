@@ -267,6 +267,8 @@ public class VersionedIndex : Index, IVersionedIndex
             await reindexLock.RenewAsync().AnyContext();
             if (progressCallbackAsync is not null)
                 await progressCallbackAsync(progress, message).AnyContext();
+            else
+                _logger.LogInformation("Reindex Progress {Progress:F1}%: {Message}", progress, message);
         };
 
         var reindexer = new ElasticReindexer(Configuration.Client, _logger);

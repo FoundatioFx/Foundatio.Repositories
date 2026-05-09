@@ -860,7 +860,7 @@ Reindexing is protected by a distributed lock keyed on the index alias to preven
 
 - **Lock key**: `reindex:{alias}` (e.g., `reindex:employees`)
 - **Lock TTL**: 20 minutes, auto-renewed during long-running operations
-- Both direct (`ElasticConfiguration.ReindexAsync`) and work-item (`ReindexWorkItemHandler`) paths use the same lock
+- Both direct (`VersionedIndex.ReindexAsync`) and work-item (`ReindexWorkItemHandler`) paths use the same lock
 - Only one reindex per logical index can run at a time — subsequent version transitions wait for the current one to complete
 
 ### Why Alias-Only Keys
