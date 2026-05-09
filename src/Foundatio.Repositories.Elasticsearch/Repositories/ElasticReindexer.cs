@@ -141,7 +141,7 @@ public class ElasticReindexer
                 if (deleteIndexResponse.IsValid)
                     await progressCallbackAsync(99, $"Deleted index: {workItem.OldIndex}").AnyContext();
                 else
-                    await progressCallbackAsync(99, $"Failed to delete old index {workItem.OldIndex}: {deleteIndexResponse.ServerError}").AnyContext();
+                    await progressCallbackAsync(99, $"Failed to delete old index {workItem.OldIndex}: {deleteIndexResponse.GetErrorMessage()}").AnyContext();
             }
         }
 
