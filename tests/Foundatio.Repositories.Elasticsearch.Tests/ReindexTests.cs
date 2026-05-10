@@ -344,7 +344,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         var existsResponse = await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode);
+        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
         Assert.True(existsResponse.Exists);
 
         var mappingResponse = await _client.Indices.GetMappingAsync<Employee>(m => m.Indices(version1Index.VersionedName), cancellationToken: TestCancellationToken);
@@ -355,7 +355,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         existsResponse = await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode);
+        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
         Assert.True(existsResponse.Exists);
         string version1Mappings = ToJson(mappingsV1);
 
@@ -783,7 +783,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         var existsResponse = await _client.Indices.ExistsAsync(version2Index.GetVersionedIndex(utcNow, 2), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode);
+        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
         Assert.False(existsResponse.Exists);
 
         // alias should still point to the old version until reindex
@@ -826,12 +826,12 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         existsResponse = await _client.Indices.ExistsAsync(version1Index.GetVersionedIndex(utcNow, 1), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode);
+        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
         Assert.False(existsResponse.Exists);
 
         existsResponse = await _client.Indices.ExistsAsync(version2Index.GetVersionedIndex(utcNow, 2), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode);
+        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
         Assert.True(existsResponse.Exists);
     }
 
@@ -896,7 +896,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         var existsResponse = await _client.Indices.ExistsAsync(version1Index.GetVersionedIndex(utcNow, 1), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode);
+        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
         Assert.True(existsResponse.Exists);
 
         string indexV1 = version1Index.GetVersionedIndex(utcNow, 1);
@@ -910,7 +910,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         string indexV2 = version2Index.GetVersionedIndex(utcNow, 2);
         existsResponse = await _client.Indices.ExistsAsync(indexV2, cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode);
+        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
         Assert.True(existsResponse.Exists);
 
         mappingResponse = await _client.Indices.GetMappingAsync<Employee>(m => m.Indices(indexV2), cancellationToken: TestCancellationToken);
