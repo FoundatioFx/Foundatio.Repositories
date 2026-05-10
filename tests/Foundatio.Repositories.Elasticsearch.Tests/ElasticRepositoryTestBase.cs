@@ -14,7 +14,6 @@ using Foundatio.Utility;
 using Foundatio.Xunit;
 using Microsoft.Extensions.Logging;
 using Xunit;
-using IAsyncLifetime = Xunit.IAsyncLifetime;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;

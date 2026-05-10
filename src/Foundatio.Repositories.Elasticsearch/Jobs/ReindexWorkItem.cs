@@ -6,7 +6,7 @@ public record ReindexWorkItem
 {
     public required string OldIndex { get; init; }
     public required string NewIndex { get; init; }
-    public string? Alias { get; init; }
+    public required string Alias { get; init; }
     public string? Script { get; init; }
     public bool DeleteOld { get; set; }
     public string? TimestampField { get; init; }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Foundatio.Caching;
+using Foundatio.Lock;
 using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
@@ -30,6 +31,8 @@ public interface IElasticConfiguration : IDisposable
 
     /// <summary>Serializer used for document serialization and deserialization.</summary>
     ITextSerializer Serializer { get; }
+
+    ILockProvider LockProvider { get; }
 
     /// <summary>Logger factory for creating loggers within the configuration and its indexes.</summary>
     ILoggerFactory LoggerFactory { get; }

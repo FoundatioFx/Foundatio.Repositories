@@ -397,6 +397,7 @@ public class Index : IIndex
         {
             OldIndex = Name,
             NewIndex = Name,
+            Alias = Name,
             DeleteOld = false,
             TimestampField = GetTimeStampField()
         };

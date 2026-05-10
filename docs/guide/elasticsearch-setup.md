@@ -15,7 +15,7 @@ using Microsoft.Extensions.Logging;
 
 public class MyElasticConfiguration : ElasticConfiguration
 {
-    public MyElasticConfiguration(ILoggerFactory loggerFactory) 
+    public MyElasticConfiguration(ILoggerFactory loggerFactory)
         : base(loggerFactory: loggerFactory)
     {
         // Register indexes
@@ -117,7 +117,7 @@ public class MyElasticConfiguration : ElasticConfiguration
     public MyElasticConfiguration(
         IConfiguration config,
         IWebHostEnvironment env,
-        ILoggerFactory loggerFactory) 
+        ILoggerFactory loggerFactory)
         : base(loggerFactory: loggerFactory)
     {
         _config = config;
@@ -128,7 +128,7 @@ public class MyElasticConfiguration : ElasticConfiguration
 
     protected override NodePool CreateConnectionPool()
     {
-        var connectionString = _config.GetConnectionString("Elasticsearch") 
+        var connectionString = _config.GetConnectionString("Elasticsearch")
             ?? "http://localhost:9200";
         return new SingleNodePool(new Uri(connectionString));
     }
@@ -205,7 +205,7 @@ See [Index Management](/guide/index-management) for detailed documentation.
 ```csharp
 public sealed class EmployeeIndex : VersionedIndex<Employee>
 {
-    public EmployeeIndex(IElasticConfiguration configuration) 
+    public EmployeeIndex(IElasticConfiguration configuration)
         : base(configuration, "employees", version: 1) { }
 
     public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
@@ -221,6 +221,12 @@ public sealed class EmployeeIndex : VersionedIndex<Employee>
     }
 }
 ```
+
+::: warning Dynamic mapping is disabled
+All index configurations should use `.Dynamic(false)`. This means any model field you want to query, filter, sort, or aggregate on **must** have an explicit mapping in `ConfigureIndexMapping`. Unmapped fields are stored in `_source` but never indexed -- queries against them silently return zero results with no error.
+
+After adding a new field mapping to an existing index, only newly written documents will be searchable on that field. Existing documents are not automatically re-indexed. To backfill, re-save documents through the repository or run an Elasticsearch [update by query](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/update-by-query-api) with no script to re-index all documents in place.
+:::
 
 ### SetupDefaults Extension
 
@@ -297,12 +303,12 @@ public class MyElasticConfiguration : ElasticConfiguration
 {
     public MyElasticConfiguration(
         ICacheClient cache,
-        ILoggerFactory loggerFactory) 
+        ILoggerFactory loggerFactory)
         : base(cache: cache, loggerFactory: loggerFactory)
     {
         AddIndex(Employees = new EmployeeIndex(this));
     }
-    
+
     // ...
 }
 ```
@@ -317,12 +323,12 @@ public class MyElasticConfiguration : ElasticConfiguration
     public MyElasticConfiguration(
         ICacheClient cache,
         IMessageBus messageBus,
-        ILoggerFactory loggerFactory) 
+        ILoggerFactory loggerFactory)
         : base(cache: cache, messageBus: messageBus, loggerFactory: loggerFactory)
     {
         AddIndex(Employees = new EmployeeIndex(this));
     }
-    
+
     // ...
 }
 ```
@@ -340,12 +346,12 @@ public class MyElasticConfiguration : ElasticConfiguration
         IWebHostEnvironment env,
         ICacheClient cache,
         IMessageBus messageBus,
-        ILoggerFactory loggerFactory) 
+        ILoggerFactory loggerFactory)
         : base(cache: cache, messageBus: messageBus, loggerFactory: loggerFactory)
     {
         _config = config;
         _env = env;
-        
+
         AddIndex(Employees = new EmployeeIndex(this));
         AddIndex(Projects = new ProjectIndex(this));
         AddIndex(AuditLogs = new AuditLogIndex(this));
@@ -447,11 +453,11 @@ using Foundatio.Repositories.Models;
 public class Organization : IParentChildDocument, IHaveDates, ISupportSoftDeletes
 {
     public string Id { get; set; }
-    
+
     // IParentChildDocument - parent doesn't need a ParentId
     string IParentChildDocument.ParentId { get; set; }
     JoinField IParentChildDocument.Discriminator { get; set; }
-    
+
     public string Name { get; set; }
     public DateTime CreatedUtc { get; set; }
     public DateTime UpdatedUtc { get; set; }
@@ -462,11 +468,11 @@ public class Organization : IParentChildDocument, IHaveDates, ISupportSoftDelete
 public class Employee : IParentChildDocument, IHaveDates, ISupportSoftDeletes
 {
     public string Id { get; set; }
-    
+
     // Child must have ParentId
     public string ParentId { get; set; }
     JoinField IParentChildDocument.Discriminator { get; set; }
-    
+
     public string Name { get; set; }
     public string Email { get; set; }
     public DateTime CreatedUtc { get; set; }
@@ -482,7 +488,7 @@ Create a single index with a join field mapping:
 ```csharp
 public sealed class OrganizationIndex : VersionedIndex
 {
-    public OrganizationIndex(IElasticConfiguration configuration) 
+    public OrganizationIndex(IElasticConfiguration configuration)
         : base(configuration, "organizations", version: 1) { }
 
     public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
@@ -520,7 +526,7 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>
     {
         HasParent = true;
         GetParentIdFunc = e => e.ParentId;
-        
+
         // Required for soft delete filtering on parent
         DocumentType = typeof(Employee);
         ParentDocumentType = typeof(Organization);
@@ -535,8 +541,8 @@ public class EmployeeRepository : ElasticRepositoryBase<Employee>
 var org = await orgRepository.AddAsync(new Organization { Name = "Acme Corp" });
 
 // Add child with parent reference
-var employee = await employeeRepository.AddAsync(new Employee 
-{ 
+var employee = await employeeRepository.AddAsync(new Employee
+{
     Name = "John Doe",
     Email = "john@acme.com",
     ParentId = org.Id  // Link to parent

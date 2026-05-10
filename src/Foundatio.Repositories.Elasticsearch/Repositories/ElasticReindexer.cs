@@ -11,6 +11,7 @@ using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Elastic.Clients.Elasticsearch.QueryDsl;
 using Elastic.Transport.Products.Elasticsearch;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Extensions;
@@ -32,6 +33,16 @@ public class ElasticReindexer
     private readonly IResiliencePolicy _resiliencePolicy;
     private const string ID_FIELD = "id";
     private const int MAX_STATUS_FAILS = 10;
+
+    /// <summary>
+    /// Returns the distributed lock resource name for serializing reindex operations on the given alias.
+    /// </summary>
+    public static string GetLockName(string alias)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(alias);
+
+        return String.Concat("reindex:", alias);
+    }
 
     public ElasticReindexer(ElasticsearchClient client, ITextSerializer serializer, ILogger? logger = null) : this(client, serializer, TimeProvider.System, logger)
     {
@@ -69,7 +80,14 @@ public class ElasticReindexer
             };
         }
 
-        _logger.LogInformation("Received reindex work item for new index: {NewIndex}", workItem.NewIndex);
+        using var _ = _logger.BeginScope(new Dictionary<string, object>
+        {
+            [nameof(workItem.OldIndex)] = workItem.OldIndex,
+            [nameof(workItem.NewIndex)] = workItem.NewIndex,
+            [nameof(workItem.Alias)] = workItem.Alias
+        });
+
+        _logger.LogInformation("Received reindex work item for {OldIndex} -> {NewIndex}", workItem.OldIndex, workItem.NewIndex);
         var startTime = _timeProvider.GetUtcNow().UtcDateTime.AddSeconds(-1);
         await progressCallbackAsync(0, "Starting reindex...").AnyContext();
         var firstPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 0, 90, workItem.StartUtc).AnyContext();
@@ -115,7 +133,7 @@ public class ElasticReindexer
         var refreshResponse = await _client.Indices.RefreshAsync(Indices.All).AnyContext();
         _logger.LogRequest(refreshResponse);
         if (!refreshResponse.IsValidResponse)
-            _logger.LogWarning("Failed to refresh indices before second reindex pass: {Error}", refreshResponse.ElasticsearchServerError);
+            _logger.LogWarning("Failed to refresh indices before second reindex pass for {OldIndex} -> {NewIndex}: {Error}", workItem.OldIndex, workItem.NewIndex, refreshResponse.ElasticsearchServerError);
 
         ReindexResult? secondPassResult = null;
         if (!String.IsNullOrEmpty(workItem.TimestampField))
@@ -136,17 +154,17 @@ public class ElasticReindexer
             refreshResponse = await _client.Indices.RefreshAsync(Indices.All).AnyContext();
             _logger.LogRequest(refreshResponse);
             if (!refreshResponse.IsValidResponse)
-                _logger.LogWarning("Failed to refresh indices before doc count comparison: {Error}", refreshResponse.ElasticsearchServerError);
+                _logger.LogWarning("Failed to refresh indices before doc count comparison for {OldIndex} -> {NewIndex}: {Error}", workItem.OldIndex, workItem.NewIndex, refreshResponse.ElasticsearchServerError);
 
             var newDocCountResponse = await _client.CountAsync<object>(d => d.Indices(workItem.NewIndex)).AnyContext();
             _logger.LogRequest(newDocCountResponse);
             if (!newDocCountResponse.IsValidResponse)
-                _logger.LogWarning("Failed to get new index doc count: {Error}", newDocCountResponse.ElasticsearchServerError);
+                _logger.LogWarning("Failed to get new index doc count for {NewIndex}: {Error}", workItem.NewIndex, newDocCountResponse.ElasticsearchServerError);
 
             var oldDocCountResponse = await _client.CountAsync<object>(d => d.Indices(workItem.OldIndex)).AnyContext();
             _logger.LogRequest(oldDocCountResponse);
             if (!oldDocCountResponse.IsValidResponse)
-                _logger.LogWarning("Failed to get old index doc count: {Error}", oldDocCountResponse.ElasticsearchServerError);
+                _logger.LogWarning("Failed to get old index doc count for {OldIndex}: {Error}", workItem.OldIndex, oldDocCountResponse.ElasticsearchServerError);
 
             await progressCallbackAsync(98, $"Old Docs: {oldDocCountResponse.Count} New Docs: {newDocCountResponse.Count}").AnyContext();
             if (newDocCountResponse.IsValidResponse && oldDocCountResponse.IsValidResponse && newDocCountResponse.Count >= oldDocCountResponse.Count)
@@ -163,7 +181,7 @@ public class ElasticReindexer
             }
         }
 
-        await progressCallbackAsync(100, null).AnyContext();
+        await progressCallbackAsync(100, "Reindex complete").AnyContext();
     }
 
     private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, int startProgress = 0, int endProgress = 100, DateTime? startTime = null, CancellationToken cancellationToken = default)
@@ -200,7 +218,7 @@ public class ElasticReindexer
             return new ReindexResult { Total = 0, Completed = 0 };
         }
 
-        _logger.LogInformation("Reindex Task Id: {TaskId}", result.Task.ToString());
+        _logger.LogInformation("Reindex Task Id: {ReindexTaskId}", result.Task.FullyQualifiedId);
         _logger.LogRequest(result);
         long totalDocs = result.Total ?? 0;
 
@@ -223,7 +241,8 @@ public class ElasticReindexer
 
                 if (statusGetFails > MAX_STATUS_FAILS)
                 {
-                    _logger.LogError("Failed to get the status {FailureCount} times in a row", MAX_STATUS_FAILS);
+                    _logger.LogError("Failed to get the status {FailureCount} times in a row for reindex task {ReindexTaskId} reindexing {OldIndex} -> {NewIndex}",
+                        statusGetFails, result.Task.FullyQualifiedId, workItem.OldIndex, workItem.NewIndex);
                     break;
                 }
 
@@ -278,7 +297,7 @@ public class ElasticReindexer
                 sw.Restart();
             lastProgress = lastCompleted;
 
-            string lastMessage = $"Total: {taskStatus?.Total:N0} Completed: {lastCompleted:N0} VersionConflicts: {taskStatus?.VersionConflicts:N0}";
+            string lastMessage = $"[{workItem.NewIndex}] Total: {taskStatus?.Total:N0} Completed: {lastCompleted:N0} VersionConflicts: {taskStatus?.VersionConflicts:N0}";
             await progressCallbackAsync(CalculateProgress(taskStatus?.Total ?? 0, lastCompleted, startProgress, endProgress), lastMessage).AnyContext();
 
             if (status.Completed && response?.Error == null)
@@ -301,6 +320,22 @@ public class ElasticReindexer
             await _timeProvider.Delay(timeToWait, cancellationToken).AnyContext();
         } while (!cancellationToken.IsCancellationRequested);
         sw.Stop();
+
+        if (!taskSuccess)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning("Reindex cancelled for {OldIndex} -> {NewIndex}. ReindexTaskId: {ReindexTaskId}, LastProgress: {LastProgress}, TotalDocs: {TotalDocs}, Elapsed: {Elapsed}",
+                    workItem.OldIndex, workItem.NewIndex, result.Task.FullyQualifiedId, lastProgress, totalDocs, sw.Elapsed);
+            }
+            else
+            {
+                _logger.LogError("Reindex abandoned for {OldIndex} -> {NewIndex}. ReindexTaskId: {ReindexTaskId}, StatusFails: {StatusFails}, LastProgress: {LastProgress}, TotalDocs: {TotalDocs}, Elapsed: {Elapsed}",
+                    workItem.OldIndex, workItem.NewIndex, result.Task.FullyQualifiedId, statusGetFails, lastProgress, totalDocs, sw.Elapsed);
+            }
+
+            await TryCancelTaskAsync(result.Task, workItem.OldIndex, workItem.NewIndex).AnyContext();
+        }
 
         long failures = 0;
         if (lastReindexResponse?.Failures != null && lastReindexResponse.Failures.Count > 0)
@@ -385,6 +420,31 @@ public class ElasticReindexer
             _logger.LogRequest(indexResponse);
         else
             _logger.LogErrorRequest(indexResponse, "Error indexing document {Index}/{Id}", $"{workItem.NewIndex}-error", gr.Id);
+    }
+
+    /// <summary>
+    /// Attempts to cancel the Elasticsearch server-side reindex task. Best-effort — failures are logged but not propagated.
+    /// </summary>
+    private async Task TryCancelTaskAsync(TaskId reindexTaskId, string oldIndex, string newIndex)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var response = await _client.Tasks.CancelAsync(c => c.TaskId(reindexTaskId), cts.Token).AnyContext();
+            if (response.IsValidResponse)
+            {
+                _logger.LogRequest(response);
+                _logger.LogInformation("Cancelled reindex task {ReindexTaskId} for {OldIndex} -> {NewIndex}", reindexTaskId.FullyQualifiedId, oldIndex, newIndex);
+            }
+            else
+            {
+                _logger.LogErrorRequest(response, "Failed to cancel reindex task {ReindexTaskId} for {OldIndex} -> {NewIndex}", reindexTaskId.FullyQualifiedId, oldIndex, newIndex);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Exception cancelling reindex task {ReindexTaskId} for {OldIndex} -> {NewIndex}", reindexTaskId.FullyQualifiedId, oldIndex, newIndex);
+        }
     }
 
     private async Task<List<string>> GetIndexAliasesAsync(string index)

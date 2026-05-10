@@ -330,7 +330,7 @@ public class FailingMigration : MigrationBase
     public override Task RunAsync(MigrationContext context)
     {
         Attempts++;
-        throw new ApplicationException("Boom");
+        return Task.FromException(new ApplicationException("Boom"));
     }
 }
 
@@ -348,7 +348,7 @@ public class FailingResumableMigration : MigrationBase
     {
         Attempts++;
         if (Attempts <= 3)
-            throw new ApplicationException("Boom");
+            return Task.FromException(new ApplicationException("Boom"));
 
         return Task.CompletedTask;
     }

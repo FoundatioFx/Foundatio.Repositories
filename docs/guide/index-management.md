@@ -259,6 +259,14 @@ graph LR
     style D fill:#f9f,stroke:#333,stroke-dasharray: 5 5
 ```
 
+::: tip When to bump the version
+Only increment the version when you need to **change an existing field's mapping type** (e.g., `text` to `keyword`) or run a **data transformation** via reindex script. Elasticsearch [does not allow in-place type changes](https://www.elastic.co/docs/manage-data/data-store/mapping/update-mappings-examples) on existing fields.
+
+**Adding a mapping for a brand-new field does NOT require a version bump.** `ConfigureIndexesAsync` applies new field mappings additively via the [PUT Mapping API](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-put-mapping-1). For `DailyIndex`/`MonthlyIndex`, new physical indexes get the full mapping on creation, but already-created daily indexes are not updated automatically.
+
+After adding a new field mapping without a version bump, only newly saved documents will be searchable on that field. Existing documents have the value in `_source` but no inverted index entry. To make them searchable, re-save them through the repository or run an Elasticsearch [update by query](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/update-by-query-api) with no script.
+:::
+
 ### Version Upgrade Process
 
 When you increment the version and call `ConfigureIndexesAsync()`, the following happens:
@@ -833,3 +841,30 @@ AddReindexScript(2, @"
 - [Migrations](/guide/migrations) - Document migrations
 - [Jobs](/guide/jobs) - Index maintenance jobs
 - [Elasticsearch Setup](/guide/elasticsearch-setup) - Connection configuration
+
+## Concurrency Safety
+
+Reindexing is protected by a distributed lock keyed on the index alias to prevent concurrent reindex operations from corrupting data.
+
+### Lock Strategy
+
+- **Lock key**: `reindex:{alias}` (e.g., `reindex:employees`)
+- **Lock TTL**: 20 minutes, auto-renewed during long-running operations
+- Both direct (`VersionedIndex.ReindexAsync`) and work-item (`ReindexWorkItemHandler`) paths use the same lock
+- Only one reindex per logical index can run at a time — subsequent version transitions wait for the current one to complete
+
+### Why Alias-Only Keys
+
+Using the alias as the lock key ensures that sequential version transitions (v1→v2, then v2→v3) cannot overlap. If v2→v3 started before v1→v2 completed, v3 would contain incomplete data from v2.
+
+### Lock Renewal for Long-Running Reindexes
+
+For indexes with millions of documents that take hours to reindex, the lock is automatically renewed on every progress callback (every 1-10 seconds during the polling loop). This prevents lock expiration during legitimate long-running operations.
+
+### Crash Recovery
+
+If an instance crashes mid-reindex, the lock expires after 20 minutes. Another instance can then retry the reindex. `VersionedIndex.ReindexAsync()` is resume-safe — it picks up from the last document using timestamp-based or ID-based range queries.
+
+### Unique Index Names
+
+`ElasticConfiguration.AddIndex()` enforces unique index names (case-insensitive). Registering two indexes with the same alias throws an `ArgumentException` at startup, preventing conflicts before they can cause data corruption.

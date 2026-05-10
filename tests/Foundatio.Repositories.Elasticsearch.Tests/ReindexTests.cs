@@ -6,9 +6,11 @@ using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.AsyncEx;
+using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Utility;
@@ -1095,6 +1097,155 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
 
         string json = ToJson(data);
         Assert.Equal("{\"keepField\":\"keepValue\"}", json);
+    }
+
+    [Fact]
+    public async Task ReindexAsync_ConcurrentCalls_OnlyOneCompletes()
+    {
+        // Arrange
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repo = new EmployeeRepository(_configuration);
+        await repo.AddAsync(EmployeeGenerator.GenerateEmployees(100), o => o.ImmediateConsistency());
+
+        await version2Index.ConfigureAsync();
+
+        // Act
+        var task1 = version2Index.ReindexAsync();
+        var task2 = version2Index.ReindexAsync();
+        await Task.WhenAll(task1, task2);
+
+        // Assert
+        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)version2Index.Name, cancellationToken: TestCancellationToken);
+        Assert.True(aliasResponse.IsValidResponse);
+#if ELASTICSEARCH9
+        Assert.NotNull(aliasResponse.Aliases);
+        var indices = aliasResponse.Aliases;
+#else
+        Assert.NotNull(aliasResponse.Values);
+        var indices = aliasResponse.Values;
+#endif
+        Assert.Single(indices);
+        Assert.Equal(version2Index.VersionedName, indices.First().Key);
+
+        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), cancellationToken: TestCancellationToken);
+        Assert.True(countResponse.IsValidResponse);
+        Assert.Equal(100, countResponse.Count);
+
+        Assert.False((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    [Fact]
+    public async Task ReindexAsync_LockPreventsHandlerAndDirectConcurrency()
+    {
+        // Arrange
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repo = new EmployeeRepository(_configuration);
+        await repo.AddAsync(EmployeeGenerator.GenerateEmployees(100), o => o.ImmediateConsistency());
+        await version2Index.ConfigureAsync();
+
+        string lockKey = ElasticReindexer.GetLockName(version2Index.Name);
+        await using var externalLock = await _configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(1), TestCancellationToken);
+        Assert.NotNull(externalLock);
+
+        // Act - Start reindex on a background thread and verify it blocks
+        var reindexStarted = new TaskCompletionSource<bool>();
+        var reindexTask = Task.Run(async () =>
+        {
+            reindexStarted.SetResult(true);
+            await version2Index.ReindexAsync();
+        }, TestCancellationToken);
+        await reindexStarted.Task;
+        await Task.Delay(TimeSpan.FromSeconds(2), TestCancellationToken);
+
+        // Assert - Lock prevented reindex from completing
+        Assert.False(reindexTask.IsCompleted);
+
+        // Cleanup - Release lock and wait for reindex to complete, then delete
+        await externalLock.ReleaseAsync();
+        await reindexTask;
+        await version2Index.DeleteAsync();
+    }
+
+    [Fact]
+    public async Task ReindexAsync_AliasLockBlocksSubsequentVersionTransition()
+    {
+        // Arrange
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+        var version3Index = new VersionedEmployeeIndex(_configuration, 3);
+        await version3Index.DeleteAsync();
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repo = new EmployeeRepository(_configuration);
+        await repo.AddAsync(EmployeeGenerator.GenerateEmployees(100), o => o.ImmediateConsistency());
+        await version2Index.ConfigureAsync();
+        await version3Index.ConfigureAsync();
+
+        string lockKey = ElasticReindexer.GetLockName(version1Index.Name);
+        await using var reindexLock = await _configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(1), TestCancellationToken);
+        Assert.NotNull(reindexLock);
+
+        // Act - Start reindex on a background thread and verify it blocks
+        var reindexStarted = new TaskCompletionSource<bool>();
+        var reindexTask = Task.Run(async () =>
+        {
+            reindexStarted.SetResult(true);
+            await version3Index.ReindexAsync();
+        }, TestCancellationToken);
+        await reindexStarted.Task;
+        await Task.Delay(TimeSpan.FromSeconds(2), TestCancellationToken);
+
+        // Assert - Lock prevented reindex from completing; data unchanged
+        Assert.False(reindexTask.IsCompleted);
+        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.VersionedName), cancellationToken: TestCancellationToken);
+        Assert.True(countResponse.IsValidResponse);
+        Assert.Equal(100, countResponse.Count);
+
+        // Cleanup - Release lock and wait for reindex to complete, then delete
+        await reindexLock.ReleaseAsync();
+        await reindexTask;
+        await version3Index.DeleteAsync();
+    }
+
+    [Fact]
+    public async Task ReindexAsync_WhenCancelled_DoesNotCompleteReindex()
+    {
+        // Arrange
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository repo = new EmployeeRepository(_configuration);
+        await repo.AddAsync(EmployeeGenerator.GenerateEmployees(5000), o => o.ImmediateConsistency());
+
+        await version2Index.ConfigureAsync();
+
+        // Act
+        var reindexTask = version2Index.ReindexAsync((progress, message) =>
+        {
+            _logger.LogInformation("Reindex Progress {Progress}%: {Message}", progress, message);
+            if (progress > 5)
+                throw new OperationCanceledException("Test cancellation");
+            return Task.CompletedTask;
+        });
+
+        // Assert
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => reindexTask);
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
     }
 
     private static string GetExpectedEmployeeDailyAliases(IIndex index, DateTime utcNow, DateTime indexDateUtc)

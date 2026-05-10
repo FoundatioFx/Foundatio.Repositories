@@ -7,6 +7,7 @@ using Elastic.Clients.Elasticsearch.Mapping;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
@@ -1754,5 +1755,37 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         // Assert
         Assert.True(HasConfigureIndexesCacheMarker());
+    }
+
+    [Fact]
+    public void AddIndex_WithDuplicateIndexName_ThrowsArgumentException()
+    {
+        // Arrange — fresh config so the index list isn't frozen
+        var config = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log);
+
+        // Act & Assert
+        var ex = Assert.Throws<ArgumentException>(() => config.AddIndex(new EmployeeIndex(config)));
+        Assert.Contains("employees", ex.Message);
+    }
+
+    [Fact]
+    public void AddIndex_WithUniqueIndexNames_Succeeds()
+    {
+        // Arrange — fresh config registers many unique indexes in its constructor
+        var config = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log);
+
+        // Assert
+        Assert.True(config.Indexes.Count > 2);
+    }
+
+    [Fact]
+    public void AddIndex_WithDuplicateNameDifferentCase_ThrowsArgumentException()
+    {
+        // Arrange — fresh config so the index list isn't frozen
+        var config = new MyAppElasticConfiguration(_workItemQueue, _cache, _messageBus, Log);
+
+        // Act & Assert — VersionedEmployeeIndex uses the same "employees" alias
+        var ex = Assert.Throws<ArgumentException>(() => config.AddIndex(new VersionedEmployeeIndex(config, 1)));
+        Assert.Contains("employees", ex.Message);
     }
 }

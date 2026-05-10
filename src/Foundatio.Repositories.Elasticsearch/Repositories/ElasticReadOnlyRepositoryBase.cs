@@ -43,6 +43,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     protected IReadOnlyList<Lazy<Field>> RequiredFields => _requiredFields;
     protected readonly Lazy<string>? _idField;
     protected readonly Lazy<string>? _updatedUtcField;
+    private readonly Lazy<Field>? _isDeletedField;
 
     protected readonly ILogger _logger;
     protected readonly Lazy<ElasticsearchClient> _lazyClient;
@@ -62,6 +63,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             _idField = new Lazy<string>(() => InferField(d => ((IIdentity)d).Id) ?? "id");
         if (HasDates)
             _updatedUtcField = new Lazy<string>(() => InferField(d => ((IHaveDates)d).UpdatedUtc));
+        if (SupportsSoftDeletes)
+            _isDeletedField = new Lazy<Field>(() => new Field(InferField(d => ((ISupportSoftDeletes)d).IsDeleted) ?? "isDeleted"));
         _lazyClient = new Lazy<ElasticsearchClient>(() => index.Configuration.Client);
 
         SetCacheClient(index.Configuration.Cache);
@@ -245,25 +248,46 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (String.IsNullOrEmpty(id.Value))
             return false;
 
-        // documents that use soft deletes or have parents without a routing id need to use search for exists
         options = ConfigureOptions(options?.As<T>());
 
-        if (!SupportsSoftDeletes && (!HasParent || id.Routing != null))
+        if (!HasParent || id.Routing != null)
         {
-            var request = new ExistsRequest(ElasticIndex.GetIndex(id), id.Value);
+            if (!SupportsSoftDeletes)
+            {
+                var request = new ExistsRequest(ElasticIndex.GetIndex(id), id.Value);
+                if (id.Routing != null)
+                    request.Routing = id.Routing;
+
+                var response = await _client.ExistsAsync(request).AnyContext();
+                _logger.LogRequest(response, options.GetQueryLogLevel());
+
+                if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() != 404)
+                    throw new DocumentException(response.GetErrorMessage($"Error checking if document {id.Value} exists"), response.OriginalException());
+
+                return response.Exists;
+            }
+
+            var getRequest = new GetRequest(ElasticIndex.GetIndex(id), id.Value)
+            {
+                SourceIncludes = new[] { _isDeletedField!.Value }
+            };
             if (id.Routing != null)
-                request.Routing = id.Routing;
+                getRequest.Routing = id.Routing;
 
-            var response = await _client.ExistsAsync(request).AnyContext();
-            _logger.LogRequest(response, options.GetQueryLogLevel());
+            var getResponse = await _client.GetAsync<T>(getRequest).AnyContext();
+            _logger.LogRequest(getResponse, options.GetQueryLogLevel());
 
-            if (!response.IsValidResponse && response.ApiCallDetails.HttpStatusCode.GetValueOrDefault() != 404)
-                throw new DocumentException(response.GetErrorMessage($"Error checking if document {id.Value} exists"), response.OriginalException());
+            if (!getResponse.IsValidResponse && getResponse.ApiCallDetails.HttpStatusCode.GetValueOrDefault() != 404)
+                throw new DocumentException(getResponse.GetErrorMessage($"Error checking if document {id.Value} exists"), getResponse.OriginalException());
 
-            return response.Exists;
+            if (!getResponse.Found)
+                return false;
+
+            return ShouldReturnDocument(getResponse.Source, options);
         }
 
-        return await ExistsAsync(q => q.Id(id), o => options.As<T>()).AnyContext();
+        // Child documents without explicit routing require the Search API to locate the document
+        return await ExistsAsync(NewQuery().Id(id), options).AnyContext();
     }
 
     public Task<CountResult> CountAsync(CommandOptionsDescriptor<T>? options)
@@ -912,8 +936,14 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             return true;
 
         var mode = options.GetSoftDeleteMode();
-        bool returnSoftDeletes = mode is SoftDeleteQueryMode.All or SoftDeleteQueryMode.DeletedOnly;
-        return returnSoftDeletes || !((ISupportSoftDeletes)document).IsDeleted;
+        bool isDeleted = ((ISupportSoftDeletes)document).IsDeleted;
+
+        return mode switch
+        {
+            SoftDeleteQueryMode.All => true,
+            SoftDeleteQueryMode.DeletedOnly => isDeleted,
+            _ => !isDeleted
+        };
     }
 
     protected async Task RefreshForConsistency(IRepositoryQuery query, ICommandOptions options)

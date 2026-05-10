@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
+using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -262,9 +263,33 @@ public class VersionedIndex : Index, IVersionedIndex
         if (currentVersion < 0 || currentVersion >= Version)
             return;
 
+        string lockKey = ElasticReindexer.GetLockName(Name);
+        await using var reindexLock = await Configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(30)).AnyContext();
+        if (reindexLock is null)
+            throw new InvalidOperationException($"Unable to acquire reindex lock for '{Name}' after 30 minutes.");
+
+        currentVersion = await GetCurrentVersionAsync().AnyContext();
+        if (currentVersion < 0 || currentVersion >= Version)
+            return;
+
         var reindexWorkItem = CreateReindexWorkItem(currentVersion);
+
+        Func<int, string?, Task> wrappedCallback = async (progress, message) =>
+        {
+            await reindexLock.RenewAsync().AnyContext();
+
+            if (progressCallbackAsync is not null)
+            {
+                await progressCallbackAsync(progress, message).AnyContext();
+            }
+            else
+            {
+                _logger.LogInformation("Reindex Progress {Progress:F1}%: {Message}", progress, message);
+            }
+        };
+
         var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);
-        await reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync).AnyContext();
+        await reindexer.ReindexAsync(reindexWorkItem, wrappedCallback).AnyContext();
     }
 
     public override async Task MaintainAsync(bool includeOptionalTasks = true)
