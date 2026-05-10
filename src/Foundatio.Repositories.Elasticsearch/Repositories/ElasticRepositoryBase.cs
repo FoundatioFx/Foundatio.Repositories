@@ -301,6 +301,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
                     }
 
+                    if (!response.Found)
+                        throw new DocumentNotFoundException(id);
+
                     var sourceJson = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(response.Source);
                     var sourceNode = JsonNode.Parse(sourceJson);
                     var partialJson = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(partialOperation.Document);
@@ -403,6 +406,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
                 }
 
+                if (!response.Found)
+                    throw new DocumentNotFoundException(id);
+
                 // Serialize to JSON string, apply patch, deserialize back
                 // Using System.Text.Json.Nodes.JsonNode since Elastic.Clients.Elasticsearch uses System.Text.Json exclusively
                 var json = _client.ElasticsearchClientSettings.SourceSerializer.SerializeToString(response.Source);
@@ -475,6 +481,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
                 }
+
+                if (!response.Found)
+                    throw new DocumentNotFoundException(id);
 
                 if (response.Source is IVersioned versionedDoc && response.PrimaryTerm.HasValue)
                     versionedDoc.Version = response.GetElasticVersion();
