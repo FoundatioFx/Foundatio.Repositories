@@ -387,6 +387,12 @@ public class Index : IIndex
             return response.Exists;
         }
 
+        if (response.ApiCallDetails.HttpStatusCode is 404)
+        {
+            _logger.LogRequest(response);
+            return false;
+        }
+
         _logger.LogErrorRequest(response, "Error checking to see if index {Name} exists", name);
         throw new RepositoryException(response.GetErrorMessage($"Error checking to see if index {name} exists"), response.OriginalException());
     }

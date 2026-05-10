@@ -369,6 +369,12 @@ public class ElasticReindexer
         if (existsResponse.ApiCallDetails.HasSuccessfulStatusCode && existsResponse.Exists)
             return true;
 
+        if (!existsResponse.ApiCallDetails.HasSuccessfulStatusCode && existsResponse.ApiCallDetails.HttpStatusCode is not 404)
+        {
+            _logger.LogErrorRequest(existsResponse, "Error checking if error index exists");
+            return false;
+        }
+
         var createResponse = await _client.Indices.CreateAsync(errorIndex, d => d.Mappings(md => md.Dynamic(DynamicMapping.False))).AnyContext();
         if (!createResponse.IsValidResponse)
         {

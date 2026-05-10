@@ -202,6 +202,9 @@ public class VersionedIndex : Index, IVersionedIndex
         if (response.ApiCallDetails.HasSuccessfulStatusCode)
             return response.Exists;
 
+        if (response.ApiCallDetails.HttpStatusCode is 404)
+            return false;
+
         throw new RepositoryException(response.GetErrorMessage($"Error checking to see if alias {alias} exists"), response.OriginalException());
     }
 
