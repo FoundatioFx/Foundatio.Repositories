@@ -366,6 +366,7 @@ public class ElasticReindexer
         string errorIndex = $"{workItem.NewIndex}-error";
         var existsResponse = await _client.Indices.ExistsAsync(errorIndex).AnyContext();
         _logger.LogRequest(existsResponse);
+
         if (existsResponse.ApiCallDetails.HasSuccessfulStatusCode && existsResponse.Exists)
             return true;
 

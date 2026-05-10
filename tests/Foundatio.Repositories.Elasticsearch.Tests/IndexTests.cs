@@ -54,7 +54,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
             Assert.Equal(1, await index.GetCurrentVersionAsync());
             var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
             _logger.LogRequest(existsResponse);
-            Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+            Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
             Assert.True(existsResponse.Exists);
 
             var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
@@ -97,7 +97,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
             Assert.Equal(1, await index.GetCurrentVersionAsync());
             var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
             _logger.LogRequest(existsResponse);
-            Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+            Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
             Assert.True(existsResponse.Exists);
 
             var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
@@ -349,7 +349,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         Assert.Equal(1, await index.GetCurrentVersionAsync());
         var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
@@ -372,7 +372,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await index.MaintainAsync();
         existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
@@ -394,7 +394,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await index.MaintainAsync();
         existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.False(existsResponse.Exists);
 
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
@@ -428,7 +428,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
             Assert.Equal(1, await index.GetCurrentVersionAsync());
             var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
             _logger.LogRequest(existsResponse);
-            Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+            Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
             Assert.True(existsResponse.Exists);
 
             var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
@@ -461,7 +461,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
             Assert.Equal(1, await index.GetCurrentVersionAsync());
             var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
             _logger.LogRequest(existsResponse);
-            Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+            Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
             Assert.True(existsResponse.Exists);
 
             var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
@@ -496,7 +496,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await index.EnsureIndexAsync(_configuration.TimeProvider.GetUtcNow().UtcDateTime.SubtractMonths(12));
         var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(_configuration.TimeProvider.GetUtcNow().UtcDateTime.SubtractMonths(12)), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         index.MaxIndexAge = _configuration.TimeProvider.GetUtcNow().UtcDateTime.EndOfMonth() - _configuration.TimeProvider.GetUtcNow().UtcDateTime.StartOfMonth();
@@ -504,7 +504,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await index.MaintainAsync();
         existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(_configuration.TimeProvider.GetUtcNow().UtcDateTime.SubtractMonths(12)), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.False(existsResponse.Exists);
     }
 
@@ -516,13 +516,13 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await index.ConfigureAsync();
         var existsResponse = await _client.Indices.ExistsAsync(index.Name, cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         await index.DeleteAsync();
         existsResponse = await _client.Indices.ExistsAsync(index.Name, cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.False(existsResponse.Exists);
     }
 
@@ -607,7 +607,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await index1.ConfigureAsync();
         var existsResponse = await _client.Indices.ExistsAsync(index1.VersionedName, cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         var index2 = new VersionedEmployeeIndex(_configuration, 1, null, m => m.Properties(p => p.IntegerNumber(e => e.EmailAddress)));
@@ -625,7 +625,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await index.ConfigureAsync();
         var existsResponse = await _client.Indices.ExistsAsync(index.VersionedName, cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         await _client.AssertSingleIndexAlias(index.VersionedName, index.Name);
@@ -633,7 +633,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await index.DeleteAsync();
         existsResponse = await _client.Indices.ExistsAsync(index.VersionedName, cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.False(existsResponse.Exists);
 
         Assert.Equal(0, await _client.GetAliasIndexCount(index.Name));
@@ -656,24 +656,24 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         var existsResponse = await _client.Indices.ExistsAsync(todayIndex, cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         existsResponse = await _client.Indices.ExistsAsync(yesterdayIndex, cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         await index.DeleteAsync();
 
         existsResponse = await _client.Indices.ExistsAsync(todayIndex, cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.False(existsResponse.Exists);
 
         existsResponse = await _client.Indices.ExistsAsync(yesterdayIndex, cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.False(existsResponse.Exists);
     }
 
@@ -690,7 +690,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await index.EnsureIndexAsync(_configuration.TimeProvider.GetUtcNow().UtcDateTime.SubtractMonths(12));
         var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(_configuration.TimeProvider.GetUtcNow().UtcDateTime.SubtractMonths(12)), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         index.MaxIndexAge = _configuration.TimeProvider.GetUtcNow().UtcDateTime.EndOfMonth() - _configuration.TimeProvider.GetUtcNow().UtcDateTime.StartOfMonth();
@@ -699,7 +699,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await index.MaintainAsync();
         existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(_configuration.TimeProvider.GetUtcNow().UtcDateTime.SubtractMonths(12)), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.False(existsResponse.Exists);
     }
 
@@ -717,7 +717,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await index.EnsureIndexAsync(_configuration.TimeProvider.GetUtcNow().UtcDateTime.SubtractMonths(12));
         var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(_configuration.TimeProvider.GetUtcNow().UtcDateTime.SubtractMonths(12)), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         index.MaxIndexAge = _configuration.TimeProvider.GetUtcNow().UtcDateTime.EndOfMonth() - _configuration.TimeProvider.GetUtcNow().UtcDateTime.StartOfMonth();
@@ -726,7 +726,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await index.MaintainAsync();
         existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(_configuration.TimeProvider.GetUtcNow().UtcDateTime.SubtractMonths(12)), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.False(existsResponse.Exists);
     }
 
@@ -753,7 +753,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
@@ -777,7 +777,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
@@ -801,7 +801,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
@@ -842,7 +842,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         var aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
@@ -866,7 +866,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
@@ -890,7 +890,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         aliasesResponse = await _client.Indices.GetAliasAsync((Indices)index.GetIndex(employee.CreatedUtc), cancellationToken: TestCancellationToken);
@@ -927,19 +927,19 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await index.EnsureIndexAsync(utcNow);
         var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(utcNow), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         await index.EnsureIndexAsync(utcNow.SubtractDays(1));
         existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(utcNow.SubtractDays(1)), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         await Assert.ThrowsAsync<ArgumentException>(async () => await index.EnsureIndexAsync(utcNow.SubtractDays(2)));
         existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(utcNow.SubtractDays(2)), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.False(existsResponse.Exists);
     }
 
@@ -961,13 +961,13 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         await index.EnsureIndexAsync(utcNow);
         var existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(utcNow), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         await index.EnsureIndexAsync(utcNow.Subtract(index.MaxIndexAge.GetValueOrDefault()));
         existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(utcNow.Subtract(index.MaxIndexAge.GetValueOrDefault())), cancellationToken: TestCancellationToken);
         _logger.LogRequest(existsResponse);
-        Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+        Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
         Assert.True(existsResponse.Exists);
 
         var endOfTwoMonthsAgo = utcNow.SubtractMonths(2).EndOfMonth();
@@ -976,7 +976,7 @@ public sealed class IndexTests : ElasticRepositoryTestBase
             await Assert.ThrowsAsync<ArgumentException>(async () => await index.EnsureIndexAsync(endOfTwoMonthsAgo));
             existsResponse = await _client.Indices.ExistsAsync(index.GetIndex(endOfTwoMonthsAgo), cancellationToken: TestCancellationToken);
             _logger.LogRequest(existsResponse);
-            Assert.True(existsResponse.ApiCallDetails.HasSuccessfulStatusCode || existsResponse.ApiCallDetails.HttpStatusCode is 404);
+            Assert.True(existsResponse.ApiCallDetails is { HasSuccessfulStatusCode: true } or { HttpStatusCode: 404 });
             Assert.False(existsResponse.Exists);
         }
     }
