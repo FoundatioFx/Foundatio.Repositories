@@ -613,32 +613,55 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
         else
         {
-            var response = await _client.BulkAsync(bulk =>
+            IReadOnlyCollection<T> docsToDelete = docs;
+            var allSuccessfulDocs = new List<T>();
+            BulkResult result = BulkResult.Empty;
+
+            for (int attempt = 0; attempt < 4; attempt++)
             {
-                bulk.Refresh(options.GetRefreshMode(DefaultConsistency));
-                foreach (var doc in docs)
-                    bulk.Delete<T>(d =>
-                    {
-                        d.Id(doc.Id).Index(ElasticIndex.GetIndex(doc));
+                var response = await _client.BulkAsync(bulk =>
+                {
+                    bulk.Refresh(options.GetRefreshMode(DefaultConsistency));
+                    foreach (var doc in docsToDelete)
+                        bulk.Delete<T>(d =>
+                        {
+                            d.Id(doc.Id).Index(ElasticIndex.GetIndex(doc));
 
-                        if (GetParentIdFunc is not null)
-                            d.Routing(GetParentIdFunc(doc));
+                            if (GetParentIdFunc is not null)
+                                d.Routing(GetParentIdFunc(doc));
 
-                        return d;
-                    });
+                            return d;
+                        });
 
-                return bulk;
-            }).AnyContext();
+                    return bulk;
+                }).AnyContext();
 
-            _logger.LogRequest(response, options.GetQueryLogLevel());
+                _logger.LogRequest(response, options.GetQueryLogLevel());
 
-            var result = BulkResult.From(response);
+                result = BulkResult.From(response);
 
-            var successDocs = result.IsSuccess ? docs : docs.Where(d => result.SuccessfulIds.Contains(d.Id)).ToList();
-            if (successDocs.Count > 0)
-                await OnDocumentsRemovedAsync(successDocs, options).AnyContext();
+                var successDocs = result.IsSuccess
+                    ? docsToDelete.ToList()
+                    : docsToDelete.Where(d => result.SuccessfulIds.Contains(d.Id)).ToList();
+                allSuccessfulDocs.AddRange(successDocs);
 
-            if (result.HasErrors)
+                if (!result.HasRetryableErrors || attempt >= 3)
+                    break;
+
+                docsToDelete = docsToDelete.Where(d => result.RetryableIds.Contains(d.Id)).ToList();
+                var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt));
+                await ElasticIndex.Configuration.TimeProvider.SafeDelay(delay, DisposedCancellationToken).AnyContext();
+
+                if (DisposedCancellationToken.IsCancellationRequested)
+                    break;
+            }
+
+            if (allSuccessfulDocs.Count > 0)
+                await OnDocumentsRemovedAsync(allSuccessfulDocs, options).AnyContext();
+
+            if (result.HasErrors && !result.HasRetryableErrors)
+                ThrowForBulkErrors(result, operationLabel: "removing");
+            else if (result.HasRetryableErrors)
                 ThrowForBulkErrors(result, operationLabel: "removing");
 
             return;
@@ -672,6 +695,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// update-by-query when caching is disabled; otherwise they fall back to batch processing.
     /// JsonPatch and ActionPatch always use batch processing with conflict retry.
     /// </summary>
+    /// <remarks>
+    /// <para>When using ScriptPatch or PartialPatch with update-by-query, version conflicts are
+    /// silently skipped (Conflicts.Proceed). The returned count reflects only successfully patched
+    /// documents. Conflicting documents are not retried.</para>
+    /// <para>For guaranteed delivery to individual documents, use
+    /// <see cref="PatchAsync(Id, IPatchOperation, ICommandOptions?)"/> which uses RetriesOnConflict.</para>
+    /// </remarks>
     public virtual async Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(operation);

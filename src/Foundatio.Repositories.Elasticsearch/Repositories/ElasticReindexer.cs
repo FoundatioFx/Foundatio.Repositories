@@ -124,6 +124,26 @@ public class ElasticReindexer
 
             await progressCallbackAsync(97, $"Total: {secondPassResult.Total:N0} Completed: {secondPassResult.Completed:N0}").AnyContext();
         }
+        else
+        {
+            var sampleId = await GetSampleDocumentIdAsync(workItem.OldIndex).AnyContext();
+            if (sampleId is not null && ObjectId.TryParse(sampleId, out var unused))
+            {
+                _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Using ObjectId-based second pass (no TimestampField).", workItem.OldIndex, workItem.NewIndex);
+                secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime).AnyContext();
+                if (!secondPassResult.Succeeded) return;
+
+                await progressCallbackAsync(97, $"Total: {secondPassResult.Total:N0} Completed: {secondPassResult.Completed:N0}").AnyContext();
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "Reindex {OldIndex} -> {NewIndex}: No TimestampField and IDs are not ObjectIds. " +
+                    "Cannot perform second-pass catch-up. Documents written during reindex may be lost. " +
+                    "Consider adding IHaveDates to your model or using ObjectId-format IDs.",
+                    workItem.OldIndex, workItem.NewIndex);
+            }
+        }
 
         long totalFailures = firstPassResult.Failures;
         if (secondPassResult != null)
@@ -449,6 +469,21 @@ public class ElasticReindexer
 
         var datesArray = await value.AsAsync<DateTime[]>();
         return datesArray?.FirstOrDefault();
+    }
+
+    private async Task<string?> GetSampleDocumentIdAsync(string index)
+    {
+        var response = await _client.SearchAsync<IDictionary<string, object>>(d => d
+            .Index(index)
+            .Source(s => s.ExcludeAll())
+            .Size(1)
+        ).AnyContext();
+
+        _logger.LogRequest(response);
+        if (!response.IsValid || !response.Hits.Any())
+            return null;
+
+        return response.Hits.First().Id;
     }
 
     private int CalculateProgress(long total, long completed, int startProgress = 0, int endProgress = 100)
