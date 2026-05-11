@@ -614,7 +614,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         else
         {
             IReadOnlyCollection<T> docsToDelete = docs;
-            var allSuccessfulDocs = new List<T>();
+            var allSuccessfulDocs = new List<T>(docs.Count);
             var allFatalIds = new HashSet<string>();
             BulkResult result = BulkResult.Empty;
 
@@ -662,7 +662,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 await OnDocumentsRemovedAsync(allSuccessfulDocs, options).AnyContext();
 
             if (allFatalIds.Count > 0 || result.HasRetryableErrors)
-                ThrowForBulkErrors(result, operationLabel: "removing");
+            {
+                ThrowForBulkErrors(result with { FatalIds = allFatalIds }, operationLabel: "removing");
+            }
 
             return;
         }
@@ -723,7 +725,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             operation = ApplyDateTracking(partialPatchOp);
 
         long affectedRecords = 0;
-        var allModifiedIds = new List<string>();
+        bool notifiedPerBatch = false;
         if (operation is JsonPatch jsonOperation)
         {
             var patcher = new JsonPatcher();
@@ -787,10 +789,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 if (modifiedDocuments.Count > 0 || retriedIds.Count > 0)
                 {
                     var batchIds = successfulIds.Concat(retriedIds).ToList();
-                    allModifiedIds.AddRange(batchIds);
+                    notifiedPerBatch = true;
 
                     if (IsCacheEnabled)
                         await InvalidateCacheAsync(modifiedDocuments).AnyContext();
+
+                    await SendNotificationsAsync(ChangeType.Saved, (IReadOnlyCollection<string>)batchIds, options).AnyContext();
 
                     try
                     {
@@ -882,10 +886,12 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 if (modifiedDocuments.Count > 0 || retriedIds.Count > 0)
                 {
                     var batchIds = modifiedDocuments.Select(h => h.Id!).Concat(retriedIds).ToList();
-                    allModifiedIds.AddRange(batchIds);
+                    notifiedPerBatch = true;
 
                     if (IsCacheEnabled)
                         await InvalidateCacheAsync(modifiedDocuments.Select(h => h.Document!)).AnyContext();
+
+                    await SendNotificationsAsync(ChangeType.Saved, (IReadOnlyCollection<string>)batchIds, options).AnyContext();
 
                     try
                     {
@@ -1019,11 +1025,18 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         .Where(h => result.SuccessfulIds.Contains(h.Id!) && !result.NoopIds.Contains(h.Id!))
                         .Select(h => h.Id!).ToList();
                     modifiedInBatch += updatedIds.Count;
-                    allModifiedIds.AddRange(updatedIds);
 
-                    if (IsCacheEnabled && updatedIds.Count > 0)
+                    if (updatedIds.Count > 0)
                     {
-                        await InvalidateCacheAsync(updatedIds).AnyContext();
+                        notifiedPerBatch = true;
+
+                        if (IsCacheEnabled)
+                        {
+                            // TODO: Invalidate by documents instead of IDs to support custom cache invalidation overrides.
+                            await InvalidateCacheAsync(updatedIds).AnyContext();
+                        }
+
+                        await SendNotificationsAsync(ChangeType.Saved, (IReadOnlyCollection<string>)updatedIds, options).AnyContext();
                     }
 
                     try
@@ -1049,11 +1062,11 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             if (IsCacheEnabled)
                 await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
 
+            // Empty list: batch callbacks handle per-document cache invalidation for ActionPatch/JsonPatch.
+            // This fires the DocumentsChanged event so subscribers know documents were modified.
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
 
-            if (allModifiedIds.Count > 0)
-                await SendNotificationsAsync(ChangeType.Saved, allModifiedIds, options).AnyContext();
-            else
+            if (!notifiedPerBatch)
                 await SendQueryNotificationsAsync(ChangeType.Saved, query, options).AnyContext();
         }
 

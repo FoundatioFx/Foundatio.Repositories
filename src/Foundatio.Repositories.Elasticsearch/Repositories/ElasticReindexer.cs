@@ -127,11 +127,16 @@ public class ElasticReindexer
         else
         {
             var sampleId = await GetSampleDocumentIdAsync(workItem.OldIndex).AnyContext();
-            if (sampleId is not null && ObjectId.TryParse(sampleId, out var unused))
+            if (sampleId is null)
+            {
+                _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Source index is empty, skipping second pass.", workItem.OldIndex, workItem.NewIndex);
+            }
+            else if (ObjectId.TryParse(sampleId, out var unused))
             {
                 _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Using ObjectId-based second pass (no TimestampField).", workItem.OldIndex, workItem.NewIndex);
                 secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime).AnyContext();
-                if (!secondPassResult.Succeeded) return;
+                if (!secondPassResult.Succeeded)
+                    return;
 
                 await progressCallbackAsync(97, $"Total: {secondPassResult.Total:N0} Completed: {secondPassResult.Completed:N0}").AnyContext();
             }

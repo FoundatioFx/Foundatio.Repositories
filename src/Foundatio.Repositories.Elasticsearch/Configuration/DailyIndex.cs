@@ -5,10 +5,10 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Threading;
 using System.Threading.Tasks;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Caching;
+using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -230,10 +230,7 @@ public class DailyIndex : VersionedIndex
             return;
 
         string lockKey = ElasticReindexer.GetLockName(Name);
-        using var lockCts = new CancellationTokenSource(TimeSpan.FromMinutes(30));
-        await using var reindexLock = await Configuration.LockProvider.TryAcquireAsync(lockKey, TimeSpan.FromMinutes(20), cancellationToken: lockCts.Token).AnyContext();
-        if (reindexLock is null)
-            throw new InvalidOperationException($"Unable to acquire reindex lock for '{Name}' after 30 minutes.");
+        await using var reindexLock = await Configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(30)).AnyContext();
 
         currentVersion = await GetCurrentVersionAsync().AnyContext();
         if (currentVersion < 0 || currentVersion >= Version)

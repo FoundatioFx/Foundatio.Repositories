@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries;
@@ -253,10 +252,7 @@ public class VersionedIndex : Index, IVersionedIndex
             return;
 
         string lockKey = ElasticReindexer.GetLockName(Name);
-        using var lockCts = new CancellationTokenSource(TimeSpan.FromMinutes(30));
-        await using var reindexLock = await Configuration.LockProvider.TryAcquireAsync(lockKey, TimeSpan.FromMinutes(20), cancellationToken: lockCts.Token).AnyContext();
-        if (reindexLock is null)
-            throw new InvalidOperationException($"Unable to acquire reindex lock for '{Name}' after 30 minutes.");
+        await using var reindexLock = await Configuration.LockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(30)).AnyContext();
 
         currentVersion = await GetCurrentVersionAsync().AnyContext();
         if (currentVersion < 0 || currentVersion >= Version)
