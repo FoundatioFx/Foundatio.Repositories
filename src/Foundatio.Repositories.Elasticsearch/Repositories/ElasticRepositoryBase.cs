@@ -796,7 +796,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     // Notify only for bulk-successful IDs; retriedIds already notified by PatchAsync in HandleBulkPatchErrorsAsync.
                     if (successfulIds.Count > 0)
-                        await SendNotificationsAsync(ChangeType.Saved, (IReadOnlyCollection<string>)successfulIds.ToList(), options).AnyContext();
+                        await SendNotificationsAsync(ChangeType.Saved, successfulIds.ToList(), options).AnyContext();
 
                     try
                     {
@@ -896,7 +896,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                     // Notify only for bulk-successful IDs; retriedIds already notified by PatchAsync in HandleBulkPatchErrorsAsync.
                     if (bulkSuccessIds.Count > 0)
-                        await SendNotificationsAsync(ChangeType.Saved, (IReadOnlyCollection<string>)bulkSuccessIds, options).AnyContext();
+                        await SendNotificationsAsync(ChangeType.Saved, bulkSuccessIds, options).AnyContext();
 
                     try
                     {
@@ -1041,7 +1041,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                             await InvalidateCacheAsync(updatedIds).AnyContext();
                         }
 
-                        await SendNotificationsAsync(ChangeType.Saved, (IReadOnlyCollection<string>)updatedIds, options).AnyContext();
+                        await SendNotificationsAsync(ChangeType.Saved, updatedIds, options).AnyContext();
                     }
 
                     try
