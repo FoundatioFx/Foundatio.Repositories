@@ -2638,18 +2638,21 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task PatchAllAsync_FilterQuery_SendsTypeLevelNotification()
+    public async Task PatchAllAsync_FilterQuery_SendsPerIdNotification()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(3), o => o.ImmediateConsistency());
+        var employees = EmployeeGenerator.GenerateEmployees(3);
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
         _messageBus.ResetMessagesSent();
 
-        var countdownEvent = new AsyncCountdownEvent(1);
+        var receivedIds = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var countdownEvent = new AsyncCountdownEvent(3);
         await _messageBus.SubscribeAsync<EntityChanged>((msg, ct) =>
         {
             Assert.Equal(nameof(Employee), msg.Type);
-            Assert.Null(msg.Id);
             Assert.Equal(ChangeType.Saved, msg.ChangeType);
+            Assert.NotNull(msg.Id);
+            receivedIds.Add(msg.Id);
             countdownEvent.Signal();
             return Task.CompletedTask;
         }, TestCancellationToken);
@@ -2660,10 +2663,13 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             new ScriptPatch("ctx._source.name = 'Changed';"),
             o => o.ImmediateConsistency());
 
-        // Assert
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        // Assert — per-ID notifications sent for each modified document
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await countdownEvent.WaitAsync(cts.Token);
         Assert.Equal(0, countdownEvent.CurrentCount);
+        Assert.Equal(3, receivedIds.Count);
+        foreach (var emp in employees)
+            Assert.Contains(emp.Id, receivedIds);
     }
 
     [Fact]
