@@ -137,10 +137,8 @@ public class ElasticReindexer
             }
             else
             {
-                _logger.LogWarning(
-                    "Reindex {OldIndex} -> {NewIndex}: No TimestampField and IDs are not ObjectIds. " +
-                    "Cannot perform second-pass catch-up. Documents written during reindex may be lost. " +
-                    "Consider adding IHaveDates to your model or using ObjectId-format IDs.",
+                _logger.LogCritical(
+                    "Reindex {OldIndex} -> {NewIndex}: No TimestampField and IDs are not ObjectIds. Cannot perform second-pass catch-up. Documents written during reindex may be lost. Consider adding IHaveDates to your model or using ObjectId-format IDs.",
                     workItem.OldIndex, workItem.NewIndex);
             }
         }
