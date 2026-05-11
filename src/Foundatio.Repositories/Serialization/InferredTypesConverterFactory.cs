@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -31,8 +32,7 @@ public class InferredTypesConverterFactory : JsonConverterFactory
             {
                 JsonTokenType.Number when reader.TryGetInt64(out long l) => l,
                 JsonTokenType.Number => reader.GetDouble(),
-                JsonTokenType.String when reader.TryGetDateTime(out DateTime datetime) => datetime,
-                JsonTokenType.String => reader.GetString(),
+                JsonTokenType.String => ReadString(ref reader),
                 JsonTokenType.True => true,
                 JsonTokenType.False => false,
                 JsonTokenType.Null => null,
@@ -56,6 +56,24 @@ public class InferredTypesConverterFactory : JsonConverterFactory
             {
                 throw new JsonException($"Cannot convert {result} to type {typeof(T)}: {ex.Message}", ex);
             }
+        }
+
+        private static object? ReadString(ref Utf8JsonReader reader)
+        {
+            ReadOnlySpan<byte> raw = reader.HasValueSequence
+                ? reader.ValueSequence.ToArray()
+                : reader.ValueSpan;
+
+            if (raw.Contains((byte)'T'))
+            {
+                if (reader.TryGetDateTimeOffset(out DateTimeOffset dateTimeOffset))
+                    return dateTimeOffset;
+
+                if (reader.TryGetDateTime(out DateTime dt))
+                    return dt;
+            }
+
+            return reader.GetString();
         }
 
         public override void Write(Utf8JsonWriter writer, T value, JsonSerializerOptions options)

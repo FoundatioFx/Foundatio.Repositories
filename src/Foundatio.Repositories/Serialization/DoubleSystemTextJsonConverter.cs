@@ -23,11 +23,11 @@ public class DoubleSystemTextJsonConverter : System.Text.Json.Serialization.Json
 
     public override void Write(Utf8JsonWriter writer, double value, JsonSerializerOptions options)
     {
-        if (double.IsNaN(value) || double.IsInfinity(value))
-        {
-            writer.WriteRawValue("0.0");
-            return;
-        }
+        if (Double.IsNaN(value))
+            throw new JsonException("Cannot serialize NaN as a JSON number. Fix the computation that produced NaN before indexing.");
+
+        if (Double.IsInfinity(value))
+            throw new JsonException($"Cannot serialize {value} as a JSON number. Fix the computation that produced Infinity before indexing.");
 
         if (value != Math.Truncate(value))
         {

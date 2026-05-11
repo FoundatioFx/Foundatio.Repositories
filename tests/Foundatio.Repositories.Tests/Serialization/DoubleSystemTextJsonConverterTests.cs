@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Text.Json;
 using Foundatio.Serializer;
@@ -118,24 +119,24 @@ public class DoubleSystemTextJsonConverterTests
     }
 
     [Fact]
-    public void Write_WithNaN_WritesZero()
+    public void Write_WithNaN_ThrowsJsonException()
     {
-        string json = _serializer.SerializeToString(double.NaN);
-        Assert.Equal("0.0", json);
+        var ex = Assert.Throws<JsonException>(() => _serializer.SerializeToString(Double.NaN));
+        Assert.Contains("NaN", ex.Message);
     }
 
     [Fact]
-    public void Write_WithPositiveInfinity_WritesZero()
+    public void Write_WithPositiveInfinity_ThrowsJsonException()
     {
-        string json = _serializer.SerializeToString(double.PositiveInfinity);
-        Assert.Equal("0.0", json);
+        var ex = Assert.Throws<JsonException>(() => _serializer.SerializeToString(Double.PositiveInfinity));
+        Assert.Contains("Infinity", ex.Message);
     }
 
     [Fact]
-    public void Write_WithNegativeInfinity_WritesZero()
+    public void Write_WithNegativeInfinity_ThrowsJsonException()
     {
-        string json = _serializer.SerializeToString(double.NegativeInfinity);
-        Assert.Equal("0.0", json);
+        var ex = Assert.Throws<JsonException>(() => _serializer.SerializeToString(Double.NegativeInfinity));
+        Assert.Contains("Infinity", ex.Message);
     }
 
     [Fact]

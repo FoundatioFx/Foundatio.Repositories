@@ -1373,6 +1373,45 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         Assert.Equal("OriginalCompany", employee.CompanyName);
     }
 
+    /// <summary>
+    /// Verifies that ScriptPatch can set fields to null, working around the PartialPatch limitation.
+    /// </summary>
+    [Fact]
+    public async Task ScriptPatchAsync_WithNullField_ClearsValue()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyName: "OriginalCompany"));
+        Assert.Equal("OriginalCompany", employee.CompanyName);
+
+        // Act
+        await _employeeRepository.PatchAsync(employee.Id, new ScriptPatch("ctx._source.companyName = null;"));
+
+        // Assert
+        employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
+        Assert.Null(employee.CompanyName);
+    }
+
+    /// <summary>
+    /// Verifies that JsonPatch can set fields to null, working around the PartialPatch limitation.
+    /// </summary>
+    [Fact]
+    public async Task JsonPatchAsync_WithNullReplaceValue_ClearsValue()
+    {
+        // Arrange
+        var employee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(companyName: "OriginalCompany"));
+        Assert.Equal("OriginalCompany", employee.CompanyName);
+
+        // Act
+        var patch = new PatchDocument(new ReplaceOperation { Path = "companyName", Value = null });
+        await _employeeRepository.PatchAsync(employee.Id, new JsonPatch(patch));
+
+        // Assert
+        employee = await _employeeRepository.GetByIdAsync(employee.Id);
+        Assert.NotNull(employee);
+        Assert.Null(employee.CompanyName);
+    }
+
     [Fact]
     public async Task ScriptPatchAsync()
     {

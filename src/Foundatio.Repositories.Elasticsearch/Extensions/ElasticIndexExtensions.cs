@@ -450,6 +450,7 @@ public static class ElasticIndexExtensions
 
     private static readonly long _epochTicks = new DateTimeOffset(1970, 1, 1, 0, 0, 0, 0, TimeSpan.Zero).Ticks;
     private static readonly IReadOnlyDictionary<string, object> _stringBucketData = new ReadOnlyDictionary<string, object>(new Dictionary<string, object> { { "@type", "string" } });
+    private static readonly IReadOnlyDictionary<string, object> _longBucketData = new ReadOnlyDictionary<string, object>(new Dictionary<string, object> { { "@type", "long" } });
     private static readonly IReadOnlyDictionary<string, object> _doubleBucketData = new ReadOnlyDictionary<string, object>(new Dictionary<string, object> { { "@type", "double" } });
     private static readonly IReadOnlyDictionary<string, object> _rangeBucketData = new ReadOnlyDictionary<string, object>(new Dictionary<string, object> { { "@type", "range" } });
     private static readonly IReadOnlyDictionary<string, object> _geohashBucketData = new ReadOnlyDictionary<string, object>(new Dictionary<string, object> { { "@type", "geohash" } });
@@ -684,12 +685,12 @@ public static class ElasticIndexExtensions
         if (aggregate.SumOtherDocCount.GetValueOrDefault() > 0)
             data.Add(nameof(aggregate.SumOtherDocCount), aggregate.SumOtherDocCount.GetValueOrDefault());
 
-        var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<double>(b.ToAggregations(serializer, logger))
+        var buckets = aggregate.Buckets.Select(b => (IBucket)new KeyedBucket<long>(b.ToAggregations(serializer, logger))
         {
             Total = b.DocCount,
             Key = b.Key,
             KeyAsString = b.KeyAsString ?? b.Key.ToString(),
-            Data = _doubleBucketData
+            Data = _longBucketData
         }).ToList();
 
         return new BucketAggregate
