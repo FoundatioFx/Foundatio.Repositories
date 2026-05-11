@@ -661,7 +661,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             if (allSuccessfulDocs.Count > 0)
                 await OnDocumentsRemovedAsync(allSuccessfulDocs, options).AnyContext();
 
-            if (allFatalIds.Count > 0 || result.HasRetryableErrors)
+            if (allFatalIds.Count > 0 || result.HasRetryableErrors || result.HasTransportError)
             {
                 ThrowForBulkErrors(result with { FatalIds = allFatalIds }, operationLabel: "removing");
             }
@@ -794,7 +794,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     if (IsCacheEnabled)
                         await InvalidateCacheAsync(modifiedDocuments).AnyContext();
 
-                    await SendNotificationsAsync(ChangeType.Saved, (IReadOnlyCollection<string>)batchIds, options).AnyContext();
+                    // Notify only for bulk-successful IDs; retriedIds already notified by PatchAsync in HandleBulkPatchErrorsAsync.
+                    if (successfulIds.Count > 0)
+                        await SendNotificationsAsync(ChangeType.Saved, (IReadOnlyCollection<string>)successfulIds.ToList(), options).AnyContext();
 
                     try
                     {
@@ -886,12 +888,15 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 if (modifiedDocuments.Count > 0 || retriedIds.Count > 0)
                 {
                     var batchIds = modifiedDocuments.Select(h => h.Id!).Concat(retriedIds).ToList();
+                    var bulkSuccessIds = modifiedDocuments.Select(h => h.Id!).ToList();
                     notifiedPerBatch = true;
 
                     if (IsCacheEnabled)
                         await InvalidateCacheAsync(modifiedDocuments.Select(h => h.Document!)).AnyContext();
 
-                    await SendNotificationsAsync(ChangeType.Saved, (IReadOnlyCollection<string>)batchIds, options).AnyContext();
+                    // Notify only for bulk-successful IDs; retriedIds already notified by PatchAsync in HandleBulkPatchErrorsAsync.
+                    if (bulkSuccessIds.Count > 0)
+                        await SendNotificationsAsync(ChangeType.Saved, (IReadOnlyCollection<string>)bulkSuccessIds, options).AnyContext();
 
                     try
                     {

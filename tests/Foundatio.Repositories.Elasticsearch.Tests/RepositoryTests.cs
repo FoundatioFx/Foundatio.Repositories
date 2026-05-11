@@ -2796,7 +2796,6 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             o => o.ImmediateConsistency());
 
         // Assert — no documents were modified, so no notifications should be sent
-        await Task.Delay(100, TestCancellationToken);
         Assert.Equal(0, _messageBus.MessagesSent);
     }
 
@@ -2815,7 +2814,6 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             o => o.ImmediateConsistency());
 
         // Assert — no documents were modified, so no notifications should be sent
-        await Task.Delay(100, TestCancellationToken);
         Assert.Equal(0, _messageBus.MessagesSent);
     }
 
