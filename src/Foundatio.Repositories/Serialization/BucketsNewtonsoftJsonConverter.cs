@@ -26,7 +26,7 @@ public class BucketsNewtonsoftJsonConverter : JsonConverter
             string? type = typeToken.Value<string>();
             IReadOnlyDictionary<string, IAggregate>? aggregations = null;
             var aggregationsToken = item.SelectToken("Aggregations") ?? item.SelectToken("aggregations");
-            aggregations = aggregationsToken?.ToObject<IReadOnlyDictionary<string, IAggregate>>();
+            aggregations = aggregationsToken?.ToObject<IReadOnlyDictionary<string, IAggregate>>(serializer);
 
             switch (type)
             {
