@@ -1755,6 +1755,23 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task BulkRemoveAsync_MultipleDocuments_RemovesAllAndNotifies()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(10);
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        Assert.Equal(10, await _employeeRepository.CountAsync());
+        _messageBus.ResetMessagesSent();
+
+        // Act — bulk remove exercises the retry-capable path
+        await _employeeRepository.RemoveAsync(employees, o => o.ImmediateConsistency());
+
+        // Assert
+        Assert.Equal(0, await _employeeRepository.CountAsync());
+        Assert.True(_messageBus.MessagesSent > 0);
+    }
+
+    [Fact]
     public async Task RemoveCollectionWithCachingAsync()
     {
         var identities = new List<Identity> { IdentityGenerator.Default, IdentityGenerator.Generate() };
@@ -2621,18 +2638,21 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task PatchAllAsync_FilterQuery_SendsTypeLevelNotification()
+    public async Task PatchAllAsync_FilterQuery_SendsPerIdNotification()
     {
         // Arrange
-        await _employeeRepository.AddAsync(EmployeeGenerator.GenerateEmployees(3), o => o.ImmediateConsistency());
+        var employees = EmployeeGenerator.GenerateEmployees(3);
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
         _messageBus.ResetMessagesSent();
 
-        var countdownEvent = new AsyncCountdownEvent(1);
+        var receivedIds = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var countdownEvent = new AsyncCountdownEvent(3);
         await _messageBus.SubscribeAsync<EntityChanged>((msg, ct) =>
         {
             Assert.Equal(nameof(Employee), msg.Type);
-            Assert.Null(msg.Id);
             Assert.Equal(ChangeType.Saved, msg.ChangeType);
+            Assert.NotNull(msg.Id);
+            receivedIds.Add(msg.Id);
             countdownEvent.Signal();
             return Task.CompletedTask;
         }, TestCancellationToken);
@@ -2643,10 +2663,13 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
             new ScriptPatch("ctx._source.name = 'Changed';"),
             o => o.ImmediateConsistency());
 
-        // Assert
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        // Assert — per-ID notifications sent for each modified document
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await countdownEvent.WaitAsync(cts.Token);
         Assert.Equal(0, countdownEvent.CurrentCount);
+        Assert.Equal(3, receivedIds.Count);
+        foreach (var emp in employees)
+            Assert.Contains(emp.Id, receivedIds);
     }
 
     [Fact]
@@ -2756,5 +2779,84 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(3, receivedIds.Count);
         foreach (var emp in employees)
             Assert.Contains(emp.Id, receivedIds);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_ScriptNoOp_DoesNotSendNotification()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(3);
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        _messageBus.ResetMessagesSent();
+
+        // Act — noop script that doesn't modify anything
+        await _employeeRepository.PatchAllAsync(
+            q => q,
+            new ScriptPatch("ctx.op = 'none';"),
+            o => o.ImmediateConsistency());
+
+        // Assert — no documents were modified, so no notifications should be sent
+        Assert.Equal(0, _messageBus.MessagesSent);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_ActionPatchNoOp_DoesNotSendNotification()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(3);
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        _messageBus.ResetMessagesSent();
+
+        // Act — action that returns false (no modification)
+        await _employeeRepository.PatchAllAsync(
+            q => q,
+            new ActionPatch<Employee>(e => false),
+            o => o.ImmediateConsistency());
+
+        // Assert — no documents were modified, so no notifications should be sent
+        Assert.Equal(0, _messageBus.MessagesSent);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_PartialModification_NotifiesOnlyModifiedDocs()
+    {
+        // Arrange
+        var employees = EmployeeGenerator.GenerateEmployees(5);
+        employees[0].Name = "AlreadyPatched";
+        employees[1].Name = "AlreadyPatched";
+        await _employeeRepository.AddAsync(employees, o => o.ImmediateConsistency());
+        _messageBus.ResetMessagesSent();
+
+        var receivedIds = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var countdownEvent = new AsyncCountdownEvent(3);
+        await _messageBus.SubscribeAsync<EntityChanged>((msg, ct) =>
+        {
+            Assert.Equal(nameof(Employee), msg.Type);
+            Assert.Equal(ChangeType.Saved, msg.ChangeType);
+            if (msg.Id is not null)
+                receivedIds.Add(msg.Id);
+            countdownEvent.Signal();
+            return Task.CompletedTask;
+        }, TestCancellationToken);
+
+        // Act — ActionPatch only returns true (modified) when name is different
+        await _employeeRepository.PatchAllAsync(
+            q => q,
+            new ActionPatch<Employee>(e =>
+            {
+                if (e.Name == "AlreadyPatched")
+                    return false;
+                e.Name = "AlreadyPatched";
+                return true;
+            }),
+            o => o.ImmediateConsistency());
+
+        // Assert — only 3 documents were actually modified
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await countdownEvent.WaitAsync(cts.Token);
+        Assert.Equal(0, countdownEvent.CurrentCount);
+        Assert.Equal(3, receivedIds.Count);
+        Assert.DoesNotContain(employees[0].Id, receivedIds);
+        Assert.DoesNotContain(employees[1].Id, receivedIds);
     }
 }

@@ -124,6 +124,47 @@ public class ElasticReindexer
 
             await progressCallbackAsync(97, $"Total: {secondPassResult.Total:N0} Completed: {secondPassResult.Completed:N0}").AnyContext();
         }
+        else
+        {
+            var sampleResult = await GetSampleDocumentIdAsync(workItem.OldIndex).AnyContext();
+
+            async Task RunObjectIdSecondPassAsync()
+            {
+                secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime).AnyContext();
+                if (!secondPassResult.Succeeded)
+                    return;
+
+                await progressCallbackAsync(97, $"Total: {secondPassResult.Total:N0} Completed: {secondPassResult.Completed:N0}").AnyContext();
+            }
+
+            switch (sampleResult.Status)
+            {
+                case SampleIdStatus.Empty:
+                    _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Source index is empty, skipping second pass.", workItem.OldIndex, workItem.NewIndex);
+                    break;
+
+                case SampleIdStatus.Found when ObjectId.TryParse(sampleResult.Id!, out var unused):
+                    _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Using ObjectId-based second pass (no TimestampField).", workItem.OldIndex, workItem.NewIndex);
+                    await RunObjectIdSecondPassAsync().AnyContext();
+                    break;
+
+                case SampleIdStatus.Found:
+                    _logger.LogWarning(
+                        "Reindex {OldIndex} -> {NewIndex}: No TimestampField and IDs are not ObjectIds (sample: {SampleId}). Cannot perform second-pass catch-up. Documents written during reindex may be lost. Consider adding IHaveDates to your model or using ObjectId-format IDs.",
+                        workItem.OldIndex, workItem.NewIndex, sampleResult.Id);
+                    break;
+
+                case SampleIdStatus.Failed:
+                    _logger.LogWarning(sampleResult.Exception,
+                        "Reindex {OldIndex} -> {NewIndex}: Failed to sample document ID ({Error}). Attempting ObjectId-based second pass anyway.",
+                        workItem.OldIndex, workItem.NewIndex, sampleResult.Error);
+                    await RunObjectIdSecondPassAsync().AnyContext();
+                    break;
+            }
+
+            if (secondPassResult is { Succeeded: false })
+                return;
+        }
 
         long totalFailures = firstPassResult.Failures;
         if (secondPassResult != null)
@@ -449,6 +490,29 @@ public class ElasticReindexer
 
         var datesArray = await value.AsAsync<DateTime[]>();
         return datesArray?.FirstOrDefault();
+    }
+
+    private enum SampleIdStatus { Found, Empty, Failed }
+
+    private sealed record SampleIdResult(SampleIdStatus Status, string? Id = null, string? Error = null, Exception? Exception = null);
+
+    private async Task<SampleIdResult> GetSampleDocumentIdAsync(string index)
+    {
+        var response = await _client.SearchAsync<IDictionary<string, object>>(d => d
+            .Index(index)
+            .Source(s => s.ExcludeAll())
+            .Size(1)
+        ).AnyContext();
+
+        _logger.LogRequest(response);
+
+        if (!response.IsValid)
+            return new SampleIdResult(SampleIdStatus.Failed, Error: response.GetErrorMessage("Search failed"), Exception: response.OriginalException);
+
+        if (!response.Hits.Any())
+            return new SampleIdResult(SampleIdStatus.Empty);
+
+        return new SampleIdResult(SampleIdStatus.Found, Id: response.Hits.First().Id);
     }
 
     private int CalculateProgress(long total, long completed, int startProgress = 0, int endProgress = 100)

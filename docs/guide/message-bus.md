@@ -87,11 +87,16 @@ Patch operations always use `ChangeType.Saved`. The `Id` field in the `EntityCha
 | `PatchAsync(id, ...)` | Document ID | One message per patched document |
 | `PatchAsync(Ids, ScriptPatch/PartialPatch)` | Document ID | One message **per modified ID** (noop IDs excluded) |
 | `PatchAsync(Ids, JsonPatch/ActionPatch)` | Document ID | Delegates to `PatchAllAsync` with explicit IDs — one message **per ID** in the query |
-| `PatchAllAsync` with explicit IDs | Document ID | One message **per ID** in the query |
-| `PatchAllAsync` with filter-only query | `null` | Single type-level notification |
+| `PatchAllAsync` with explicit IDs | Document ID | One message **per ID** in the query (uncached) or **per modified ID** (cached/batch) |
+| `PatchAllAsync` with filter-only query (cached) | Document ID | One message **per modified ID** (sent per-batch) |
+| `PatchAllAsync` with filter-only query (uncached) | `null` | Single type-level notification |
+
+::: info
+`PatchAllAsync` sends notifications incrementally per batch as documents are processed. Subscribers may receive messages while the operation is still running. Design handlers to be idempotent.
+:::
 
 ::: warning
-When `PatchAllAsync` is called with a filter-only query (no explicit IDs), the `EntityChanged` message has `Id = null`. Subscribers that depend on `msg.Id` to look up specific documents should handle this case, for example by re-querying the affected documents.
+When `PatchAllAsync` uses an uncached `ScriptPatch` or `PartialPatch` with a filter-only query (no explicit IDs), the `EntityChanged` message has `Id = null`. Cached/batch `PatchAllAsync` paths (`ActionPatch`, `JsonPatch`, or cached `ScriptPatch`/`PartialPatch`) send per-ID notifications for each modified document. Subscribers that depend on `msg.Id` to look up specific documents should handle the `null` case for uncached update-by-query, for example by re-querying the affected documents.
 :::
 
 **In-process events:** The `DocumentsChanged` event fires for all patch types, but `args.Documents` is empty for `ScriptPatch`, `PartialPatch`, and single-doc `JsonPatch` because the modified document is not available client-side. Only single-document `ActionPatch` (`PatchAsync(id, ActionPatch)`) populates the documents list. Bulk operations — including `PatchAllAsync` and `PatchAsync(Ids)` for `ActionPatch`/`JsonPatch` (which delegates to `PatchAllAsync`) — fire `DocumentsChanged` with an **empty** documents list even though the documents may have been loaded during processing. The `DocumentsSaving` and `DocumentsSaved` events do **not** fire for patch operations.

@@ -1122,4 +1122,41 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
     {
         return _client.SourceSerializer.SerializeToString(data);
     }
+
+    [Fact]
+    public async Task ReindexTimeSeriesIndex_ConcurrentCalls_OnlyOneReindexes()
+    {
+        // Arrange
+        var version1Index = new DailyEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+
+        var version2Index = new DailyEmployeeIndex(_configuration, 2);
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+        IEmployeeRepository version1Repository = new EmployeeRepository(version1Index);
+
+        var utcNow = DateTime.UtcNow;
+        var employee = await version1Repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
+        Assert.NotNull(employee?.Id);
+
+        await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
+        await version2Index.ConfigureAsync();
+        Assert.Equal(1, await version2Index.GetCurrentVersionAsync());
+
+        // Act — launch two concurrent reindex operations
+        var task1 = version2Index.ReindexAsync();
+        var task2 = version2Index.ReindexAsync();
+
+        await Task.WhenAll(task1, task2);
+
+        // Assert — reindex completed successfully, version bumped
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+        var aliasCountResponse = await _client.CountAsync<Employee>(d => d.Index(version2Index.Name), TestCancellationToken);
+        _logger.LogRequest(aliasCountResponse);
+        Assert.True(aliasCountResponse.IsValid);
+        Assert.Equal(1, aliasCountResponse.Count);
+    }
 }

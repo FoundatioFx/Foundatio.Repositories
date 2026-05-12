@@ -634,23 +634,36 @@ await repository.PatchAsync(new Ids(id1, id2, id3), new ScriptPatch("ctx._source
 
 ### PatchAllAsync (Query-Based)
 
-`PatchAllAsync` notification behavior depends on whether the query contains explicit IDs:
+`PatchAllAsync` notification behavior depends on whether the query contains explicit IDs and whether caching is enabled:
 
-| Query Type | Notification Behavior |
-|------------|----------------------|
-| Query with explicit IDs | One `EntityChanged` message **per ID** |
-| Filter-only query (no IDs) | One `EntityChanged` message with `Id = null` (type-level notification) |
+| Query Type | Caching Enabled | Notification Behavior |
+|------------|----------------|----------------------|
+| Any query | Yes | One `EntityChanged` message **per modified ID** (sent per-batch as documents are processed) |
+| Query with explicit IDs | No | One `EntityChanged` message **per ID** |
+| Filter-only query (no IDs) | No | One `EntityChanged` message with `Id = null` (type-level notification) |
+
+::: info Per-batch delivery
+Notifications are sent incrementally per batch as documents are processed, not after the entire operation completes. Subscribers may see `EntityChanged` messages arriving while the operation is still processing later batches. Design subscribers to be idempotent.
+:::
 
 ```csharp
-// Filter-only query: sends a single type-level notification (Id = null)
+// Uncached update-by-query with filter-only query: sends a single type-level notification (Id = null)
 await repository.PatchAllAsync(
     q => q.FieldEquals(e => e.Department, "Sales"),
     new PartialPatch(new { Region = "West" }));
 // EntityChanged { Type = "Employee", Id = null, ChangeType = Saved }
+
+// Cached/batch path with filter-only query: sends per-ID notifications for modified documents
+await repository.PatchAllAsync(
+    q => q.FieldEquals(e => e.Department, "Sales"),
+    new ActionPatch<Employee>(e => { e.Region = "West"; }));
+// EntityChanged { Type = "Employee", Id = "<id1>", ChangeType = Saved }
+// EntityChanged { Type = "Employee", Id = "<id2>", ChangeType = Saved }
+// ...
 ```
 
-::: warning Type-level notifications lack document IDs
-When `PatchAllAsync` is called with a filter-only query (no explicit IDs), subscribers receive a single `EntityChanged` message with `Id = null`. If your subscriber needs to know which specific documents changed, either restructure the query to use explicit IDs or re-query the affected documents.
+::: warning Type-level notifications apply only to uncached update-by-query
+When `PatchAllAsync` uses an uncached `ScriptPatch` or `PartialPatch` with a filter-only query (no explicit IDs), subscribers receive a single `EntityChanged` message with `Id = null`. Cached/batch `PatchAllAsync` paths (`ActionPatch`, `JsonPatch`, or cached `ScriptPatch`/`PartialPatch`) send per-ID notifications for each modified document. If your subscriber needs specific document IDs, either use a cached patch type or restructure the query to include explicit IDs.
 :::
 
 ### DocumentsSaving / DocumentsSaved Events
