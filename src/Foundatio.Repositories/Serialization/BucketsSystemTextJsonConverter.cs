@@ -49,6 +49,9 @@ public class BucketsSystemTextJsonConverter : System.Text.Json.Serialization.Jso
                 case "string":
                     value = element.Deserialize<KeyedBucket<string>>(options);
                     break;
+                case "long":
+                    value = element.Deserialize<KeyedBucket<long>>(options);
+                    break;
                 case "double":
                     value = element.Deserialize<KeyedBucket<double>>(options);
                     break;

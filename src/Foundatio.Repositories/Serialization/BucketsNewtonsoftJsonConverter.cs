@@ -47,6 +47,9 @@ public class BucketsNewtonsoftJsonConverter : JsonConverter
                 case "string":
                     value = new KeyedBucket<string>(aggregations);
                     break;
+                case "long":
+                    value = new KeyedBucket<long>(aggregations);
+                    break;
                 case "double":
                     value = new KeyedBucket<double>(aggregations);
                     break;
@@ -59,8 +62,12 @@ public class BucketsNewtonsoftJsonConverter : JsonConverter
             }
         }
 
-        if (value == null)
-            value = new KeyedBucket<object>();
+        if (value is null)
+        {
+            var aggregationsToken = item.SelectToken("Aggregations") ?? item.SelectToken("aggregations");
+            var fallbackAggregations = aggregationsToken?.ToObject<IReadOnlyDictionary<string, IAggregate>>(serializer);
+            value = new KeyedBucket<object>(fallbackAggregations);
+        }
 
         serializer.Populate(item.CreateReader(), value);
 
