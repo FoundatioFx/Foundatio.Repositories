@@ -188,7 +188,7 @@ public class ReindexWorkItem
 **Features:**
 - **Automatic Lock Renewal**: The handler sets `AutoRenewLockOnProgress = true`, which automatically renews the distributed lock whenever progress is reported
 - **Progress Reporting**: Reports progress percentage and status messages during reindex
-- **Two-Pass Reindex**: Performs a second pass to catch documents modified during the first pass. Uses `TimestampField` if available; falls back to ObjectId-based range queries if document IDs are ObjectId-format; logs a critical warning if neither strategy is available
+- **Two-Pass Reindex**: Performs a second pass to catch documents modified during the first pass. Uses `TimestampField` if available; falls back to ObjectId-based range queries if document IDs are ObjectId-format; logs a warning if neither strategy is available
 - **Error Handling**: Failed documents are stored in an error index (`{newIndex}-error`)
 
 **Usage:**

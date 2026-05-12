@@ -480,7 +480,7 @@ The repository includes a resilience policy for transient Elasticsearch errors:
 - **Version conflicts (409)** on `AddAsync`/`SaveAsync` are **not** retried — the caller should handle these.
 - `DuplicateDocumentException` is **not** retried by the resilience policy.
 
-**Bulk delete retry**: Multi-document `RemoveAsync` (bulk delete) has its own dedicated retry loop — up to 3 retries with exponential backoff (1s, 2s, 4s) for transient 429/503 errors. Successfully deleted documents from earlier attempts are processed (events, cache, notifications) even if later retries fail for remaining documents. Fatal errors and transport failures are aggregated across all attempts and thrown after the loop.
+**Bulk delete retry**: Multi-document `RemoveAsync` (bulk delete) has its own dedicated retry loop — up to 3 retries with exponential backoff (1s, 2s, 4s) for transient 429/503 errors. Successfully deleted documents from earlier attempts are processed (events, cache, notifications) even if later retries fail for remaining documents. Fatal and conflict (HTTP 409) item IDs are accumulated across all attempts; remaining retryable errors and transport failures are surfaced through the final `BulkResult`, and any final error state (`HasErrors`) is thrown after the loop.
 
 ::: tip
 For operations where version conflicts are expected (e.g., high-contention counters), use `ScriptPatch` with `RetryOnConflict` instead of `SaveAsync`. Script patches are executed atomically on the Elasticsearch node and can be retried server-side.

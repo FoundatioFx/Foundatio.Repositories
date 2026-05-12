@@ -647,15 +647,23 @@ Notifications are sent incrementally per batch as documents are processed, not a
 :::
 
 ```csharp
-// Filter-only query: sends a single type-level notification (Id = null)
+// Uncached update-by-query with filter-only query: sends a single type-level notification (Id = null)
 await repository.PatchAllAsync(
     q => q.FieldEquals(e => e.Department, "Sales"),
     new PartialPatch(new { Region = "West" }));
 // EntityChanged { Type = "Employee", Id = null, ChangeType = Saved }
+
+// Cached/batch path with filter-only query: sends per-ID notifications for modified documents
+await repository.PatchAllAsync(
+    q => q.FieldEquals(e => e.Department, "Sales"),
+    new ActionPatch<Employee>(e => { e.Region = "West"; }));
+// EntityChanged { Type = "Employee", Id = "<id1>", ChangeType = Saved }
+// EntityChanged { Type = "Employee", Id = "<id2>", ChangeType = Saved }
+// ...
 ```
 
-::: warning Type-level notifications lack document IDs
-When `PatchAllAsync` is called with a filter-only query (no explicit IDs), subscribers receive a single `EntityChanged` message with `Id = null`. If your subscriber needs to know which specific documents changed, either restructure the query to use explicit IDs or re-query the affected documents.
+::: warning Type-level notifications apply only to uncached update-by-query
+When `PatchAllAsync` uses an uncached `ScriptPatch` or `PartialPatch` with a filter-only query (no explicit IDs), subscribers receive a single `EntityChanged` message with `Id = null`. Cached/batch `PatchAllAsync` paths (`ActionPatch`, `JsonPatch`, or cached `ScriptPatch`/`PartialPatch`) send per-ID notifications for each modified document. If your subscriber needs specific document IDs, either use a cached patch type or restructure the query to include explicit IDs.
 :::
 
 ### DocumentsSaving / DocumentsSaved Events
