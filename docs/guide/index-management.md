@@ -875,6 +875,15 @@ For indexes with millions of documents that take hours to reindex, the lock is a
 
 If an instance crashes mid-reindex, the lock expires after 20 minutes. Another instance can then retry the reindex. `VersionedIndex.ReindexAsync()` is resume-safe — it picks up from the last document using timestamp-based or ID-based range queries.
 
+### Second-Pass Catch-Up Strategy
+
+Reindexing performs a second pass after the first completes to catch documents written during the first pass. The strategy depends on the index configuration:
+
+1. **TimestampField available** (e.g., `IHaveDates` models): Uses a timestamp-based range query starting from the reindex start time. This is the preferred approach.
+2. **No TimestampField, ObjectId-format IDs**: Falls back to ObjectId-based range queries on the `_id` field (ObjectIds encode a timestamp). Logged at Information level.
+3. **No TimestampField, non-ObjectId IDs**: Cannot perform a second pass. Logs a Critical warning — documents written during reindex may be lost. Consider adding `IHaveDates` to your model or using ObjectId-format IDs.
+4. **Empty source index**: Skips the second pass entirely (nothing to catch up).
+
 ### Unique Index Names
 
 `ElasticConfiguration.AddIndex()` enforces unique index names (case-insensitive). Registering two indexes with the same alias throws an `ArgumentException` at startup, preventing conflicts before they can cause data corruption.

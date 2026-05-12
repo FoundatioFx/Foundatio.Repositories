@@ -634,12 +634,17 @@ await repository.PatchAsync(new Ids(id1, id2, id3), new ScriptPatch("ctx._source
 
 ### PatchAllAsync (Query-Based)
 
-`PatchAllAsync` notification behavior depends on whether the query contains explicit IDs:
+`PatchAllAsync` notification behavior depends on whether the query contains explicit IDs and whether caching is enabled:
 
-| Query Type | Notification Behavior |
-|------------|----------------------|
-| Query with explicit IDs | One `EntityChanged` message **per ID** |
-| Filter-only query (no IDs) | One `EntityChanged` message with `Id = null` (type-level notification) |
+| Query Type | Caching Enabled | Notification Behavior |
+|------------|----------------|----------------------|
+| Any query | Yes | One `EntityChanged` message **per modified ID** (sent per-batch as documents are processed) |
+| Query with explicit IDs | No | One `EntityChanged` message **per ID** |
+| Filter-only query (no IDs) | No | One `EntityChanged` message with `Id = null` (type-level notification) |
+
+::: info Per-batch delivery
+Notifications are sent incrementally per batch as documents are processed, not after the entire operation completes. Subscribers may see `EntityChanged` messages arriving while the operation is still processing later batches. Design subscribers to be idempotent.
+:::
 
 ```csharp
 // Filter-only query: sends a single type-level notification (Id = null)

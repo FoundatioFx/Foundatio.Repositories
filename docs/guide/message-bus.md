@@ -88,7 +88,12 @@ Patch operations always use `ChangeType.Saved`. The `Id` field in the `EntityCha
 | `PatchAsync(Ids, ScriptPatch/PartialPatch)` | Document ID | One message **per modified ID** (noop IDs excluded) |
 | `PatchAsync(Ids, JsonPatch/ActionPatch)` | Document ID | Delegates to `PatchAllAsync` with explicit IDs — one message **per ID** in the query |
 | `PatchAllAsync` with explicit IDs | Document ID | One message **per ID** in the query |
-| `PatchAllAsync` with filter-only query | `null` | Single type-level notification |
+| `PatchAllAsync` with filter-only query (cached) | Document ID | One message **per modified ID** (sent per-batch) |
+| `PatchAllAsync` with filter-only query (uncached) | `null` | Single type-level notification |
+
+::: info
+`PatchAllAsync` sends notifications incrementally per batch as documents are processed. Subscribers may receive messages while the operation is still running. Design handlers to be idempotent.
+:::
 
 ::: warning
 When `PatchAllAsync` is called with a filter-only query (no explicit IDs), the `EntityChanged` message has `Id = null`. Subscribers that depend on `msg.Id` to look up specific documents should handle this case, for example by re-querying the affected documents.
