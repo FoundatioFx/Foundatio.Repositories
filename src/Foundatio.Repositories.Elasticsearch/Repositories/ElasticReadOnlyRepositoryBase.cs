@@ -609,16 +609,14 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         }
         else if (options.ShouldUseAsyncQuery())
         {
-            var response = await _client.AsyncSearch.SubmitAsync<T>(s =>
-            {
-                string[] indices = ElasticIndex.GetIndexesByQuery(query);
-                if (indices?.Length > 0)
-                    s.Indices(String.Join(",", indices));
-                s.Size(0);
+            SearchRequest searchRequest = searchDescriptor;
+            var asyncSearchRequest = searchRequest.ToAsyncSearchSubmitRequest<T>();
+            asyncSearchRequest.Size = 0;
 
-                if (options.HasAsyncQueryWaitTime())
-                    s.WaitForCompletionTimeout(options.GetAsyncQueryWaitTime());
-            }).AnyContext();
+            if (options.HasAsyncQueryWaitTime())
+                asyncSearchRequest.WaitForCompletionTimeout = options.GetAsyncQueryWaitTime();
+
+            var response = await _client.AsyncSearch.SubmitAsync<T>(asyncSearchRequest).AnyContext();
             _logger.LogRequest(response, options.GetQueryLogLevel());
             result = response.ToCountResult(options, ElasticIndex.Configuration.Serializer, _logger);
         }

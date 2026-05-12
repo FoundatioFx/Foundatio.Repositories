@@ -236,7 +236,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
                 }
 
-                modified = (response.Noops ?? 0) is 0;
+                var matched = response.Total ?? 0;
+                if (matched is 0)
+                    throw new DocumentNotFoundException(id);
+
+                modified =
+                    (response.Updated ?? 0) > 0 ||
+                    (response.Deleted ?? 0) > 0;
             }
             else
             {

@@ -831,6 +831,23 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task CountWithAsyncQuery_PreservesFilter_ReturnsFilteredCount()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 19), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 30), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(age: 30), o => o.ImmediateConsistency());
+
+        // Act — sync count with filter
+        var syncResult = await _employeeRepository.CountAsync(q => q.FilterExpression("age:30"));
+        Assert.Equal(2, syncResult.Total);
+
+        // Act — async count with same filter (should match sync)
+        var asyncResult = await _employeeRepository.CountAsync(q => q.FilterExpression("age:30"), o => o.AsyncQuery(TimeSpan.FromMinutes(1)));
+        Assert.Equal(2, asyncResult.Total);
+    }
+
+    [Fact]
     public async Task FindWithRuntimeFieldsAsync()
     {
         var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());

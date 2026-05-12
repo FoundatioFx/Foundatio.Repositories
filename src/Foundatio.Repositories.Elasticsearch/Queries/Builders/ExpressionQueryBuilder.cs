@@ -189,7 +189,11 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 else
                 {
                     var sortFields = GetSortFieldsVisitor.Run(resolved, ctx).ToList();
-                    ctx.Data[SortQueryBuilder.SortFieldsKey] = sortFields;
+
+                    if (ctx.Data.TryGetValue(SortQueryBuilder.SortFieldsKey, out var existingSorts) && existingSorts is List<SortOptions> existing)
+                        existing.AddRange(sortFields);
+                    else
+                        ctx.Data[SortQueryBuilder.SortFieldsKey] = sortFields;
                 }
             }
 
