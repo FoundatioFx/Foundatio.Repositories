@@ -179,7 +179,7 @@ await config.ConfigureIndexesAsync();
 
 This will:
 1. Create indexes that don't exist
-2. Update mappings for existing indexes (if compatible)
+2. Update mappings for existing `Index<T>` and `VersionedIndex<T>` indexes (if compatible). Note: `DailyIndex`/`MonthlyIndex` existing partitions are **not** updated — see [Mapping Lifecycle](/guide/index-management#mapping-lifecycle).
 3. Create aliases
 4. Start reindexing for outdated indexes (if `beginReindexingOutdated` is true)
 
@@ -225,7 +225,7 @@ public sealed class EmployeeIndex : VersionedIndex<Employee>
 ::: warning Dynamic mapping is disabled
 All index configurations should use `.Dynamic(false)`. This means any model field you want to query, filter, sort, or aggregate on **must** have an explicit mapping in `ConfigureIndexMapping`. Unmapped fields are stored in `_source` but never indexed -- queries against them silently return zero results with no error.
 
-After adding a new field mapping to an existing index, only newly written documents will be searchable on that field. Existing documents are not automatically re-indexed. To backfill, re-save documents through the repository or run an Elasticsearch [update by query](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/update-by-query-api) with no script to re-index all documents in place.
+For details on how and when mappings are applied (including important differences between `VersionedIndex` and `DailyIndex`/`MonthlyIndex`), see [Mapping Lifecycle](/guide/index-management#mapping-lifecycle).
 :::
 
 ### SetupDefaults Extension

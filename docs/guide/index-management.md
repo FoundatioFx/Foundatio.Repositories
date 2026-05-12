@@ -209,13 +209,13 @@ public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
             // Numeric fields
             .IntegerNumber(e => e.Age)
             .DoubleNumber(e => e.Salary)
-            
+
             // Date fields
             .Date(e => e.HireDate)
-            
+
             // Boolean fields
             .Boolean(e => e.IsActive)
-            
+
             // Nested objects
             .Nested(e => e.Addresses, n => n
                 .Properties(ap => ap
@@ -262,9 +262,7 @@ graph LR
 ::: tip When to bump the version
 Only increment the version when you need to **change an existing field's mapping type** (e.g., `text` to `keyword`) or run a **data transformation** via reindex script. Elasticsearch [does not allow in-place type changes](https://www.elastic.co/docs/manage-data/data-store/mapping/update-mappings-examples) on existing fields.
 
-**Adding a mapping for a brand-new field does NOT require a version bump.** `ConfigureIndexesAsync` applies new field mappings additively via the [PUT Mapping API](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-put-mapping-1). For `DailyIndex`/`MonthlyIndex`, new physical indexes get the full mapping on creation, but already-created daily indexes are not updated automatically.
-
-After adding a new field mapping without a version bump, only newly saved documents will be searchable on that field. Existing documents have the value in `_source` but no inverted index entry. To make them searchable, re-save them through the repository or run an Elasticsearch [update by query](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/update-by-query-api) with no script.
+**Adding a mapping for a brand-new field does NOT require a version bump.** See [Mapping Lifecycle](#mapping-lifecycle) for the full breakdown of how mappings are applied per index type, including important differences for `DailyIndex`/`MonthlyIndex`.
 :::
 
 ### Version Upgrade Process
@@ -501,6 +499,147 @@ foreach (var failure in failures.Documents)
     _logger.LogError("Failed to reindex: {Document}", failure);
 }
 ```
+
+## Mapping Lifecycle
+
+Understanding how and when Elasticsearch field mappings are applied is critical to avoiding silent query failures. The behavior differs significantly by index type, and `DailyIndex`/`MonthlyIndex` require special attention.
+
+### How Mappings Are Applied by Index Type
+
+| Index type | `ConfigureIndexesAsync` behavior | First write (without explicit configure) | How to apply a new field mapping to existing data |
+|---|---|---|---|
+| `Index<T>` | Creates index if missing; calls PUT Mapping on existing index | `EnsureIndexAsync` triggers create-or-update (one-time, flag-guarded) | Automatic — `ConfigureIndexesAsync` or first write applies it |
+| `VersionedIndex<T>` | Same as `Index<T>`, targets the concrete versioned index (e.g., `employees-v2`) | Same one-time `EnsureIndexAsync` path | Automatic — same as `Index<T>` |
+| `DailyIndex<T>` | **No-op** — `ConfigureAsync` does nothing. Existing partitions are never updated. | Creates a new dated partition (with full mapping) only if one doesn't exist for that date | **Manual** — you must apply the mapping to existing partitions yourself (see below) |
+| `MonthlyIndex<T>` | Same as `DailyIndex<T>` | Same as `DailyIndex<T>` | Same as `DailyIndex<T>` |
+
+::: warning DailyIndex and MonthlyIndex do not update existing partitions
+`DailyIndex.ConfigureAsync()` is intentionally a no-op. Neither `ConfigureIndexesAsync` nor the lazy `EnsureIndexAsync` path will ever call PUT Mapping on an already-created daily or monthly partition. Only **new** partitions created after you add the field mapping will have it.
+:::
+
+### What Happens Without Calling `ConfigureIndexesAsync`
+
+You are not required to call `ConfigureIndexesAsync` explicitly. Repository **write** operations (`AddAsync`, `SaveAsync`, `PatchAsync`, `RemoveAsync`, `PatchAllAsync`, `BatchProcessAsync`) call `EnsureIndexAsync` internally before mutating data.
+
+However, **read** operations (`FindAsync`, `GetByIdAsync`, `CountAsync`) do **not** call `EnsureIndexAsync`. If you query before any write has occurred, the index may not exist yet.
+
+```mermaid
+flowchart TD
+  subgraph entryPoints [Entry Points]
+    ConfigureIndexesAsync["ConfigureIndexesAsync()"]
+    FirstWrite["First repository write"]
+  end
+
+  ConfigureIndexesAsync --> PerIndex["For each index: ConfigureAsync()"]
+  FirstWrite --> EnsureIndex["EnsureIndexAsync(target)"]
+
+  PerIndex --> IndexT{"Index type?"}
+  EnsureIndex --> IndexT2{"Index type?"}
+
+  IndexT -->|"Index / VersionedIndex"| UpdateOrCreate["Create index if missing,\nor PUT Mapping if exists"]
+  IndexT -->|"DailyIndex / MonthlyIndex"| NoOp["No-op (does nothing)"]
+
+  IndexT2 -->|"Index / VersionedIndex"| OnceGuard["One-time: ConfigureAsync()\n(flag-guarded, includes PUT Mapping)"]
+  IndexT2 -->|"DailyIndex / MonthlyIndex"| EnsureDate["EnsureDateIndexAsync:\nCreate partition if missing\n(full mapping on creation)"]
+```
+
+**For `Index<T>` / `VersionedIndex<T>`**: The first write auto-configures the index (create or update settings + mappings). It is safe to skip `ConfigureIndexesAsync` in development — the first mutation handles it. In production, calling `ConfigureIndexesAsync` on startup is still recommended to surface mapping errors early.
+
+**For `DailyIndex<T>` / `MonthlyIndex<T>`**: The first write to a new date creates that partition with the full current mapping. Writes to dates whose partitions already exist do nothing to the mapping. If you add a new field and only write to existing dates, the mapping is never applied anywhere.
+
+### Updating Existing Daily/Monthly Partitions
+
+When you add a new field to `ConfigureIndexMapping` on a `DailyIndex` or `MonthlyIndex`, you have several options for existing partitions:
+
+| Strategy | Cost | When to use |
+|----------|------|-------------|
+| **Roll forward** (do nothing to old partitions) | Zero cost; new partitions pick up the mapping on creation | Feature can wait until enough data has naturally accumulated (e.g., after 7/30/90 days of retention). Best for non-critical analytics fields or gradual rollouts. |
+| **PutMapping + update-by-query on all partitions** | High I/O cost proportional to total data volume; re-indexes every document in every partition | Need the field searchable across all historical data immediately. Can saturate cluster I/O for hours. |
+| **Targeted backfill** (PutMapping + update-by-query on recent partitions only) | Moderate cost; only touches last N days/months | Need the field on recent data but older data will age out via retention anyway. |
+| **Bump version** (full reindex to new partitions) | Roughly same I/O cost as update-by-query but also doubles disk temporarily | Need a type change on an existing field, or you want a clean slate. |
+
+::: tip Plan ahead to avoid backfill costs
+Add field mappings to `ConfigureIndexMapping` **early** — even before you write data to them. There is no cost to mapping a field you don't populate yet. This ensures all future partitions are ready when you start writing the field.
+:::
+
+#### Practical Recommendations
+
+1. **Roll forward by default.** For most analytics and reporting fields, add the mapping and wait. Once `MaxIndexAge` worth of partitions have been created with the new mapping, all queryable data will have it.
+
+2. **Gate features on data availability.** If a UI feature depends on a new field, gate it on "created after deploy date" or gracefully handle missing data in older results.
+
+3. **Factor retention into the decision.** If `MaxIndexAge` is 30 days and you can wait 30 days, you get full coverage for free without any backfill.
+
+4. **Update-by-query is rarely worth it at scale.** For a `DailyIndex` with 90 days retention and millions of documents per day, an update-by-query touches the same total volume as a version bump reindex. The only advantage is no temporary disk doubling — but you still pay the full I/O cost. If you're paying that cost, consider whether a version bump gives you a cleaner outcome.
+
+5. **Targeted backfill as a middle ground.** Apply PutMapping + update-by-query to only the last N days rather than full history. Example:
+
+```bash
+# Apply mapping to all existing daily partitions
+PUT /logs-v1-*/_mapping
+{
+  "properties": {
+    "newField": { "type": "keyword" }
+  }
+}
+
+# Re-index _source into the inverted index (no script needed)
+POST /logs-v1-2025.05.*/_update_by_query?conflicts=proceed
+```
+
+### Mapping Resolver Cache (Query-Time Mapping Awareness)
+
+The repository framework does **not** cache the PUT Mapping request/response (that's purely server-side). However, the **query parser** uses an `ElasticMappingResolver` that caches field-to-type resolution for building queries, sorting, and aggregations. This resolver combines two sources:
+
+1. **Code mapping** — derived from your `ConfigureIndexMapping` method at startup (immutable for the process lifetime)
+2. **Server mapping** — fetched from the Elasticsearch GET Mapping API, cached in memory and **automatically refreshed at most once per minute**
+
+#### What this means after a manual PUT Mapping
+
+If you manually apply a mapping change (e.g., `PUT /index/_mapping` via the Elasticsearch API or a script), the `ElasticMappingResolver` will automatically pick it up within ~60 seconds on the next field resolution. You typically do not need to do anything in application code.
+
+If you need immediate recognition (e.g., in tests or a migration script that queries the new field right after applying the mapping), call:
+
+```csharp
+index.MappingResolver.RefreshMapping();
+```
+
+This clears the cached server mapping and forces the next `GetMapping()` call to re-fetch from the cluster.
+
+#### Cache lifetime summary
+
+| Cache layer | Lifetime | How to invalidate |
+|---|---|---|
+| `ElasticMappingResolver` field cache | Auto-refreshes from server every ~60 seconds | `index.MappingResolver.RefreshMapping()` |
+| `_isEnsured` flag (`Index<T>` / `VersionedIndex<T>`) | Process lifetime (one-time flag) | Deleting the index resets it; otherwise persists until app restart |
+| `_ensuredDates` (`DailyIndex<T>`) | Process lifetime per-date | Cleared on `DeleteAsync(name)` or `Dispose()`; otherwise persists until app restart |
+| `ConfigureIndexesAsync` cache marker | 5 minutes (distributed via `ICacheClient`) | Automatically expires; or call `ConfigureIndexesAsync(force: true)` |
+
+#### No cluster-side action needed
+
+Elasticsearch itself has no mapping cache you need to invalidate — once a PUT Mapping succeeds, the mapping is immediately active for new indexing and queries. The only caching is in-process within the .NET application:
+
+- **For queries**: The `ElasticMappingResolver` auto-refreshes. If you need it sooner, call `RefreshMapping()`.
+- **For writes**: The `_isEnsured` / `_ensuredDates` flags only control whether `ConfigureAsync` runs again. They don't prevent writes to the index — they just skip redundant index creation/mapping calls. Manual PUT Mapping changes are orthogonal to these flags.
+
+### Failure Log Messages
+
+When mapping or settings updates fail, the following log messages are emitted:
+
+| Level | Message | Meaning |
+|-------|---------|---------|
+| Error | `Error updating index ({name}) settings` | Index settings PUT failed |
+| Error | `Error updating index ({name}) mappings.` | PUT Mapping failed on `Index<T>` |
+| Error | `Error updating index ({name}) mappings. Changing existing fields requires a new index version.` | PUT Mapping rejected on `VersionedIndex<T>` — you tried to change an existing field's type |
+| Warning | `Adding new analyzer {AnalyzerKey} to existing index (requires close/reopen)` | New analyzer detected in settings; requires index close/reopen to take effect |
+| Warning | `Adding new tokenizer {TokenizerKey} to existing index (requires close/reopen)` | Same for tokenizers |
+| Warning | `Adding new token filter {TokenFilterKey} to existing index (requires close/reopen)` | Same for token filters |
+| Warning | `Adding new normalizer {NormalizerKey} to existing index (requires close/reopen)` | Same for normalizers |
+| Warning | `Adding new char filter {CharFilterKey} to existing index (requires close/reopen)` | Same for char filters |
+
+::: info DailyIndex never emits mapping errors
+Since `DailyIndex.ConfigureAsync()` is a no-op, you will never see mapping error logs from the built-in configuration path for daily/monthly indexes. If a mapping is incompatible with an existing partition, you will only discover it when manually calling the PUT Mapping API.
+:::
 
 ## Retention Policy for Time-Series Indexes
 

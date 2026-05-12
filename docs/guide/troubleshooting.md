@@ -97,6 +97,8 @@ curl http://localhost:9200/_cat/indices
 
 ### Mapping Conflicts
 
+> See [Mapping Lifecycle](/guide/index-management#mapping-lifecycle) for a complete breakdown of how and when mappings are applied per index type, including important differences for `DailyIndex`/`MonthlyIndex`.
+
 **Symptoms:**
 - `mapper_parsing_exception`
 - `failed to parse field`

@@ -363,19 +363,23 @@ bool exists = await repository.ExistsAsync(id);
 
 All index configurations use `.Dynamic(false)`, which disables Elasticsearch's automatic field mapping. This means **every field you query, filter, sort, or aggregate on MUST have an explicit mapping** in the index's `ConfigureIndexMapping` method. Unmapped fields are stored in `_source` but never indexed -- queries against them silently return zero results with no error.
 
+> For the full mapping lifecycle (how/when mappings are applied per index type, trade-offs for daily/monthly indexes, failure log messages), see [Mapping Lifecycle](docs/guide/index-management.md#mapping-lifecycle).
+
 ### Field Type Reference
 
-| C# / NEST Mapping | When to Use | ES Type |
+| Mapping Call | When to Use | ES Type |
 | --- | --- | --- |
-| `.Keyword(f => f.Name(e => e.Field))` | Exact match, filtering, aggregations | `keyword` |
-| `.Text(f => f.Name(e => e.Field).AddKeywordAndSortFields())` | Full-text search + exact match + sorting | `text` + `.keyword` + `.sort` sub-fields |
-| `.Scalar(f => f.Field, f => f.Name(e => e.Field))` | Numeric fields (int, long, double, decimal) | `integer` / `long` / `double` etc. |
-| `.Number(f => f.Name(e => e.Field).Type(NumberType.Integer))` | Numeric with explicit type | specified number type |
-| `.Date(f => f.Name(e => e.Field))` | DateTime / DateTimeOffset | `date` |
-| `.Boolean(f => f.Name(e => e.Field))` | Boolean flags | `boolean` |
-| `.GeoPoint(f => f.Name(e => e.Field))` | Latitude/longitude | `geo_point` |
-| `.Nested<T>(f => f.Name(e => e.Field).Properties(...))` | Nested objects needing independent querying | `nested` |
-| `.Object<T>(f => f.Name(e => e.Field).Properties(...))` | Embedded objects (flattened) | `object` |
+| `.Keyword(e => e.Field)` | Exact match, filtering, aggregations | `keyword` |
+| `.Text(e => e.Field, t => t.AddKeywordAndSortFields())` | Full-text search + exact match + sorting | `text` + `.keyword` + `.sort` sub-fields |
+| `.IntegerNumber(e => e.Field)` | Integer numeric fields | `integer` |
+| `.LongNumber(e => e.Field)` | Long numeric fields | `long` |
+| `.DoubleNumber(e => e.Field)` | Double numeric fields | `double` |
+| `.FloatNumber(e => e.Field)` | Float numeric fields | `float` |
+| `.Date(e => e.Field)` | DateTime / DateTimeOffset | `date` |
+| `.Boolean(e => e.Field)` | Boolean flags | `boolean` |
+| `.GeoPoint(e => e.Field)` | Latitude/longitude | `geo_point` |
+| `.Nested(e => e.Field, n => n.Properties(...))` | Nested objects needing independent querying | `nested` |
+| `.Object(e => e.Field, o => o.Properties(...))` | Embedded objects (flattened) | `object` |
 
 `.SetupDefaults()` automatically maps `Id` (keyword), `CreatedUtc` (date), `UpdatedUtc` (date), `IsDeleted` (boolean), and `Version` (keyword) based on which model interfaces are implemented.
 
@@ -383,7 +387,7 @@ All index configurations use `.Dynamic(false)`, which disables Elasticsearch's a
 
 **No version bump needed** -- adding a mapping for a brand-new field:
 
-- For `VersionedIndex<T>`: `ConfigureIndexesAsync` calls the [PUT Mapping API](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-put-mapping-1) on the existing index, adding the new field mapping additively.
+- For `Index<T>` / `VersionedIndex<T>`: `ConfigureIndexesAsync` (or the lazy first-write path) calls the [PUT Mapping API](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-put-mapping-1) on the existing index, adding the new field mapping additively.
 - For `DailyIndex<T>` / `MonthlyIndex<T>`: new daily/monthly physical indexes are created on-demand with the full current mapping. However, **already-created daily/monthly indexes are NOT updated** -- `DailyIndex.ConfigureAsync` is a no-op and never calls `UpdateIndexAsync` on existing physical indexes.
 
 **Version bump IS required** -- changing an existing field's type or analyzer (e.g., `Text` to `Keyword`). Elasticsearch [does not allow in-place type changes](https://www.elastic.co/docs/manage-data/data-store/mapping/update-mappings-examples). Bump the `VersionedIndex` version to trigger creation of a new index with the correct mapping and automatic reindexing of data.
@@ -394,12 +398,16 @@ After adding a mapping for a previously unmapped field, only **newly saved/index
 
 To make existing documents searchable on the new field:
 
-- **Foundatio migration** -- create a `MigrationBase` subclass (versioned or resumable) that uses `PatchAllAsync` or `BatchProcessAsync` to touch all affected documents. This is the recommended approach for production deployments because migrations are tracked, run once, support retry, and can be run offline if needed. See [Migrations](/guide/migrations) documentation.
+- **Foundatio migration** -- create a `MigrationBase` subclass (versioned or resumable) that uses `PatchAllAsync` or `BatchProcessAsync` to touch all affected documents. This is the recommended approach for production deployments because migrations are tracked, run once, support retry, and can be run offline if needed. See [Migrations](docs/guide/migrations.md) documentation.
 - **Re-save** them through the repository (e.g., `BatchProcessAsync` with `ActionPatch` that touches each document)
 - **`PatchAllAsync`** with a no-op `ScriptPatch` (e.g., `ctx.op = 'none'` -- still triggers re-index of `_source`)
 - **Elasticsearch [Update By Query API](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/update-by-query-api)** with no script: `POST /{index}/_update_by_query` re-indexes every document in place without changing `_source` (see [Pick up a new property](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/update-by-query-api#docs-update-by-query-pick-up-a-new-property))
 
 For `DailyIndex`/`MonthlyIndex`, you must also apply the mapping to existing physical indexes (via the PUT Mapping API directly or by bumping the version) before the update-by-query will help.
+
+**Trade-off for Daily/Monthly indexes**: Rolling forward (doing nothing to old partitions and waiting for retention to cycle out old data) is often the cheapest strategy. For a `DailyIndex` with `MaxIndexAge` of 30 days, waiting 30 days gives full coverage for free. See [Mapping Lifecycle](docs/guide/index-management.md#mapping-lifecycle) for the full cost/benefit analysis.
+
+**Mapping resolver cache**: After applying a manual PUT Mapping, the in-process `ElasticMappingResolver` auto-refreshes from the server within ~60 seconds. To force immediate recognition, call `index.MappingResolver.RefreshMapping()`. No cluster-side invalidation is needed — Elasticsearch applies mappings immediately on success.
 
 ### Checklist: Adding a Queryable Model Field
 
