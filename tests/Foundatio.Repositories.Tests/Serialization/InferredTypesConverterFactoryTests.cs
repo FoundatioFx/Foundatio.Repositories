@@ -16,7 +16,7 @@ public class InferredTypesConverterFactoryTests
     public void Read_WithDateOnlyString_ReturnsString()
     {
         // Arrange
-        var json = """{"key": "2025-01-01", "keyAsString": "2025-01-01"}""";
+        const string json = /* lang=json */ """{"key": "2025-01-01", "keyAsString": "2025-01-01"}""";
 
         // Act
         var result = _serializer.Deserialize<KeyedBucket<object>>(json);
@@ -31,7 +31,7 @@ public class InferredTypesConverterFactoryTests
     public void Read_WithIsoDateTimeString_ReturnsDateTimeOffset()
     {
         // Arrange
-        var json = """{"key": "2025-01-01T10:30:00Z", "keyAsString": "2025-01-01T10:30:00Z"}""";
+        const string json = /* lang=json */ """{"key": "2025-01-01T10:30:00Z", "keyAsString": "2025-01-01T10:30:00Z"}""";
 
         // Act
         var result = _serializer.Deserialize<KeyedBucket<object>>(json);
@@ -45,7 +45,7 @@ public class InferredTypesConverterFactoryTests
     public void Read_WithPlainString_ReturnsString()
     {
         // Arrange
-        var json = """{"key": "hello-world", "keyAsString": "hello-world"}""";
+        const string json = /* lang=json */ """{"key": "hello-world", "keyAsString": "hello-world"}""";
 
         // Act
         var result = _serializer.Deserialize<KeyedBucket<object>>(json);
@@ -60,7 +60,7 @@ public class InferredTypesConverterFactoryTests
     public void Read_WithNumericString_ReturnsString()
     {
         // Arrange
-        var json = """{"key": "12345", "keyAsString": "12345"}""";
+        const string json = /* lang=json */ """{"key": "12345", "keyAsString": "12345"}""";
 
         // Act
         var result = _serializer.Deserialize<KeyedBucket<object>>(json);
@@ -75,7 +75,7 @@ public class InferredTypesConverterFactoryTests
     public void Read_WithLongValue_ReturnsLong()
     {
         // Arrange
-        var json = """{"key": 9007199254740993, "keyAsString": "9007199254740993"}""";
+        const string json = /* lang=json */ """{"key": 9007199254740993, "keyAsString": "9007199254740993"}""";
 
         // Act
         var result = _serializer.Deserialize<KeyedBucket<object>>(json);
@@ -90,7 +90,7 @@ public class InferredTypesConverterFactoryTests
     public void Read_WithDoubleValue_ReturnsDouble()
     {
         // Arrange
-        var json = """{"key": 3.14, "keyAsString": "3.14"}""";
+        const string json = /* lang=json */ """{"key": 3.14, "keyAsString": "3.14"}""";
 
         // Act
         var result = _serializer.Deserialize<KeyedBucket<object>>(json);
@@ -104,8 +104,8 @@ public class InferredTypesConverterFactoryTests
     [Fact]
     public void Read_WithStringContainingT_ButNotDateTime_ReturnsString()
     {
-        // Arrange — "T" in a non-datetime string should NOT be parsed as a date
-        var json = """{"key": "TeamAlpha", "keyAsString": "TeamAlpha"}""";
+        // Arrange
+        const string json = /* lang=json */ """{"key": "TeamAlpha", "keyAsString": "TeamAlpha"}""";
 
         // Act
         var result = _serializer.Deserialize<KeyedBucket<object>>(json);
@@ -120,7 +120,7 @@ public class InferredTypesConverterFactoryTests
     public void Read_WithTypedLongBucket_ReturnsLong()
     {
         // Arrange
-        var json = """{"key": 42, "keyAsString": "42", "total": 10}""";
+        const string json = /* lang=json */ """{"key": 42, "keyAsString": "42", "total": 10}""";
 
         // Act
         var result = _serializer.Deserialize<KeyedBucket<long>>(json);
@@ -135,7 +135,7 @@ public class InferredTypesConverterFactoryTests
     public void Read_WithTypedStringBucket_ReturnsString()
     {
         // Arrange
-        var json = """{"key": "status-active", "keyAsString": "status-active", "total": 5}""";
+        const string json = /* lang=json */ """{"key": "status-active", "keyAsString": "status-active", "total": 5}""";
 
         // Act
         var result = _serializer.Deserialize<KeyedBucket<string>>(json);
