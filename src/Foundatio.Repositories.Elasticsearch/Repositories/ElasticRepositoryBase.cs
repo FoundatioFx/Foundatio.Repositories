@@ -216,7 +216,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     {
                         Values = new Elastic.Clients.Elasticsearch.Ids(new[] { new Elastic.Clients.Elasticsearch.Id(id.Value) })
                     },
-                    Conflicts = Conflicts.Proceed,
                     Script = new Script { Source = scriptOperation.Script, Params = scriptOperation.Params },
                     Pipeline = DefaultPipeline,
                     Refresh = options.GetRefreshMode(DefaultConsistency) != Refresh.False,
@@ -233,8 +232,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     if (response.ApiCallDetails is { HttpStatusCode: 404 })
                         throw new DocumentNotFoundException(id);
 
+                    if (response.ApiCallDetails is { HttpStatusCode: 409 })
+                        throw new VersionConflictDocumentException(
+                            response.GetErrorMessage($"Version conflict patching document {ElasticIndex.GetIndex(id)}/{id.Value}"),
+                            response.OriginalException());
+
                     throw new DocumentException(response.GetErrorMessage($"Error patching document {ElasticIndex.GetIndex(id)}/{id.Value}"), response.OriginalException());
                 }
+
+                if ((response.VersionConflicts ?? 0) > 0)
+                    throw new VersionConflictDocumentException(id.Value);
 
                 var matched = response.Total ?? 0;
                 if (matched is 0)
