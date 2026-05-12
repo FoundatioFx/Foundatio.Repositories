@@ -1,8 +1,8 @@
-# Migrating to Elastic.Clients.Elasticsearch (ES9)
+# Migrating to Elastic.Clients.Elasticsearch
 
 This guide covers breaking changes when upgrading from `NEST` (ES7) to `Elastic.Clients.Elasticsearch` (ES8/ES9). The new Elasticsearch .NET client is a complete rewrite with a new API surface, so most code that interacts with Elasticsearch directly will need changes.
 
-> **Query syntax changes**: If you use [Foundatio.Parsers](https://github.com/FoundatioFx/Foundatio.Parsers) for query parsing (e.g., `ElasticQueryParser`, `ElasticMappingResolver`, aggregation parsing), refer to the [Foundatio.Parsers documentation](https://github.com/FoundatioFx/Foundatio.Parsers) for its own ES9-related migration notes. The query parser APIs have been updated to work with the new `Elastic.Clients.Elasticsearch` types.
+> **Query syntax changes**: If you use [Foundatio.Parsers](https://github.com/FoundatioFx/Foundatio.Parsers) for query parsing (e.g., `ElasticQueryParser`, `ElasticMappingResolver`, aggregation parsing), refer to the [Foundatio.Parsers documentation](https://github.com/FoundatioFx/Foundatio.Parsers) for migration notes aligned with `Elastic.Clients.Elasticsearch`. The query parser APIs have been updated to work with the new client types.
 
 ## Package Changes
 
@@ -385,12 +385,12 @@ The `TopHitsAggregate` now serializes the raw document JSON in its `Hits` proper
 
 ## Known Bugs and Workarounds
 
-### ResolveIndexAsync Is Broken in ES 9.x Client
+### ResolveIndexAsync in Elastic.Clients.Elasticsearch 9.x
 
-The `Indices.ResolveIndexAsync` method in the Elastic.Clients.Elasticsearch 9.x client is broken — it does not correctly resolve wildcard index patterns. Foundatio.Repositories works around this by using `Indices.GetAsync` with `IgnoreUnavailable()` instead:
+The `Indices.ResolveIndexAsync` method in Elastic.Clients.Elasticsearch 9.x is broken — it does not correctly resolve wildcard index patterns. Foundatio.Repositories works around this by using `Indices.GetAsync` with `IgnoreUnavailable()` instead:
 
 ```csharp
-// DON'T use ResolveIndexAsync — it's broken in the ES 9.x client
+// DON'T use ResolveIndexAsync — broken in Elastic.Clients.Elasticsearch 9.x
 // var resolved = await client.Indices.ResolveIndexAsync(pattern);
 
 // DO use GetAsync to resolve wildcard patterns
@@ -478,6 +478,6 @@ The `settings.EnableApiVersioningHeader()` call from NEST is no longer needed an
 - [ ] Update `ICustomFieldType.ConfigureMapping<T>` to new `Func<PropertyFactory<T>, IProperty>` signature
 
 ### Known Issues
-- [ ] Replace any `ResolveIndexAsync` calls with `Indices.GetAsync` (broken in ES 9.x client)
+- [ ] Replace any `ResolveIndexAsync` calls with `Indices.GetAsync` (broken in Elastic.Clients.Elasticsearch 9.x)
 - [ ] Verify enum serialization compatibility with existing Elasticsearch data
 - [ ] Test document round-tripping with System.Text.Json
