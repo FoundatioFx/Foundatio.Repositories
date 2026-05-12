@@ -1,10 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Foundatio.Repositories.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace Foundatio.Repositories.Utility;
+namespace Foundatio.Repositories.Serialization;
 
 public class BucketsNewtonsoftJsonConverter : JsonConverter
 {
@@ -26,7 +26,7 @@ public class BucketsNewtonsoftJsonConverter : JsonConverter
             string? type = typeToken.Value<string>();
             IReadOnlyDictionary<string, IAggregate>? aggregations = null;
             var aggregationsToken = item.SelectToken("Aggregations") ?? item.SelectToken("aggregations");
-            aggregations = aggregationsToken?.ToObject<IReadOnlyDictionary<string, IAggregate>>();
+            aggregations = aggregationsToken?.ToObject<IReadOnlyDictionary<string, IAggregate>>(serializer);
 
             switch (type)
             {
@@ -47,8 +47,14 @@ public class BucketsNewtonsoftJsonConverter : JsonConverter
                 case "string":
                     value = new KeyedBucket<string>(aggregations);
                     break;
+                case "long":
+                    value = new KeyedBucket<long>(aggregations);
+                    break;
                 case "double":
                     value = new KeyedBucket<double>(aggregations);
+                    break;
+                case "geohash":
+                    value = new KeyedBucket<string>(aggregations);
                     break;
                 case "object":
                     value = new KeyedBucket<object>(aggregations);
@@ -56,8 +62,12 @@ public class BucketsNewtonsoftJsonConverter : JsonConverter
             }
         }
 
-        if (value == null)
-            value = new KeyedBucket<object>();
+        if (value is null)
+        {
+            var aggregationsToken = item.SelectToken("Aggregations") ?? item.SelectToken("aggregations");
+            var fallbackAggregations = aggregationsToken?.ToObject<IReadOnlyDictionary<string, IAggregate>>(serializer);
+            value = new KeyedBucket<object>(fallbackAggregations);
+        }
 
         serializer.Populate(item.CreateReader(), value);
 
@@ -68,6 +78,6 @@ public class BucketsNewtonsoftJsonConverter : JsonConverter
 
     public override void WriteJson(JsonWriter writer, object? value, JsonSerializer serializer)
     {
-        throw new NotImplementedException();
+        throw new NotSupportedException();
     }
 }

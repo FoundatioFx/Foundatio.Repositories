@@ -1,7 +1,9 @@
 ﻿using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Foundatio.Repositories.Queries;
-using Nest;
+using ElasticId = Elastic.Clients.Elasticsearch.Id;
+using ElasticIds = Elastic.Clients.Elasticsearch.Ids;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders;
 
@@ -11,11 +13,11 @@ public class IdentityQueryBuilder : IElasticQueryBuilder
     {
         var ids = ctx.Source.GetIds();
         if (ids.Count > 0)
-            ctx.Filter &= new IdsQuery { Values = ids.Select(id => new Nest.Id(id)) };
+            ctx.Filter &= new IdsQuery { Values = new ElasticIds(ids.Select(id => new ElasticId(id))) };
 
         var excludesIds = ctx.Source.GetExcludedIds();
         if (excludesIds.Count > 0)
-            ctx.Filter &= !new IdsQuery { Values = excludesIds.Select(id => new Nest.Id(id)) };
+            ctx.Filter &= new BoolQuery { MustNot = new Query[] { new IdsQuery { Values = new ElasticIds(excludesIds.Select(id => new ElasticId(id))) } } };
 
         return Task.CompletedTask;
     }

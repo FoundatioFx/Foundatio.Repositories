@@ -1,8 +1,9 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch.QueryDsl;
+using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories
 {
@@ -65,22 +66,22 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 childOptions.DocumentType(childQuery.GetDocumentType());
                 var childContext = new QueryBuilderContext<object>(childQuery, childOptions);
 
-                await index.QueryBuilder.BuildAsync(childContext);
+                await index.QueryBuilder.BuildAsync(childContext).AnyContext();
 
-                if (childContext.Filter != null && ((IQueryContainer)childContext.Filter).IsConditionless == false)
+                if (childContext.Filter != null)
                     ctx.Filter &= new HasChildQuery
                     {
-                        Type = childQuery.GetDocumentType(),
+                        Type = childQuery.GetDocumentType().Name.ToLowerInvariant(),
                         Query = new BoolQuery
                         {
                             Filter = new[] { childContext.Filter }
                         }
                     };
 
-                if (childContext.Query != null && ((IQueryContainer)childContext.Query).IsConditionless == false)
+                if (childContext.Query != null)
                     ctx.Query &= new HasChildQuery
                     {
-                        Type = childQuery.GetDocumentType(),
+                        Type = childQuery.GetDocumentType().Name.ToLowerInvariant(),
                         Query = new BoolQuery
                         {
                             Must = new[] { childContext.Query }

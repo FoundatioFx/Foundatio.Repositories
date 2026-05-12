@@ -1,8 +1,9 @@
-﻿using System;
+using System;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders;
 
@@ -42,10 +43,10 @@ public class SoftDeletesQueryBuilder : IElasticQueryBuilder
         if (parentType != null && parentType != typeof(object))
             ctx.Filter &= new HasParentQuery
             {
-                ParentType = parentType,
+                ParentType = parentType.Name.ToLowerInvariant(),
                 Query = new BoolQuery
                 {
-                    Filter = new[] { new QueryContainer(new TermQuery { Field = fieldName, Value = false }) }
+                    Filter = [new TermQuery { Field = fieldName, Value = false }]
                 }
             };
 

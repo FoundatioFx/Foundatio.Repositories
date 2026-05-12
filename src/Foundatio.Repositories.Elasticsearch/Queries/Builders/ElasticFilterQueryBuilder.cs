@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch.QueryDsl;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories
 {
@@ -9,7 +9,7 @@ namespace Foundatio.Repositories
     {
         internal const string ElasticFiltersKey = "@ElasticFilters";
 
-        public static T ElasticFilter<T>(this T query, QueryContainer filter) where T : IRepositoryQuery
+        public static T ElasticFilter<T>(this T query, Query filter) where T : IRepositoryQuery
         {
             return query.AddCollectionOptionValue(ElasticFiltersKey, filter);
         }
@@ -20,9 +20,9 @@ namespace Foundatio.Repositories.Options
 {
     public static class ReadElasticFilterQueryExtensions
     {
-        public static ICollection<QueryContainer> GetElasticFilters(this IRepositoryQuery query)
+        public static ICollection<Query> GetElasticFilters(this IRepositoryQuery query)
         {
-            return query.SafeGetCollection<QueryContainer>(ElasticFilterQueryExtensions.ElasticFiltersKey);
+            return query.SafeGetCollection<Query>(ElasticFilterQueryExtensions.ElasticFiltersKey);
         }
     }
 }

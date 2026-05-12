@@ -7,3 +7,4 @@ jobs:
     secrets: inherit
     with:
       new-test-runner: true
+      minimum-major-minor: '8.0'

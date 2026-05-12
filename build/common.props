@@ -6,6 +6,7 @@
     <Description>Generic Repository implementations for Elasticsearch.</Description>
     <PackageProjectUrl>https://github.com/FoundatioFx/Foundatio.Repositories</PackageProjectUrl>
     <PackageReleaseNotes>https://github.com/FoundatioFx/Foundatio.Repositories/releases</PackageReleaseNotes>
+    <MinVerMinimumMajorMinor>8.0</MinVerMinimumMajorMinor>
     <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <ReferenceFoundatioSource Condition="$(SolutionName.Contains('All')) Or !$(SolutionName.Contains('Foundatio'))">true</ReferenceFoundatioSource>

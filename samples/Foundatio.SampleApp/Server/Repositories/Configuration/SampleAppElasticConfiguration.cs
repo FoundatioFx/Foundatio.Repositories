@@ -1,7 +1,7 @@
-﻿using Elasticsearch.Net;
+﻿using Elastic.Clients.Elasticsearch;
+using Elastic.Transport;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.SampleApp.Server.Repositories.Indexes;
-using Nest;
 
 namespace Foundatio.SampleApp.Server.Repositories;
 
@@ -17,12 +17,12 @@ public class SampleAppElasticConfiguration : ElasticConfiguration
         AddIndex(GameReviews = new GameReviewIndex(this));
     }
 
-    protected override IConnectionPool CreateConnectionPool()
+    protected override NodePool CreateConnectionPool()
     {
-        return new SingleNodeConnectionPool(new Uri(_connectionString));
+        return new SingleNodePool(new Uri(_connectionString));
     }
 
-    protected override void ConfigureSettings(ConnectionSettings settings)
+    protected override void ConfigureSettings(ElasticsearchClientSettings settings)
     {
         // only do this in test and dev mode to enable better debug logging
         if (_env.IsDevelopment())

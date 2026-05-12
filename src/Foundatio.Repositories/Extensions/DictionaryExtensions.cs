@@ -99,9 +99,9 @@ public static class DictionaryExtensions
         return dict?.Count > 0 ? dict : null;
     }
 
-    public static IReadOnlyDictionary<string, object>? ToReadOnlyData<T>(this IEnumerable<KeyValuePair<string, object>> dictionary) where T : IAggregate
+    public static IReadOnlyDictionary<string, object>? ToReadOnlyData<T>(this IEnumerable<KeyValuePair<string, object>>? dictionary) where T : IAggregate
     {
-        var data = dictionary.ToData<T>();
+        var data = (dictionary ?? []).ToData<T>();
         return data is not null ? new ReadOnlyDictionary<string, object>(data) : null;
     }
 

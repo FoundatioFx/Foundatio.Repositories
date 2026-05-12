@@ -1,15 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Repositories.Options;
-using Nest;
 
 namespace Foundatio.Repositories
 {
     /// <summary>
     /// Extension methods for adding field conditions to repository queries.
     /// These are the primary API for building type-safe Elasticsearch filter clauses without
-    /// dropping to raw NEST <c>QueryContainer</c> objects.
+    /// dropping to raw Elasticsearch <c>Query</c> objects.
     /// </summary>
     public static class FieldConditionQueryExtensions
     {
@@ -37,23 +37,23 @@ namespace Foundatio.Repositories
             return condition ? query.FieldCondition(field, op, value) : query;
         }
 
-        public static IRepositoryQuery<T> FieldCondition<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, ComparisonOperator op, object? value) where T : class
+        public static IRepositoryQuery<T> FieldCondition<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath, ComparisonOperator op, object? value) where T : class
         {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = value, Operator = op });
         }
 
-        public static IRepositoryQuery<T> FieldCondition<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, ComparisonOperator op, params object[] values) where T : class
+        public static IRepositoryQuery<T> FieldCondition<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath, ComparisonOperator op, params object[] values) where T : class
         {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = values, Operator = op });
         }
 
-        public static IRepositoryQuery<TModel> FieldConditionIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, ComparisonOperator op, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
+        public static IRepositoryQuery<TModel> FieldConditionIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, ComparisonOperator op, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
         {
             bool result = condition is null || condition(value);
             return result ? query.FieldCondition(objectPath, op, value) : query;
         }
 
-        public static IRepositoryQuery<TModel> FieldConditionIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, ComparisonOperator op, TValue? value = default, bool condition = true) where TModel : class
+        public static IRepositoryQuery<TModel> FieldConditionIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, ComparisonOperator op, TValue? value = default, bool condition = true) where TModel : class
         {
             return condition ? query.FieldCondition(objectPath, op, value) : query;
         }
@@ -68,7 +68,7 @@ namespace Foundatio.Repositories
         /// <para>Throws <see cref="Foundatio.Repositories.Exceptions.QueryValidationException"/> at build time if the field
         /// is a non-analyzed (keyword) field.</para>
         /// </remarks>
-        public static IRepositoryQuery<T> FieldContains<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, object? value) where T : class
+        public static IRepositoryQuery<T> FieldContains<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath, object? value) where T : class
         {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.Contains });
         }
@@ -77,18 +77,18 @@ namespace Foundatio.Repositories
         /// Full-text token match with multiple values joined as space-separated tokens.
         /// All tokens must be present (AND semantics, order-independent).
         /// </summary>
-        public static IRepositoryQuery<T> FieldContains<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, params object[] values) where T : class
+        public static IRepositoryQuery<T> FieldContains<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath, params object[] values) where T : class
         {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = values, Operator = ComparisonOperator.Contains });
         }
 
-        public static IRepositoryQuery<TModel> FieldContainsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
+        public static IRepositoryQuery<TModel> FieldContainsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
         {
             bool result = condition is null || condition(value);
             return result ? query.FieldContains(objectPath, value) : query;
         }
 
-        public static IRepositoryQuery<TModel> FieldContainsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue? value = default, bool condition = true) where TModel : class
+        public static IRepositoryQuery<TModel> FieldContainsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, TValue? value = default, bool condition = true) where TModel : class
         {
             return condition ? query.FieldContains(objectPath, value) : query;
         }
@@ -96,23 +96,23 @@ namespace Foundatio.Repositories
         /// <summary>
         /// Negated full-text token match. Generates <c>BoolQuery { MustNot = MatchQuery }</c>.
         /// </summary>
-        public static IRepositoryQuery<T> FieldNotContains<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, object? value) where T : class
+        public static IRepositoryQuery<T> FieldNotContains<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath, object? value) where T : class
         {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.NotContains });
         }
 
-        public static IRepositoryQuery<T> FieldNotContains<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, params object[] values) where T : class
+        public static IRepositoryQuery<T> FieldNotContains<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath, params object[] values) where T : class
         {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = values, Operator = ComparisonOperator.NotContains });
         }
 
-        public static IRepositoryQuery<TModel> FieldNotContainsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
+        public static IRepositoryQuery<TModel> FieldNotContainsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
         {
             bool result = condition is null || condition(value);
             return result ? query.FieldNotContains(objectPath, value) : query;
         }
 
-        public static IRepositoryQuery<TModel> FieldNotContainsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue? value = default, bool condition = true) where TModel : class
+        public static IRepositoryQuery<TModel> FieldNotContainsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, TValue? value = default, bool condition = true) where TModel : class
         {
             return condition ? query.FieldNotContains(objectPath, value) : query;
         }
@@ -127,12 +127,12 @@ namespace Foundatio.Repositories
             return condition ? query.FieldEmpty(field) : query;
         }
 
-        public static IRepositoryQuery<T> FieldEmpty<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath) where T : class
+        public static IRepositoryQuery<T> FieldEmpty<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath) where T : class
         {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Operator = ComparisonOperator.IsEmpty });
         }
 
-        public static IRepositoryQuery<T> FieldEmptyIf<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, bool condition) where T : class
+        public static IRepositoryQuery<T> FieldEmptyIf<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath, bool condition) where T : class
         {
             return condition ? query.FieldEmpty(objectPath) : query;
         }
@@ -150,12 +150,12 @@ namespace Foundatio.Repositories
             return condition ? query.FieldHasValue(field) : query;
         }
 
-        public static IRepositoryQuery<T> FieldHasValue<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath) where T : class
+        public static IRepositoryQuery<T> FieldHasValue<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath) where T : class
         {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Operator = ComparisonOperator.HasValue });
         }
 
-        public static IRepositoryQuery<T> FieldHasValueIf<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, bool condition) where T : class
+        public static IRepositoryQuery<T> FieldHasValueIf<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath, bool condition) where T : class
         {
             return condition ? query.FieldHasValue(objectPath) : query;
         }
@@ -192,23 +192,23 @@ namespace Foundatio.Repositories
             return condition ? query.FieldEquals(field, value) : query;
         }
 
-        public static IRepositoryQuery<T> FieldEquals<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, object? value) where T : class
+        public static IRepositoryQuery<T> FieldEquals<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath, object? value) where T : class
         {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.Equals });
         }
 
-        public static IRepositoryQuery<T> FieldEquals<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, params object[] values) where T : class
+        public static IRepositoryQuery<T> FieldEquals<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath, params object[] values) where T : class
         {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = values, Operator = ComparisonOperator.Equals });
         }
 
-        public static IRepositoryQuery<TModel> FieldEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
+        public static IRepositoryQuery<TModel> FieldEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
         {
             bool result = condition is null || condition(value);
             return result ? query.FieldEquals(objectPath, value) : query;
         }
 
-        public static IRepositoryQuery<TModel> FieldEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue? value = default, bool condition = true) where TModel : class
+        public static IRepositoryQuery<TModel> FieldEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, TValue? value = default, bool condition = true) where TModel : class
         {
             return condition ? query.FieldEquals(objectPath, value) : query;
         }
@@ -239,23 +239,23 @@ namespace Foundatio.Repositories
             return condition ? query.FieldNotEquals(field, value) : query;
         }
 
-        public static IRepositoryQuery<T> FieldNotEquals<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, object? value) where T : class
+        public static IRepositoryQuery<T> FieldNotEquals<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath, object? value) where T : class
         {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.NotEquals });
         }
 
-        public static IRepositoryQuery<T> FieldNotEquals<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, params object[] values) where T : class
+        public static IRepositoryQuery<T> FieldNotEquals<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath, params object[] values) where T : class
         {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = values, Operator = ComparisonOperator.NotEquals });
         }
 
-        public static IRepositoryQuery<TModel> FieldNotEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
+        public static IRepositoryQuery<TModel> FieldNotEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
         {
             bool result = condition is null || condition(value);
             return result ? query.FieldNotEquals(objectPath, value) : query;
         }
 
-        public static IRepositoryQuery<TModel> FieldNotEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue? value = default, bool condition = true) where TModel : class
+        public static IRepositoryQuery<TModel> FieldNotEqualsIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, TValue? value = default, bool condition = true) where TModel : class
         {
             return condition ? query.FieldNotEquals(objectPath, value) : query;
         }
@@ -264,18 +264,18 @@ namespace Foundatio.Repositories
         /// Strictly greater than comparison. Generates <c>DateRangeQuery</c> (DateTime/DateTimeOffset),
         /// <c>NumericRangeQuery</c> (numeric types), or <c>TermRangeQuery</c> (string).
         /// </summary>
-        public static IRepositoryQuery<T> FieldGreaterThan<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, object? value) where T : class
+        public static IRepositoryQuery<T> FieldGreaterThan<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath, object? value) where T : class
         {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.GreaterThan });
         }
 
-        public static IRepositoryQuery<TModel> FieldGreaterThanIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
+        public static IRepositoryQuery<TModel> FieldGreaterThanIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
         {
             bool result = condition is null || condition(value);
             return result ? query.FieldGreaterThan(objectPath, value) : query;
         }
 
-        public static IRepositoryQuery<TModel> FieldGreaterThanIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue? value = default, bool condition = true) where TModel : class
+        public static IRepositoryQuery<TModel> FieldGreaterThanIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, TValue? value = default, bool condition = true) where TModel : class
         {
             return condition ? query.FieldGreaterThan(objectPath, value) : query;
         }
@@ -283,18 +283,18 @@ namespace Foundatio.Repositories
         /// <summary>
         /// Greater than or equal comparison.
         /// </summary>
-        public static IRepositoryQuery<T> FieldGreaterThanOrEqual<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, object? value) where T : class
+        public static IRepositoryQuery<T> FieldGreaterThanOrEqual<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath, object? value) where T : class
         {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.GreaterThanOrEqual });
         }
 
-        public static IRepositoryQuery<TModel> FieldGreaterThanOrEqualIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
+        public static IRepositoryQuery<TModel> FieldGreaterThanOrEqualIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
         {
             bool result = condition is null || condition(value);
             return result ? query.FieldGreaterThanOrEqual(objectPath, value) : query;
         }
 
-        public static IRepositoryQuery<TModel> FieldGreaterThanOrEqualIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue? value = default, bool condition = true) where TModel : class
+        public static IRepositoryQuery<TModel> FieldGreaterThanOrEqualIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, TValue? value = default, bool condition = true) where TModel : class
         {
             return condition ? query.FieldGreaterThanOrEqual(objectPath, value) : query;
         }
@@ -302,18 +302,18 @@ namespace Foundatio.Repositories
         /// <summary>
         /// Strictly less than comparison.
         /// </summary>
-        public static IRepositoryQuery<T> FieldLessThan<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, object? value) where T : class
+        public static IRepositoryQuery<T> FieldLessThan<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath, object? value) where T : class
         {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.LessThan });
         }
 
-        public static IRepositoryQuery<TModel> FieldLessThanIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
+        public static IRepositoryQuery<TModel> FieldLessThanIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
         {
             bool result = condition is null || condition(value);
             return result ? query.FieldLessThan(objectPath, value) : query;
         }
 
-        public static IRepositoryQuery<TModel> FieldLessThanIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue? value = default, bool condition = true) where TModel : class
+        public static IRepositoryQuery<TModel> FieldLessThanIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, TValue? value = default, bool condition = true) where TModel : class
         {
             return condition ? query.FieldLessThan(objectPath, value) : query;
         }
@@ -321,18 +321,18 @@ namespace Foundatio.Repositories
         /// <summary>
         /// Less than or equal comparison.
         /// </summary>
-        public static IRepositoryQuery<T> FieldLessThanOrEqual<T>(this IRepositoryQuery<T> query, Expression<Func<T, object>> objectPath, object? value) where T : class
+        public static IRepositoryQuery<T> FieldLessThanOrEqual<T>(this IRepositoryQuery<T> query, Expression<Func<T, object?>> objectPath, object? value) where T : class
         {
             return query.AddCollectionOptionValue(FieldConditionsKey, new FieldCondition { Field = objectPath, Value = value, Operator = ComparisonOperator.LessThanOrEqual });
         }
 
-        public static IRepositoryQuery<TModel> FieldLessThanOrEqualIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
+        public static IRepositoryQuery<TModel> FieldLessThanOrEqualIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, TValue? value = default, Func<TValue?, bool>? condition = null) where TModel : class
         {
             bool result = condition is null || condition(value);
             return result ? query.FieldLessThanOrEqual(objectPath, value) : query;
         }
 
-        public static IRepositoryQuery<TModel> FieldLessThanOrEqualIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object>> objectPath, TValue? value = default, bool condition = true) where TModel : class
+        public static IRepositoryQuery<TModel> FieldLessThanOrEqualIf<TModel, TValue>(this IRepositoryQuery<TModel> query, Expression<Func<TModel, object?>> objectPath, TValue? value = default, bool condition = true) where TModel : class
         {
             return condition ? query.FieldLessThanOrEqual(objectPath, value) : query;
         }

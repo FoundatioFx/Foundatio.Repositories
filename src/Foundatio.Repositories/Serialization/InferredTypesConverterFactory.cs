@@ -1,16 +1,22 @@
-﻿using System;
+using System;
+using System.Buffers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Foundatio.Repositories.Utility;
+namespace Foundatio.Repositories.Serialization;
 
-public class ObjectToInferredTypesConverter : JsonConverterFactory
+/// <summary>
+/// A <see cref="JsonConverterFactory"/> that infers CLR types from JSON tokens for generic typed properties
+/// (e.g., <c>KeyedBucket&lt;T&gt;.Key</c>). Applied via <c>[JsonConverter]</c> attribute on properties
+/// where the declared type is generic and the actual JSON value should be deserialized to a natural CLR type.
+/// </summary>
+public class InferredTypesConverterFactory : JsonConverterFactory
 {
     public override bool CanConvert(Type typeToConvert) => true;
 
     public override JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options)
     {
-        var converterType = typeof(ObjectToInferredTypesConverterInner<>).MakeGenericType(typeToConvert);
+        var converterType = typeof(InferredTypesConverter<>).MakeGenericType(typeToConvert);
         var converter = Activator.CreateInstance(converterType) as JsonConverter;
         if (converter is null)
             throw new InvalidOperationException($"Failed to create converter for type {typeToConvert}");
@@ -18,7 +24,7 @@ public class ObjectToInferredTypesConverter : JsonConverterFactory
         return converter;
     }
 
-    private class ObjectToInferredTypesConverterInner<T> : JsonConverter<T>
+    private class InferredTypesConverter<T> : JsonConverter<T>
     {
         public override T Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
@@ -26,8 +32,7 @@ public class ObjectToInferredTypesConverter : JsonConverterFactory
             {
                 JsonTokenType.Number when reader.TryGetInt64(out long l) => l,
                 JsonTokenType.Number => reader.GetDouble(),
-                JsonTokenType.String when reader.TryGetDateTime(out DateTime datetime) => datetime,
-                JsonTokenType.String => reader.GetString(),
+                JsonTokenType.String => ReadString(ref reader),
                 JsonTokenType.True => true,
                 JsonTokenType.False => false,
                 JsonTokenType.Null => null,
@@ -42,11 +47,8 @@ public class ObjectToInferredTypesConverter : JsonConverterFactory
 
             try
             {
-                // Special case for JsonElement
                 if (result is JsonElement element)
-                {
                     return JsonSerializer.Deserialize<T>(element.GetRawText(), options)!;
-                }
 
                 return (T)Convert.ChangeType(result, typeof(T));
             }
@@ -54,6 +56,24 @@ public class ObjectToInferredTypesConverter : JsonConverterFactory
             {
                 throw new JsonException($"Cannot convert {result} to type {typeof(T)}: {ex.Message}", ex);
             }
+        }
+
+        private static object? ReadString(ref Utf8JsonReader reader)
+        {
+            ReadOnlySpan<byte> raw = reader.HasValueSequence
+                ? reader.ValueSequence.ToArray()
+                : reader.ValueSpan;
+
+            if (raw.Contains((byte)'T'))
+            {
+                if (reader.TryGetDateTimeOffset(out DateTimeOffset dateTimeOffset))
+                    return dateTimeOffset;
+
+                if (reader.TryGetDateTime(out DateTime dt))
+                    return dt;
+            }
+
+            return reader.GetString();
         }
 
         public override void Write(Utf8JsonWriter writer, T value, JsonSerializerOptions options)

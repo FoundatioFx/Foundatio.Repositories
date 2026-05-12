@@ -11,7 +11,7 @@ description: >
   queryability. Apply when working with any IRepository, ISearchableRepository,
   FindAsync, CountAsync, PatchAsync, PatchAllAsync, RemoveAllAsync, Index<T>,
   VersionedIndex<T>, DailyIndex<T>, or ConfigureIndexesAsync. Never use raw
-  IElasticClient directly -- always use repository methods. Use context7 MCP to
+  ElasticsearchClient directly -- always use repository methods. Use context7 MCP to
   fetch current API docs and examples. See also Elastic docs for
   [field mappings](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-put-mapping-1)
   and [update by query](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/update-by-query-api).
@@ -19,7 +19,7 @@ description: >
 
 # Foundatio Repositories
 
-High-level Elasticsearch repository pattern for .NET. Interface-first, with built-in caching, messaging, patch operations, and soft deletes. **Never use raw `IElasticClient` directly** -- always use repository methods.
+High-level Elasticsearch repository pattern for .NET. Interface-first, with built-in caching, messaging, patch operations, and soft deletes. **Never use raw `ElasticsearchClient` directly** -- always use repository methods.
 
 ## Documentation via context7
 

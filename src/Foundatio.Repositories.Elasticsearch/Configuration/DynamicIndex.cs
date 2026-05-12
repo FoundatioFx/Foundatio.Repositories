@@ -1,6 +1,6 @@
-﻿using Foundatio.Parsers.ElasticQueries;
+﻿using Elastic.Clients.Elasticsearch.Mapping;
+using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Repositories.Elasticsearch.Extensions;
-using Nest;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
@@ -13,8 +13,8 @@ public class DynamicIndex<T> : Index<T> where T : class
         return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client, Name, _logger);
     }
 
-    public override TypeMappingDescriptor<T> ConfigureIndexMapping(TypeMappingDescriptor<T> map)
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<T> map)
     {
-        return map.Dynamic().AutoMap<T>().Properties(p => p.SetupDefaults());
+        map.Dynamic(DynamicMapping.True).Properties(p => p.SetupDefaults());
     }
 }

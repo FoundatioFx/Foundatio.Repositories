@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using Foundatio.Repositories.Utility;
+using Foundatio.Repositories.Serialization;
 
 namespace Foundatio.Repositories.Models;
 

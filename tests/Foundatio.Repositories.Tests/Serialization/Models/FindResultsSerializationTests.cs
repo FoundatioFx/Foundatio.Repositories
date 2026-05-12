@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Foundatio.Repositories.Models;
-using Foundatio.Repositories.Tests.Utility;
 using Foundatio.Serializer;
 using Xunit;
 
