@@ -87,7 +87,7 @@ Patch operations always use `ChangeType.Saved`. The `Id` field in the `EntityCha
 | `PatchAsync(id, ...)` | Document ID | One message per patched document |
 | `PatchAsync(Ids, ScriptPatch/PartialPatch)` | Document ID | One message **per modified ID** (noop IDs excluded) |
 | `PatchAsync(Ids, JsonPatch/ActionPatch)` | Document ID | Delegates to `PatchAllAsync` with explicit IDs — one message **per ID** in the query |
-| `PatchAllAsync` with explicit IDs | Document ID | One message **per ID** in the query |
+| `PatchAllAsync` with explicit IDs | Document ID | One message **per ID** in the query (uncached) or **per modified ID** (cached/batch) |
 | `PatchAllAsync` with filter-only query (cached) | Document ID | One message **per modified ID** (sent per-batch) |
 | `PatchAllAsync` with filter-only query (uncached) | `null` | Single type-level notification |
 
