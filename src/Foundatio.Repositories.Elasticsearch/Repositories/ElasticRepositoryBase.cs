@@ -745,29 +745,55 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         }
         else
         {
-            var response = await _client.BulkAsync(bulk =>
+            IReadOnlyCollection<T> docsToDelete = docs;
+            var allSuccessfulDocs = new List<T>(docs.Count);
+            var allFatalIds = new HashSet<string>();
+            var allConflictIds = new HashSet<string>();
+            BulkResult result = BulkResult.Empty;
+
+            for (int attempt = 0; attempt < 4; attempt++)
             {
-                bulk.Refresh(options.GetRefreshMode(DefaultConsistency));
-                foreach (var doc in docs)
-                    bulk.Delete<T>(d =>
-                    {
-                        d.Id(doc.Id).Index(ElasticIndex.GetIndex(doc));
+                var response = await _client.BulkAsync(bulk =>
+                {
+                    bulk.Refresh(options.GetRefreshMode(DefaultConsistency));
+                    foreach (var doc in docsToDelete)
+                        bulk.Delete<T>(d =>
+                        {
+                            d.Id(doc.Id).Index(ElasticIndex.GetIndex(doc));
 
-                        if (GetParentIdFunc is not null)
-                            d.Routing(GetParentIdFunc(doc));
-                    });
-            }).AnyContext();
+                            if (GetParentIdFunc is not null)
+                                d.Routing(GetParentIdFunc(doc));
+                        });
+                }).AnyContext();
 
-            _logger.LogRequest(response, options.GetQueryLogLevel());
+                _logger.LogRequest(response, options.GetQueryLogLevel());
 
-            var result = BulkResult.From(response);
+                result = BulkResult.From(response);
 
-            var successDocs = result.IsSuccess ? docs : docs.Where(d => result.SuccessfulIds.Contains(d.Id)).ToList();
-            if (successDocs.Count > 0)
-                await OnDocumentsRemovedAsync(successDocs, options).AnyContext();
+                var successDocs = result.IsSuccess
+                    ? docsToDelete.ToList()
+                    : docsToDelete.Where(d => result.SuccessfulIds.Contains(d.Id)).ToList();
+                allSuccessfulDocs.AddRange(successDocs);
+                allFatalIds.UnionWith(result.FatalIds);
+                allConflictIds.UnionWith(result.ConflictIds);
 
-            if (result.HasErrors)
-                ThrowForBulkErrors(result, operationLabel: "removing");
+                if (!result.HasRetryableErrors || attempt >= 3)
+                    break;
+
+                docsToDelete = docsToDelete.Where(d => result.RetryableIds.Contains(d.Id)).ToList();
+                var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt));
+                await ElasticIndex.Configuration.TimeProvider.SafeDelay(delay, DisposedCancellationToken).AnyContext();
+
+                if (DisposedCancellationToken.IsCancellationRequested)
+                    break;
+            }
+
+            if (allSuccessfulDocs.Count > 0)
+                await OnDocumentsRemovedAsync(allSuccessfulDocs, options).AnyContext();
+
+            var finalResult = result with { FatalIds = allFatalIds, ConflictIds = allConflictIds };
+            if (finalResult.HasErrors)
+                ThrowForBulkErrors(finalResult, operationLabel: "removing");
 
             return;
         }
@@ -800,6 +826,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     /// update-by-query when caching is disabled; otherwise they fall back to batch processing.
     /// JsonPatch and ActionPatch always use batch processing with conflict retry.
     /// </summary>
+    /// <remarks>
+    /// <para>When using ScriptPatch or PartialPatch with update-by-query, version conflicts are
+    /// silently skipped (Conflicts.Proceed). The returned count reflects only successfully patched
+    /// documents. Conflicting documents are not retried.</para>
+    /// <para>For guaranteed delivery to individual documents, use
+    /// <see cref="PatchAsync(Id, IPatchOperation, ICommandOptions?)"/> which uses RetriesOnConflict.</para>
+    /// </remarks>
     public virtual async Task<long> PatchAllAsync(IRepositoryQuery query, IPatchOperation operation, ICommandOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(operation);
@@ -821,6 +854,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             operation = ApplyDateTracking(partialPatchOp);
 
         long affectedRecords = 0;
+        bool notifiedPerBatch = false;
         if (operation is JsonPatch jsonOperation)
         {
             var patcher = new JsonPatcher();
@@ -891,13 +925,19 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 if (modifiedDocuments.Count > 0 || retriedIds.Count > 0)
                 {
+                    var batchIds = successfulIds.Concat(retriedIds).ToList();
+                    notifiedPerBatch = true;
+
                     if (IsCacheEnabled)
                         await InvalidateCacheAsync(modifiedDocuments).AnyContext();
 
+                    // Notify only for bulk-successful IDs; retriedIds already notified by PatchAsync in HandleBulkPatchErrorsAsync.
+                    if (successfulIds.Count > 0)
+                        await SendNotificationsAsync(ChangeType.Saved, successfulIds.ToList(), options).AnyContext();
+
                     try
                     {
-                        var callbackIds = successfulIds.Concat(retriedIds).ToList();
-                        options.GetUpdatedIdsCallback()?.Invoke(callbackIds);
+                        options.GetUpdatedIdsCallback()?.Invoke(batchIds);
                     }
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex)
@@ -981,13 +1021,20 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 if (modifiedDocuments.Count > 0 || retriedIds.Count > 0)
                 {
+                    var batchIds = modifiedDocuments.Select(h => h.Id!).Concat(retriedIds).ToList();
+                    var bulkSuccessIds = modifiedDocuments.Select(h => h.Id!).ToList();
+                    notifiedPerBatch = true;
+
                     if (IsCacheEnabled)
                         await InvalidateCacheAsync(modifiedDocuments.Select(h => h.Document!)).AnyContext();
 
+                    // Notify only for bulk-successful IDs; retriedIds already notified by PatchAsync in HandleBulkPatchErrorsAsync.
+                    if (bulkSuccessIds.Count > 0)
+                        await SendNotificationsAsync(ChangeType.Saved, bulkSuccessIds, options).AnyContext();
+
                     try
                     {
-                        var callbackIds = modifiedDocuments.Select(h => h.Id!).Concat(retriedIds).ToList();
-                        options.GetUpdatedIdsCallback()?.Invoke(callbackIds);
+                        options.GetUpdatedIdsCallback()?.Invoke(batchIds);
                     }
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex)
@@ -1188,10 +1235,17 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                         .Select(h => h.Id!).ToList();
                     modifiedInBatch += updatedIds.Count;
 
-                    if (IsCacheEnabled && updatedIds.Count > 0)
+                    if (updatedIds.Count > 0)
                     {
-                        // TODO: Invalidate by documents instead of IDs to support custom cache invalidation overrides.
-                        await InvalidateCacheAsync(updatedIds).AnyContext();
+                        notifiedPerBatch = true;
+
+                        if (IsCacheEnabled)
+                        {
+                            // TODO: Invalidate by documents instead of IDs to support custom cache invalidation overrides.
+                            await InvalidateCacheAsync(updatedIds).AnyContext();
+                        }
+
+                        await SendNotificationsAsync(ChangeType.Saved, updatedIds, options).AnyContext();
                     }
 
                     try
@@ -1214,15 +1268,15 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
         if (affectedRecords > 0)
         {
-            // When called via PatchAsync(Ids), query has IDs and this duplicates per-batch invalidation
-            // (harmless/idempotent). When called directly with a filter query, GetIds() is empty (no-op).
             if (IsCacheEnabled)
                 await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
 
             // Empty list: batch callbacks handle per-document cache invalidation for ActionPatch/JsonPatch.
             // This fires the DocumentsChanged event so subscribers know documents were modified.
             await OnDocumentsChangedAsync(ChangeType.Saved, EmptyList, options).AnyContext();
-            await SendQueryNotificationsAsync(ChangeType.Saved, query, options).AnyContext();
+
+            if (!notifiedPerBatch)
+                await SendQueryNotificationsAsync(ChangeType.Saved, query, options).AnyContext();
         }
 
         return affectedRecords;
@@ -2055,6 +2109,35 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
     private Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<T> documents, ICommandOptions options)
     {
         return SendNotificationsAsync(changeType, documents.Select(d => new ModifiedDocument<T>(d, null)).ToList(), options);
+    }
+
+    private Task SendNotificationsAsync(ChangeType changeType, IReadOnlyCollection<string> ids, ICommandOptions options)
+    {
+        if (!NotificationsEnabled || !options.ShouldNotify())
+            return Task.CompletedTask;
+
+        var delay = NotificationDeliveryDelay;
+        if (ids.Count is 0)
+        {
+            return PublishMessageAsync(new EntityChanged
+            {
+                ChangeType = changeType,
+                Type = EntityTypeName
+            }, delay);
+        }
+
+        var tasks = new List<Task>(ids.Count);
+        foreach (string id in ids)
+        {
+            tasks.Add(PublishMessageAsync(new EntityChanged
+            {
+                ChangeType = changeType,
+                Id = id,
+                Type = EntityTypeName
+            }, delay));
+        }
+
+        return Task.WhenAll(tasks);
     }
 
     protected virtual Task SendQueryNotificationsAsync(ChangeType changeType, IRepositoryQuery query, ICommandOptions options)
