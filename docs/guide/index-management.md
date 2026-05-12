@@ -880,7 +880,7 @@ If an instance crashes mid-reindex, the lock expires after 20 minutes. Another i
 Reindexing performs a second pass after the first completes to catch documents written during the first pass. The strategy depends on the index configuration:
 
 1. **TimestampField available** (e.g., `IHaveDates` models): Uses a timestamp-based range query starting from the reindex start time. This is the preferred approach.
-2. **No TimestampField, ObjectId-format IDs**: Falls back to ObjectId-based range queries on the `_id` field (ObjectIds encode a timestamp). Logged at Information level.
+2. **No TimestampField, ObjectId-format IDs**: Falls back to ObjectId-based range queries on the document `id` field (ObjectIds encode a timestamp). Logged at Information level.
 3. **No TimestampField, non-ObjectId IDs**: Cannot perform a second pass. Logs a Warning — documents written during reindex may be lost. Consider adding `IHaveDates` to your model or using ObjectId-format IDs.
 4. **Empty source index**: Skips the second pass entirely (nothing to catch up).
 
