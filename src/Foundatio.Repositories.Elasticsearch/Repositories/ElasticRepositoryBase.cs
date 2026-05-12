@@ -616,6 +616,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             IReadOnlyCollection<T> docsToDelete = docs;
             var allSuccessfulDocs = new List<T>(docs.Count);
             var allFatalIds = new HashSet<string>();
+            var allConflictIds = new HashSet<string>();
             BulkResult result = BulkResult.Empty;
 
             for (int attempt = 0; attempt < 4; attempt++)
@@ -646,6 +647,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     : docsToDelete.Where(d => result.SuccessfulIds.Contains(d.Id)).ToList();
                 allSuccessfulDocs.AddRange(successDocs);
                 allFatalIds.UnionWith(result.FatalIds);
+                allConflictIds.UnionWith(result.ConflictIds);
 
                 if (!result.HasRetryableErrors || attempt >= 3)
                     break;
@@ -661,10 +663,9 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             if (allSuccessfulDocs.Count > 0)
                 await OnDocumentsRemovedAsync(allSuccessfulDocs, options).AnyContext();
 
-            if (allFatalIds.Count > 0 || result.HasRetryableErrors || result.HasTransportError)
-            {
-                ThrowForBulkErrors(result with { FatalIds = allFatalIds }, operationLabel: "removing");
-            }
+            var finalResult = result with { FatalIds = allFatalIds, ConflictIds = allConflictIds };
+            if (finalResult.HasErrors)
+                ThrowForBulkErrors(finalResult, operationLabel: "removing");
 
             return;
         }

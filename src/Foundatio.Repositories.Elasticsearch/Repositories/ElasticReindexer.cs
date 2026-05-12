@@ -126,26 +126,44 @@ public class ElasticReindexer
         }
         else
         {
-            var sampleId = await GetSampleDocumentIdAsync(workItem.OldIndex).AnyContext();
-            if (sampleId is null)
+            var sampleResult = await GetSampleDocumentIdAsync(workItem.OldIndex).AnyContext();
+
+            async Task RunObjectIdSecondPassAsync()
             {
-                _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Source index is empty, skipping second pass.", workItem.OldIndex, workItem.NewIndex);
-            }
-            else if (ObjectId.TryParse(sampleId, out var unused))
-            {
-                _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Using ObjectId-based second pass (no TimestampField).", workItem.OldIndex, workItem.NewIndex);
                 secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime).AnyContext();
                 if (!secondPassResult.Succeeded)
                     return;
 
                 await progressCallbackAsync(97, $"Total: {secondPassResult.Total:N0} Completed: {secondPassResult.Completed:N0}").AnyContext();
             }
-            else
+
+            switch (sampleResult.Status)
             {
-                _logger.LogCritical(
-                    "Reindex {OldIndex} -> {NewIndex}: No TimestampField and IDs are not ObjectIds. Cannot perform second-pass catch-up. Documents written during reindex may be lost. Consider adding IHaveDates to your model or using ObjectId-format IDs.",
-                    workItem.OldIndex, workItem.NewIndex);
+                case SampleIdStatus.Empty:
+                    _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Source index is empty, skipping second pass.", workItem.OldIndex, workItem.NewIndex);
+                    break;
+
+                case SampleIdStatus.Found when ObjectId.TryParse(sampleResult.Id!, out var unused):
+                    _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Using ObjectId-based second pass (no TimestampField).", workItem.OldIndex, workItem.NewIndex);
+                    await RunObjectIdSecondPassAsync().AnyContext();
+                    break;
+
+                case SampleIdStatus.Found:
+                    _logger.LogWarning(
+                        "Reindex {OldIndex} -> {NewIndex}: No TimestampField and IDs are not ObjectIds (sample: {SampleId}). Cannot perform second-pass catch-up. Documents written during reindex may be lost. Consider adding IHaveDates to your model or using ObjectId-format IDs.",
+                        workItem.OldIndex, workItem.NewIndex, sampleResult.Id);
+                    break;
+
+                case SampleIdStatus.Failed:
+                    _logger.LogWarning(sampleResult.Exception,
+                        "Reindex {OldIndex} -> {NewIndex}: Failed to sample document ID ({Error}). Attempting ObjectId-based second pass anyway.",
+                        workItem.OldIndex, workItem.NewIndex, sampleResult.Error);
+                    await RunObjectIdSecondPassAsync().AnyContext();
+                    break;
             }
+
+            if (secondPassResult is { Succeeded: false })
+                return;
         }
 
         long totalFailures = firstPassResult.Failures;
@@ -474,7 +492,11 @@ public class ElasticReindexer
         return datesArray?.FirstOrDefault();
     }
 
-    private async Task<string?> GetSampleDocumentIdAsync(string index)
+    private enum SampleIdStatus { Found, Empty, Failed }
+
+    private sealed record SampleIdResult(SampleIdStatus Status, string? Id = null, string? Error = null, Exception? Exception = null);
+
+    private async Task<SampleIdResult> GetSampleDocumentIdAsync(string index)
     {
         var response = await _client.SearchAsync<IDictionary<string, object>>(d => d
             .Index(index)
@@ -483,10 +505,14 @@ public class ElasticReindexer
         ).AnyContext();
 
         _logger.LogRequest(response);
-        if (!response.IsValid || !response.Hits.Any())
-            return null;
 
-        return response.Hits.First().Id;
+        if (!response.IsValid)
+            return new SampleIdResult(SampleIdStatus.Failed, Error: response.GetErrorMessage("Search failed"), Exception: response.OriginalException);
+
+        if (!response.Hits.Any())
+            return new SampleIdResult(SampleIdStatus.Empty);
+
+        return new SampleIdResult(SampleIdStatus.Found, Id: response.Hits.First().Id);
     }
 
     private int CalculateProgress(long total, long completed, int startProgress = 0, int endProgress = 100)
