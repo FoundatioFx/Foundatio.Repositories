@@ -59,7 +59,7 @@ protected override void ConfigureSettings(ElasticsearchClientSettings settings)
 {
     // Basic authentication
     settings.Authentication(new BasicAuthentication("username", "password"));
-    
+
     // Or API key
     settings.Authentication(new ApiKey("encoded-api-key"));
 }
@@ -362,7 +362,7 @@ var results = await repository.FindAsync(query, o => o.SnapshotPaging());
 1. **Verify message bus is configured:**
 
 ```csharp
-public MyElasticConfiguration(IMessageBus messageBus, ...) 
+public MyElasticConfiguration(IMessageBus messageBus, ...)
     : base(messageBus: messageBus, ...) { }
 ```
 
