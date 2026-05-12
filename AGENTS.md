@@ -202,7 +202,7 @@ Before marking work complete, verify:
 5. **Documentation updated**: XML doc comments added/updated for public APIs
 6. **Interface documentation**: Update interface definitions and docs with any API changes
 7. **Feature documentation**: Add entries to [docs/](docs/) folder for new features or significant changes
-8. **Skill updated**: When changing core abstractions, query APIs, patch behavior, or docs, update [`.agents/skills/foundatio-repositories/SKILL.md`](.agents/skills/foundatio-repositories/SKILL.md) to keep patterns, gotchas, and the interface hierarchy in sync. The skill delegates to context7 for full docs, so only compact patterns and non-obvious gotchas need maintenance.
+8. **Skill updated**: When changing core abstractions, query APIs, patch behavior, or docs, update [`.agents/skills/foundatio-repositories/SKILL.md`](.agents/skills/foundatio-repositories/SKILL.md) and the relevant `references/` file to keep patterns, gotchas, and the interface hierarchy in sync. The skill uses progressive disclosure: SKILL.md is a lightweight router with version detection and gotchas; `references/patterns.md` has v8 API patterns; `references/patterns-v7.md` has NEST patterns; `references/index-lifecycle.md` has index type/versioning/retention content; `references/upgrading-from-nest.md` has the migration guide.
 9. **Breaking changes flagged**: Clearly identify any breaking changes for review
 
 ### Error Handling
@@ -410,7 +410,7 @@ dotnet test --logger "console;verbosity=detailed"
 ## Resources
 
 - [README.md](README.md) - Overview and feature list
-- [.agents/skills/foundatio-repositories/](.agents/skills/foundatio-repositories/) - Agent skill for consumers (uses context7 for live docs)
+- [.agents/skills/foundatio-repositories/](.agents/skills/foundatio-repositories/) - Agent skill with progressive disclosure (SKILL.md router + references/ for v8 patterns, v7/NEST patterns, index lifecycle, and migration guide)
 - [samples/](samples/) - Sample Blazor application with repository usage
 - [Foundatio](https://github.com/FoundatioFx/Foundatio) - Core building blocks this library depends on
 - [Foundatio.Parsers](https://github.com/FoundatioFx/Foundatio.Parsers) - Query parsing for searchable repositories
