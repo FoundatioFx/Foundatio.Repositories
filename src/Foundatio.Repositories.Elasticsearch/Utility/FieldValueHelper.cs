@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Text.Json.Serialization;
@@ -8,6 +10,8 @@ namespace Foundatio.Repositories.Elasticsearch.Utility;
 
 public static class FieldValueHelper
 {
+    private static readonly ConcurrentDictionary<Type, Dictionary<string, string>> _enumTypeLookup = new();
+
     public static FieldValue ToFieldValue(object? value)
     {
         return value switch
@@ -35,18 +39,27 @@ public static class FieldValueHelper
 
     private static string GetEnumStringValue(Enum value)
     {
-        var field = value.GetType().GetField(value.ToString());
-        if (field is not null)
+        var lookup = _enumTypeLookup.GetOrAdd(value.GetType(), static type =>
         {
-            var jsonAttr = field.GetCustomAttribute<JsonStringEnumMemberNameAttribute>();
-            if (jsonAttr is not null)
-                return jsonAttr.Name;
+            var map = new Dictionary<string, string>();
+            foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Static))
+            {
+                var jsonAttr = field.GetCustomAttribute<JsonStringEnumMemberNameAttribute>();
+                if (jsonAttr is not null)
+                {
+                    map[field.Name] = jsonAttr.Name;
+                    continue;
+                }
 
-            var enumMemberAttr = field.GetCustomAttribute<EnumMemberAttribute>();
-            if (enumMemberAttr?.Value is not null)
-                return enumMemberAttr.Value;
-        }
+                var enumMemberAttr = field.GetCustomAttribute<EnumMemberAttribute>();
+                if (enumMemberAttr?.Value is not null)
+                    map[field.Name] = enumMemberAttr.Value;
+            }
 
-        return value.ToString();
+            return map;
+        });
+
+        var name = value.ToString();
+        return lookup.TryGetValue(name, out var resolved) ? resolved : name;
     }
 }
