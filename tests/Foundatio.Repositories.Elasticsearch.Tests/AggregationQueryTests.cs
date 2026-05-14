@@ -9,7 +9,6 @@ using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
 using Microsoft.Extensions.Time.Testing;
-using Newtonsoft.Json;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -498,8 +497,8 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(10, termsAge.Buckets.Count);
         Assert.Equal(1, termsAge.Buckets.First(f => f.Key == 19).Total);
 
-        string json = JsonConvert.SerializeObject(result);
-        var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
+        string json = System.Text.Json.JsonSerializer.Serialize(result);
+        var roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(json);
         Assert.NotNull(roundTripped);
         Assert.Equal(10, roundTripped.Total);
         Assert.Single(roundTripped.Aggregations);
@@ -521,10 +520,10 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.NotNull(termsYears);
         Assert.Single(termsYears.Buckets);
 
-        json = JsonConvert.SerializeObject(result, Formatting.Indented);
-        roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
+        json = System.Text.Json.JsonSerializer.Serialize(result, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(json);
         Assert.NotNull(roundTripped);
-        string roundTrippedJson = JsonConvert.SerializeObject(roundTripped, Formatting.Indented);
+        string roundTrippedJson = System.Text.Json.JsonSerializer.Serialize(roundTripped, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
         Assert.Equal(json, roundTrippedJson);
         Assert.Equal(10, roundTripped.Total);
         Assert.Single(roundTripped.Aggregations);
@@ -565,8 +564,8 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
             oldestDate = oldestDate.AddDays(1);
         }
 
-        string json = JsonConvert.SerializeObject(result);
-        var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
+        string json = System.Text.Json.JsonSerializer.Serialize(result);
+        var roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(json);
         Assert.NotNull(roundTripped);
 
         dateHistogramAgg = roundTripped.Aggregations.DateHistogram("date_nextReview");
@@ -600,8 +599,8 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.NotNull(dateTermsAgg);
         Assert.Equal(utcToday.SubtractDays(2), dateTermsAgg.Value);
 
-        string json = JsonConvert.SerializeObject(result);
-        var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
+        string json = System.Text.Json.JsonSerializer.Serialize(result);
+        var roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(json);
         Assert.NotNull(roundTripped);
 
         dateTermsAgg = roundTripped.Aggregations.Min<DateTime>("min_nextReview");
@@ -631,8 +630,8 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         Assert.Equal(19, employees.First().Age);
         Assert.Equal(1, employees.First().YearsEmployed);
 
-        string json = JsonConvert.SerializeObject(result);
-        var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
+        string json = System.Text.Json.JsonSerializer.Serialize(result);
+        var roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(json);
         Assert.NotNull(roundTripped);
         Assert.Equal(10, roundTripped.Total);
         Assert.Single(roundTripped.Aggregations);
@@ -642,12 +641,7 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         bucket = roundTrippedTermsAge.Buckets.First(f => f.Key == 19);
         Assert.Equal(1, bucket.Total);
 
-        string systemTextJson = System.Text.Json.JsonSerializer.Serialize(result);
-        Assert.True(System.Text.Json.Nodes.JsonNode.DeepEquals(
-            System.Text.Json.Nodes.JsonNode.Parse(json),
-            System.Text.Json.Nodes.JsonNode.Parse(systemTextJson)),
-            "Newtonsoft and System.Text.Json serialization should produce semantically equivalent JSON");
-        roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(systemTextJson);
+        roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(json);
         Assert.NotNull(roundTripped);
         Assert.Equal(10, roundTripped.Total);
         Assert.Single(roundTripped.Aggregations);

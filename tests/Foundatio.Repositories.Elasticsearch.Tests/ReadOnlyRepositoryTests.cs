@@ -11,7 +11,6 @@ using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using TimeZoneConverter;
 using Xunit;
 
@@ -44,8 +43,8 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         var employees = await _employeeRepository.GetAllByAgeAsync(20);
         Assert.Single(employees.Documents);
 
-        string json = JsonConvert.SerializeObject(employees);
-        var results = JsonConvert.DeserializeObject<FindResults<Employee>>(json);
+        string json = System.Text.Json.JsonSerializer.Serialize(employees);
+        var results = System.Text.Json.JsonSerializer.Deserialize<FindResults<Employee>>(json);
         Assert.NotNull(results);
         Assert.Single(results.Documents);
     }

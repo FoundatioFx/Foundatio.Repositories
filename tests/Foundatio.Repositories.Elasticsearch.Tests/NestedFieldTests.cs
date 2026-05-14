@@ -6,7 +6,6 @@ using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Models;
-using Newtonsoft.Json;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -382,9 +381,9 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         var bucket = ratingTermsAgg.Buckets.First(f => f.Key == 5);
         Assert.Equal(2, bucket.Total);
 
-        // Test Newtonsoft.Json serialization
-        string json = JsonConvert.SerializeObject(result);
-        var roundTripped = JsonConvert.DeserializeObject<CountResult>(json);
+        // Test System.Text.Json serialization round-trip
+        string json = System.Text.Json.JsonSerializer.Serialize(result);
+        var roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(json);
         Assert.NotNull(roundTripped);
         Assert.Equal(3, roundTripped.Total);
         Assert.Single(roundTripped.Aggregations);
@@ -397,13 +396,7 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         bucket = roundTrippedRatingTermsAgg.Buckets.First(f => f.Key == 5);
         Assert.Equal(2, bucket.Total);
 
-        // Test System.Text.Json serialization
-        string systemTextJson = System.Text.Json.JsonSerializer.Serialize(result);
-        Assert.True(System.Text.Json.Nodes.JsonNode.DeepEquals(
-            System.Text.Json.Nodes.JsonNode.Parse(json),
-            System.Text.Json.Nodes.JsonNode.Parse(systemTextJson)),
-            "Newtonsoft and System.Text.Json serialization should produce semantically equivalent JSON");
-        roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(systemTextJson);
+        roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(json);
         Assert.NotNull(roundTripped);
         Assert.Equal(3, roundTripped.Total);
         Assert.Single(roundTripped.Aggregations);
