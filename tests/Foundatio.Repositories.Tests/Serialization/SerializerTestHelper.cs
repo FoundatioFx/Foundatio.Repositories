@@ -8,7 +8,6 @@ public static class SerializerTestHelper
 {
     public static ITextSerializer[] GetTextSerializers() =>
     [
-        new SystemTextJsonSerializer(new JsonSerializerOptions().ConfigureFoundatioRepositoryDefaults()),
-        new JsonNetSerializer()
+        new SystemTextJsonSerializer(new JsonSerializerOptions().ConfigureFoundatioRepositoryDefaults())
     ];
 }

@@ -10,7 +10,6 @@ namespace Foundatio.Repositories.Models;
 /// Buckets group documents based on field values, ranges, or other criteria. Each bucket
 /// contains a subset of documents and can include nested aggregations.
 /// </remarks>
-[Newtonsoft.Json.JsonConverter(typeof(BucketsNewtonsoftJsonConverter))]
 [System.Text.Json.Serialization.JsonConverter(typeof(BucketsSystemTextJsonConverter))]
 public interface IBucket
 {

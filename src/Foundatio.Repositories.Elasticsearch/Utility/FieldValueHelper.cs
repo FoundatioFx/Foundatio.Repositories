@@ -1,4 +1,7 @@
 using System;
+using System.Reflection;
+using System.Runtime.Serialization;
+using System.Text.Json.Serialization;
 using Elastic.Clients.Elasticsearch;
 
 namespace Foundatio.Repositories.Elasticsearch.Utility;
@@ -25,7 +28,25 @@ public static class FieldValueHelper
             decimal m => FieldValue.Double((double)m),
             DateTime dt => FieldValue.String(dt.ToString("o")),
             DateTimeOffset dto => FieldValue.String(dto.ToString("o")),
+            Enum e => FieldValue.String(GetEnumStringValue(e)),
             _ => FieldValue.String(value.ToString()!)
         };
+    }
+
+    private static string GetEnumStringValue(Enum value)
+    {
+        var memberInfo = value.GetType().GetMember(value.ToString());
+        if (memberInfo.Length > 0)
+        {
+            var jsonAttr = memberInfo[0].GetCustomAttribute<JsonStringEnumMemberNameAttribute>();
+            if (jsonAttr is not null)
+                return jsonAttr.Name;
+
+            var enumMemberAttr = memberInfo[0].GetCustomAttribute<EnumMemberAttribute>();
+            if (enumMemberAttr?.Value is not null)
+                return enumMemberAttr.Value;
+        }
+
+        return value.ToString();
     }
 }

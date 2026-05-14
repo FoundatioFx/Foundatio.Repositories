@@ -39,7 +39,6 @@ public class FindResults<T> : CountResult, IFindResults<T> where T : class
     /// <param name="aggregations">The aggregation results.</param>
     /// <param name="getNextPageFunc">A function to retrieve the next page of results.</param>
     /// <param name="data">Additional metadata.</param>
-    [Newtonsoft.Json.JsonConstructor]
     public FindResults(IEnumerable<FindHit<T>>? hits = null, long total = 0, IReadOnlyDictionary<string, IAggregate>? aggregations = null, Func<FindResults<T>, Task<FindResults<T>>>? getNextPageFunc = null, IDictionary<string, object?>? data = null)
         : base(total, aggregations, data)
     {
@@ -81,14 +80,12 @@ public class FindResults<T> : CountResult, IFindResults<T> where T : class
     /// Gets the current page number (1-based).
     /// </summary>
     [JsonInclude]
-    [Newtonsoft.Json.JsonProperty]
     public int Page { get; protected set; } = 1;
 
     /// <summary>
     /// Gets whether there are more pages of results available.
     /// </summary>
     [JsonInclude]
-    [Newtonsoft.Json.JsonProperty]
     public bool HasMore { get; protected set; }
 
     int IFindResults<T>.Page
@@ -201,7 +198,6 @@ public class CountResult : IHaveData
     /// <param name="aggregations">The aggregation results.</param>
     /// <param name="data">Additional metadata.</param>
     [JsonConstructor]
-    [Newtonsoft.Json.JsonConstructor]
     public CountResult(long total = 0, IReadOnlyDictionary<string, IAggregate>? aggregations = null, IDictionary<string, object?>? data = null)
     {
         Aggregations = aggregations ?? EmptyReadOnly<string, IAggregate>.Dictionary;
@@ -287,7 +283,6 @@ public class FindHit<T> : IHaveData
     /// <param name="routing">The routing value.</param>
     /// <param name="data">Additional metadata.</param>
     [JsonConstructor]
-    [Newtonsoft.Json.JsonConstructor]
     public FindHit(string? id, T? document, double score, string? version = null, string? routing = null, IDictionary<string, object?>? data = null)
     {
         Id = id;

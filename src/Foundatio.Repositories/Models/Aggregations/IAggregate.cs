@@ -10,7 +10,6 @@ namespace Foundatio.Repositories.Models;
 /// Aggregations provide summarized data about the documents matching a query, such as
 /// counts, averages, date histograms, and term frequencies.
 /// </remarks>
-[Newtonsoft.Json.JsonConverter(typeof(AggregationsNewtonsoftJsonConverter))]
 [System.Text.Json.Serialization.JsonConverter(typeof(AggregationsSystemTextJsonConverter))]
 public interface IAggregate
 {
