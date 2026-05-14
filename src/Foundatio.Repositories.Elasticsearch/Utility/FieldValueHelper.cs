@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Text.Json.Serialization;
@@ -9,8 +8,6 @@ namespace Foundatio.Repositories.Elasticsearch.Utility;
 
 public static class FieldValueHelper
 {
-    private static readonly ConcurrentDictionary<Enum, string> _enumStringCache = new();
-
     public static FieldValue ToFieldValue(object? value)
     {
         return value switch
@@ -38,21 +35,18 @@ public static class FieldValueHelper
 
     private static string GetEnumStringValue(Enum value)
     {
-        return _enumStringCache.GetOrAdd(value, static v =>
+        var field = value.GetType().GetField(value.ToString());
+        if (field is not null)
         {
-            var field = v.GetType().GetField(v.ToString());
-            if (field is not null)
-            {
-                var jsonAttr = field.GetCustomAttribute<JsonStringEnumMemberNameAttribute>();
-                if (jsonAttr is not null)
-                    return jsonAttr.Name;
+            var jsonAttr = field.GetCustomAttribute<JsonStringEnumMemberNameAttribute>();
+            if (jsonAttr is not null)
+                return jsonAttr.Name;
 
-                var enumMemberAttr = field.GetCustomAttribute<EnumMemberAttribute>();
-                if (enumMemberAttr?.Value is not null)
-                    return enumMemberAttr.Value;
-            }
+            var enumMemberAttr = field.GetCustomAttribute<EnumMemberAttribute>();
+            if (enumMemberAttr?.Value is not null)
+                return enumMemberAttr.Value;
+        }
 
-            return v.ToString();
-        });
+        return value.ToString();
     }
 }
