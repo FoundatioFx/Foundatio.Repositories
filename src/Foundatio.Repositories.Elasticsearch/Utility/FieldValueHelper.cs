@@ -1,10 +1,17 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Runtime.Serialization;
+using System.Text.Json.Serialization;
 using Elastic.Clients.Elasticsearch;
 
 namespace Foundatio.Repositories.Elasticsearch.Utility;
 
 public static class FieldValueHelper
 {
+    private static readonly ConcurrentDictionary<Type, Dictionary<string, string>> _enumTypeLookup = new();
+
     public static FieldValue ToFieldValue(object? value)
     {
         return value switch
@@ -25,7 +32,34 @@ public static class FieldValueHelper
             decimal m => FieldValue.Double((double)m),
             DateTime dt => FieldValue.String(dt.ToString("o")),
             DateTimeOffset dto => FieldValue.String(dto.ToString("o")),
+            Enum e => FieldValue.String(GetEnumStringValue(e)),
             _ => FieldValue.String(value.ToString()!)
         };
+    }
+
+    private static string GetEnumStringValue(Enum value)
+    {
+        var lookup = _enumTypeLookup.GetOrAdd(value.GetType(), static type =>
+        {
+            var map = new Dictionary<string, string>();
+            foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Static))
+            {
+                var jsonAttr = field.GetCustomAttribute<JsonStringEnumMemberNameAttribute>();
+                if (jsonAttr is not null)
+                {
+                    map[field.Name] = jsonAttr.Name;
+                    continue;
+                }
+
+                var enumMemberAttr = field.GetCustomAttribute<EnumMemberAttribute>();
+                if (enumMemberAttr?.Value is not null)
+                    map[field.Name] = enumMemberAttr.Value;
+            }
+
+            return map;
+        });
+
+        var name = value.ToString();
+        return lookup.TryGetValue(name, out var resolved) ? resolved : name;
     }
 }
