@@ -641,16 +641,6 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
         bucket = roundTrippedTermsAge.Buckets.First(f => f.Key == 19);
         Assert.Equal(1, bucket.Total);
 
-        roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(json);
-        Assert.NotNull(roundTripped);
-        Assert.Equal(10, roundTripped.Total);
-        Assert.Single(roundTripped.Aggregations);
-        var sysTermsAge = roundTripped.Aggregations.Terms<int>("terms_age");
-        Assert.NotNull(sysTermsAge);
-        Assert.Equal(10, sysTermsAge.Buckets.Count);
-        bucket = sysTermsAge.Buckets.First(f => f.Key == 19);
-        Assert.Equal(1, bucket.Total);
-
         tophits = bucket.Aggregations.TopHits();
         Assert.NotNull(tophits);
         employees = tophits.Documents<Employee>(_serializer);

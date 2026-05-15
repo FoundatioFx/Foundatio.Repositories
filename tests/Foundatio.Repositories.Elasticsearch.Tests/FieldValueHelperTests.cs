@@ -38,6 +38,36 @@ public class FieldValueHelperTests
     }
 
     [Fact]
+    public void ToFieldValue_WithEnumMember_MultipleMembers_AllResolveCorrectly()
+    {
+        Assert.Equal(FieldValue.String("in-progress"), FieldValueHelper.ToFieldValue(TestEnumWithEnumMember.InProgress));
+        Assert.Equal(FieldValue.String("completed"), FieldValueHelper.ToFieldValue(TestEnumWithEnumMember.Completed));
+    }
+
+    [Fact]
+    public void ToFieldValue_WithFlagsEnum_SingleValue_UsesAttribute()
+    {
+        var result = FieldValueHelper.ToFieldValue(TestFlagsEnum.Read);
+        Assert.Equal(FieldValue.String("read"), result);
+    }
+
+    [Fact]
+    public void ToFieldValue_WithFlagsEnum_CombinedValue_FallsBackToString()
+    {
+        var combined = TestFlagsEnum.Read | TestFlagsEnum.Write;
+        var result = FieldValueHelper.ToFieldValue(combined);
+        Assert.Equal(FieldValue.String("Read, Write"), result);
+    }
+
+    [Fact]
+    public void ToFieldValue_WithUndefinedEnumValue_FallsBackToString()
+    {
+        var undefined = (TestEnumPlain)999;
+        var result = FieldValueHelper.ToFieldValue(undefined);
+        Assert.Equal(FieldValue.String("999"), result);
+    }
+
+    [Fact]
     public void ToFieldValue_WithNull_ReturnsNull()
     {
         var result = FieldValueHelper.ToFieldValue(null);
@@ -49,6 +79,13 @@ public class FieldValueHelperTests
     {
         var result = FieldValueHelper.ToFieldValue("hello");
         Assert.Equal(FieldValue.String("hello"), result);
+    }
+
+    [Fact]
+    public void ToFieldValue_WithEmptyString_ReturnsEmptyString()
+    {
+        var result = FieldValueHelper.ToFieldValue("");
+        Assert.Equal(FieldValue.String(""), result);
     }
 
     [Fact]
@@ -77,6 +114,34 @@ public class FieldValueHelperTests
     {
         var result = FieldValueHelper.ToFieldValue(123456789L);
         Assert.Equal(FieldValue.Long(123456789L), result);
+    }
+
+    [Fact]
+    public void ToFieldValue_WithShort_ReturnsLong()
+    {
+        var result = FieldValueHelper.ToFieldValue((short)7);
+        Assert.Equal(FieldValue.Long(7), result);
+    }
+
+    [Fact]
+    public void ToFieldValue_WithByte_ReturnsLong()
+    {
+        var result = FieldValueHelper.ToFieldValue((byte)255);
+        Assert.Equal(FieldValue.Long(255), result);
+    }
+
+    [Fact]
+    public void ToFieldValue_WithULongWithinLongRange_ReturnsLong()
+    {
+        var result = FieldValueHelper.ToFieldValue((ulong)100);
+        Assert.Equal(FieldValue.Long(100), result);
+    }
+
+    [Fact]
+    public void ToFieldValue_WithULongExceedingLongMax_ReturnsDouble()
+    {
+        var result = FieldValueHelper.ToFieldValue(ulong.MaxValue);
+        Assert.Equal(FieldValue.Double((double)ulong.MaxValue), result);
     }
 
     [Fact]
@@ -116,6 +181,14 @@ public class FieldValueHelperTests
         Assert.Equal(FieldValue.String(dto.ToString("o")), result);
     }
 
+    [Fact]
+    public void ToFieldValue_WithGuid_ReturnsString()
+    {
+        var guid = Guid.Parse("12345678-1234-1234-1234-123456789012");
+        var result = FieldValueHelper.ToFieldValue(guid);
+        Assert.Equal(FieldValue.String("12345678-1234-1234-1234-123456789012"), result);
+    }
+
     private enum TestEnumWithJsonName
     {
         [JsonStringEnumMemberName("active")]
@@ -143,5 +216,17 @@ public class FieldValueHelperTests
     {
         Pending,
         Done
+    }
+
+    [Flags]
+    private enum TestFlagsEnum
+    {
+        None = 0,
+        [JsonStringEnumMemberName("read")]
+        Read = 1,
+        [JsonStringEnumMemberName("write")]
+        Write = 2,
+        [JsonStringEnumMemberName("execute")]
+        Execute = 4
     }
 }

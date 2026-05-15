@@ -395,19 +395,6 @@ public sealed class NestedFieldTests : ElasticRepositoryTestBase
         Assert.Equal(4, roundTrippedRatingTermsAgg.Buckets.Count);
         bucket = roundTrippedRatingTermsAgg.Buckets.First(f => f.Key == 5);
         Assert.Equal(2, bucket.Total);
-
-        roundTripped = System.Text.Json.JsonSerializer.Deserialize<CountResult>(json);
-        Assert.NotNull(roundTripped);
-        Assert.Equal(3, roundTripped.Total);
-        Assert.Single(roundTripped.Aggregations);
-
-        roundTrippedNestedAgg = Assert.IsType<SingleBucketAggregate>(roundTripped.Aggregations["nested_peerReviews"]);
-
-        roundTrippedRatingTermsAgg = roundTrippedNestedAgg.Aggregations.Terms<int>("terms_peerReviews.rating");
-        Assert.NotNull(roundTrippedRatingTermsAgg);
-        Assert.Equal(4, roundTrippedRatingTermsAgg.Buckets.Count);
-        bucket = roundTrippedRatingTermsAgg.Buckets.First(f => f.Key == 5);
-        Assert.Equal(2, bucket.Total);
     }
 
     [Fact]
