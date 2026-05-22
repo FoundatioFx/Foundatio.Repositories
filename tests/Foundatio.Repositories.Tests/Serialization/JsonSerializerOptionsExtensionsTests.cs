@@ -92,6 +92,47 @@ public class JsonSerializerOptionsExtensionsTests
         Assert.Contains("1.0", json);
     }
 
+    [Fact]
+    public void ConfigureDefaults_SetsSafeJsonEncoder()
+    {
+        // Arrange
+        var options = new JsonSerializerOptions();
+
+        // Act
+        options.ConfigureFoundatioRepositoryDefaults();
+
+        // Assert
+        Assert.Same(SafeJsonEncoder.Instance, options.Encoder);
+    }
+
+    [Fact]
+    public void ConfigureDefaultsWithModifiers_SetsTypeInfoResolver()
+    {
+        // Arrange
+        var options = new JsonSerializerOptions();
+
+        // Act
+        options.ConfigureFoundatioRepositoryDefaultsWithModifiers();
+
+        // Assert
+        Assert.NotNull(options.TypeInfoResolver);
+    }
+
+    [Fact]
+    public void ConfigureDefaultsWithModifiers_SuppressesEmptyCollections()
+    {
+        // Arrange
+        var options = new JsonSerializerOptions().ConfigureFoundatioRepositoryDefaultsWithModifiers();
+        var obj = new { Name = "test", Items = new List<string>() };
+
+        // Act
+        string json = JsonSerializer.Serialize(obj, options);
+
+        // Assert
+        Assert.Contains("\"Name\"", json);
+        Assert.DoesNotContain("Items", json);
+    }
+
     private enum TestEnum
     {
         Default = 0,
