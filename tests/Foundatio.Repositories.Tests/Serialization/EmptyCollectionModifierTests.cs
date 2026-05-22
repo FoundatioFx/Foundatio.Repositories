@@ -59,6 +59,20 @@ public class EmptyCollectionModifierTests
     }
 
     [Fact]
+    public void Modify_WithEmptyReadOnlyCollection_OmitsProperty()
+    {
+        // Arrange
+        var obj = new ModelWithReadOnlyCollection { Name = "test", Items = new List<string>().AsReadOnly() };
+
+        // Act
+        string json = JsonSerializer.Serialize(obj, _options);
+
+        // Assert
+        Assert.Contains("\"Name\"", json);
+        Assert.DoesNotContain("Items", json);
+    }
+
+    [Fact]
     public void Modify_WithNonCollectionProperties_PreservesAll()
     {
         // Arrange
@@ -128,6 +142,20 @@ public class EmptyCollectionModifierTests
         Assert.Contains("\"a\"", json);
     }
 
+    [Fact]
+    public void Modify_WithPopulatedReadOnlyCollection_IncludesProperty()
+    {
+        // Arrange
+        var obj = new ModelWithReadOnlyCollection { Name = "test", Items = new List<string> { "x", "y" }.AsReadOnly() };
+
+        // Act
+        string json = JsonSerializer.Serialize(obj, _options);
+
+        // Assert
+        Assert.Contains("\"Items\"", json);
+        Assert.Contains("\"x\"", json);
+    }
+
     private class ModelWithArray
     {
         public string Name { get; set; } = null!;
@@ -144,6 +172,12 @@ public class EmptyCollectionModifierTests
     {
         public string Name { get; set; } = null!;
         public List<string> Items { get; set; } = null!;
+    }
+
+    private class ModelWithReadOnlyCollection
+    {
+        public string Name { get; set; } = null!;
+        public IReadOnlyCollection<string> Items { get; set; } = null!;
     }
 
     private class ModelWithScalars

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Foundatio.Repositories.Serialization;
 using Foundatio.Serializer;
 using Xunit;
@@ -8,6 +9,19 @@ namespace Foundatio.Repositories.Tests.Serialization;
 
 public class JsonSerializerOptionsExtensionsTests
 {
+    [Fact]
+    public void ConfigureDefaults_WithNewOptions_SetsDefaultIgnoreConditionNever()
+    {
+        // Arrange
+        var options = new JsonSerializerOptions();
+
+        // Act
+        options.ConfigureFoundatioRepositoryDefaults();
+
+        // Assert
+        Assert.Equal(JsonIgnoreCondition.Never, options.DefaultIgnoreCondition);
+    }
+
     [Fact]
     public void ConfigureDefaults_WithNewOptions_SetsPropertyNameCaseInsensitive()
     {
@@ -131,6 +145,21 @@ public class JsonSerializerOptionsExtensionsTests
         // Assert
         Assert.Contains("\"Name\"", json);
         Assert.DoesNotContain("Items", json);
+    }
+
+    [Fact]
+    public void ConfigureDefaults_WithNullProperty_SerializesNullValue()
+    {
+        // Arrange
+        var options = new JsonSerializerOptions().ConfigureFoundatioRepositoryDefaults();
+        var obj = new { companyName = (string?)null, name = "test" };
+
+        // Act
+        string json = JsonSerializer.Serialize(obj, options);
+
+        // Assert
+        Assert.Contains("\"companyName\":null", json);
+        Assert.Contains("\"name\":\"test\"", json);
     }
 
     private enum TestEnum

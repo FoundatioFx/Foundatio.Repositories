@@ -1266,7 +1266,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
     private string ToJson(object data)
     {
         using var stream = new System.IO.MemoryStream();
-        _client.ElasticsearchClientSettings.SourceSerializer.Serialize(data, stream);
+        _client.ElasticsearchClientSettings.RequestResponseSerializer.Serialize(data, stream);
         stream.Position = 0;
         using var reader = new System.IO.StreamReader(stream);
         return reader.ReadToEnd();

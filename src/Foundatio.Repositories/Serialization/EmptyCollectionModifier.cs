@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Serialization.Metadata;
 
 namespace Foundatio.Repositories.Serialization;
@@ -20,6 +21,9 @@ namespace Foundatio.Repositories.Serialization;
 /// <para>
 /// String properties are explicitly excluded even though <see cref="string"/> implements
 /// <see cref="IEnumerable"/>; only types implementing <see cref="ICollection"/> are considered.
+/// For properties typed as <see cref="IReadOnlyCollection{T}"/> where the runtime type does not
+/// also implement <see cref="ICollection"/>, the modifier falls back to enumerating the first
+/// element to determine emptiness.
 /// </para>
 /// </remarks>
 public static class EmptyCollectionModifier
@@ -49,15 +53,23 @@ public static class EmptyCollectionModifier
                 if (existingPredicate is not null && !existingPredicate(obj, value))
                     return false;
 
-                if (value is null)
-                    return false;
-
-                if (value is ICollection collection)
-                    return collection.Count > 0;
-
-                return true;
+                return IsNonEmptyCollection(value);
             };
         }
+    }
+
+    private static bool IsNonEmptyCollection(object? value)
+    {
+        if (value is null)
+            return false;
+
+        if (value is ICollection collection)
+            return collection.Count > 0;
+
+        if (value is IEnumerable enumerable)
+            return enumerable.Cast<object>().Any();
+
+        return true;
     }
 
     private static bool IsGenericCollectionInterface(Type type)
