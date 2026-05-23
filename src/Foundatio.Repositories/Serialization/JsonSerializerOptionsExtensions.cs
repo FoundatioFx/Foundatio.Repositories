@@ -21,7 +21,7 @@ public static class JsonSerializerOptionsExtensions
     /// <para>Consumers can opt into additional behavior:</para>
     /// <list type="bullet">
     ///   <item>Set <c>options.Encoder = SafeJsonEncoder.Instance</c> for non-ASCII passthrough with HTML character escaping.</item>
-    ///   <item>Add <see cref="EmptyCollectionModifier"/> to <c>TypeInfoResolverChain</c> to suppress empty collections.</item>
+    ///   <item>Add <see cref="EmptyCollectionModifier"/> via a <c>DefaultJsonTypeInfoResolver { Modifiers = { EmptyCollectionModifier.Modifier } }</c> to suppress empty collections.</item>
     /// </list>
     /// </remarks>
     /// <param name="options">The options instance to configure.</param>

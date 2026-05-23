@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Foundatio.Repositories.Serialization;
 using Foundatio.Serializer;
 using Xunit;
