@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Foundatio.Repositories.Serialization;
 
@@ -10,6 +11,7 @@ public static class JsonSerializerOptionsExtensions
     /// Foundatio.Repositories document serialization and round-tripping:
     /// <list type="bullet">
     ///   <item><see cref="JsonSerializerOptions.PropertyNameCaseInsensitive"/> set to <c>true</c> for case-insensitive property matching</item>
+    ///   <item><see cref="JsonSerializerOptions.DefaultIgnoreCondition"/> set to <see cref="JsonIgnoreCondition.Never"/> so that null-valued properties are serialized (required for Elasticsearch partial updates to clear fields)</item>
     ///   <item><see cref="DoubleSystemTextJsonConverter"/> to preserve decimal points on whole-number doubles (workaround for dotnet/runtime#35195)</item>
     ///   <item><see cref="ObjectToInferredTypesConverter"/> to deserialize <see cref="object"/>-typed properties as CLR primitives instead of <see cref="System.Text.Json.JsonElement"/></item>
     /// </list>
@@ -27,6 +29,7 @@ public static class JsonSerializerOptionsExtensions
     public static JsonSerializerOptions ConfigureFoundatioRepositoryDefaults(this JsonSerializerOptions options)
     {
         options.PropertyNameCaseInsensitive = true;
+        options.DefaultIgnoreCondition = JsonIgnoreCondition.Never;
 
         if (!options.Converters.Any(c => c is DoubleSystemTextJsonConverter))
             options.Converters.Add(new DoubleSystemTextJsonConverter());
