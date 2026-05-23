@@ -35,7 +35,7 @@ public sealed class ObjectToInferredTypesConverter : JsonConverter<object>
         {
             JsonTokenType.True => true,
             JsonTokenType.False => false,
-            JsonTokenType.Number => ReadNumber(ref reader),
+            JsonTokenType.Number => JsonNumberInference.ReadNumber(ref reader),
             JsonTokenType.String => ReadString(ref reader),
             JsonTokenType.Null => null,
             JsonTokenType.StartObject => ReadObject(ref reader, options),
@@ -59,25 +59,6 @@ public sealed class ObjectToInferredTypesConverter : JsonConverter<object>
         }
 
         JsonSerializer.Serialize(writer, value, value.GetType(), options);
-    }
-
-    /// <summary>
-    /// Reads a JSON number, preserving the original representation (integer vs floating-point).
-    /// Checks the raw JSON bytes so that <c>0.0</c> stays as <see cref="double"/> instead of becoming <c>0L</c>.
-    /// </summary>
-    private static object ReadNumber(ref Utf8JsonReader reader)
-    {
-        ReadOnlySpan<byte> rawValue = reader.HasValueSequence
-            ? reader.ValueSequence.ToArray()
-            : reader.ValueSpan;
-
-        if (rawValue.Contains((byte)'.') || rawValue.Contains((byte)'e') || rawValue.Contains((byte)'E'))
-            return reader.GetDouble();
-
-        if (reader.TryGetInt64(out long l))
-            return l;
-
-        return reader.GetDouble();
     }
 
     private static object ReadString(ref Utf8JsonReader reader)
@@ -146,7 +127,7 @@ public sealed class ObjectToInferredTypesConverter : JsonConverter<object>
         {
             JsonTokenType.True => true,
             JsonTokenType.False => false,
-            JsonTokenType.Number => ReadNumber(ref reader),
+            JsonTokenType.Number => JsonNumberInference.ReadNumber(ref reader),
             JsonTokenType.String => ReadString(ref reader),
             JsonTokenType.Null => null,
             JsonTokenType.StartObject => ReadObject(ref reader, options),
