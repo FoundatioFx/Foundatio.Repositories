@@ -17,7 +17,7 @@ public class EmptyCollectionModifierTests
     };
 
     [Fact]
-    public void Modify_WithEmptyArray_OmitsProperty()
+    public void Modify_EmptyArray_OmitsProperty()
     {
         // Arrange
         var obj = new ModelWithArray { Name = "test", Values = [] };
@@ -26,12 +26,11 @@ public class EmptyCollectionModifierTests
         string json = JsonSerializer.Serialize(obj, _options);
 
         // Assert
-        Assert.Contains("\"Name\"", json);
-        Assert.DoesNotContain("Values", json);
+        Assert.Equal("{\"Name\":\"test\"}", json);
     }
 
     [Fact]
-    public void Modify_WithEmptyDictionary_OmitsProperty()
+    public void Modify_EmptyDictionary_OmitsProperty()
     {
         // Arrange
         var obj = new ModelWithDictionary { Name = "test", Tags = new Dictionary<string, string>() };
@@ -40,12 +39,11 @@ public class EmptyCollectionModifierTests
         string json = JsonSerializer.Serialize(obj, _options);
 
         // Assert
-        Assert.Contains("\"Name\"", json);
-        Assert.DoesNotContain("Tags", json);
+        Assert.Equal("{\"Name\":\"test\"}", json);
     }
 
     [Fact]
-    public void Modify_WithEmptyList_OmitsProperty()
+    public void Modify_EmptyList_OmitsProperty()
     {
         // Arrange
         var obj = new ModelWithList { Name = "test", Items = [] };
@@ -54,12 +52,11 @@ public class EmptyCollectionModifierTests
         string json = JsonSerializer.Serialize(obj, _options);
 
         // Assert
-        Assert.Contains("\"Name\"", json);
-        Assert.DoesNotContain("Items", json);
+        Assert.Equal("{\"Name\":\"test\"}", json);
     }
 
     [Fact]
-    public void Modify_WithEmptyReadOnlyCollection_OmitsProperty()
+    public void Modify_EmptyReadOnlyCollection_OmitsProperty()
     {
         // Arrange
         var obj = new ModelWithReadOnlyCollection { Name = "test", Items = new List<string>().AsReadOnly() };
@@ -68,12 +65,11 @@ public class EmptyCollectionModifierTests
         string json = JsonSerializer.Serialize(obj, _options);
 
         // Assert
-        Assert.Contains("\"Name\"", json);
-        Assert.DoesNotContain("Items", json);
+        Assert.Equal("{\"Name\":\"test\"}", json);
     }
 
     [Fact]
-    public void Modify_WithNonCollectionProperties_PreservesAll()
+    public void Modify_ScalarProperties_PreservesAll()
     {
         // Arrange
         var obj = new ModelWithScalars { Name = "test", Count = 0, Active = false };
@@ -82,13 +78,11 @@ public class EmptyCollectionModifierTests
         string json = JsonSerializer.Serialize(obj, _options);
 
         // Assert
-        Assert.Contains("\"Name\"", json);
-        Assert.Contains("\"Count\"", json);
-        Assert.Contains("\"Active\"", json);
+        Assert.Equal("{\"Name\":\"test\",\"Count\":0,\"Active\":false}", json);
     }
 
     [Fact]
-    public void Modify_WithNullCollection_OmitsProperty()
+    public void Modify_NullCollection_OmitsProperty()
     {
         // Arrange
         var obj = new ModelWithList { Name = "test", Items = null! };
@@ -97,12 +91,11 @@ public class EmptyCollectionModifierTests
         string json = JsonSerializer.Serialize(obj, _options);
 
         // Assert
-        Assert.Contains("\"Name\"", json);
-        Assert.DoesNotContain("Items", json);
+        Assert.Equal("{\"Name\":\"test\"}", json);
     }
 
     [Fact]
-    public void Modify_WithPopulatedArray_IncludesProperty()
+    public void Modify_PopulatedArray_IncludesProperty()
     {
         // Arrange
         var obj = new ModelWithArray { Name = "test", Values = [1, 2, 3] };
@@ -111,11 +104,11 @@ public class EmptyCollectionModifierTests
         string json = JsonSerializer.Serialize(obj, _options);
 
         // Assert
-        Assert.Contains("\"Values\"", json);
+        Assert.Equal("{\"Name\":\"test\",\"Values\":[1,2,3]}", json);
     }
 
     [Fact]
-    public void Modify_WithPopulatedDictionary_IncludesProperty()
+    public void Modify_PopulatedDictionary_IncludesProperty()
     {
         // Arrange
         var obj = new ModelWithDictionary { Name = "test", Tags = new Dictionary<string, string> { ["key"] = "val" } };
@@ -124,12 +117,11 @@ public class EmptyCollectionModifierTests
         string json = JsonSerializer.Serialize(obj, _options);
 
         // Assert
-        Assert.Contains("\"Tags\"", json);
-        Assert.Contains("\"key\"", json);
+        Assert.Equal("{\"Name\":\"test\",\"Tags\":{\"key\":\"val\"}}", json);
     }
 
     [Fact]
-    public void Modify_WithPopulatedList_IncludesProperty()
+    public void Modify_PopulatedList_IncludesProperty()
     {
         // Arrange
         var obj = new ModelWithList { Name = "test", Items = ["a", "b"] };
@@ -138,12 +130,11 @@ public class EmptyCollectionModifierTests
         string json = JsonSerializer.Serialize(obj, _options);
 
         // Assert
-        Assert.Contains("\"Items\"", json);
-        Assert.Contains("\"a\"", json);
+        Assert.Equal("{\"Name\":\"test\",\"Items\":[\"a\",\"b\"]}", json);
     }
 
     [Fact]
-    public void Modify_WithPopulatedReadOnlyCollection_IncludesProperty()
+    public void Modify_PopulatedReadOnlyCollection_IncludesProperty()
     {
         // Arrange
         var obj = new ModelWithReadOnlyCollection { Name = "test", Items = new List<string> { "x", "y" }.AsReadOnly() };
@@ -152,8 +143,33 @@ public class EmptyCollectionModifierTests
         string json = JsonSerializer.Serialize(obj, _options);
 
         // Assert
-        Assert.Contains("\"Items\"", json);
-        Assert.Contains("\"x\"", json);
+        Assert.Equal("{\"Name\":\"test\",\"Items\":[\"x\",\"y\"]}", json);
+    }
+
+    [Fact]
+    public void Modify_EmptyIEnumerableProperty_OmitsProperty()
+    {
+        // Arrange
+        var obj = new ModelWithEnumerable { Name = "test", Items = [] };
+
+        // Act
+        string json = JsonSerializer.Serialize(obj, _options);
+
+        // Assert
+        Assert.Equal("{\"Name\":\"test\"}", json);
+    }
+
+    [Fact]
+    public void Modify_PopulatedIEnumerableProperty_IncludesProperty()
+    {
+        // Arrange
+        var obj = new ModelWithEnumerable { Name = "test", Items = ["a"] };
+
+        // Act
+        string json = JsonSerializer.Serialize(obj, _options);
+
+        // Assert
+        Assert.Equal("{\"Name\":\"test\",\"Items\":[\"a\"]}", json);
     }
 
     private class ModelWithArray
@@ -185,5 +201,11 @@ public class EmptyCollectionModifierTests
         public string Name { get; set; } = null!;
         public int Count { get; set; }
         public bool Active { get; set; }
+    }
+
+    private class ModelWithEnumerable
+    {
+        public string Name { get; set; } = null!;
+        public IEnumerable<string> Items { get; set; } = null!;
     }
 }

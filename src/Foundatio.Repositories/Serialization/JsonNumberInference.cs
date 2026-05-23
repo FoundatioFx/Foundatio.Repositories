@@ -50,7 +50,16 @@ public static class JsonNumberInference
         if (reader.TryGetInt64(out long l))
             return l;
 
-        return reader.GetDouble();
+        try
+        {
+            return reader.GetDouble();
+        }
+        catch (Exception ex) when (ex is FormatException or OverflowException)
+        {
+            return rawValue.Length > 0 && rawValue[0] == (byte)'-'
+                ? double.NegativeInfinity
+                : double.PositiveInfinity;
+        }
     }
 
     /// <summary>

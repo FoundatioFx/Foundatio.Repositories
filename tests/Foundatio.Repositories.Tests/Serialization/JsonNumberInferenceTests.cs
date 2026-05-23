@@ -7,7 +7,7 @@ namespace Foundatio.Repositories.Tests.Serialization;
 public class JsonNumberInferenceTests
 {
     [Fact]
-    public void ReadNumber_JsonElement_WithFloatingPoint_ReturnsDouble()
+    public void ReadNumber_JsonElementWithFloatingPoint_ReturnsDouble()
     {
         // Arrange
         using var doc = JsonDocument.Parse("42.5");
@@ -21,7 +21,7 @@ public class JsonNumberInferenceTests
     }
 
     [Fact]
-    public void ReadNumber_JsonElement_WithInteger_ReturnsLong()
+    public void ReadNumber_JsonElementWithInteger_ReturnsLong()
     {
         // Arrange
         using var doc = JsonDocument.Parse("42");
@@ -35,7 +35,7 @@ public class JsonNumberInferenceTests
     }
 
     [Fact]
-    public void ReadNumber_JsonElement_WithNegativeInteger_ReturnsLong()
+    public void ReadNumber_JsonElementWithNegativeInteger_ReturnsLong()
     {
         // Arrange
         using var doc = JsonDocument.Parse("-42");
@@ -49,7 +49,7 @@ public class JsonNumberInferenceTests
     }
 
     [Fact]
-    public void ReadNumber_JsonElement_WithOverflowLong_FallsBackToDouble()
+    public void ReadNumber_JsonElementWithOverflowLong_ReturnsDouble()
     {
         // Arrange
         using var doc = JsonDocument.Parse("99999999999999999999");
@@ -62,7 +62,7 @@ public class JsonNumberInferenceTests
     }
 
     [Fact]
-    public void ReadNumber_Utf8Reader_WithFloatingPoint_ReturnsDouble()
+    public void ReadNumber_Utf8ReaderWithFloatingPoint_ReturnsDouble()
     {
         // Arrange
         var reader = CreateReader("42.5");
@@ -77,7 +77,7 @@ public class JsonNumberInferenceTests
     }
 
     [Fact]
-    public void ReadNumber_Utf8Reader_WithMaxLong_ReturnsLong()
+    public void ReadNumber_Utf8ReaderWithMaxLong_ReturnsLong()
     {
         // Arrange
         var reader = CreateReader(long.MaxValue.ToString());
@@ -92,7 +92,7 @@ public class JsonNumberInferenceTests
     }
 
     [Fact]
-    public void ReadNumber_Utf8Reader_WithNegativeInteger_ReturnsLong()
+    public void ReadNumber_Utf8ReaderWithNegativeInteger_ReturnsLong()
     {
         // Arrange
         var reader = CreateReader("-100");
@@ -107,7 +107,7 @@ public class JsonNumberInferenceTests
     }
 
     [Fact]
-    public void ReadNumber_Utf8Reader_WithOverflowLong_FallsBackToDouble()
+    public void ReadNumber_Utf8ReaderWithOverflowLong_ReturnsDouble()
     {
         // Arrange
         string bigNumber = "99999999999999999999";
@@ -122,7 +122,7 @@ public class JsonNumberInferenceTests
     }
 
     [Fact]
-    public void ReadNumber_Utf8Reader_WithPositiveInteger_ReturnsLong()
+    public void ReadNumber_Utf8ReaderWithPositiveInteger_ReturnsLong()
     {
         // Arrange
         var reader = CreateReader("42");
@@ -137,7 +137,7 @@ public class JsonNumberInferenceTests
     }
 
     [Fact]
-    public void ReadNumber_Utf8Reader_WithScientificNotation_ReturnsDouble()
+    public void ReadNumber_Utf8ReaderWithScientificNotation_ReturnsDouble()
     {
         // Arrange
         var reader = CreateReader("1.5e3");
@@ -152,7 +152,7 @@ public class JsonNumberInferenceTests
     }
 
     [Fact]
-    public void ReadNumber_Utf8Reader_WithZero_ReturnsLong()
+    public void ReadNumber_Utf8ReaderWithZero_ReturnsLong()
     {
         // Arrange
         var reader = CreateReader("0");

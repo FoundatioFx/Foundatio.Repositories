@@ -1,6 +1,4 @@
-using System;
 using System.Collections;
-using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Serialization.Metadata;
 
@@ -20,10 +18,10 @@ namespace Foundatio.Repositories.Serialization;
 /// </para>
 /// <para>
 /// String properties are explicitly excluded even though <see cref="string"/> implements
-/// <see cref="IEnumerable"/>; only types implementing <see cref="ICollection"/> are considered.
-/// For properties typed as <see cref="IReadOnlyCollection{T}"/> where the runtime type does not
-/// also implement <see cref="ICollection"/>, the modifier falls back to enumerating the first
-/// element to determine emptiness.
+/// <see cref="IEnumerable"/>. At registration time, any property whose type implements
+/// <see cref="IEnumerable"/> (excluding <see cref="string"/>) is considered a collection.
+/// The <c>ShouldSerialize</c> callback uses a runtime <see cref="ICollection"/> cast for the
+/// count check, falling back to enumeration for types that only implement <see cref="IEnumerable"/>.
 /// </para>
 /// </remarks>
 public static class EmptyCollectionModifier
@@ -40,8 +38,7 @@ public static class EmptyCollectionModifier
 
         var collectionProperties = typeInfo.Properties
             .Where(p => p.PropertyType != typeof(string))
-            .Where(p => typeof(ICollection).IsAssignableFrom(p.PropertyType)
-                || IsGenericCollectionInterface(p.PropertyType));
+            .Where(p => typeof(IEnumerable).IsAssignableFrom(p.PropertyType));
 
         foreach (var property in collectionProperties)
         {
@@ -68,15 +65,5 @@ public static class EmptyCollectionModifier
             return enumerable.Cast<object>().Any();
 
         return true;
-    }
-
-    private static bool IsGenericCollectionInterface(Type type)
-    {
-        if (!type.IsGenericType)
-            return false;
-
-        var genericDef = type.GetGenericTypeDefinition();
-        return genericDef == typeof(ICollection<>)
-            || genericDef == typeof(IReadOnlyCollection<>);
     }
 }

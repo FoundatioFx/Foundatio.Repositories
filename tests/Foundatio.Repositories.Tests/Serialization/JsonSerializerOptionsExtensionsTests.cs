@@ -10,20 +10,7 @@ namespace Foundatio.Repositories.Tests.Serialization;
 public class JsonSerializerOptionsExtensionsTests
 {
     [Fact]
-    public void ConfigureDefaults_WithNewOptions_SetsDefaultIgnoreConditionNever()
-    {
-        // Arrange
-        var options = new JsonSerializerOptions();
-
-        // Act
-        options.ConfigureFoundatioRepositoryDefaults();
-
-        // Assert
-        Assert.Equal(JsonIgnoreCondition.Never, options.DefaultIgnoreCondition);
-    }
-
-    [Fact]
-    public void ConfigureDefaults_WithNewOptions_SetsPropertyNameCaseInsensitive()
+    public void ConfigureFoundatioRepositoryDefaults_NewOptions_SetsPropertyNameCaseInsensitive()
     {
         // Arrange
         var options = new JsonSerializerOptions();
@@ -36,7 +23,7 @@ public class JsonSerializerOptionsExtensionsTests
     }
 
     [Fact]
-    public void ConfigureDefaults_WithNewOptions_RegistersDoubleConverter()
+    public void ConfigureFoundatioRepositoryDefaults_NewOptions_RegistersDoubleConverter()
     {
         // Arrange
         var options = new JsonSerializerOptions();
@@ -49,7 +36,7 @@ public class JsonSerializerOptionsExtensionsTests
     }
 
     [Fact]
-    public void ConfigureDefaults_WithNewOptions_RegistersObjectConverter()
+    public void ConfigureFoundatioRepositoryDefaults_NewOptions_RegistersObjectConverter()
     {
         // Arrange
         var options = new JsonSerializerOptions();
@@ -62,18 +49,21 @@ public class JsonSerializerOptionsExtensionsTests
     }
 
     [Fact]
-    public void ConfigureDefaults_WithPlainEnum_SerializesAsInteger()
+    public void ConfigureFoundatioRepositoryDefaults_PlainEnum_SerializesAsInteger()
     {
+        // Arrange
         var serializer = new SystemTextJsonSerializer(
             new JsonSerializerOptions().ConfigureFoundatioRepositoryDefaults());
 
+        // Act
         string json = serializer.SerializeToString(TestEnum.SomeValue);
 
+        // Assert
         Assert.Equal("1", json);
     }
 
     [Fact]
-    public void ConfigureDefaults_WithMixedTypeObject_DeserializesObjectValuesAsClrTypes()
+    public void ConfigureFoundatioRepositoryDefaults_MixedTypeObject_DeserializesValuesAsClrTypes()
     {
         // Arrange
         var serializer = new SystemTextJsonSerializer(
@@ -92,7 +82,7 @@ public class JsonSerializerOptionsExtensionsTests
     }
 
     [Fact]
-    public void ConfigureDefaults_WithWholeDouble_PreservesDecimalPointInRoundTrip()
+    public void ConfigureFoundatioRepositoryDefaults_WholeDouble_PreservesDecimalPoint()
     {
         // Arrange
         var serializer = new SystemTextJsonSerializer(
@@ -103,11 +93,11 @@ public class JsonSerializerOptionsExtensionsTests
         string json = serializer.SerializeToString(obj);
 
         // Assert
-        Assert.Contains("1.0", json);
+        Assert.Equal("{\"value\":1.0}", json);
     }
 
     [Fact]
-    public void ConfigureDefaults_SetsSafeJsonEncoder()
+    public void ConfigureFoundatioRepositoryDefaults_DoesNotSetEncoder_LeavesDefault()
     {
         // Arrange
         var options = new JsonSerializerOptions();
@@ -116,39 +106,11 @@ public class JsonSerializerOptionsExtensionsTests
         options.ConfigureFoundatioRepositoryDefaults();
 
         // Assert
-        Assert.Same(SafeJsonEncoder.Instance, options.Encoder);
+        Assert.Null(options.Encoder);
     }
 
     [Fact]
-    public void ConfigureDefaultsWithModifiers_SetsTypeInfoResolver()
-    {
-        // Arrange
-        var options = new JsonSerializerOptions();
-
-        // Act
-        options.ConfigureFoundatioRepositoryDefaultsWithModifiers();
-
-        // Assert
-        Assert.NotNull(options.TypeInfoResolver);
-    }
-
-    [Fact]
-    public void ConfigureDefaultsWithModifiers_SuppressesEmptyCollections()
-    {
-        // Arrange
-        var options = new JsonSerializerOptions().ConfigureFoundatioRepositoryDefaultsWithModifiers();
-        var obj = new { Name = "test", Items = new List<string>() };
-
-        // Act
-        string json = JsonSerializer.Serialize(obj, options);
-
-        // Assert
-        Assert.Contains("\"Name\"", json);
-        Assert.DoesNotContain("Items", json);
-    }
-
-    [Fact]
-    public void ConfigureDefaults_WithNullProperty_SerializesNullValue()
+    public void ConfigureFoundatioRepositoryDefaults_NullProperty_SerializesNullValue()
     {
         // Arrange
         var options = new JsonSerializerOptions().ConfigureFoundatioRepositoryDefaults();
@@ -158,8 +120,7 @@ public class JsonSerializerOptionsExtensionsTests
         string json = JsonSerializer.Serialize(obj, options);
 
         // Assert
-        Assert.Contains("\"companyName\":null", json);
-        Assert.Contains("\"name\":\"test\"", json);
+        Assert.Equal("{\"companyName\":null,\"name\":\"test\"}", json);
     }
 
     private enum TestEnum

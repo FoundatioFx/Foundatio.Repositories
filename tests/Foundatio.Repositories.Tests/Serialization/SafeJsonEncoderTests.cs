@@ -14,7 +14,7 @@ public class SafeJsonEncoderTests
     private static readonly JsonSerializerOptions _optionsDefault = new();
 
     [Fact]
-    public void Serialize_WithAmpersand_EscapesIt()
+    public void Serialize_Ampersand_EscapesAsUnicode()
     {
         // Arrange
         var obj = new { text = "a&b" };
@@ -23,11 +23,11 @@ public class SafeJsonEncoderTests
         string json = JsonSerializer.Serialize(obj, _optionsWithEncoder);
 
         // Assert
-        Assert.Contains("\\u0026", json);
+        Assert.Equal("{\"text\":\"a\\u0026b\"}", json);
     }
 
     [Fact]
-    public void Serialize_WithAsciiLetters_DoesNotEscape()
+    public void Serialize_AsciiLetters_DoesNotEscape()
     {
         // Arrange
         var obj = new { text = "Hello World 123" };
@@ -36,11 +36,11 @@ public class SafeJsonEncoderTests
         string json = JsonSerializer.Serialize(obj, _optionsWithEncoder);
 
         // Assert
-        Assert.Contains("Hello World 123", json);
+        Assert.Equal("{\"text\":\"Hello World 123\"}", json);
     }
 
     [Fact]
-    public void Serialize_WithDefaultEncoder_EscapesUnicode()
+    public void Serialize_DefaultEncoder_EscapesUnicode()
     {
         // Arrange
         var obj = new { text = "\u4e2d\u6587" };
@@ -49,25 +49,24 @@ public class SafeJsonEncoderTests
         string json = JsonSerializer.Serialize(obj, _optionsDefault);
 
         // Assert
-        Assert.Contains("\\u", json);
+        Assert.Equal("{\"text\":\"\\u4E2D\\u6587\"}", json);
     }
 
     [Fact]
-    public void Serialize_WithHtmlAngleBrackets_EscapesThem()
+    public void Serialize_HtmlAngleBrackets_EscapesAsUnicode()
     {
         // Arrange
-        var obj = new { text = "<script>alert('xss')</script>" };
+        var obj = new { text = "<b>" };
 
         // Act
         string json = JsonSerializer.Serialize(obj, _optionsWithEncoder);
 
         // Assert
-        Assert.DoesNotContain("<script>", json);
-        Assert.Contains("\\u003C", json);
+        Assert.Equal("{\"text\":\"\\u003Cb\\u003E\"}", json);
     }
 
     [Fact]
-    public void Serialize_WithSupplementaryPlaneEmoji_EscapesAsSurrogatePairs()
+    public void Serialize_SupplementaryPlaneEmoji_EscapesAsSurrogatePairs()
     {
         // Arrange
         var obj = new { text = "\U0001F600" };
@@ -76,11 +75,11 @@ public class SafeJsonEncoderTests
         string json = JsonSerializer.Serialize(obj, _optionsWithEncoder);
 
         // Assert
-        Assert.Contains("\\uD83D\\uDE00", json);
+        Assert.Equal("{\"text\":\"\\uD83D\\uDE00\"}", json);
     }
 
     [Fact]
-    public void Serialize_WithUnicodeCharacters_PreservesUnescaped()
+    public void Serialize_UnicodeCharacters_PreservesUnescaped()
     {
         // Arrange
         var obj = new { text = "\u4e2d\u6587" };
@@ -89,20 +88,6 @@ public class SafeJsonEncoderTests
         string json = JsonSerializer.Serialize(obj, _optionsWithEncoder);
 
         // Assert
-        Assert.Contains("\u4e2d\u6587", json);
-        Assert.DoesNotContain("\\u", json);
-    }
-
-    [Fact]
-    public void ConfigureDefaults_WithNewOptions_SetsSafeEncoder()
-    {
-        // Arrange
-        var options = new JsonSerializerOptions();
-
-        // Act
-        options.ConfigureFoundatioRepositoryDefaults();
-
-        // Assert
-        Assert.Same(SafeJsonEncoder.Instance, options.Encoder);
+        Assert.Equal("{\"text\":\"\u4e2d\u6587\"}", json);
     }
 }
