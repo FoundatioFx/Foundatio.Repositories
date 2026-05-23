@@ -20,8 +20,8 @@ public static class JsonSerializerOptionsExtensions
     /// <remarks>
     /// <para>Consumers can opt into additional behavior:</para>
     /// <list type="bullet">
-    ///   <item>Set <c>options.Encoder = SafeJsonEncoder.Instance</c> for non-ASCII passthrough with HTML character escaping.</item>
-    ///   <item>Add <see cref="EmptyCollectionModifier"/> via a <c>DefaultJsonTypeInfoResolver { Modifiers = { EmptyCollectionModifier.Modifier } }</c> to suppress empty collections.</item>
+    ///   <item>Set <c>options.Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)</c> for non-ASCII passthrough (escapes HTML-sensitive characters but preserves CJK, accented text, etc.).</item>
+    ///   <item>Add <see cref="EmptyCollectionModifier"/> via a <c>DefaultJsonTypeInfoResolver { Modifiers = { EmptyCollectionModifier.Modify } }</c> to suppress empty collections.</item>
     /// </list>
     /// </remarks>
     /// <param name="options">The options instance to configure.</param>

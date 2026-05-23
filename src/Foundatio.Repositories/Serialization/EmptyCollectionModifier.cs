@@ -64,19 +64,17 @@ public static class EmptyCollectionModifier
         if (value is ICollection collection)
             return collection.Count > 0;
 
-        if (value is IEnumerable enumerable)
-        {
-            var enumerator = enumerable.GetEnumerator();
-            try
-            {
-                return enumerator.MoveNext();
-            }
-            finally
-            {
-                (enumerator as IDisposable)?.Dispose();
-            }
-        }
+        if (value is not IEnumerable enumerable)
+            return true;
 
-        return true;
+        var enumerator = enumerable.GetEnumerator();
+        try
+        {
+            return enumerator.MoveNext();
+        }
+        finally
+        {
+            (enumerator as IDisposable)?.Dispose();
+        }
     }
 }
