@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Linq;
 using System.Text.Json.Serialization.Metadata;
@@ -62,7 +63,17 @@ public static class EmptyCollectionModifier
             return collection.Count > 0;
 
         if (value is IEnumerable enumerable)
-            return enumerable.Cast<object>().Any();
+        {
+            var enumerator = enumerable.GetEnumerator();
+            try
+            {
+                return enumerator.MoveNext();
+            }
+            finally
+            {
+                (enumerator as IDisposable)?.Dispose();
+            }
+        }
 
         return true;
     }
