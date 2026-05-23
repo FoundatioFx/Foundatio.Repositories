@@ -38,15 +38,13 @@ public static class EmptyCollectionModifier
         if (typeInfo.Kind != JsonTypeInfoKind.Object)
             return;
 
-        foreach (var property in typeInfo.Properties)
+        var collectionProperties = typeInfo.Properties
+            .Where(p => p.PropertyType != typeof(string))
+            .Where(p => typeof(ICollection).IsAssignableFrom(p.PropertyType)
+                || IsGenericCollectionInterface(p.PropertyType));
+
+        foreach (var property in collectionProperties)
         {
-            if (property.PropertyType == typeof(string))
-                continue;
-
-            if (!typeof(ICollection).IsAssignableFrom(property.PropertyType)
-                && !IsGenericCollectionInterface(property.PropertyType))
-                continue;
-
             var existingPredicate = property.ShouldSerialize;
             property.ShouldSerialize = (obj, value) =>
             {

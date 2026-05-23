@@ -60,11 +60,18 @@ public static class JsonSerializerOptionsExtensions
     {
         options.ConfigureFoundatioRepositoryDefaults();
 
-        var resolver = new DefaultJsonTypeInfoResolver
+        bool alreadyHasModifier = options.TypeInfoResolverChain
+            .OfType<DefaultJsonTypeInfoResolver>()
+            .Any(r => r.Modifiers.Contains(EmptyCollectionModifier.Modify));
+
+        if (!alreadyHasModifier)
         {
-            Modifiers = { EmptyCollectionModifier.Modify }
-        };
-        options.TypeInfoResolverChain.Insert(0, resolver);
+            var resolver = new DefaultJsonTypeInfoResolver
+            {
+                Modifiers = { EmptyCollectionModifier.Modify }
+            };
+            options.TypeInfoResolverChain.Insert(0, resolver);
+        }
 
         return options;
     }

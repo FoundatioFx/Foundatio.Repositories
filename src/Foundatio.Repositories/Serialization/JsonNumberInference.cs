@@ -17,8 +17,8 @@ namespace Foundatio.Repositories.Serialization;
 ///   <item>Otherwise → <see cref="double"/></item>
 /// </list>
 /// <para>
-/// This avoids the <see cref="OverflowException"/> that occurs when calling
-/// <see cref="JsonElement.GetDouble"/> on values like <c>1e999</c> by catching
+/// This avoids the <see cref="FormatException"/> or <see cref="OverflowException"/> that occurs
+/// when calling <see cref="Utf8JsonReader.GetDouble"/> on values like <c>1e999</c> by catching
 /// and returning <see cref="double.PositiveInfinity"/> / <see cref="double.NegativeInfinity"/>.
 /// </para>
 /// </remarks>
@@ -39,9 +39,11 @@ public static class JsonNumberInference
             {
                 return reader.GetDouble();
             }
-            catch (FormatException)
+            catch (Exception ex) when (ex is FormatException or OverflowException)
             {
-                return double.PositiveInfinity;
+                return rawValue.Length > 0 && rawValue[0] == (byte)'-'
+                    ? double.NegativeInfinity
+                    : double.PositiveInfinity;
             }
         }
 
@@ -66,7 +68,9 @@ public static class JsonNumberInference
             if (element.TryGetDouble(out double d))
                 return d;
 
-            return double.PositiveInfinity;
+            return raw.Length > 0 && raw[0] == '-'
+                ? double.NegativeInfinity
+                : double.PositiveInfinity;
         }
 
         if (element.TryGetInt64(out long l))
@@ -75,6 +79,8 @@ public static class JsonNumberInference
         if (element.TryGetDouble(out double fallback))
             return fallback;
 
-        return double.PositiveInfinity;
+        return raw.Length > 0 && raw[0] == '-'
+            ? double.NegativeInfinity
+            : double.PositiveInfinity;
     }
 }
