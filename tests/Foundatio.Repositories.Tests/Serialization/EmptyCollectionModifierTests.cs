@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Foundatio.Repositories.Serialization;
@@ -149,8 +150,8 @@ public class EmptyCollectionModifierTests
     [Fact]
     public void Modify_EmptyIEnumerableProperty_OmitsProperty()
     {
-        // Arrange
-        var obj = new ModelWithEnumerable { Name = "test", Items = [] };
+        // Arrange - Enumerable.Empty<T>() does not implement ICollection, exercises the GetEnumerator fallback
+        var obj = new ModelWithEnumerable { Name = "test", Items = Enumerable.Empty<string>() };
 
         // Act
         string json = JsonSerializer.Serialize(obj, _options);
@@ -170,6 +171,25 @@ public class EmptyCollectionModifierTests
 
         // Assert
         Assert.Equal("{\"Name\":\"test\",\"Items\":[\"a\"]}", json);
+    }
+
+    [Fact]
+    public void Modify_PopulatedIteratorEnumerable_IncludesProperty()
+    {
+        // Arrange - iterator method returns IEnumerable<T> that does NOT implement ICollection
+        var obj = new ModelWithEnumerable { Name = "test", Items = YieldItems("x", "y") };
+
+        // Act
+        string json = JsonSerializer.Serialize(obj, _options);
+
+        // Assert
+        Assert.Equal("{\"Name\":\"test\",\"Items\":[\"x\",\"y\"]}", json);
+    }
+
+    private static IEnumerable<string> YieldItems(params string[] values)
+    {
+        foreach (var v in values)
+            yield return v;
     }
 
     private class ModelWithArray

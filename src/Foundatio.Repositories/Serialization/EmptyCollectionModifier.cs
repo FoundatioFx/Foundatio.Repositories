@@ -6,10 +6,10 @@ using System.Text.Json.Serialization.Metadata;
 namespace Foundatio.Repositories.Serialization;
 
 /// <summary>
-/// A <see cref="JsonTypeInfo"/> modifier that suppresses serialization of empty collections.
-/// When applied via <c>JsonSerializerOptions.TypeInfoResolver</c>, any property whose
-/// runtime value is an empty <see cref="ICollection"/> (including arrays, lists, dictionaries,
-/// and sets) will be omitted from the JSON output.
+/// A <see cref="JsonTypeInfo"/> modifier that suppresses serialization of empty or null collections.
+/// When applied via <c>JsonSerializerOptions.TypeInfoResolver</c>, any property whose declared
+/// type implements <see cref="IEnumerable"/> (excluding <see cref="string"/>) will be omitted
+/// from the JSON output when the runtime value is <c>null</c> or contains zero elements.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -18,12 +18,14 @@ namespace Foundatio.Repositories.Serialization;
 /// round-trip fidelity during the STJ migration.
 /// </para>
 /// <para>
-/// String properties are explicitly excluded even though <see cref="string"/> implements
-/// <see cref="IEnumerable"/>. At registration time, any property whose type implements
-/// <see cref="IEnumerable"/> (excluding <see cref="string"/>) is considered a collection.
-/// The <c>ShouldSerialize</c> callback uses a runtime <see cref="ICollection"/> cast for the
-/// count check, falling back to enumeration for types that only implement <see cref="IEnumerable"/>.
+/// At registration time, any property whose type implements <see cref="IEnumerable"/>
+/// (excluding <see cref="string"/>) is considered a collection. At serialization time:
 /// </para>
+/// <list type="number">
+///   <item>If the value is <c>null</c>, the property is omitted.</item>
+///   <item>If the value implements <see cref="ICollection"/>, the <c>Count</c> property is checked (O(1)).</item>
+///   <item>Otherwise, <c>GetEnumerator().MoveNext()</c> probes for emptiness (one element advance).</item>
+/// </list>
 /// </remarks>
 public static class EmptyCollectionModifier
 {

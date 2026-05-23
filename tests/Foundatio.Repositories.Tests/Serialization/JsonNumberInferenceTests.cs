@@ -62,6 +62,32 @@ public class JsonNumberInferenceTests
     }
 
     [Fact]
+    public void ReadNumber_JsonElementWithHugePositiveExponent_ReturnsPositiveInfinity()
+    {
+        // Arrange - value exceeds double.MaxValue
+        using var doc = JsonDocument.Parse("1e309");
+
+        // Act
+        object result = JsonNumberInference.ReadNumber(doc.RootElement);
+
+        // Assert
+        Assert.Equal(double.PositiveInfinity, result);
+    }
+
+    [Fact]
+    public void ReadNumber_JsonElementWithHugeNegativeExponent_ReturnsNegativeInfinity()
+    {
+        // Arrange - value below double.MinValue
+        using var doc = JsonDocument.Parse("-1e309");
+
+        // Act
+        object result = JsonNumberInference.ReadNumber(doc.RootElement);
+
+        // Assert
+        Assert.Equal(double.NegativeInfinity, result);
+    }
+
+    [Fact]
     public void ReadNumber_Utf8ReaderWithFloatingPoint_ReturnsDouble()
     {
         // Arrange
@@ -119,6 +145,34 @@ public class JsonNumberInferenceTests
 
         // Assert
         Assert.IsType<double>(result);
+    }
+
+    [Fact]
+    public void ReadNumber_Utf8ReaderWithHugePositiveExponent_ReturnsPositiveInfinity()
+    {
+        // Arrange - value exceeds double.MaxValue, triggers GetDouble overflow
+        var reader = CreateReader("1e309");
+        reader.Read();
+
+        // Act
+        object result = JsonNumberInference.ReadNumber(ref reader);
+
+        // Assert
+        Assert.Equal(double.PositiveInfinity, result);
+    }
+
+    [Fact]
+    public void ReadNumber_Utf8ReaderWithHugeNegativeExponent_ReturnsNegativeInfinity()
+    {
+        // Arrange - value below double.MinValue
+        var reader = CreateReader("-1e309");
+        reader.Read();
+
+        // Act
+        object result = JsonNumberInference.ReadNumber(ref reader);
+
+        // Assert
+        Assert.Equal(double.NegativeInfinity, result);
     }
 
     [Fact]
