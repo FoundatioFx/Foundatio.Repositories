@@ -1315,7 +1315,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 options.PageLimit(1000);
 
             var removeOptions = options.Clone();
-            if (removeOptions.GetConsistency() != Consistency.Eventual)
+            if (removeOptions.GetConsistency(DefaultConsistency) != Consistency.Eventual)
                 removeOptions.Consistency(Consistency.Eventual);
 
             return await BatchProcessAsync(query, async results =>
@@ -1399,7 +1399,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             recordsProcessed += results.Documents.Count;
         } while (await results.NextPageAsync().AnyContext());
 
-        if (options.GetConsistency() != Consistency.Eventual)
+        if (options.GetConsistency(DefaultConsistency) != Consistency.Eventual)
             await RefreshForConsistency(query, options).AnyContext();
 
         _logger.LogTrace("{Processed} records processed", recordsProcessed);

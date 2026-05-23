@@ -2935,4 +2935,37 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         Assert.DoesNotContain(employees[0].Id, receivedIds);
         Assert.DoesNotContain(employees[1].Id, receivedIds);
     }
+
+    [Fact]
+    public async Task RemoveAllAsync_BatchProcess_FinalRefreshRespectsDefaultConsistency()
+    {
+        var repository = new IdentityWithImmediateConsistencyRepository(_configuration);
+        await repository.AddAsync(IdentityGenerator.GenerateIdentities(5), o => o.ImmediateConsistency());
+        Assert.Equal(5, await repository.CountAsync(o => o.ImmediateConsistency()));
+
+        await repository.RemoveAllAsync();
+
+        var count = await repository.CountAsync();
+        Assert.Equal(0, count);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithImmediateConsistency_ReflectsRecentWrites()
+    {
+        var identity = IdentityGenerator.Default;
+        await _identityRepository.AddAsync(identity, o => o.Consistency(Consistency.Eventual));
+
+        var results = await _identityRepository.FindAsync(q => q, o => o.ImmediateConsistency());
+        Assert.Equal(1, results.Total);
+    }
+
+    [Fact]
+    public async Task FindAsync_WithEventualConsistency_MayNotReflectRecentWrites()
+    {
+        var identity = IdentityGenerator.Default;
+        await _identityRepository.AddAsync(identity, o => o.Consistency(Consistency.Eventual));
+
+        var results = await _identityRepository.FindAsync(q => q, o => o.Consistency(Consistency.Eventual));
+        Assert.True(results.Total is 0 or 1);
+    }
 }

@@ -202,7 +202,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         // fallback to doing a find
         if (itemsToFind.Count > 0 && (HasParent || ElasticIndex.HasMultipleIndexes))
         {
-            var response = await FindAsync(q => q.Id(itemsToFind.Select(id => id.Value)!), o => o.PageLimit(1000)).AnyContext();
+            var consistency = options.GetConsistency(DefaultConsistency);
+            var response = await FindAsync(q => q.Id(itemsToFind.Select(id => id.Value)!), o => o.PageLimit(1000).Consistency(consistency)).AnyContext();
             do
             {
                 if (response.Hits.Count > 0)
@@ -944,7 +945,21 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         };
     }
 
-    protected async Task RefreshForConsistency(IRepositoryQuery query, ICommandOptions options)
+    /// <summary>
+    /// Forces a refresh on all indices targeted by the query, making any pending writes
+    /// immediately visible to search operations. Only executes when consistency is non-Eventual.
+    /// </summary>
+    /// <remarks>
+    /// This method is critical for two scenarios:
+    /// <list type="number">
+    ///   <item><description>Cross-process reads: ensures writes from other processes (which may have used
+    ///   Eventual consistency) are visible to the current read operation.</description></item>
+    ///   <item><description>Batch pagination: when <c>BatchProcessAsAsync</c> uses search_after pagination
+    ///   with inner writes downgraded to Eventual, this refresh between pages prevents reprocessing
+    ///   of already-handled documents.</description></item>
+    /// </list>
+    /// </remarks>
+    protected virtual async Task RefreshForConsistency(IRepositoryQuery query, ICommandOptions options)
     {
         if (options.GetConsistency(DefaultConsistency) is not Consistency.Eventual)
         {

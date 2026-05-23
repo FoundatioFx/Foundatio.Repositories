@@ -157,6 +157,64 @@ bool exists = await repository.ExistsAsync(q => q
     o => o.ImmediateConsistency());
 ```
 
+## Consistency Modes (Internal Mechanics)
+
+The `Consistency` enum controls how the repository ensures write visibility:
+
+| Mode | Write Behavior | Read Behavior | Use Case |
+|------|---------------|---------------|----------|
+| `Eventual` (default) | `Refresh.False` -- no forced refresh | No pre-query refresh | Normal production operations |
+| `Immediate` | `Refresh.True` -- synchronous refresh before response | `Indices.RefreshAsync` before search | Tests, critical paths needing instant visibility |
+| `Wait` | `Refresh.WaitFor` -- blocks until next scheduled refresh | `Indices.RefreshAsync` before search | Lower-overhead alternative to Immediate |
+
+### Setting Consistency
+
+```csharp
+// On a specific operation
+await repository.AddAsync(doc, o => o.ImmediateConsistency());
+
+// Or wait for next scheduled refresh (gentler on the cluster)
+await repository.AddAsync(doc, o => o.ImmediateConsistency(shouldWait: true));
+```
+
+### DefaultConsistency Property
+
+Repositories can override `DefaultConsistency` to apply a non-Eventual mode by default for all operations:
+
+```csharp
+public class MigrationStateRepository : ElasticRepositoryBase<MigrationState>
+{
+    protected override Consistency DefaultConsistency => Consistency.Immediate;
+}
+```
+
+This is appropriate for small, correctness-critical indices (migration state, field definitions). Avoid for large or high-write indices due to the refresh cost.
+
+### How Read-Side Refresh Works
+
+Search-based operations (`FindAsync`, `CountAsync`, `ExistsAsync(query)`, `FindOneAsync`) call `RefreshForConsistency` before executing the search. This is essential for:
+
+1. **Cross-process consistency**: Process A writes with Eventual consistency, Process B reads with Immediate -- the read-side refresh ensures B sees A's write.
+2. **Batch pagination correctness**: `RemoveAllAsync` and `PatchAllAsync` intentionally downgrade inner writes to Eventual for performance, then rely on the read-side refresh between pages to prevent reprocessing.
+
+### Batch Processing and Consistency
+
+`BatchProcessAsAsync` (used by `RemoveAllAsync` and `PatchAllAsync` when listeners/cache are active) uses this pattern:
+
+1. Refresh (via `FindAsAsync`) → search for page 1
+2. Process batch (inner writes use Eventual for performance)
+3. Refresh (via next `FindAsAsync`) → search for page 2 (correctly skips processed docs)
+4. Repeat until done
+5. Final `RefreshForConsistency` for the last batch
+
+The inner writes are downgraded to Eventual to avoid the cost of per-write refresh during bulk operations. The inter-page refresh makes the completed batch invisible to subsequent queries, preventing infinite loops or double-processing.
+
+### Known Limitations
+
+- **`UpdateByQuery` and `DeleteByQuery`**: These ES APIs only accept `bool?` for their refresh parameter (not the `Refresh` enum). `Consistency.Wait` is treated identically to `Immediate` for these operations.
+- **Non-idempotent scripts**: If using `PatchAllAsync` with a non-idempotent script (e.g., counter increment) and Eventual consistency, a document could theoretically be processed twice between page refreshes. Use `ImmediateConsistency` for non-idempotent patches.
+- **Exceptions bypass final refresh**: If an exception occurs during batch processing, the final refresh is skipped. Partially-processed writes may not be immediately visible.
+
 ## Next Steps
 
 - [Caching](caching.md) - How the cache layer handles dirty reads

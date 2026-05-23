@@ -17,3 +17,11 @@ public class IdentityWithNoCachingRepository : IdentityRepository
         DisableCache();
     }
 }
+
+public class IdentityWithImmediateConsistencyRepository : IdentityRepository
+{
+    public IdentityWithImmediateConsistencyRepository(MyAppElasticConfiguration configuration) : base(configuration)
+    {
+        DefaultConsistency = Consistency.Immediate;
+    }
+}
