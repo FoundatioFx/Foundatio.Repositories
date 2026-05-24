@@ -872,9 +872,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         {
             var patcher = new JsonPatcher();
             long modifiedRecords = 0;
-            var batchOptions = options.Clone();
-            if (batchOptions.GetConsistency(DefaultConsistency) != Consistency.Eventual)
-                batchOptions.Consistency(Consistency.Eventual);
 
             await BatchProcessAsync(query, async results =>
             {
@@ -964,16 +961,13 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
 
                 return true;
-            }, batchOptions).AnyContext();
+            }, options).AnyContext();
 
             affectedRecords += modifiedRecords;
         }
         else if (operation is ActionPatch<T> actionOperation)
         {
             long modifiedRecords = 0;
-            var actionBatchOptions = options.Clone();
-            if (actionBatchOptions.GetConsistency(DefaultConsistency) != Consistency.Eventual)
-                actionBatchOptions.Consistency(Consistency.Eventual);
             await BatchProcessAsync(query, async results =>
             {
                 var modifiedHits = new List<FindHit<T>>(results.Hits.Count);
@@ -1064,7 +1058,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
 
                 return true;
-            }, actionBatchOptions).AnyContext();
+            }, options).AnyContext();
 
             affectedRecords += modifiedRecords;
         }
@@ -1168,9 +1162,6 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     query.Include(_idField!.Value);
 
                 long modifiedInBatch = 0;
-                var partialBatchOptions = options.Clone();
-                if (partialBatchOptions.GetConsistency(DefaultConsistency) != Consistency.Eventual)
-                    partialBatchOptions.Consistency(Consistency.Eventual);
 
                 await BatchProcessAsync(query, async results =>
                 {
@@ -1284,7 +1275,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     }
 
                     return true;
-                }, partialBatchOptions).AnyContext();
+                }, options).AnyContext();
 
                 affectedRecords += modifiedInBatch;
             }
