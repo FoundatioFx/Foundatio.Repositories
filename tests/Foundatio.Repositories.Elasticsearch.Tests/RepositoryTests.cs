@@ -2937,64 +2937,44 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task RemoveAllAsync_BatchProcess_FinalRefreshRespectsDefaultConsistency()
+    public async Task FindAsync_WithEventualConsistency_MayNotReflectRecentWrites()
     {
-        var repository = new IdentityWithImmediateConsistencyRepository(_configuration);
-        await repository.AddAsync(IdentityGenerator.GenerateIdentities(5), o => o.ImmediateConsistency());
-        Assert.Equal(5, await repository.CountAsync(o => o.ImmediateConsistency()));
+        // Arrange
+        var identity = IdentityGenerator.Default;
+        await _identityRepository.AddAsync(identity, o => o.Consistency(Consistency.Eventual));
 
-        await repository.RemoveAllAsync();
+        // Act
+        var results = await _identityRepository.FindAsync(q => q, o => o.Consistency(Consistency.Eventual));
 
-        var count = await repository.CountAsync();
-        Assert.Equal(0, count);
+        // Assert
+        Assert.True(results.Total is 0 or 1);
     }
 
     [Fact]
     public async Task FindAsync_WithImmediateConsistency_ReflectsRecentWrites()
     {
+        // Arrange
         var identity = IdentityGenerator.Default;
         await _identityRepository.AddAsync(identity, o => o.Consistency(Consistency.Eventual));
 
+        // Act
         var results = await _identityRepository.FindAsync(q => q, o => o.ImmediateConsistency());
+
+        // Assert
         Assert.Equal(1, results.Total);
-    }
-
-    [Fact]
-    public async Task FindAsync_WithEventualConsistency_MayNotReflectRecentWrites()
-    {
-        var identity = IdentityGenerator.Default;
-        await _identityRepository.AddAsync(identity, o => o.Consistency(Consistency.Eventual));
-
-        var results = await _identityRepository.FindAsync(q => q, o => o.Consistency(Consistency.Eventual));
-        Assert.True(results.Total is 0 or 1);
-    }
-
-    [Fact]
-    public async Task PatchAllAsync_BatchProcess_DoesNotDoubleRefresh()
-    {
-        var repository = new IdentityWithImmediateConsistencyRepository(_configuration);
-        var identities = IdentityGenerator.GenerateIdentities(5);
-        await repository.AddAsync(identities, o => o.ImmediateConsistency());
-        Assert.Equal(5, await repository.CountAsync());
-
-        await repository.PatchAllAsync(q => q, new ActionPatch<Identity>(d =>
-        {
-            d.Id = d.Id;
-        }));
-
-        var results = await repository.FindAsync(q => q);
-        Assert.Equal(5, results.Total);
-        foreach (var hit in results.Hits)
-            Assert.NotNull(hit.Document);
     }
 
     [Fact]
     public async Task GetNextPageFunc_DoesNotMutateOriginalOptions()
     {
+        // Arrange
         var identities = IdentityGenerator.GenerateIdentities(5);
         await _identityRepository.AddAsync(identities, o => o.ImmediateConsistency());
 
+        // Act
         var results = await _identityRepository.FindAsync(q => q, o => o.PageLimit(2).ImmediateConsistency());
+
+        // Assert
         Assert.Equal(5, results.Total);
         Assert.Equal(2, results.Documents.Count);
         Assert.True(results.HasMore);
@@ -3006,5 +2986,43 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         Assert.True(await results.NextPageAsync());
         Assert.Single(results.Documents);
         Assert.False(results.HasMore);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_BatchProcess_DoesNotDoubleRefresh()
+    {
+        // Arrange
+        var repository = new IdentityWithImmediateConsistencyRepository(_configuration);
+        var identities = IdentityGenerator.GenerateIdentities(5);
+        await repository.AddAsync(identities, o => o.ImmediateConsistency());
+        Assert.Equal(5, await repository.CountAsync());
+
+        // Act
+        await repository.PatchAllAsync(q => q, new ActionPatch<Identity>(d =>
+        {
+            d.Id = d.Id;
+        }));
+
+        // Assert
+        var results = await repository.FindAsync(q => q);
+        Assert.Equal(5, results.Total);
+        foreach (var hit in results.Hits)
+            Assert.NotNull(hit.Document);
+    }
+
+    [Fact]
+    public async Task RemoveAllAsync_BatchProcess_FinalRefreshRespectsDefaultConsistency()
+    {
+        // Arrange
+        var repository = new IdentityWithImmediateConsistencyRepository(_configuration);
+        await repository.AddAsync(IdentityGenerator.GenerateIdentities(5), o => o.ImmediateConsistency());
+        Assert.Equal(5, await repository.CountAsync(o => o.ImmediateConsistency()));
+
+        // Act
+        await repository.RemoveAllAsync();
+
+        // Assert
+        var count = await repository.CountAsync();
+        Assert.Equal(0, count);
     }
 }
