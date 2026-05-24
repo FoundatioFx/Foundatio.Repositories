@@ -872,12 +872,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         {
             var patcher = new JsonPatcher();
             long modifiedRecords = 0;
+            var batchOptions = options.Clone();
+            if (batchOptions.GetConsistency(DefaultConsistency) != Consistency.Eventual)
+                batchOptions.Consistency(Consistency.Eventual);
+
             await BatchProcessAsync(query, async results =>
             {
                 var processedDocs = new Dictionary<string, T>(results.Hits.Count);
                 var bulkResult = await _client.BulkAsync(b =>
                 {
-                    b.Refresh(options.GetRefreshMode(DefaultConsistency));
+                    b.Refresh(Refresh.False);
                     foreach (var h in results.Hits)
                     {
                         // Using System.Text.Json.Nodes.JsonNode since Elastic.Clients.Elasticsearch uses System.Text.Json exclusively
@@ -960,13 +964,16 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
 
                 return true;
-            }, options.Clone()).AnyContext();
+            }, batchOptions).AnyContext();
 
             affectedRecords += modifiedRecords;
         }
         else if (operation is ActionPatch<T> actionOperation)
         {
             long modifiedRecords = 0;
+            var actionBatchOptions = options.Clone();
+            if (actionBatchOptions.GetConsistency(DefaultConsistency) != Consistency.Eventual)
+                actionBatchOptions.Consistency(Consistency.Eventual);
             await BatchProcessAsync(query, async results =>
             {
                 var modifiedHits = new List<FindHit<T>>(results.Hits.Count);
@@ -993,7 +1000,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
 
                 var bulkResult = await _client.BulkAsync(b =>
                 {
-                    b.Refresh(options.GetRefreshMode(DefaultConsistency));
+                    b.Refresh(Refresh.False);
                     foreach (var h in modifiedHits)
                     {
                         var elasticVersion = h.GetElasticVersion();
@@ -1057,7 +1064,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
 
                 return true;
-            }, options.Clone()).AnyContext();
+            }, actionBatchOptions).AnyContext();
 
             affectedRecords += modifiedRecords;
         }
@@ -1161,13 +1168,17 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     query.Include(_idField!.Value);
 
                 long modifiedInBatch = 0;
+                var partialBatchOptions = options.Clone();
+                if (partialBatchOptions.GetConsistency(DefaultConsistency) != Consistency.Eventual)
+                    partialBatchOptions.Consistency(Consistency.Eventual);
+
                 await BatchProcessAsync(query, async results =>
                 {
                     var bulkResult = await _client.BulkAsync(b =>
                     {
                         if (DefaultPipeline is not null)
                             b.Pipeline(DefaultPipeline);
-                        b.Refresh(options.GetRefreshMode(DefaultConsistency));
+                        b.Refresh(Refresh.False);
 
                         foreach (var h in results.Hits)
                         {
@@ -1273,7 +1284,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     }
 
                     return true;
-                }, options.Clone()).AnyContext();
+                }, partialBatchOptions).AnyContext();
 
                 affectedRecords += modifiedInBatch;
             }
@@ -1399,8 +1410,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             recordsProcessed += results.Documents.Count;
         } while (await results.NextPageAsync().AnyContext());
 
-        if (options.GetConsistency(DefaultConsistency) != Consistency.Eventual)
-            await RefreshForConsistency(query, options).AnyContext();
+        await RefreshForConsistency(query, options).AnyContext();
 
         _logger.LogTrace("{Processed} records processed", recordsProcessed);
         return recordsProcessed;

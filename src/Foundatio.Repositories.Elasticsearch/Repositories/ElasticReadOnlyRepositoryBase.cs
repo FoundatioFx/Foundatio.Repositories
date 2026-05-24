@@ -202,8 +202,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         // fallback to doing a find
         if (itemsToFind.Count > 0 && (HasParent || ElasticIndex.HasMultipleIndexes))
         {
-            var consistency = options.GetConsistency(DefaultConsistency);
-            var response = await FindAsync(q => q.Id(itemsToFind.Select(id => id.Value)!), o => o.PageLimit(1000).Consistency(consistency)).AnyContext();
+            var findOptions = options.Clone();
+            findOptions.PageLimit(1000);
+            var response = await FindAsync(NewQuery().Id(itemsToFind.Select(id => id.Value)!), findOptions).AnyContext();
             do
             {
                 if (response.Hits.Count > 0)
@@ -520,11 +521,12 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             return results;
         }
 
-        if (options.ShouldUseSearchAfterPaging())
-            options.SearchAfterToken(previousResults.GetSearchAfterToken(), ElasticIndex.Configuration.Serializer);
+        var nextPageOptions = options.Clone();
+        if (nextPageOptions.ShouldUseSearchAfterPaging())
+            nextPageOptions.SearchAfterToken(previousResults.GetSearchAfterToken(), ElasticIndex.Configuration.Serializer);
 
-        options.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
-        return await FindAsAsync<TResult>(query, options).AnyContext();
+        nextPageOptions.PageNumber(!nextPageOptions.HasPageNumber() ? 2 : nextPageOptions.GetPage() + 1);
+        return await FindAsAsync<TResult>(query, nextPageOptions).AnyContext();
     }
 
     public Task<FindHit<T>> FindOneAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null)
