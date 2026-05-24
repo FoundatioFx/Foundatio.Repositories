@@ -2965,7 +2965,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task GetNextPageFunc_DoesNotMutateOriginalOptions()
+    public async Task FindAsync_WithSearchAfterPaging_ReturnsAllPages()
     {
         // Arrange
         var identities = IdentityGenerator.GenerateIdentities(5);

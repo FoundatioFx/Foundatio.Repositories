@@ -521,12 +521,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             return results;
         }
 
-        var nextPageOptions = options.Clone();
-        if (nextPageOptions.ShouldUseSearchAfterPaging())
-            nextPageOptions.SearchAfterToken(previousResults.GetSearchAfterToken(), ElasticIndex.Configuration.Serializer);
+        if (options.ShouldUseSearchAfterPaging())
+            options.SearchAfterToken(previousResults.GetSearchAfterToken(), ElasticIndex.Configuration.Serializer);
 
-        nextPageOptions.PageNumber(!nextPageOptions.HasPageNumber() ? 2 : nextPageOptions.GetPage() + 1);
-        return await FindAsAsync<TResult>(query, nextPageOptions).AnyContext();
+        options.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
+        return await FindAsAsync<TResult>(query, options).AnyContext();
     }
 
     public Task<FindHit<T>> FindOneAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null)
