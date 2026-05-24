@@ -179,12 +179,15 @@ await repository.AddAsync(doc, o => o.ImmediateConsistency(shouldWait: true));
 
 ### DefaultConsistency Property
 
-Repositories can override `DefaultConsistency` to apply a non-Eventual mode by default for all operations:
+Repositories can set `DefaultConsistency` in the constructor to apply a non-Eventual mode by default for all operations:
 
 ```csharp
 public class MigrationStateRepository : ElasticRepositoryBase<MigrationState>
 {
-    protected override Consistency DefaultConsistency => Consistency.Immediate;
+    public MigrationStateRepository(IIndexType<MigrationState> index) : base(index)
+    {
+        DefaultConsistency = Consistency.Immediate;
+    }
 }
 ```
 
