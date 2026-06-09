@@ -184,7 +184,7 @@ Repositories can set `DefaultConsistency` in the constructor to apply a non-Even
 ```csharp
 public class MigrationStateRepository : ElasticRepositoryBase<MigrationState>
 {
-    public MigrationStateRepository(IIndexType<MigrationState> index) : base(index)
+    public MigrationStateRepository(IIndex index) : base(index)
     {
         DefaultConsistency = Consistency.Immediate;
     }
