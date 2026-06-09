@@ -959,6 +959,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     ///   with inner writes downgraded to Eventual, this refresh between pages prevents reprocessing
     ///   of already-handled documents.</description></item>
     /// </list>
+    /// <para><strong>Override contract:</strong> Implementations must preserve the no-op behavior when
+    /// consistency is <see cref="Consistency.Eventual"/>. Suppressing the refresh for non-Eventual modes
+    /// will break batch pagination correctness (infinite loops or double-processing).</para>
     /// </remarks>
     protected virtual async Task RefreshForConsistency(IRepositoryQuery query, ICommandOptions options)
     {

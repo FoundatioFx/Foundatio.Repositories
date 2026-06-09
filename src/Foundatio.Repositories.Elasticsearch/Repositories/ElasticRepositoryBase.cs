@@ -961,7 +961,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
 
                 return true;
-            }, options).AnyContext();
+            }, options.Clone()).AnyContext();
 
             affectedRecords += modifiedRecords;
         }
@@ -1058,7 +1058,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                 }
 
                 return true;
-            }, options).AnyContext();
+            }, options.Clone()).AnyContext();
 
             affectedRecords += modifiedRecords;
         }
@@ -1275,7 +1275,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
                     }
 
                     return true;
-                }, options).AnyContext();
+                }, options.Clone()).AnyContext();
 
                 affectedRecords += modifiedInBatch;
             }

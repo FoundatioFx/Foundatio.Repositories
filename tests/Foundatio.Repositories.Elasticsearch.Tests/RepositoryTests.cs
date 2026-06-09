@@ -2989,7 +2989,36 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task PatchAllAsync_BatchProcess_DoesNotDoubleRefresh()
+    public async Task FindAsync_WithWaitConsistency_ReflectsRecentWrites()
+    {
+        // Arrange
+        var identity = IdentityGenerator.Default;
+        await _identityRepository.AddAsync(identity, o => o.Consistency(Consistency.Eventual));
+
+        // Act
+        var results = await _identityRepository.FindAsync(q => q, o => o.ImmediateConsistency(shouldWait: true));
+
+        // Assert
+        Assert.Equal(1, results.Total);
+    }
+
+    [Fact]
+    public async Task GetByIdsAsync_WithMultipleIndexes_PropagatesConsistency()
+    {
+        // Arrange — DailyLogEventRepository uses HasMultipleIndexes, triggering the FindAsync fallback
+        var log = LogEventGenerator.Generate();
+        await _dailyRepository.AddAsync(log, o => o.Consistency(Consistency.Eventual));
+
+        // Act — ImmediateConsistency should propagate to the fallback FindAsync path
+        var results = await _dailyRepository.GetByIdsAsync(new[] { log.Id }, o => o.ImmediateConsistency());
+
+        // Assert
+        Assert.Single(results);
+        Assert.Equal(log.Id, results.First().Id);
+    }
+
+    [Fact]
+    public async Task PatchAllAsync_WithImmediateDefaultConsistency_CompletesSuccessfully()
     {
         // Arrange
         var repository = new IdentityWithImmediateConsistencyRepository(_configuration);
@@ -2997,7 +3026,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         await repository.AddAsync(identities, o => o.ImmediateConsistency());
         Assert.Equal(5, await repository.CountAsync());
 
-        // Act
+        // Act — ActionPatch(Action<T>) always reports modified; body is irrelevant
         await repository.PatchAllAsync(q => q, new ActionPatch<Identity>(d =>
         {
             d.Id = d.Id;
