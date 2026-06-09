@@ -3027,10 +3027,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(5, await repository.CountAsync());
 
         // Act — ActionPatch(Action<T>) always reports modified; body is irrelevant
-        await repository.PatchAllAsync(q => q, new ActionPatch<Identity>(d =>
-        {
-            d.Id = d.Id;
-        }));
+        await repository.PatchAllAsync(q => q, new ActionPatch<Identity>(_ => { }));
 
         // Assert
         var results = await repository.FindAsync(q => q);
