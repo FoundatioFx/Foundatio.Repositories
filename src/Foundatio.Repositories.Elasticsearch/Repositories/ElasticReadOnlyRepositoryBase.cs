@@ -965,15 +965,15 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     /// </remarks>
     protected virtual async Task RefreshForConsistency(IRepositoryQuery query, ICommandOptions options)
     {
-        if (options.GetConsistency(DefaultConsistency) is not Consistency.Eventual)
-        {
-            string[] indices = ElasticIndex.GetIndexesByQuery(query);
-            var response = await _client.Indices.RefreshAsync(indices).AnyContext();
-            if (response.IsValidResponse)
-                _logger.LogRequest(response);
-            else
-                _logger.LogErrorRequest(response, "Failed to refresh indices for immediate consistency");
-        }
+        if (options.GetConsistency(DefaultConsistency) is Consistency.Eventual)
+            return;
+
+        string[] indices = ElasticIndex.GetIndexesByQuery(query);
+        var response = await _client.Indices.RefreshAsync(indices).AnyContext();
+        if (response.IsValidResponse)
+            _logger.LogRequest(response);
+        else
+            _logger.LogErrorRequest(response, "Failed to refresh indices for immediate consistency");
     }
 
     protected async Task<TResult?> GetCachedQueryResultAsync<TResult>(ICommandOptions options, string? cachePrefix = null, string? cacheSuffix = null)
