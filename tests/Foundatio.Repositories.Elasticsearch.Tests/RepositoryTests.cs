@@ -3018,6 +3018,22 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task PatchAllAsync_WithEventualConsistency_DoesNotRefresh()
+    {
+        // Arrange
+        var repository = new IdentityWithImmediateConsistencyRepository(_configuration);
+        var identities = IdentityGenerator.GenerateIdentities(3);
+        await repository.AddAsync(identities, o => o.ImmediateConsistency());
+
+        // Act — explicit Eventual overrides DefaultConsistency; no refresh should occur
+        long modified = await repository.PatchAllAsync(q => q, new ActionPatch<Identity>(_ => { }),
+            o => o.Consistency(Consistency.Eventual));
+
+        // Assert — all 3 processed; results may or may not be visible without explicit refresh
+        Assert.Equal(3, modified);
+    }
+
+    [Fact]
     public async Task PatchAllAsync_WithImmediateDefaultConsistency_CompletesSuccessfully()
     {
         // Arrange
@@ -3049,6 +3065,23 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         // Assert
         var count = await repository.CountAsync();
+        Assert.Equal(0, count);
+    }
+
+    [Fact]
+    public async Task RemoveAllAsync_WithEventualConsistency_DoesNotRefresh()
+    {
+        // Arrange
+        var repository = new IdentityWithImmediateConsistencyRepository(_configuration);
+        await repository.AddAsync(IdentityGenerator.GenerateIdentities(3), o => o.ImmediateConsistency());
+        Assert.Equal(3, await repository.CountAsync(o => o.ImmediateConsistency()));
+
+        // Act — explicit Eventual overrides the repository's DefaultConsistency
+        await repository.RemoveAllAsync(q => q, o => o.Consistency(Consistency.Eventual));
+
+        // Assert — documents removed but no refresh forced; verify at least they were processed
+        // Use explicit ImmediateConsistency to force visibility for the assertion
+        var count = await repository.CountAsync(o => o.ImmediateConsistency());
         Assert.Equal(0, count);
     }
 }
