@@ -3018,18 +3018,18 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task PatchAllAsync_WithEventualConsistency_DoesNotRefresh()
+    public async Task PatchAllAsync_WithExplicitEventualConsistency_OverridesDefaultConsistency()
     {
         // Arrange
         var repository = new IdentityWithImmediateConsistencyRepository(_configuration);
         var identities = IdentityGenerator.GenerateIdentities(3);
         await repository.AddAsync(identities, o => o.ImmediateConsistency());
 
-        // Act — explicit Eventual overrides DefaultConsistency; no refresh should occur
+        // Act — explicit Eventual overrides the repository's DefaultConsistency = Immediate
         long modified = await repository.PatchAllAsync(q => q, new ActionPatch<Identity>(_ => { }),
             o => o.Consistency(Consistency.Eventual));
 
-        // Assert — all 3 processed; results may or may not be visible without explicit refresh
+        // Assert
         Assert.Equal(3, modified);
     }
 
@@ -3069,18 +3069,17 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task RemoveAllAsync_WithEventualConsistency_DoesNotRefresh()
+    public async Task RemoveAllAsync_WithExplicitEventualConsistency_OverridesDefaultConsistency()
     {
         // Arrange
         var repository = new IdentityWithImmediateConsistencyRepository(_configuration);
         await repository.AddAsync(IdentityGenerator.GenerateIdentities(3), o => o.ImmediateConsistency());
         Assert.Equal(3, await repository.CountAsync(o => o.ImmediateConsistency()));
 
-        // Act — explicit Eventual overrides the repository's DefaultConsistency
+        // Act — explicit Eventual overrides the repository's DefaultConsistency = Immediate
         await repository.RemoveAllAsync(q => q, o => o.Consistency(Consistency.Eventual));
 
-        // Assert — documents removed but no refresh forced; verify at least they were processed
-        // Use explicit ImmediateConsistency to force visibility for the assertion
+        // Assert — verify all documents were removed (use ImmediateConsistency to force visibility)
         var count = await repository.CountAsync(o => o.ImmediateConsistency());
         Assert.Equal(0, count);
     }
