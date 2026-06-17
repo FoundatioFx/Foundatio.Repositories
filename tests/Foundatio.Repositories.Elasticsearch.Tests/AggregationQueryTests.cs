@@ -539,6 +539,28 @@ public sealed class AggregationQueryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task GetTermAggregationsAsync_WithRegexIncludeFilter_ReturnsOnlyMatchingBuckets()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync([
+            EmployeeGenerator.Generate(name: "Alice"),
+            EmployeeGenerator.Generate(name: "anna"),
+            EmployeeGenerator.Generate(name: "Bob"),
+        ], o => o.ImmediateConsistency());
+
+        // Act
+        var result = await _employeeRepository.CountAsync(
+            q => q.AggregationsExpression("terms:(name @include:/[Aa].*/)")
+        );
+
+        // Assert
+        var terms = result.Aggregations.Terms<string>("terms_name");
+        Assert.NotNull(terms);
+        Assert.Equal(2, terms.Buckets.Count);
+        Assert.All(terms.Buckets, b => Assert.Matches(@"^[Aa]", b.Key));
+    }
+
+    [Fact]
     public async Task GetDateAggregationsAsync()
     {
         var utcToday = new DateTimeOffset(DateTime.UtcNow.Year, 1, 1, 12, 0, 0, TimeSpan.FromHours(5));
