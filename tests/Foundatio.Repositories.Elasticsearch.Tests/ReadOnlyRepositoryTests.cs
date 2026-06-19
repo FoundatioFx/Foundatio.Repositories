@@ -988,6 +988,152 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task FindWithSearchAfterPagingWithoutTrackTotalHitsAsync()
+    {
+        var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Charlie"), o => o.ImmediateConsistency());
+        Assert.NotNull(employee1?.Id);
+
+        var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
+        Assert.NotNull(employee2?.Id);
+
+        var results = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchAfterPaging().TrackTotalHits(false));
+        Assert.NotNull(results);
+        Assert.Single(results.Documents);
+        Assert.Equal(employee1.Id, results.Documents.First().Id);
+        Assert.True(results.HasMore);
+        Assert.Null(results.GetSearchBeforeToken());
+        Assert.False(String.IsNullOrEmpty(results.GetSearchAfterToken()));
+        Assert.NotEqual(2, results.Total);
+
+        Assert.True(await results.NextPageAsync());
+        Assert.Single(results.Documents);
+        Assert.Equal(employee2.Id, results.Documents.First().Id);
+        Assert.False(results.HasMore);
+        Assert.False(String.IsNullOrEmpty(results.GetSearchBeforeToken()));
+        Assert.Null(results.GetSearchAfterToken());
+        Assert.NotEqual(2, results.Total);
+    }
+
+    [Fact]
+    public async Task FindWithPointInTimeSearchAfterPagingAsync()
+    {
+        var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Charlie"), o => o.ImmediateConsistency());
+        Assert.NotNull(employee1?.Id);
+
+        var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
+        Assert.NotNull(employee2?.Id);
+
+        await _client.ClearScrollAsync(cancellationToken: TestCancellationToken);
+        long baselineScrollCount = await GetCurrentScrollCountAsync();
+
+        var results = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
+        Assert.NotNull(results);
+        Assert.Single(results.Documents);
+        Assert.Equal(employee1.Id, results.Documents.First().Id);
+        Assert.True(results.HasMore);
+        Assert.False(String.IsNullOrEmpty(results.GetPointInTimeId()));
+        Assert.False(String.IsNullOrEmpty(results.GetSearchAfterToken()));
+        Assert.Equal(baselineScrollCount, await GetCurrentScrollCountAsync());
+
+        var employee3 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Aaron"), o => o.ImmediateConsistency());
+        Assert.NotNull(employee3?.Id);
+
+        Assert.True(await results.NextPageAsync());
+        Assert.Single(results.Documents);
+        Assert.Equal(employee2.Id, results.Documents.First().Id);
+        Assert.False(results.HasMore);
+        Assert.DoesNotContain(results.Documents, e => e.Id == employee3.Id);
+        Assert.False(String.IsNullOrEmpty(results.GetSearchBeforeToken()));
+        Assert.Null(results.GetSearchAfterToken());
+        Assert.False(String.IsNullOrEmpty(results.GetPointInTimeId()));
+        Assert.Equal(baselineScrollCount, await GetCurrentScrollCountAsync());
+    }
+
+    [Fact]
+    public async Task CanUsePointInTimeSearchAfterPagingLikeWebCursorAsync()
+    {
+        var employees = new[] {
+            await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Echo"), o => o.ImmediateConsistency()),
+            await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Delta"), o => o.ImmediateConsistency()),
+            await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Charlie"), o => o.ImmediateConsistency()),
+            await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency()),
+            await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Aaron"), o => o.ImmediateConsistency())
+        };
+        Assert.All(employees, employee => Assert.NotNull(employee?.Id));
+
+        await _client.ClearScrollAsync(cancellationToken: TestCancellationToken);
+        long baselineScrollCount = await GetCurrentScrollCountAsync();
+        string? pointInTimeId = null;
+
+        try
+        {
+            var firstPage = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(2).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
+            pointInTimeId = firstPage.GetPointInTimeId();
+
+            Assert.False(String.IsNullOrEmpty(pointInTimeId));
+            Assert.Equal(5, firstPage.Total);
+            Assert.Equal(new[] { "Echo", "Delta" }, firstPage.Documents.Select(e => e.Name));
+            Assert.True(firstPage.HasMore);
+            Assert.Null(firstPage.GetSearchBeforeToken());
+            Assert.False(String.IsNullOrEmpty(firstPage.GetSearchAfterToken()));
+            Assert.Equal(baselineScrollCount, await GetCurrentScrollCountAsync());
+
+            var newEmployee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Foxtrot"), o => o.ImmediateConsistency());
+            Assert.NotNull(newEmployee?.Id);
+
+            var secondPage = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(2).SearchAfterPaging(SearchAfterPagingMode.PointInTime).PointInTimeId(pointInTimeId).SearchAfterToken(firstPage.GetSearchAfterToken(), _serializer).TrackTotalHits(false));
+            pointInTimeId = secondPage.GetPointInTimeId();
+
+            Assert.False(String.IsNullOrEmpty(pointInTimeId));
+            Assert.Equal(new[] { "Charlie", "Blake" }, secondPage.Documents.Select(e => e.Name));
+            Assert.True(secondPage.HasMore);
+            Assert.False(String.IsNullOrEmpty(secondPage.GetSearchBeforeToken()));
+            Assert.False(String.IsNullOrEmpty(secondPage.GetSearchAfterToken()));
+            Assert.NotEqual(6, secondPage.Total);
+            Assert.Equal(baselineScrollCount, await GetCurrentScrollCountAsync());
+
+            var thirdPage = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(2).SearchAfterPaging(SearchAfterPagingMode.PointInTime).PointInTimeId(pointInTimeId).SearchAfterToken(secondPage.GetSearchAfterToken(), _serializer).TrackTotalHits(false));
+            pointInTimeId = thirdPage.GetPointInTimeId();
+
+            Assert.False(String.IsNullOrEmpty(pointInTimeId));
+            Assert.Equal(new[] { "Aaron" }, thirdPage.Documents.Select(e => e.Name));
+            Assert.False(thirdPage.HasMore);
+            Assert.False(String.IsNullOrEmpty(thirdPage.GetSearchBeforeToken()));
+            Assert.Null(thirdPage.GetSearchAfterToken());
+            Assert.DoesNotContain(thirdPage.Documents, e => e.Id == newEmployee.Id);
+            Assert.Equal(baselineScrollCount, await GetCurrentScrollCountAsync());
+
+            var backToSecondPage = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(2).SearchAfterPaging(SearchAfterPagingMode.PointInTime).PointInTimeId(pointInTimeId).SearchBeforeToken(thirdPage.GetSearchBeforeToken(), _serializer).TrackTotalHits(false));
+            pointInTimeId = backToSecondPage.GetPointInTimeId();
+
+            Assert.False(String.IsNullOrEmpty(pointInTimeId));
+            Assert.Equal(new[] { "Charlie", "Blake" }, backToSecondPage.Documents.Select(e => e.Name));
+            Assert.True(backToSecondPage.HasMore);
+            Assert.False(String.IsNullOrEmpty(backToSecondPage.GetSearchBeforeToken()));
+            Assert.False(String.IsNullOrEmpty(backToSecondPage.GetSearchAfterToken()));
+            Assert.Equal(baselineScrollCount, await GetCurrentScrollCountAsync());
+
+            var backToFirstPage = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(2).SearchAfterPaging(SearchAfterPagingMode.PointInTime).PointInTimeId(pointInTimeId).SearchBeforeToken(backToSecondPage.GetSearchBeforeToken(), _serializer).TrackTotalHits(false));
+            pointInTimeId = backToFirstPage.GetPointInTimeId();
+
+            Assert.False(String.IsNullOrEmpty(pointInTimeId));
+            Assert.Equal(new[] { "Echo", "Delta" }, backToFirstPage.Documents.Select(e => e.Name));
+            Assert.False(backToFirstPage.HasMore);
+            Assert.Null(backToFirstPage.GetSearchBeforeToken());
+            Assert.False(String.IsNullOrEmpty(backToFirstPage.GetSearchAfterToken()));
+            Assert.Equal(baselineScrollCount, await GetCurrentScrollCountAsync());
+
+            Assert.True(await ((EmployeeRepository)_employeeRepository).ClosePointInTimeAsync(pointInTimeId));
+            pointInTimeId = null;
+        }
+        finally
+        {
+            if (!String.IsNullOrEmpty(pointInTimeId))
+                await ((EmployeeRepository)_employeeRepository).ClosePointInTimeAsync(pointInTimeId);
+        }
+    }
+
+    [Fact]
     public async Task GetAllWithSearchAfterPagingWithCustomSortAsync()
     {
         var identity1 = await _identityRepository.AddAsync(IdentityGenerator.Default, o => o.ImmediateConsistency());

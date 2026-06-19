@@ -176,6 +176,7 @@ public static class ElasticDataKeys
 {
     public const string Index = "index";
     public const string ScrollId = "scrollid";
+    public const string PointInTimeId = "pointintimeid";
     public const string Sorts = "sorts";
     public const string SearchBeforeToken = nameof(SearchBeforeToken);
     public const string SearchAfterToken = nameof(SearchAfterToken);
