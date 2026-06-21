@@ -14,6 +14,12 @@ namespace Foundatio.Repositories
     {
         internal const string SnapshotPagingKey = "@SnapshotPaging";
         internal const string SnapshotPagingScrollIdKey = "@SnapshotPagingScrollId";
+        internal const string TrackTotalHitsKey = "@TrackTotalHits";
+
+        public static T TrackTotalHits<T>(this T options, bool enabled = true) where T : ICommandOptions
+        {
+            return options.BuildOption(TrackTotalHitsKey, enabled);
+        }
 
         public static T SnapshotPaging<T>(this T options) where T : ICommandOptions
         {
@@ -172,6 +178,11 @@ namespace Foundatio.Repositories.Options
             return ToRefresh(options.GetConsistency(defaultMode));
         }
 
+        public static bool ShouldTrackTotalHits(this ICommandOptions options)
+        {
+            return options.SafeGetOption<bool>(SetElasticOptionsExtensions.TrackTotalHitsKey, true);
+        }
+
         private static Refresh ToRefresh(Consistency mode)
         {
             if (mode == Consistency.Immediate)
@@ -183,4 +194,3 @@ namespace Foundatio.Repositories.Options
         }
     }
 }
-

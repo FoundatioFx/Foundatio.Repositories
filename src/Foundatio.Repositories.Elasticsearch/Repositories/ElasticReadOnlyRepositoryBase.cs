@@ -393,9 +393,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     public virtual async Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions? options = null) where TResult : class, new()
     {
         options = ConfigureOptions(options?.As<T>());
-        bool useSnapshotPaging = options.ShouldUseSnapshotPaging();
+        bool useSearchAfterPointInTime = options.ShouldUseSearchAfterPagingPointInTime();
+        bool useSnapshotPaging = options.ShouldUseSnapshotPaging() && !useSearchAfterPointInTime;
         // don't use caching with snapshot paging.
-        bool allowCaching = IsCacheEnabled && useSnapshotPaging == false;
+        bool allowCaching = IsCacheEnabled && useSnapshotPaging == false && useSearchAfterPointInTime == false;
 
         await OnBeforeQueryAsync(query, options, typeof(TResult)).AnyContext();
 
@@ -446,6 +447,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
             if (useSnapshotPaging)
                 searchDescriptor.Scroll(options.GetSnapshotLifetime());
+            else if (useSearchAfterPointInTime)
+                await ConfigurePointInTimeAsync(searchDescriptor, query, options).AnyContext();
 
             if (query.ShouldOnlyHaveIds())
                 searchDescriptor.Source(false);
@@ -523,6 +526,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         if (options.ShouldUseSearchAfterPaging())
             options.SearchAfterToken(previousResults.GetSearchAfterToken(), ElasticIndex.Configuration.Serializer);
+
+        if (options.ShouldUseSearchAfterPagingPointInTime())
+            options.PointInTimeId(previousResults.GetPointInTimeId());
 
         options.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
         return await FindAsAsync<TResult>(query, options).AnyContext();
@@ -798,12 +804,56 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return ConfigureSearchDescriptorAsync(new SearchRequestDescriptor<T>(), query, options);
     }
 
+    private async Task ConfigurePointInTimeAsync(SearchRequestDescriptor<T> search, IRepositoryQuery query, ICommandOptions options)
+    {
+        string? pointInTimeId = options.GetPointInTimeId();
+        if (String.IsNullOrEmpty(pointInTimeId))
+            pointInTimeId = await OpenPointInTimeAsync(query, options).AnyContext();
+
+        if (String.IsNullOrEmpty(pointInTimeId))
+            return;
+
+        search.Pit(new PointInTimeReference(pointInTimeId) { KeepAlive = options.GetSnapshotLifetime().ToElasticDuration() });
+    }
+
+    private async Task<string> OpenPointInTimeAsync(IRepositoryQuery query, ICommandOptions options)
+    {
+        string[] indices = ElasticIndex.GetIndexesByQuery(query);
+        Indices index = indices?.Length > 0 ? Indices.Parse(String.Join(",", indices)) : Indices.All;
+
+        var response = await _client.OpenPointInTimeAsync(index, p => p
+            .IgnoreUnavailable(true)
+            .KeepAlive(options.GetSnapshotLifetime().ToElasticDuration())).AnyContext();
+        _logger.LogRequest(response, options.GetQueryLogLevel());
+
+        if (!response.IsValidResponse)
+            throw new DocumentException(response.GetErrorMessage("Error while opening point in time"), response.OriginalException());
+
+        return response.Id;
+    }
+
+    public Task<bool> ClosePointInTimeAsync(IHaveData? results)
+    {
+        return ClosePointInTimeAsync(results?.GetPointInTimeId());
+    }
+
+    public async Task<bool> ClosePointInTimeAsync(string? pointInTimeId)
+    {
+        if (String.IsNullOrEmpty(pointInTimeId))
+            return false;
+
+        var response = await _client.ClosePointInTimeAsync(p => p.Id(pointInTimeId)).AnyContext();
+        _logger.LogRequest(response);
+
+        return response.IsValidResponse && response.Succeeded;
+    }
+
     protected virtual async Task<SearchRequestDescriptor<T>> ConfigureSearchDescriptorAsync(SearchRequestDescriptor<T> search, IRepositoryQuery query, ICommandOptions options)
     {
 
         query = ConfigureQuery(query.As<T>()).Unwrap();
         string[] indices = ElasticIndex.GetIndexesByQuery(query);
-        if (indices?.Length > 0)
+        if (indices?.Length > 0 && !options.ShouldUseSearchAfterPagingPointInTime())
             search.Indices(String.Join(",", indices));
         if (HasVersion)
             search.SeqNoPrimaryTerm(HasVersion);
@@ -814,8 +864,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             search.Timeout(timeout.ToElasticDuration());
         }
 
-        search.IgnoreUnavailable();
-        search.TrackTotalHits(new TrackHits(true));
+        if (!options.ShouldUseSearchAfterPagingPointInTime())
+            search.IgnoreUnavailable();
+        search.TrackTotalHits(new TrackHits(options.ShouldTrackTotalHits()));
 
         await ElasticIndex.QueryBuilder.ConfigureSearchAsync(query, options, search).AnyContext();
 

@@ -50,6 +50,7 @@ public static class ElasticIndexExtensions
             TrackScores = searchRequest.TrackScores,
             TrackTotalHits = searchRequest.TrackTotalHits,
             Version = searchRequest.Version,
+            Pit = searchRequest.Pit,
             RuntimeMappings = searchRequest.RuntimeMappings,
             SeqNoPrimaryTerm = searchRequest.SeqNoPrimaryTerm
         };
@@ -77,6 +78,8 @@ public static class ElasticIndexExtensions
         var data = new DataDictionary();
         if (response.ScrollId is not null)
             data.Add(ElasticDataKeys.ScrollId, response.ScrollId.ToString());
+        if (response.PitId is not null)
+            data.Add(ElasticDataKeys.PointInTimeId, response.PitId);
 
         var results = new FindResults<T>(docs, response.Total, response.ToAggregations(serializer, logger), null, data);
         var protectedResults = (IFindResults<T>)results;
@@ -135,6 +138,8 @@ public static class ElasticIndexExtensions
 
         if (options.ShouldAutoDeleteAsyncQuery() && !response.IsRunning)
             data.Remove(AsyncQueryDataKeys.AsyncQueryId);
+        if (response.Response.PitId is not null)
+            data.Add(ElasticDataKeys.PointInTimeId, response.Response.PitId);
 
         var results = new FindResults<T>(docs, response.Response.Total, response.ToAggregations(serializer, logger), null, data);
         var protectedResults = (IFindResults<T>)results;
