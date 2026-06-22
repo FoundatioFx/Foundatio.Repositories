@@ -15,7 +15,6 @@ using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
-using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Serialization;

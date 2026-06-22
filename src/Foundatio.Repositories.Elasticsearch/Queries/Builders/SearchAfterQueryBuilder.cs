@@ -20,10 +20,11 @@ namespace Foundatio.Repositories
     public static class SearchAfterQueryExtensions
     {
         internal const string SearchAfterPagingKey = "@SearchAfterPaging";
-        internal const string SearchAfterPagingPointInTimeKey = "@SearchAfterPagingPointInTime";
+        internal const string SearchAfterPagingModeKey = "@SearchAfterPagingMode";
         internal const string SearchAfterKey = "@SearchAfter";
         internal const string SearchBeforeKey = "@SearchBefore";
         internal const string PointInTimeIdKey = "@PointInTimeId";
+        internal const string RepoManagedPitKey = "@RepoManagedPit";
 
         public static T SearchAfterPaging<T>(this T options, bool enabled = true) where T : ICommandOptions
         {
@@ -32,8 +33,8 @@ namespace Foundatio.Repositories
 
         public static T SearchAfterPaging<T>(this T options, SearchAfterPagingMode mode, bool enabled = true) where T : ICommandOptions
         {
-            options.SearchAfterPaging(enabled);
-            return options.BuildOption(SearchAfterPagingPointInTimeKey, enabled && mode == SearchAfterPagingMode.PointInTime);
+            options.BuildOption(SearchAfterPagingKey, enabled);
+            return options.BuildOption(SearchAfterPagingModeKey, enabled ? mode : SearchAfterPagingMode.Live);
         }
 
         public static T PointInTimeId<T>(this T options, string? pointInTimeId) where T : ICommandOptions
@@ -121,9 +122,14 @@ namespace Foundatio.Repositories.Options
             return options.SafeGetOption<bool>(SearchAfterQueryExtensions.SearchAfterPagingKey, false);
         }
 
+        public static SearchAfterPagingMode GetSearchAfterPagingMode(this ICommandOptions options)
+        {
+            return options.SafeGetOption(SearchAfterQueryExtensions.SearchAfterPagingModeKey, SearchAfterPagingMode.Live);
+        }
+
         public static bool ShouldUseSearchAfterPagingPointInTime(this ICommandOptions options)
         {
-            return options.SafeGetOption<bool>(SearchAfterQueryExtensions.SearchAfterPagingPointInTimeKey, false);
+            return options.ShouldUseSearchAfterPaging() && options.GetSearchAfterPagingMode() is SearchAfterPagingMode.PointInTime;
         }
 
         public static string? GetPointInTimeId(this ICommandOptions options)

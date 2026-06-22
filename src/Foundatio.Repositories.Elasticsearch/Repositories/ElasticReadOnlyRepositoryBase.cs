@@ -28,7 +28,7 @@ using ChangeType = Foundatio.Repositories.Models.ChangeType;
 
 namespace Foundatio.Repositories.Elasticsearch;
 
-public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepository<T>, IDisposable where T : class, new()
+public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepository<T>, ISupportPointInTime, IDisposable where T : class, new()
 {
     protected static readonly bool HasIdentity = typeof(IIdentity).IsAssignableFrom(typeof(T));
     protected static readonly bool HasDates = typeof(IHaveDates).IsAssignableFrom(typeof(T));
@@ -390,13 +390,24 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         return FindAsAsync<TResult>(query.Configure(), options?.Configure());
     }
 
+    private enum PagingStrategy { Normal, Snapshot, SearchAfterPointInTime }
+
+    private static PagingStrategy GetPagingStrategy(ICommandOptions options)
+    {
+        if (options.ShouldUseSearchAfterPagingPointInTime())
+            return PagingStrategy.SearchAfterPointInTime;
+        if (options.ShouldUseSnapshotPaging())
+            return PagingStrategy.Snapshot;
+        return PagingStrategy.Normal;
+    }
+
     public virtual async Task<FindResults<TResult>> FindAsAsync<TResult>(IRepositoryQuery query, ICommandOptions? options = null) where TResult : class, new()
     {
         options = ConfigureOptions(options?.As<T>());
-        bool useSearchAfterPointInTime = options.ShouldUseSearchAfterPagingPointInTime();
-        bool useSnapshotPaging = options.ShouldUseSnapshotPaging() && !useSearchAfterPointInTime;
-        // don't use caching with snapshot paging.
-        bool allowCaching = IsCacheEnabled && useSnapshotPaging == false && useSearchAfterPointInTime == false;
+        var pagingStrategy = GetPagingStrategy(options);
+        bool callerOwnsPointInTime = options.HasPointInTimeId();
+        // don't use caching with paged modes.
+        bool allowCaching = IsCacheEnabled && pagingStrategy is PagingStrategy.Normal;
 
         await OnBeforeQueryAsync(query, options, typeof(TResult)).AnyContext();
 
@@ -445,10 +456,15 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         else
         {
             var searchDescriptor = await CreateSearchDescriptorAsync(query, options).AnyContext();
-            if (useSnapshotPaging)
-                searchDescriptor.Scroll(options.GetSnapshotLifetime());
-            else if (useSearchAfterPointInTime)
-                await ConfigurePointInTimeAsync(searchDescriptor, query, options).AnyContext();
+            switch (pagingStrategy)
+            {
+                case PagingStrategy.Snapshot:
+                    searchDescriptor.Scroll(options.GetSnapshotLifetime());
+                    break;
+                case PagingStrategy.SearchAfterPointInTime:
+                    await ConfigurePointInTimeAsync(searchDescriptor, query, options).AnyContext();
+                    break;
+            }
 
             if (query.ShouldOnlyHaveIds())
                 searchDescriptor.Source(false);
@@ -475,7 +491,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
         await OnAfterQueryAsync(query, options, result).AnyContext();
 
-        if (useSnapshotPaging && !result.HasMore)
+        if (pagingStrategy is PagingStrategy.Snapshot && !result.HasMore)
         {
             // clear the scroll
             string? scrollId = result.GetScrollId();
@@ -484,6 +500,13 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
                 var response = await _client.ClearScrollAsync(s => s.ScrollId(scrollId)).AnyContext();
                 _logger.LogRequest(response, options.GetQueryLogLevel());
             }
+        }
+
+        if (pagingStrategy is PagingStrategy.SearchAfterPointInTime && options.SafeGetOption<bool>(SearchAfterQueryExtensions.RepoManagedPitKey, false))
+        {
+            result.Data[ElasticDataKeys.RepoManagedPit] = true;
+            if (!result.HasMore)
+                await ClosePointInTimeAsync(result).AnyContext();
         }
 
         if (allowCaching && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
@@ -528,7 +551,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             options.SearchAfterToken(previousResults.GetSearchAfterToken(), ElasticIndex.Configuration.Serializer);
 
         if (options.ShouldUseSearchAfterPagingPointInTime())
+        {
             options.PointInTimeId(previousResults.GetPointInTimeId());
+            if (previousResults.Data.TryGetValue(ElasticDataKeys.RepoManagedPit, out var managed) && managed is true)
+                options.Values.Set(SearchAfterQueryExtensions.RepoManagedPitKey, true);
+        }
 
         options.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
         return await FindAsAsync<TResult>(query, options).AnyContext();
@@ -810,9 +837,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (String.IsNullOrEmpty(pointInTimeId))
             pointInTimeId = await OpenPointInTimeAsync(query, options).AnyContext();
 
-        if (String.IsNullOrEmpty(pointInTimeId))
-            return;
-
         search.Pit(new PointInTimeReference(pointInTimeId) { KeepAlive = options.GetSnapshotLifetime().ToElasticDuration() });
     }
 
@@ -829,6 +853,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (!response.IsValidResponse)
             throw new DocumentException(response.GetErrorMessage("Error while opening point in time"), response.OriginalException());
 
+        options.Values.Set(SearchAfterQueryExtensions.RepoManagedPitKey, true);
         return response.Id;
     }
 
@@ -850,10 +875,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
 
     protected virtual async Task<SearchRequestDescriptor<T>> ConfigureSearchDescriptorAsync(SearchRequestDescriptor<T> search, IRepositoryQuery query, ICommandOptions options)
     {
-
         query = ConfigureQuery(query.As<T>()).Unwrap();
         string[] indices = ElasticIndex.GetIndexesByQuery(query);
-        if (indices?.Length > 0 && !options.ShouldUseSearchAfterPagingPointInTime())
+        bool usePit = options.ShouldUseSearchAfterPagingPointInTime();
+        if (indices?.Length > 0 && !usePit)
             search.Indices(String.Join(",", indices));
         if (HasVersion)
             search.SeqNoPrimaryTerm(HasVersion);
@@ -864,7 +889,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             search.Timeout(timeout.ToElasticDuration());
         }
 
-        if (!options.ShouldUseSearchAfterPagingPointInTime())
+        if (!usePit)
             search.IgnoreUnavailable();
         search.TrackTotalHits(new TrackHits(options.ShouldTrackTotalHits()));
 
