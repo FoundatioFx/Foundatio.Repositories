@@ -365,6 +365,31 @@ public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
 }
 ```
 
+### In-Place Analysis Upgrades (analyzers/tokenizers/filters)
+
+When a `VersionedIndex` already exists and `ConfigureAsync` runs again, dynamic settings (including the
+`Analysis` block: analyzers, tokenizers, token filters, normalizers, char filters) are applied in place via
+`PutSettings(.Reopen())` rather than requiring a new index version. The reopen briefly closes and reopens the
+index so newly added analysis components take effect; existing documents are not reindexed, so the new
+component only applies to writes/queries after the upgrade.
+
+Before applying, `UpdateIndexAsync` diffs the desired analysis components against the live index and logs a
+`requires close/reopen` warning for each genuinely new component.
+
+**Analysis settings location — `Settings.Index.Analysis` vs root `Settings.Analysis`:** these are two
+different shapes of the same data:
+
+- **Read path (`GetSettingsAsync`)** returns analysis nested under the `index` key, i.e.
+  `response.Settings[name].Settings.Index.Analysis`. This is the canonical location for the *current* live
+  state and is what the diff reads. The root `Settings.Analysis` is **not** populated on reads.
+- **Write path (create/update request)** uses the root `Settings.Analysis` shape (what your
+  `ConfigureIndex(...).Analysis(...)` builds). This is the *desired* state sent to Elasticsearch.
+
+So the in-place diff compares desired root `Settings.Analysis` (from `ConfigureIndex`) against current
+`Settings.Index.Analysis` (from `GetSettingsAsync`). Reading the current set from the root `Settings.Analysis`
+returns nothing, which makes every existing component look new and falsely warns on every upgrade — always
+read current analysis from `Settings.Index.Analysis`.
+
 ### Query Field Restrictions
 
 ```csharp
