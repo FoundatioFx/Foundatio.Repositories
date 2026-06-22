@@ -5,7 +5,6 @@ using Foundatio.Messaging;
 using Foundatio.Repositories.Models;
 using Foundatio.Serializer;
 using Foundatio.Tests.Extensions;
-using Foundatio.Utility;
 using Xunit;
 
 namespace Foundatio.Repositories.Tests.Serialization.Models;

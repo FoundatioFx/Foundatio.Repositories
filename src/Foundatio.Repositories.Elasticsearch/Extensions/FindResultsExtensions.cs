@@ -9,7 +9,8 @@ public static class FindResultsExtensions
         return results.Data.GetString(ElasticDataKeys.ScrollId, null);
     }
 
-    public static string? GetPointInTimeId(this IHaveData results) {
+    public static string? GetPointInTimeId(this IHaveData results)
+    {
         return results.Data.GetString(ElasticDataKeys.PointInTimeId, null);
     }
 }

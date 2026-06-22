@@ -988,15 +988,21 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task FindWithSearchAfterPagingWithoutTrackTotalHitsAsync()
+    public async Task FindAsync_WithSearchAfterPagingAndTrackTotalHitsDisabled_DoesNotReturnExactTotal()
     {
+        // Arrange
         var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Charlie"), o => o.ImmediateConsistency());
-        Assert.NotNull(employee1?.Id);
+        Assert.NotNull(employee1);
+        Assert.NotNull(employee1.Id);
 
         var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
-        Assert.NotNull(employee2?.Id);
+        Assert.NotNull(employee2);
+        Assert.NotNull(employee2.Id);
 
+        // Act
         var results = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchAfterPaging().TrackTotalHits(false));
+
+        // Assert
         Assert.NotNull(results);
         Assert.Single(results.Documents);
         Assert.Equal(employee1.Id, results.Documents.First().Id);
@@ -1015,18 +1021,24 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task FindWithPointInTimeSearchAfterPagingAsync()
+    public async Task FindAsync_WithPointInTimePaging_KeepsConsistentSnapshotAcrossPages()
     {
+        // Arrange
         var employee1 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Charlie"), o => o.ImmediateConsistency());
-        Assert.NotNull(employee1?.Id);
+        Assert.NotNull(employee1);
+        Assert.NotNull(employee1.Id);
 
         var employee2 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
-        Assert.NotNull(employee2?.Id);
+        Assert.NotNull(employee2);
+        Assert.NotNull(employee2.Id);
 
         await _client.ClearScrollAsync(cancellationToken: TestCancellationToken);
         long baselineScrollCount = await GetCurrentScrollCountAsync();
 
+        // Act
         var results = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
+
+        // Assert
         Assert.NotNull(results);
         Assert.Single(results.Documents);
         Assert.Equal(employee1.Id, results.Documents.First().Id);
@@ -1036,7 +1048,8 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
         Assert.Equal(baselineScrollCount, await GetCurrentScrollCountAsync());
 
         var employee3 = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Aaron"), o => o.ImmediateConsistency());
-        Assert.NotNull(employee3?.Id);
+        Assert.NotNull(employee3);
+        Assert.NotNull(employee3.Id);
 
         Assert.True(await results.NextPageAsync());
         Assert.Single(results.Documents);
@@ -1050,8 +1063,9 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task CanUsePointInTimeSearchAfterPagingLikeWebCursorAsync()
+    public async Task FindAsync_WithPointInTimePaging_SupportsBidirectionalWebCursorNavigation()
     {
+        // Arrange
         var employees = new[] {
             await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Echo"), o => o.ImmediateConsistency()),
             await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Delta"), o => o.ImmediateConsistency()),
@@ -1063,10 +1077,12 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
 
         await _client.ClearScrollAsync(cancellationToken: TestCancellationToken);
         long baselineScrollCount = await GetCurrentScrollCountAsync();
+        var pit = (ISupportPointInTime)_employeeRepository;
         string? pointInTimeId = null;
 
         try
         {
+            // Act + Assert — navigate forward through pages
             var firstPage = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(2).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
             pointInTimeId = firstPage.GetPointInTimeId();
 
@@ -1079,7 +1095,8 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
             Assert.Equal(baselineScrollCount, await GetCurrentScrollCountAsync());
 
             var newEmployee = await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Foxtrot"), o => o.ImmediateConsistency());
-            Assert.NotNull(newEmployee?.Id);
+            Assert.NotNull(newEmployee);
+            Assert.NotNull(newEmployee.Id);
 
             var secondPage = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(2).SearchAfterPaging(SearchAfterPagingMode.PointInTime).PointInTimeId(pointInTimeId).SearchAfterToken(firstPage.GetSearchAfterToken(), _serializer).TrackTotalHits(false));
             pointInTimeId = secondPage.GetPointInTimeId();
@@ -1103,6 +1120,8 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
             Assert.DoesNotContain(thirdPage.Documents, e => e.Id == newEmployee.Id);
             Assert.Equal(baselineScrollCount, await GetCurrentScrollCountAsync());
 
+            // The caller supplied the PIT id, so the repo does NOT auto-close it even after the last page —
+            // this is the explicit counter-case for auto-close scoping.
             var backToSecondPage = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(2).SearchAfterPaging(SearchAfterPagingMode.PointInTime).PointInTimeId(pointInTimeId).SearchBeforeToken(thirdPage.GetSearchBeforeToken(), _serializer).TrackTotalHits(false));
             pointInTimeId = backToSecondPage.GetPointInTimeId();
 
@@ -1123,14 +1142,39 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
             Assert.False(String.IsNullOrEmpty(backToFirstPage.GetSearchAfterToken()));
             Assert.Equal(baselineScrollCount, await GetCurrentScrollCountAsync());
 
-            Assert.True(await ((EmployeeRepository)_employeeRepository).ClosePointInTimeAsync(pointInTimeId));
+            Assert.True(await pit.ClosePointInTimeAsync(pointInTimeId));
             pointInTimeId = null;
         }
         finally
         {
             if (!String.IsNullOrEmpty(pointInTimeId))
-                await ((EmployeeRepository)_employeeRepository).ClosePointInTimeAsync(pointInTimeId);
+                await pit.ClosePointInTimeAsync(pointInTimeId);
         }
+    }
+
+    [Fact]
+    public async Task FindAsync_WithPointInTimePagingPagedToCompletion_ClosesPointInTime()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Charlie"), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Aaron"), o => o.ImmediateConsistency());
+
+        await _client.ClearScrollAsync(cancellationToken: TestCancellationToken);
+        long baselineScrollCount = await GetCurrentScrollCountAsync();
+
+        // Act
+        var results = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
+        while (await results.NextPageAsync())
+        {
+        }
+
+        // Assert — PIT is closed by the repo without any manual ClosePointInTimeAsync call
+        Assert.False(results.HasMore);
+        string? finalPitId = results.GetPointInTimeId();
+        Assert.Equal(baselineScrollCount, await GetCurrentScrollCountAsync());
+        if (!String.IsNullOrEmpty(finalPitId))
+            Assert.False(await ((ISupportPointInTime)_employeeRepository).ClosePointInTimeAsync(finalPitId));
     }
 
     [Fact]
