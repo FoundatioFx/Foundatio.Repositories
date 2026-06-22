@@ -6,7 +6,6 @@ using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
-using Elastic.Clients.Elasticsearch.Analysis;
 using Elastic.Clients.Elasticsearch.Fluent;
 using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
@@ -238,11 +237,7 @@ public class Index : IIndex
         }
 
         var indexState = currentSettings.Settings.TryGetValue(name, out var indexSettings) ? indexSettings : null;
-        var currentAnalyzers = indexState?.Settings?.Analysis?.Analyzers ?? new Analyzers();
-        var currentTokenizers = indexState?.Settings?.Analysis?.Tokenizers ?? new Tokenizers();
-        var currentTokenFilters = indexState?.Settings?.Analysis?.TokenFilters ?? new TokenFilters();
-        var currentNormalizers = indexState?.Settings?.Analysis?.Normalizers ?? new Normalizers();
-        var currentCharFilters = indexState?.Settings?.Analysis?.CharFilters ?? new CharFilters();
+        var currentAnalysis = indexState?.Settings?.Index?.Analysis;
 
         // default to update dynamic index settings from the ConfigureIndex method
         var createIndexRequestDescriptor = new CreateIndexRequestDescriptor((IndexName)name);
@@ -260,55 +255,11 @@ public class Index : IIndex
         settings.Sort = null;
         settings.SoftDeletes = null;
 
-        if (settings.Analysis?.Analyzers is not null && currentAnalyzers is not null)
-        {
-            var currentKeys = currentAnalyzers.Select(kvp => kvp.Key).ToHashSet();
-            foreach (var analyzer in settings.Analysis.Analyzers.ToList())
-            {
-                if (!currentKeys.Contains(analyzer.Key))
-                    _logger.LogWarning("Adding new analyzer {AnalyzerKey} to existing index (requires close/reopen)", analyzer.Key);
-            }
-        }
-
-        if (settings.Analysis?.Tokenizers is not null && currentTokenizers is not null)
-        {
-            var currentKeys = currentTokenizers.Select(kvp => kvp.Key).ToHashSet();
-            foreach (var tokenizer in settings.Analysis.Tokenizers.ToList())
-            {
-                if (!currentKeys.Contains(tokenizer.Key))
-                    _logger.LogWarning("Adding new tokenizer {TokenizerKey} to existing index (requires close/reopen)", tokenizer.Key);
-            }
-        }
-
-        if (settings.Analysis?.TokenFilters is not null && currentTokenFilters is not null)
-        {
-            var currentKeys = currentTokenFilters.Select(kvp => kvp.Key).ToHashSet();
-            foreach (var tokenFilter in settings.Analysis.TokenFilters.ToList())
-            {
-                if (!currentKeys.Contains(tokenFilter.Key))
-                    _logger.LogWarning("Adding new token filter {TokenFilterKey} to existing index (requires close/reopen)", tokenFilter.Key);
-            }
-        }
-
-        if (settings.Analysis?.Normalizers is not null && currentNormalizers is not null)
-        {
-            var currentKeys = currentNormalizers.Select(kvp => kvp.Key).ToHashSet();
-            foreach (var normalizer in settings.Analysis.Normalizers.ToList())
-            {
-                if (!currentKeys.Contains(normalizer.Key))
-                    _logger.LogWarning("Adding new normalizer {NormalizerKey} to existing index (requires close/reopen)", normalizer.Key);
-            }
-        }
-
-        if (settings.Analysis?.CharFilters is not null && currentCharFilters is not null)
-        {
-            var currentKeys = currentCharFilters.Select(kvp => kvp.Key).ToHashSet();
-            foreach (var charFilter in settings.Analysis.CharFilters.ToList())
-            {
-                if (!currentKeys.Contains(charFilter.Key))
-                    _logger.LogWarning("Adding new char filter {CharFilterKey} to existing index (requires close/reopen)", charFilter.Key);
-            }
-        }
+        WarnOnNewAnalysisComponents(settings.Analysis?.Analyzers?.Select(kvp => kvp.Key), currentAnalysis?.Analyzers?.Select(kvp => kvp.Key), "analyzer");
+        WarnOnNewAnalysisComponents(settings.Analysis?.Tokenizers?.Select(kvp => kvp.Key), currentAnalysis?.Tokenizers?.Select(kvp => kvp.Key), "tokenizer");
+        WarnOnNewAnalysisComponents(settings.Analysis?.TokenFilters?.Select(kvp => kvp.Key), currentAnalysis?.TokenFilters?.Select(kvp => kvp.Key), "token filter");
+        WarnOnNewAnalysisComponents(settings.Analysis?.Normalizers?.Select(kvp => kvp.Key), currentAnalysis?.Normalizers?.Select(kvp => kvp.Key), "normalizer");
+        WarnOnNewAnalysisComponents(settings.Analysis?.CharFilters?.Select(kvp => kvp.Key), currentAnalysis?.CharFilters?.Select(kvp => kvp.Key), "char filter");
 
         var updateResponse = await Configuration.Client.Indices.PutSettingsAsync(name, d => d.Reopen().Settings(settings)).AnyContext();
 
@@ -316,6 +267,19 @@ public class Index : IIndex
             _logger.LogRequest(updateResponse);
         else
             _logger.LogErrorRequest(updateResponse, $"Error updating index ({name}) settings");
+    }
+
+    private void WarnOnNewAnalysisComponents(IEnumerable<string>? desiredKeys, IEnumerable<string>? currentKeys, string componentType)
+    {
+        if (desiredKeys is null)
+            return;
+
+        var existing = currentKeys?.ToHashSet() ?? new HashSet<string>();
+        foreach (string key in desiredKeys)
+        {
+            if (!existing.Contains(key))
+                _logger.LogWarning("Adding new {ComponentType} {ComponentKey} to existing index (requires close/reopen)", componentType, key);
+        }
     }
 
     protected virtual Task DeleteIndexAsync(string name)

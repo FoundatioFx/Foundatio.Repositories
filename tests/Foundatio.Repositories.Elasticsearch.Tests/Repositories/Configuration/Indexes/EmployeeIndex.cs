@@ -132,6 +132,46 @@ public sealed class EmployeeIndexWithYearsEmployed : Index<Employee>
     }
 }
 
+public class UpgradeableEmployeeIndex : VersionedIndex<Employee>
+{
+    public UpgradeableEmployeeIndex(IElasticConfiguration configuration, int version = 1)
+        : base(configuration, "employees", version) { }
+
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
+    {
+        base.ConfigureIndex(idx.Settings(s => s
+            .NumberOfReplicas(0)
+            .NumberOfShards(1)
+            .Analysis(a => a
+                .Analyzers(an => an.Custom("custom1", c => c.Filter("uppercase").Tokenizer("whitespace"))))));
+    }
+}
+
+public sealed class UpgradedEmployeeIndex : UpgradeableEmployeeIndex
+{
+    public UpgradedEmployeeIndex(IElasticConfiguration configuration, int version = 1)
+        : base(configuration, version) { }
+
+    public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
+    {
+        base.ConfigureIndex(idx);
+        // The second .Settings(...).Analyzers(...) call replaces the analyzers block from the base
+        // configuration rather than merging, so custom1 must be re-declared here for both analyzers to survive.
+        idx.Settings(s => s
+            .Analysis(a => a
+                .Tokenizers(t => t.CharGroup("comma_whitespace", cg => cg.TokenizeOnChars(",", "whitespace")))
+                .Analyzers(an => an
+                    .Custom("custom1", c => c.Filter("uppercase").Tokenizer("whitespace"))
+                    .Custom("custom2", c => c.Filter("lowercase").Tokenizer("comma_whitespace")))));
+    }
+
+    public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
+    {
+        base.ConfigureIndexMapping(map);
+        map.Properties(p => p.Text("upgradedField", t => t.Analyzer("custom2")));
+    }
+}
+
 public sealed class VersionedEmployeeIndex : VersionedIndex<Employee>
 {
     private readonly Action<CreateIndexRequestDescriptor>? _createIndex;
