@@ -237,6 +237,10 @@ public class Index : IIndex
         }
 
         var indexState = currentSettings.Settings.TryGetValue(name, out var indexSettings) ? indexSettings : null;
+
+        // GetSettingsAsync nests analysis settings under the "index" key (Settings.Index.Analysis); the root
+        // Settings.Analysis is the write-time shape used in create requests and is not populated on reads. Read
+        // from Settings.Index.Analysis so the diff below sees the components that already exist on the live index.
         var currentAnalysis = indexState?.Settings?.Index?.Analysis;
 
         // default to update dynamic index settings from the ConfigureIndex method
