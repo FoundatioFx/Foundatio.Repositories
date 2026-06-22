@@ -180,5 +180,4 @@ public static class ElasticDataKeys
     public const string Sorts = "sorts";
     public const string SearchBeforeToken = nameof(SearchBeforeToken);
     public const string SearchAfterToken = nameof(SearchAfterToken);
-    public const string RepoManagedPit = "repomanagedpit";
 }
