@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
@@ -22,6 +23,12 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public sealed class IndexTests : ElasticRepositoryTestBase
 {
+    // Each in-place upgrade test uses a distinct version so its "employees-vN" index name is unique and
+    // cannot collide with the other upgrade tests or with the v1/v2 indexes used elsewhere in this class.
+    private const int AddAnalyzerWarningVersion = 5;
+    private const int UpgradeInPlaceVersion = 6;
+    private const int NewAnalyzerUsableVersion = 7;
+
     public IndexTests(ITestOutputHelper output) : base(output)
     {
         Log.SetLogLevel<EmployeeRepository>(LogLevel.Trace);
@@ -614,6 +621,93 @@ public sealed class IndexTests : ElasticRepositoryTestBase
 
         await index2.ConfigureAsync();
         Assert.Contains(Log.LogEntries, l => l.LogLevel == LogLevel.Error && l.Message.Contains("requires a new index version"));
+    }
+
+    [Fact]
+    public async Task ConfigureAsync_WhenAddingNewAnalyzerToExistingIndex_LogsCloseReopenWarning()
+    {
+        // Arrange
+        var index = new UpgradeableEmployeeIndex(_configuration, AddAnalyzerWarningVersion);
+        await index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+        await index.ConfigureAsync();
+        Log.Reset();
+
+        // Act
+        var upgradedIndex = new UpgradedEmployeeIndex(_configuration, AddAnalyzerWarningVersion);
+        await upgradedIndex.ConfigureAsync();
+
+        // Assert
+        Assert.Contains(Log.LogEntries, l => l.LogLevel == LogLevel.Warning && l.Message.Contains("Adding new analyzer") && l.Message.Contains("custom2"));
+        Assert.Contains(Log.LogEntries, l => l.LogLevel == LogLevel.Warning && l.Message.Contains("Adding new tokenizer") && l.Message.Contains("comma_whitespace"));
+        Assert.DoesNotContain(Log.LogEntries, l => l.LogLevel == LogLevel.Warning && l.Message.Contains("Adding new analyzer") && l.Message.Contains("custom1"));
+    }
+
+    [Fact]
+    public async Task ConfigureAsync_WhenUpgradingInPlaceMultipleTimes_RetainsAllAnalyzersAndMappings()
+    {
+        // Arrange
+        var index = new UpgradeableEmployeeIndex(_configuration, UpgradeInPlaceVersion);
+        await index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+        await index.ConfigureAsync();
+
+        // Act
+        var upgradedIndex = new UpgradedEmployeeIndex(_configuration, UpgradeInPlaceVersion);
+        await upgradedIndex.ConfigureAsync();
+        await index.ConfigureAsync();
+
+        // Assert
+        var settings = await _client.Indices.GetSettingsAsync((Indices)index.VersionedName, cancellationToken: TestCancellationToken);
+        Assert.NotNull(settings.Settings);
+        var analyzers = settings.Settings[index.VersionedName].Settings?.Index?.Analysis?.Analyzers;
+        Assert.NotNull(analyzers);
+        Assert.NotNull(analyzers["custom1"]);
+        Assert.NotNull(analyzers["custom2"]);
+
+        var fieldMapping = await _client.Indices.GetFieldMappingAsync<Employee>(new Field("upgradedField"), d => d.Indices(index.VersionedName), cancellationToken: TestCancellationToken);
+        Assert.True(fieldMapping.IsValidResponse);
+        Assert.True(fieldMapping.FieldMappings.TryGetValue(index.VersionedName, out var indexMapping));
+        Assert.True(indexMapping.Mappings.ContainsKey("upgradedField"));
+    }
+
+    [Fact]
+    public async Task ConfigureAsync_AfterAddingAnalyzerToExistingIndex_NewAnalyzerIsUsable()
+    {
+        // Arrange
+        var index = new UpgradeableEmployeeIndex(_configuration, NewAnalyzerUsableVersion);
+        await index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+        await index.ConfigureAsync();
+
+        // Act
+        var upgradedIndex = new UpgradedEmployeeIndex(_configuration, NewAnalyzerUsableVersion);
+        await upgradedIndex.ConfigureAsync();
+
+        // Assert
+        var settings = await _client.Indices.GetSettingsAsync((Indices)index.VersionedName, cancellationToken: TestCancellationToken);
+        Assert.NotNull(settings.Settings[index.VersionedName].Settings?.Index?.Analysis?.Analyzers?["custom2"]);
+
+        // The new analyzer is applied via PutSettings(.Reopen()); refresh first, then allow a brief window for it to propagate to all shards.
+        await _client.Indices.RefreshAsync((Indices)index.VersionedName, cancellationToken: TestCancellationToken);
+        AnalyzeIndexResponse? analyzeResponse = null;
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            analyzeResponse = await _client.Indices.AnalyzeAsync((IndexName)index.VersionedName, a => a
+                .Analyzer("custom2")
+                .Text("Foo,Bar Baz"), TestCancellationToken);
+            if (analyzeResponse.IsValidResponse)
+                break;
+
+            await Task.Delay(250, TestCancellationToken);
+        }
+
+        Assert.NotNull(analyzeResponse);
+        _logger.LogRequest(analyzeResponse);
+        Assert.True(analyzeResponse.IsValidResponse, analyzeResponse.DebugInformation);
+        Assert.NotNull(analyzeResponse.Tokens);
+        var tokens = analyzeResponse.Tokens.Select(t => t.Token).ToList();
+        Assert.Equal(new[] { "foo", "bar", "baz" }, tokens);
     }
 
     [Fact]
