@@ -396,8 +396,10 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     {
         if (options.ShouldUseSearchAfterPagingPointInTime())
             return PagingStrategy.SearchAfterPointInTime;
+
         if (options.ShouldUseSnapshotPaging())
             return PagingStrategy.Snapshot;
+
         return PagingStrategy.Normal;
     }
 
@@ -405,7 +407,6 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     {
         options = ConfigureOptions(options?.As<T>());
         var pagingStrategy = GetPagingStrategy(options);
-        bool callerOwnsPointInTime = options.HasPointInTimeId();
         // don't use caching with paged modes.
         bool allowCaching = IsCacheEnabled && pagingStrategy is PagingStrategy.Normal;
 
@@ -502,11 +503,11 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             }
         }
 
-        if (pagingStrategy is PagingStrategy.SearchAfterPointInTime && options.SafeGetOption<bool>(SearchAfterQueryExtensions.RepoManagedPitKey, false))
+        if (pagingStrategy is PagingStrategy.SearchAfterPointInTime && !result.HasMore && options.IsRepoOwnedPointInTime())
         {
-            result.Data[ElasticDataKeys.RepoManagedPit] = true;
-            if (!result.HasMore)
-                await ClosePointInTimeAsync(result).AnyContext();
+            bool closed = await ClosePointInTimeAsync(result).AnyContext();
+            if (!closed)
+                _logger.LogWarning("Failed to close repository-owned point in time after paging completed; it will expire after its keep-alive window");
         }
 
         if (allowCaching && !result.IsAsyncQueryRunning() && !result.IsAsyncQueryPartial())
@@ -551,11 +552,7 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
             options.SearchAfterToken(previousResults.GetSearchAfterToken(), ElasticIndex.Configuration.Serializer);
 
         if (options.ShouldUseSearchAfterPagingPointInTime())
-        {
             options.PointInTimeId(previousResults.GetPointInTimeId());
-            if (previousResults.Data.TryGetValue(ElasticDataKeys.RepoManagedPit, out var managed) && managed is true)
-                options.Values.Set(SearchAfterQueryExtensions.RepoManagedPitKey, true);
-        }
 
         options.PageNumber(!options.HasPageNumber() ? 2 : options.GetPage() + 1);
         return await FindAsAsync<TResult>(query, options).AnyContext();
@@ -835,7 +832,12 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     {
         string? pointInTimeId = options.GetPointInTimeId();
         if (String.IsNullOrEmpty(pointInTimeId))
+        {
+            // The repository opened this point-in-time, so it owns its lifecycle and must auto-close it once paging completes.
+            // A caller-supplied point-in-time id is owned by the caller and is never auto-closed.
             pointInTimeId = await OpenPointInTimeAsync(query, options).AnyContext();
+            options.RepoOwnedPointInTime();
+        }
 
         search.Pit(new PointInTimeReference(pointInTimeId) { KeepAlive = options.GetSnapshotLifetime().ToElasticDuration() });
     }
@@ -853,7 +855,9 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
         if (!response.IsValidResponse)
             throw new DocumentException(response.GetErrorMessage("Error while opening point in time"), response.OriginalException());
 
-        options.Values.Set(SearchAfterQueryExtensions.RepoManagedPitKey, true);
+        if (String.IsNullOrEmpty(response.Id))
+            throw new DocumentException("Elasticsearch returned an empty point in time id");
+
         return response.Id;
     }
 
@@ -877,6 +881,8 @@ public abstract class ElasticReadOnlyRepositoryBase<T> : ISearchableReadOnlyRepo
     {
         query = ConfigureQuery(query.As<T>()).Unwrap();
         string[] indices = ElasticIndex.GetIndexesByQuery(query);
+        // A point-in-time pins the target index set at the moment it was opened, so the request must not also set
+        // Indices(...) or IgnoreUnavailable() - doing so conflicts with the pinned context.
         bool usePit = options.ShouldUseSearchAfterPagingPointInTime();
         if (indices?.Length > 0 && !usePit)
             search.Indices(String.Join(",", indices));

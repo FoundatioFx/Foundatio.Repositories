@@ -24,7 +24,7 @@ namespace Foundatio.Repositories
         internal const string SearchAfterKey = "@SearchAfter";
         internal const string SearchBeforeKey = "@SearchBefore";
         internal const string PointInTimeIdKey = "@PointInTimeId";
-        internal const string RepoManagedPitKey = "@RepoManagedPit";
+        internal const string RepoOwnedPointInTimeKey = "@RepoOwnedPointInTime";
 
         public static T SearchAfterPaging<T>(this T options, bool enabled = true) where T : ICommandOptions
         {
@@ -45,6 +45,11 @@ namespace Foundatio.Repositories
                 options.Values.Remove(PointInTimeIdKey);
 
             return options;
+        }
+
+        internal static T RepoOwnedPointInTime<T>(this T options, bool repoOwned = true) where T : ICommandOptions
+        {
+            return options.BuildOption(RepoOwnedPointInTimeKey, repoOwned);
         }
 
         public static T SearchAfter<T>(this T options, params object[] values) where T : ICommandOptions
@@ -140,6 +145,11 @@ namespace Foundatio.Repositories.Options
         public static bool HasPointInTimeId(this ICommandOptions options)
         {
             return !String.IsNullOrEmpty(options.GetPointInTimeId());
+        }
+
+        internal static bool IsRepoOwnedPointInTime(this ICommandOptions options)
+        {
+            return options.SafeGetOption<bool>(SearchAfterQueryExtensions.RepoOwnedPointInTimeKey, false);
         }
 
         public static object[]? GetSearchAfter(this ICommandOptions options)
