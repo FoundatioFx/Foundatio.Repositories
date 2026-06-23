@@ -1327,20 +1327,39 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             }, options).AnyContext();
         }
 
-        var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(ElasticIndex.Name)
-        {
-            Refresh = options.GetRefreshMode(DefaultConsistency) != Refresh.False,
-            Conflicts = Conflicts.Proceed,
-            Query = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchRequestDescriptor<T>()).AnyContext()
-        }).AnyContext();
-        _logger.LogRequest(response, options.GetQueryLogLevel());
+        // Elasticsearch's delete-by-query snapshots document versions when it begins and skips any document
+        // whose version changed before the delete executes (counted as a version conflict via Conflicts.Proceed).
+        // Unlike single-document updates, delete-by-query does not support retry_on_conflict, so we re-run the
+        // query at the application level until no conflicts remain or the retry budget is exhausted.
+        var esQuery = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchRequestDescriptor<T>()).AnyContext();
+        var indices = Indices.Index(String.Join(",", ElasticIndex.GetIndexesByQuery(query)));
+        int maxAttempts = options.GetRetryCount();
+        int attempt = 0;
+        long totalDeleted = 0;
+        long lastConflicts;
 
-        if (!response.IsValidResponse)
+        do
         {
-            throw new DocumentException(response.GetErrorMessage("Error removing documents"), response.OriginalException());
+            attempt++;
+            var response = await _client.DeleteByQueryAsync(new DeleteByQueryRequest(indices)
+            {
+                // Force a refresh on retry passes so the next snapshot observes the resolved versions and converges.
+                Refresh = attempt > 1 || options.GetRefreshMode(DefaultConsistency) != Refresh.False,
+                Conflicts = Conflicts.Proceed,
+                IgnoreUnavailable = true,
+                Query = esQuery
+            }, DisposedCancellationToken).AnyContext();
+            _logger.LogRequest(response, options.GetQueryLogLevel());
+
+            if (!response.IsValidResponse)
+                throw new DocumentException(response.GetErrorMessage("Error removing documents"), response.OriginalException());
+
+            totalDeleted += response.Deleted ?? 0;
+            lastConflicts = response.VersionConflicts ?? 0;
         }
+        while (lastConflicts > 0 && attempt < maxAttempts && !DisposedCancellationToken.IsCancellationRequested);
 
-        if (response.Deleted.HasValue && response.Deleted > 0)
+        if (totalDeleted > 0)
         {
             if (IsCacheEnabled)
                 await InvalidateCacheByQueryAsync(query.As<T>()).AnyContext();
@@ -1349,10 +1368,10 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
             await SendQueryNotificationsAsync(ChangeType.Removed, query, options).AnyContext();
         }
 
-        if (response.Total != response.Deleted)
-            _logger.LogWarning("RemoveAll: {Deleted} of {Total} records were removed ({Conflicts} version conflicts)", response.Deleted, response.Total, response.VersionConflicts);
+        if (lastConflicts > 0)
+            _logger.LogWarning("RemoveAll: {Deleted} records removed after {Attempts} attempts ({Conflicts} unresolved version conflicts)", totalDeleted, attempt, lastConflicts);
 
-        return response.Deleted ?? 0;
+        return totalDeleted;
     }
 
     public Task<long> BatchProcessAsync(RepositoryQueryDescriptor<T> query, Func<FindResults<T>, Task<bool>> processFunc, CommandOptionsDescriptor<T>? options = null)

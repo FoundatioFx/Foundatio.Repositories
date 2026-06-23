@@ -204,6 +204,12 @@ long deleted = await repository.RemoveAllAsync(
     q => q.FieldEquals(e => e.Department, "Sales"));
 ```
 
+::: tip Version Conflicts and Retries
+When no event listeners are registered and caching is disabled, `RemoveAllAsync` uses Elasticsearch's `delete_by_query`. This API snapshots document versions when it begins and skips any document modified before the delete executes, counting it as a version conflict. Because `delete_by_query` does not support `retry_on_conflict`, the repository automatically re-runs the query up to the configured retry count (default `10`, override with `o.Retry(n)`) until no conflicts remain.
+
+The returned count is the cumulative number of documents deleted across all attempts. If conflicts persist after the retry budget is exhausted, a warning is logged and the partial count is returned; no exception is thrown.
+:::
+
 ### Soft Delete vs Hard Delete
 
 If your entity implements `ISupportSoftDeletes`:
