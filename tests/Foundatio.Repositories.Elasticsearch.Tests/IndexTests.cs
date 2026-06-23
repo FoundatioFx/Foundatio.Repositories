@@ -662,8 +662,8 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         Assert.NotNull(settings.Settings);
         var analyzers = settings.Settings[index.VersionedName].Settings?.Index?.Analysis?.Analyzers;
         Assert.NotNull(analyzers);
-        Assert.NotNull(analyzers["custom1"]);
-        Assert.NotNull(analyzers["custom2"]);
+        Assert.Contains("custom1", analyzers.Select(a => a.Key));
+        Assert.Contains("custom2", analyzers.Select(a => a.Key));
 
         var fieldMapping = await _client.Indices.GetFieldMappingAsync<Employee>(new Field("upgradedField"), d => d.Indices(index.VersionedName), cancellationToken: TestCancellationToken);
         Assert.True(fieldMapping.IsValidResponse);
@@ -703,10 +703,11 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         }
 
         Assert.NotNull(analyzeResponse);
-        _logger.LogRequest(analyzeResponse);
-        Assert.True(analyzeResponse.IsValidResponse, analyzeResponse.DebugInformation);
-        Assert.NotNull(analyzeResponse.Tokens);
-        var tokens = analyzeResponse.Tokens.Select(t => t.Token).ToList();
+        var response = analyzeResponse;
+        _logger.LogRequest(response);
+        Assert.True(response.IsValidResponse, response.DebugInformation);
+        Assert.NotNull(response.Tokens);
+        var tokens = response.Tokens.Select(t => t.Token).ToList();
         Assert.Equal(new[] { "foo", "bar", "baz" }, tokens);
     }
 

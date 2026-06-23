@@ -279,11 +279,8 @@ public class Index : IIndex
             return;
 
         var existing = currentKeys?.ToHashSet() ?? new HashSet<string>();
-        foreach (string key in desiredKeys)
-        {
-            if (!existing.Contains(key))
-                _logger.LogWarning("Adding new {ComponentType} {ComponentKey} to existing index (requires close/reopen)", componentType, key);
-        }
+        foreach (string key in desiredKeys.Where(key => !existing.Contains(key)))
+            _logger.LogWarning("Adding new {ComponentType} {ComponentKey} to existing index (requires close/reopen)", componentType, key);
     }
 
     protected virtual Task DeleteIndexAsync(string name)
