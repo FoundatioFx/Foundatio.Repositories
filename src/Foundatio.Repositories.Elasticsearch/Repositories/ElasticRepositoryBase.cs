@@ -1333,7 +1333,7 @@ public abstract class ElasticRepositoryBase<T> : ElasticReadOnlyRepositoryBase<T
         // query at the application level until no conflicts remain or the retry budget is exhausted.
         var esQuery = await ElasticIndex.QueryBuilder.BuildQueryAsync(query, options, new SearchRequestDescriptor<T>()).AnyContext();
         var indices = Indices.Index(String.Join(",", ElasticIndex.GetIndexesByQuery(query)));
-        int maxAttempts = options.GetRetryCount();
+        int maxAttempts = options.GetRetryCount() + 1;
         int attempt = 0;
         long totalDeleted = 0;
         long lastConflicts;

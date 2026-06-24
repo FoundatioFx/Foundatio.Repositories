@@ -3138,6 +3138,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
     [Fact]
     public async Task RemoveAllAsync_DeleteByQuery_ReturnsPartialCountAndLogsWarnWhenConflictsNeverResolve()
     {
+        Log.Reset();
+        Log.SetLogLevel<IdentityWithNoCachingRepository>(LogLevel.Trace);
+
         // Arrange
         const int COUNT = 1000;
         var identities = IdentityGenerator.GenerateIdentities(COUNT);
@@ -3155,6 +3158,7 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
 
         // Assert — a partial (or full) count is returned without throwing.
         Assert.True(deleted >= 0 && deleted <= COUNT);
+        Assert.Contains(Log.LogEntries, l => l.LogLevel == LogLevel.Warning && l.Message.Contains("unresolved version conflicts"));
     }
 
     [Fact]
@@ -3214,11 +3218,13 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
                     {
                         await _identityRepositoryWithNoCaching.PatchAsync(id, new ScriptPatch("ctx._source.name = ctx._id;"), o => o.Consistency(Consistency.Eventual).Notifications(false));
                     }
-                    catch (DocumentNotFoundException)
+                    catch (DocumentNotFoundException ex)
                     {
+                        Trace.WriteLine($"Ignoring {nameof(DocumentNotFoundException)} while generating delete-by-query conflicts: {ex.Message}");
                     }
-                    catch (VersionConflictDocumentException)
+                    catch (VersionConflictDocumentException ex)
                     {
+                        Trace.WriteLine($"Ignoring {nameof(VersionConflictDocumentException)} while generating delete-by-query conflicts: {ex.Message}");
                     }
                 }
             }
@@ -3232,8 +3238,9 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         {
             await writer;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
+            Trace.WriteLine($"Writer cancellation expected during teardown: {ex.Message}");
         }
     }
 }
