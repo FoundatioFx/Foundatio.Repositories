@@ -3151,12 +3151,16 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         var subset = identities.Take(100).Select(i => i.Id).ToArray();
         var writer = StartConflictWriterAsync(subset, writerCancellation.Token);
 
-        // Act — a single retry attempt cannot resolve persistent conflicts; the method must not throw.
-        long deleted = await _identityRepositoryWithNoCaching.RemoveAllAsync(o => o.ImmediateConsistency().Retry(1));
+        // Give the writer a head start so it is actively patching documents before the delete begins,
+        // guaranteeing at least one version conflict on the single pass.
+        await Task.Delay(100, TestCancellationToken);
+
+        // Act — Retry(0) means exactly one delete-by-query pass.  Any conflict that occurs triggers the warning.
+        long deleted = await _identityRepositoryWithNoCaching.RemoveAllAsync(o => o.ImmediateConsistency().Retry(0));
 
         await StopWriterAsync(writerCancellation, writer);
 
-        // Assert — a partial (or full) count is returned without throwing.
+        // Assert — a partial (or full) count is returned without throwing, and the unresolved-conflicts warning was emitted.
         Assert.True(deleted >= 0 && deleted <= COUNT);
         Assert.Contains(Log.LogEntries, l => l.LogLevel == LogLevel.Warning && l.Message.Contains("unresolved version conflicts"));
     }
@@ -3227,6 +3231,10 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
                         Trace.WriteLine($"Ignoring {nameof(VersionConflictDocumentException)} while generating delete-by-query conflicts: {ex.Message}");
                     }
                 }
+
+                // Yield between passes to avoid monopolising the thread pool and to give the scheduler
+                // a chance to run the delete-under-test concurrently.
+                await Task.Yield();
             }
         }, cancellationToken);
     }
