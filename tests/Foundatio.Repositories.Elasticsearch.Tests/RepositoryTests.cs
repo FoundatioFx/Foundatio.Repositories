@@ -3083,4 +3083,172 @@ public sealed class RepositoryTests : ElasticRepositoryTestBase
         var count = await repository.CountAsync(o => o.ImmediateConsistency());
         Assert.Equal(0, count);
     }
+
+    [Fact]
+    public async Task RemoveAllAsync_DeleteByQuery_AccumulatesDeletedCountAcrossConflictRetries()
+    {
+        // Arrange
+        const int COUNT = 1000;
+        var identities = IdentityGenerator.GenerateIdentities(COUNT);
+        await _identityRepositoryWithNoCaching.AddAsync(identities, o => o.ImmediateConsistency());
+        Assert.Equal(COUNT, await _identityRepositoryWithNoCaching.CountAsync());
+
+        // Concurrently patch a subset to bump their versions while the delete is running, forcing
+        // delete-by-query version conflicts on early passes. Patching (unlike SaveAsync) never resurrects
+        // a deleted document — it throws DocumentNotFoundException — so the writer stops naturally and the
+        // total deleted converges on COUNT.
+        using var writerCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var subset = identities.Take(50).Select(i => i.Id).ToArray();
+        var writer = StartConflictWriterAsync(subset, writerCancellation.Token);
+
+        // Act — the retry loop accumulates the deleted count across all passes.
+        long deleted = await _identityRepositoryWithNoCaching.RemoveAllAsync(o => o.ImmediateConsistency());
+
+        await StopWriterAsync(writerCancellation, writer);
+
+        // Assert — every seeded document is deleted exactly once and the returned count is the cumulative total.
+        Assert.Equal(COUNT, deleted);
+        Assert.Equal(0, await _identityRepositoryWithNoCaching.CountAsync());
+    }
+
+    [Fact]
+    public async Task RemoveAllAsync_DeleteByQuery_FiresNotificationsOnceAfterAllRetries()
+    {
+        // Arrange
+        const int COUNT = 500;
+        var identities = IdentityGenerator.GenerateIdentities(COUNT);
+        await _identityRepositoryWithNoCaching.AddAsync(identities, o => o.ImmediateConsistency());
+        _messageBus.ResetMessagesSent();
+
+        using var writerCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var subset = identities.Take(50).Select(i => i.Id).ToArray();
+        var writer = StartConflictWriterAsync(subset, writerCancellation.Token);
+
+        // Act
+        await _identityRepositoryWithNoCaching.RemoveAllAsync(o => o.ImmediateConsistency());
+
+        await StopWriterAsync(writerCancellation, writer);
+
+        // Assert — side effects fire once per call (not once per retry pass). The delete-by-query path emits
+        // both a per-document removal notification (empty id set) and a query-scoped notification: two messages
+        // total, regardless of how many retry passes were needed to clear conflicts.
+        Assert.Equal(2, _messageBus.MessagesSent);
+    }
+
+    [Fact]
+    public async Task RemoveAllAsync_DeleteByQuery_ReturnsPartialCountAndLogsWarnWhenConflictsNeverResolve()
+    {
+        Log.Reset();
+        Log.SetLogLevel<IdentityWithNoCachingRepository>(LogLevel.Trace);
+
+        // Arrange
+        const int COUNT = 1000;
+        var identities = IdentityGenerator.GenerateIdentities(COUNT);
+        await _identityRepositoryWithNoCaching.AddAsync(identities, o => o.ImmediateConsistency());
+
+        // A writer that never stops keeps bumping versions so conflicts persist across passes.
+        using var writerCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var subset = identities.Take(100).Select(i => i.Id).ToArray();
+        var writer = StartConflictWriterAsync(subset, writerCancellation.Token);
+
+        // Give the writer a head start so it is actively patching documents before the delete begins,
+        // guaranteeing at least one version conflict on the single pass.
+        await Task.Delay(100, TestCancellationToken);
+
+        // Act — Retry(0) means exactly one delete-by-query pass.  Any conflict that occurs triggers the warning.
+        long deleted = await _identityRepositoryWithNoCaching.RemoveAllAsync(o => o.ImmediateConsistency().Retry(0));
+
+        await StopWriterAsync(writerCancellation, writer);
+
+        // Assert — a partial (or full) count is returned without throwing, and the unresolved-conflicts warning was emitted.
+        Assert.True(deleted >= 0 && deleted <= COUNT);
+        Assert.Contains(Log.LogEntries, l => l.LogLevel == LogLevel.Warning && l.Message.Contains("unresolved version conflicts"));
+    }
+
+    [Fact]
+    public async Task RemoveAllAsync_DeleteByQuery_RetriesUntilNoConflictsAndDeletesAllDocuments()
+    {
+        // Arrange
+        const int COUNT = 1000;
+        var identities = IdentityGenerator.GenerateIdentities(COUNT);
+        await _identityRepositoryWithNoCaching.AddAsync(identities, o => o.ImmediateConsistency());
+        Assert.Equal(COUNT, await _identityRepositoryWithNoCaching.CountAsync());
+
+        using var writerCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var subset = identities.Take(50).Select(i => i.Id).ToArray();
+        var writer = StartConflictWriterAsync(subset, writerCancellation.Token);
+
+        // Act — the bounded retry loop converges once the writer can no longer bump surviving documents.
+        long deleted = await _identityRepositoryWithNoCaching.RemoveAllAsync(o => o.ImmediateConsistency());
+
+        await StopWriterAsync(writerCancellation, writer);
+
+        // Assert
+        Assert.Equal(COUNT, deleted);
+        Assert.Equal(0, await _identityRepositoryWithNoCaching.CountAsync());
+    }
+
+    [Fact]
+    public async Task RemoveAllAsync_DeleteByQuery_SkipsRetryWhenNoVersionConflicts()
+    {
+        // Arrange
+        const int COUNT = 100;
+        await _identityRepositoryWithNoCaching.AddAsync(IdentityGenerator.GenerateIdentities(COUNT), o => o.ImmediateConsistency());
+        Assert.Equal(COUNT, await _identityRepositoryWithNoCaching.CountAsync());
+
+        // Act — no concurrent writer, so the delete completes in a single pass with no conflicts.
+        long deleted = await _identityRepositoryWithNoCaching.RemoveAllAsync(o => o.ImmediateConsistency());
+
+        // Assert
+        Assert.Equal(COUNT, deleted);
+        Assert.Equal(0, await _identityRepositoryWithNoCaching.CountAsync());
+    }
+
+    private Task StartConflictWriterAsync(string[] ids, CancellationToken cancellationToken)
+    {
+        // Patches (rather than saves) the given documents in a tight loop to bump their versions and induce
+        // delete-by-query version conflicts. Patching a document that has already been deleted throws
+        // DocumentNotFoundException instead of resurrecting it, so the writer never recreates removed documents.
+        return Task.Run(async () =>
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                foreach (string id in ids)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                        return;
+
+                    try
+                    {
+                        await _identityRepositoryWithNoCaching.PatchAsync(id, new ScriptPatch("ctx._source.name = ctx._id;"), o => o.Consistency(Consistency.Eventual).Notifications(false));
+                    }
+                    catch (DocumentNotFoundException ex)
+                    {
+                        Trace.WriteLine($"Ignoring {nameof(DocumentNotFoundException)} while generating delete-by-query conflicts: {ex.Message}");
+                    }
+                    catch (VersionConflictDocumentException ex)
+                    {
+                        Trace.WriteLine($"Ignoring {nameof(VersionConflictDocumentException)} while generating delete-by-query conflicts: {ex.Message}");
+                    }
+                }
+
+                // Yield between passes to avoid monopolising the thread pool and to give the scheduler
+                // a chance to run the delete-under-test concurrently.
+                await Task.Yield();
+            }
+        }, cancellationToken);
+    }
+
+    private static async Task StopWriterAsync(CancellationTokenSource cancellation, Task writer)
+    {
+        await cancellation.CancelAsync();
+        try
+        {
+            await writer;
+        }
+        catch (OperationCanceledException ex)
+        {
+            Trace.WriteLine($"Writer cancellation expected during teardown: {ex.Message}");
+        }
+    }
 }

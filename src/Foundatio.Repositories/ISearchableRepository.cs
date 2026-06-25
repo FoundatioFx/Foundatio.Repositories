@@ -40,6 +40,16 @@ public interface ISearchableRepository<T> : IRepository<T>, ISearchableReadOnlyR
     /// <param name="query">An object containing filter criteria used to enforce tenancy or other system-level filters.</param>
     /// <param name="options">Options to control caching, notifications, and other behaviors.</param>
     /// <returns>The number of documents removed.</returns>
+    /// <remarks>
+    /// <para>When no event listeners are registered and caching is disabled, removal uses Elasticsearch's
+    /// delete-by-query, which snapshots document versions and skips any document modified before the delete
+    /// executes (a version conflict). Because delete-by-query does not support <c>retry_on_conflict</c>, the
+    /// query is re-run up to <c>o.Retry(n)</c> additional times (default 10 retries, i.e. up to 11 total
+    /// passes) until no conflicts remain. The returned count is the cumulative number of documents deleted
+    /// across all passes.</para>
+    /// <para>If conflicts persist after the retry budget is exhausted, a warning is logged and the partial
+    /// count is returned; no exception is thrown.</para>
+    /// </remarks>
     Task<long> RemoveAllAsync(RepositoryQueryDescriptor<T> query, CommandOptionsDescriptor<T>? options = null);
 
     /// <inheritdoc cref="RemoveAllAsync(RepositoryQueryDescriptor{T}, CommandOptionsDescriptor{T})"/>

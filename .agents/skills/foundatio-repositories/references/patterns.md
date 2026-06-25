@@ -238,6 +238,8 @@ var employees = await repository.GetByIdsAsync(ids, o => o.Cache());
 bool exists = await repository.ExistsAsync(id);
 ```
 
+**Gotcha:** When caching is disabled and no event listeners are registered, `RemoveAllAsync` uses Elasticsearch `delete_by_query`, which counts (and skips) version conflicts when concurrent writes modify matching documents. Since `delete_by_query` has no `retry_on_conflict`, the repository re-runs the query up to `o.Retry(n)` times (default 10) until conflicts clear. The returned count is the cumulative number deleted across attempts; if conflicts persist after the retry budget, a warning is logged and the partial count is returned (no exception).
+
 ## Command Options
 
 | Option                          | Purpose                                      |
