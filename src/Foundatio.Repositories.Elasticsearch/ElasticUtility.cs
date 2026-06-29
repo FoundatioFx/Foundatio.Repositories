@@ -120,7 +120,9 @@ public class ElasticUtility
     public async Task<ICollection<string>> GetIndexListAsync()
     {
         // Note: ResolveIndexAsync sends a body in ES 9.x client which ES rejects; use GetAsync instead.
-        var response = await _client.Indices.GetAsync(Indices.All, d => d.IgnoreUnavailable()).AnyContext();
+        // Request only the index names (no mappings/settings) to avoid materializing mappings for every
+        // index in the cluster. See ElasticIndexExtensions.CreateGetIndexNamesRequest.
+        var response = await _client.Indices.GetAsync(ElasticIndexExtensions.CreateGetIndexNamesRequest(Indices.All, ignoreUnavailable: true)).AnyContext();
         _logger.LogRequest(response);
         if (!response.IsValidResponse || response.Indices is null)
         {

@@ -370,7 +370,10 @@ public class VersionedIndex : Index, IVersionedIndex
             filter += "-*";
 
         var sw = Stopwatch.StartNew();
-        var response = await Configuration.Client.Indices.GetAsync((Indices)(IndexName)filter).AnyContext();
+        // Only the index names are needed here (aliases are fetched separately below), so request a
+        // names-only response to avoid materializing mappings for every matching index. See
+        // ElasticIndexExtensions.CreateGetIndexNamesRequest / https://github.com/elastic/elasticsearch-net/issues/8919.
+        var response = await Configuration.Client.Indices.GetAsync(ElasticIndexExtensions.CreateGetIndexNamesRequest((Indices)(IndexName)filter)).AnyContext();
         sw.Stop();
         _logger.LogRequest(response);
 

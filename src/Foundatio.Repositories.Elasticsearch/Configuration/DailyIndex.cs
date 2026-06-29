@@ -451,7 +451,10 @@ public class DailyIndex : VersionedIndex
     protected TypeMapping? GetLatestIndexMapping()
     {
         string filter = $"{Name}-v{Version}-*";
-        var indicesResponse = Configuration.Client.Indices.Get((Indices)(IndexName)filter);
+        // Resolve matching index names without materializing their (potentially huge) mappings; the
+        // latest index's mapping is fetched on its own below via GetMapping. See
+        // ElasticIndexExtensions.CreateGetIndexNamesRequest / https://github.com/elastic/elasticsearch-net/issues/8919.
+        var indicesResponse = Configuration.Client.Indices.Get(ElasticIndexExtensions.CreateGetIndexNamesRequest((Indices)(IndexName)filter));
         if (!indicesResponse.IsValidResponse)
         {
             if (indicesResponse.ElasticsearchServerError?.Status == 404)
