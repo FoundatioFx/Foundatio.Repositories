@@ -6,6 +6,7 @@ using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.AsyncSearch;
 using Elastic.Clients.Elasticsearch.Core.Bulk;
 using Elastic.Clients.Elasticsearch.Core.Search;
+using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
@@ -22,6 +23,31 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 public static class ElasticIndexExtensions
 {
+    /// <summary>
+    /// Builds a <see cref="GetIndexRequest"/> that resolves the names of the indexes matching
+    /// <paramref name="indices"/> without materializing their mappings or settings.
+    /// </summary>
+    /// <param name="indices">The index name(s) or pattern(s) to resolve (e.g. a wildcard or <c>Indices.All</c>).</param>
+    /// <param name="ignoreUnavailable">When <see langword="true"/>, missing or closed indexes are ignored instead of producing an error.</param>
+    /// <remarks>
+    /// Requesting only the <see cref="Feature.Aliases"/> feature (together with
+    /// <c>IncludeDefaults = false</c>) tells Elasticsearch to omit the large <c>mappings</c> and
+    /// <c>settings</c> sections from the response. This avoids the substantial memory amplification
+    /// the typed client incurs while deserializing mappings for every matching index, which can
+    /// throw an <see cref="OutOfMemoryException"/> when a pattern matches many indexes that each have
+    /// large mappings. The response still exposes every matching index name via its <c>Indices</c>
+    /// keys. See https://github.com/elastic/elasticsearch-net/issues/8919.
+    /// </remarks>
+    internal static GetIndexRequest CreateGetIndexNamesRequest(Indices indices, bool ignoreUnavailable = false)
+    {
+        return new GetIndexRequest(indices)
+        {
+            Features = [Feature.Aliases],
+            IncludeDefaults = false,
+            IgnoreUnavailable = ignoreUnavailable ? true : null
+        };
+    }
+
     public static SubmitAsyncSearchRequest ToAsyncSearchSubmitRequest<T>(this SearchRequest searchRequest) where T : class, new()
     {
         var asyncSearchRequest = new SubmitAsyncSearchRequest(searchRequest.Indices)

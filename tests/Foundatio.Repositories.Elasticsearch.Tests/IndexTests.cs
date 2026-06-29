@@ -83,6 +83,50 @@ public sealed class IndexTests : ElasticRepositoryTestBase
         }
     }
 
+    [Fact]
+    public async Task ResolvingDailyIndexNamesDoesNotMaterializeMappingsAsync()
+    {
+        // Regression guard for elastic/elasticsearch-net#8919: resolving the names of the indexes that
+        // match a wildcard must not materialize every matching index's (potentially huge) mappings. The
+        // library requests only the aliases feature so Elasticsearch omits the mappings/settings content
+        // while still returning every matching index name.
+        var utcNow = new DateTime(2024, 1, 15, 0, 0, 0, DateTimeKind.Utc);
+        _configuration.TimeProvider = new FakeTimeProvider(new DateTimeOffset(utcNow, TimeSpan.Zero));
+        var index = new DailyEmployeeIndex(_configuration, 1);
+        await index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+        await index.ConfigureAsync();
+        IEmployeeRepository repository = new EmployeeRepository(index);
+
+        await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow), o => o.ImmediateConsistency());
+        await repository.AddAsync(EmployeeGenerator.Generate(createdUtc: utcNow.SubtractDays(2)), o => o.ImmediateConsistency());
+
+        var pattern = (Indices)(IndexName)$"{index.Name}-v{index.Version}-*";
+
+        // A full request returns the same index names but materializes the mappings for every index.
+        var fullResponse = await _client.Indices.GetAsync(pattern, cancellationToken: TestCancellationToken);
+        _logger.LogRequest(fullResponse);
+        Assert.True(fullResponse.IsValidResponse);
+        var expectedNames = fullResponse.Indices.Keys.Select(k => k.ToString()).OrderBy(n => n).ToList();
+        Assert.True(expectedNames.Count >= 2);
+        Assert.Contains(fullResponse.Indices.Values, s => s.Mappings?.Properties is not null && s.Mappings.Properties.Any());
+
+        // The names-only request resolves the identical set of index names...
+        var namesResponse = await _client.Indices.GetAsync(ElasticIndexExtensions.CreateGetIndexNamesRequest(pattern), cancellationToken: TestCancellationToken);
+        _logger.LogRequest(namesResponse);
+        Assert.True(namesResponse.IsValidResponse);
+        var actualNames = namesResponse.Indices.Keys.Select(k => k.ToString()).OrderBy(n => n).ToList();
+        Assert.Equal(expectedNames, actualNames);
+
+        // ...but only requests the aliases feature so the large mappings are never sent or deserialized.
+        Assert.NotNull(namesResponse.ApiCallDetails?.Uri);
+        string query = namesResponse.ApiCallDetails.Uri.Query;
+        Assert.Contains("features=aliases", query);
+        Assert.Contains("include_defaults=false", query);
+        Assert.All(namesResponse.Indices.Values, s => Assert.True(s.Mappings?.Properties is null || !s.Mappings.Properties.Any()));
+    }
+
     [Theory]
     [MemberData(nameof(AliasesDatesToCheck))]
     public async Task CanCreateMonthlyAliasesAsync(DateTime utcNow)

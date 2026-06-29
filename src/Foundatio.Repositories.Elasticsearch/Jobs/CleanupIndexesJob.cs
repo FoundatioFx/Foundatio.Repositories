@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Transport;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Jobs;
 using Foundatio.Lock;
@@ -56,8 +57,12 @@ public class CleanupIndexesJob : IJob
 
         var sw = Stopwatch.StartNew();
         // Note: ResolveIndexAsync sends a body in ES 9.x client which ES rejects; use GetAsync instead.
-        var result = await _client.Indices.GetAsync(Indices.All,
-            d => d.IgnoreUnavailable().RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
+        // Request only the index names (no mappings/settings) so listing every index in the cluster does
+        // not materialize their mappings. See ElasticIndexExtensions.CreateGetIndexNamesRequest /
+        // https://github.com/elastic/elasticsearch-net/issues/8919.
+        var request = ElasticIndexExtensions.CreateGetIndexNamesRequest(Indices.All, ignoreUnavailable: true);
+        request.RequestConfiguration = new RequestConfiguration { RequestTimeout = TimeSpan.FromMinutes(5) };
+        var result = await _client.Indices.GetAsync(request, cancellationToken).AnyContext();
         sw.Stop();
 
         if (result.IsValidResponse)
