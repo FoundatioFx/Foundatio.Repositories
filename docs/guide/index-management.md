@@ -351,7 +351,7 @@ When you use `VersionedIndex<T>`, the library manages schema evolution through a
 
 1. **Index Naming**: Each version creates a separate index (e.g., `employees-v1`, `employees-v2`)
 2. **Alias Management**: An alias (`employees`) always points to the current version
-3. **Automatic Reindexing**: When you increment the version, data is automatically migrated
+3. **Reindexing**: When you increment the version, data is migrated by a reindex — but that reindex has to be explicitly triggered (see [What actually triggers a reindex](#what-actually-triggers-a-reindex)); nothing runs it for you automatically
 
 ```mermaid
 graph LR
@@ -373,7 +373,7 @@ Only increment the version when you need to **change an existing field's mapping
 The steps below describe a single-index type (`Index<T>` / `VersionedIndex<T>`), where one physical index is swapped. For `DailyIndex` / `MonthlyIndex`, the same steps run **per dated partition, one at a time** — see [Version Upgrades for Time-Series Indexes](#version-upgrades-for-time-series-indexes-daily-monthly) for exactly when each old partition is dropped.
 :::
 
-When you increment the version and call `ConfigureIndexesAsync()`, the following happens:
+When an index's version is incremented, the actual upgrade is always these 5 steps. The only variable is *what triggers them* — see [What actually triggers a reindex](#what-actually-triggers-a-reindex) below, because it is **not** simply "calling `ConfigureIndexesAsync()`":
 
 1. **New Index Creation**: Creates `employees-v2` with the new mapping
 2. **Reindex Task**: Elasticsearch's reindex API copies data from v1 to v2
@@ -394,9 +394,15 @@ public sealed class EmployeeIndex : VersionedIndex<Employee>
     }
 }
 
-// Step 2: Configure indexes (triggers reindex)
-await configuration.ConfigureIndexesAsync();
+// Step 2: Run the reindex directly. This is deterministic, awaitable, and is
+// what the test suite uses — don't rely on ConfigureIndexesAsync()'s default
+// queue-enqueue behavior to "just handle it" (see below).
+await configuration.ReindexAsync();
 ```
+
+::: warning `ConfigureIndexesAsync()` does not reindex inline
+`ConfigureIndexesAsync()` (default `beginReindexingOutdated: true`) does **not** run the 5 steps above itself — it only *enqueues* a `ReindexWorkItem`. Something else (a queue worker with `ReindexWorkItemHandler` registered) has to dequeue and actually run it. If you never configured an `IQueue<WorkItemData>` on `ElasticConfiguration`, this throws `InvalidOperationException: Must specify work item queue and lock provider in order to migrate index versions.` the moment it finds an outdated index. See [What actually triggers a reindex](#what-actually-triggers-a-reindex) for the recommended, direct alternative.
+:::
 
 ### Version Upgrades for Time-Series Indexes (Daily/Monthly)
 
@@ -469,15 +475,19 @@ The old index for a period is deleted at the very end of *that period's* reindex
 
 If any condition fails, the old partition is **retained** so you can inspect or retry it, and the alias already points at the new partition. Because deletion happens per-partition immediately after that partition's data is verified, the originals are never all held simultaneously and then dropped in one batch.
 
-#### What triggers a reindex (jobs, migrations, or direct calls)
+#### What actually triggers a reindex
 
-Reindexing is **not automatic** on its own — something has to call `ReindexAsync`. In production this is usually one of:
+**Nothing in the library runs a reindex on its own.** There is no background timer, hosted service, or auto-discovered job — a real call has to be made, and you decide when and where. In practice there are three ways it happens, and it's worth being blunt about how commonly each is actually used:
 
-- **`ElasticMigrationJob`** (derive from `ElasticMigrationJobBase`) — the built-in job for this, described as *"Runs any pending system migrations and reindexing tasks."* On each run it: (1) calls `ConfigureIndexesAsync(beginReindexingOutdated: false)` to create the new index version and mappings **without** enqueuing the (no-op) queue work item, (2) runs any data [migrations](/guide/migrations), then (3) calls `index.ReindexAsync()` for every outdated `IVersionedIndex` — the correct per-partition path. Run it on startup and/or on a schedule.
-- **A data [migration](/guide/migrations)** (`MigrationBase`) that calls `configuration.ReindexAsync(...)`.
-- **A direct call** to `configuration.ReindexAsync()` or `index.ReindexAsync()` from your own startup or admin tooling.
+1. **You call `configuration.ReindexAsync()` / `index.ReindexAsync()` directly.** This is the deterministic, inline, awaitable path described throughout this section — one partition at a time — and it's what every reindex test in this repo uses. Trigger it from a deploy step, an admin endpoint, a one-off console command, or a job you write and schedule yourself. **This is the recommended way to run a version upgrade**, time-series or not.
 
-What does **not** reindex time-series data: `MaintainIndexesJob` (it only updates aliases and applies retention), a bare `ConfigureIndexesAsync()` (see the warning above), and the `ReindexWorkItemHandler` queue for daily/monthly indexes (the enqueued work item targets the unversioned base name).
+2. **The `beginReindexingOutdated: true` default on `ConfigureIndexesAsync()`.** This does **not** perform a reindex itself — it only *enqueues* a `ReindexWorkItem` (see [Configure Indexes](#configure-indexes)). For that work item to ever actually run, two more things must be true: (a) you passed a real `IQueue<WorkItemData>` into `ElasticConfiguration`'s constructor, and (b) something in your app is dequeuing work items with `ReindexWorkItemHandler` registered to handle `ReindexWorkItem`s. **Neither is wired up for you.** If you didn't configure a queue and an index turns out to be outdated, `ConfigureIndexesAsync()` throws `InvalidOperationException: Must specify work item queue and lock provider in order to migrate index versions.` — which is exactly why this repo's own [sample app](https://github.com/FoundatioFx/Foundatio.Repositories/blob/main/samples/Foundatio.SampleApp/Server/Repositories/Configuration/ElasticExtensions.cs) calls `ConfigureIndexesAsync(beginReindexingOutdated: false)` rather than rely on the default. And even fully wired up, this path is a **no-op for time-series indexes** (see the warning above) — the enqueued work item names the non-dated base index, which matches no dated partition.
+
+3. **`ElasticMigrationJobBase`** (`Jobs/ElasticMigrationJob.cs`) is an abstract helper class you can derive from if you want a repeatable "run migrations, then reindex everything outdated" job — it correctly calls `ConfigureIndexesAsync(beginReindexingOutdated: false)` (sidestepping the no-op queue path) and then `index.ReindexAsync()` for every outdated index. **It is opt-in scaffolding, not something registered or run for you.** Nothing in the library subclasses it, schedules it, or references it — and we found no evidence of any real consuming application (including this repo's own sample) actually deriving from it. If you want a scheduled/repeatable job, derive from it and wire it into your own job runner; for a one-time upgrade, calling `ReindexAsync()` directly (option 1) is simpler and is what's actually tested.
+
+**Bottom line:** for a manual, one-time upgrade — like bumping the version on a monthly audit index — call `configuration.ReindexAsync()` or `auditIndex.ReindexAsync()` explicitly, yourself, when you're ready to run it. Don't rely on `ConfigureIndexesAsync()`'s default to "just handle it," and don't assume any built-in job is already doing this for you.
+
+What never reindexes time-series data, full stop: `MaintainIndexesJob` (aliases/retention only) and the `ReindexWorkItemHandler` queue path for daily/monthly indexes (the enqueued work item's name doesn't match any dated partition).
 
 #### Concurrency: within an index, one partition at a time
 
@@ -1056,7 +1066,7 @@ Options:
 - Creates indexes that don't exist
 - Updates mappings for existing indexes (if compatible)
 - Creates aliases
-- Starts reindexing for outdated indexes
+- With the default `beginReindexingOutdated: true`, **enqueues** (does not run) a reindex work item for each outdated index — see [What actually triggers a reindex](#what-actually-triggers-a-reindex) for why you usually want `configuration.ReindexAsync()` instead
 
 #### Concurrency Protection
 

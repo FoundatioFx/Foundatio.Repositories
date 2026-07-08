@@ -139,17 +139,19 @@ Single-doc read/write routing targets the **unversioned dated alias**, so the ph
 
 1. Each version creates a separate index (`employees-v1`, `employees-v2`)
 2. An alias (`employees`) always points to the current version
-3. When you increment the version, data is automatically migrated via reindex
+3. When you increment the version, data is migrated via reindex — but that reindex must be explicitly triggered; nothing runs it automatically (see "What triggers it" below)
 
 ### Version Upgrade Process
 
-When you increment the version and call `ConfigureIndexesAsync()`:
+The upgrade itself is always these 5 steps, whether triggered directly or via the queue (see "What triggers it" below for which to use):
 
 1. New index created (`employees-v2`) with new mapping
 2. Elasticsearch reindex API copies data from v1 to v2
 3. Reindex scripts transform data during migration
 4. Alias atomically switched from v1 to v2
 5. Old index deleted (if `DiscardIndexesOnReindex = true`, no failures, and new count >= old count)
+
+**Prefer `configuration.ReindexAsync()` / `index.ReindexAsync()` to run this directly** — see "What triggers it" below; `ConfigureIndexesAsync()`'s default only enqueues a work item and throws if no queue is configured.
 
 ### Version Upgrades for Time-Series Indexes (Daily/Monthly)
 
@@ -169,7 +171,7 @@ Partitions past `MaxIndexAge` are skipped (left for maintenance). The umbrella a
 
 **Concurrency:** *Within an index* a reindex is strictly sequential — one partition at a time (`await`ed `foreach` in `DailyIndex.ReindexAsync`), and each ES `_reindex` is a single **unsliced** task (library never sets `slices`). *Across indexes* it depends on the trigger: `configuration.ReindexAsync()` runs them sequentially (`foreach`), but `ElasticMigrationJob` runs them **in parallel** (`Task.WhenAll`, one task per outdated index). A distributed lock keyed on the alias (`reindex:<alias>`, held 20 min, auto-renewed on progress) still caps a given index to one reindex cluster-wide across pods. So a single-index upgrade needs ~one partition of disk headroom; parallel multi-index runs need ~one in-flight partition per concurrent index.
 
-**What triggers it:** `ElasticMigrationJobBase` is the canonical job (*"Runs any pending system migrations and reindexing tasks."*) — it calls `ConfigureIndexesAsync(null, beginReindexingOutdated: false)` (avoids the no-op queue path), runs migrations, then reindexes every outdated `IVersionedIndex` in parallel. Or trigger manually via `configuration.ReindexAsync()` / `index.ReindexAsync()`, or from a `MigrationBase`. `MaintainIndexesJob` does **not** reindex (aliases/retention only).
+**What triggers it (verified — no automatic mechanism exists):** Nothing runs a reindex on its own. Three options, in order of actual use: (1) **call `configuration.ReindexAsync()` / `index.ReindexAsync()` directly** — deterministic, what every reindex test uses, the recommended path. (2) **`ConfigureIndexesAsync(beginReindexingOutdated: true)`** (the default) only *enqueues* a `ReindexWorkItem`; it doesn't run it. This requires you to have passed an `IQueue<WorkItemData>` into `ElasticConfiguration` AND to have your own worker with `ReindexWorkItemHandler` registered to actually dequeue+process it — neither is wired up by the library. **If no queue is configured, `ConfigureIndexesAsync()` throws `InvalidOperationException` the moment an index is outdated** — this repo's own sample app (`samples/Foundatio.SampleApp/.../ElasticExtensions.cs`) avoids this entirely by passing `beginReindexingOutdated: false`. Even fully wired up, this path is a no-op for time-series (see above). (3) **`ElasticMigrationJobBase`** is an abstract opt-in helper you can derive from and register in your own job runner (it correctly calls `ConfigureIndexesAsync(null, false)` + reindexes outdated indexes in parallel) — but it is **not auto-registered, auto-discovered, or referenced anywhere** in this repo or its sample app; treat it as scaffolding, not a default mechanism. `MaintainIndexesJob` never reindexes (aliases/retention only).
 
 **Write flip / no gap:** writes target the unversioned dated alias (`audit-2024.01`). After the first pass, all aliases on the old partition (dated + umbrella + windowed) are repointed to v2 in a **single atomic `UpdateAliasesAsync`** → no aliasing gap. Docs written to v1 during the first pass are copied by the second-pass catch-up (timestamp/ObjectId `>= now-1s`, `Conflicts=proceed`), so no lost-write gap for append-only data.
 
