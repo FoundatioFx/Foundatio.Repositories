@@ -167,6 +167,14 @@ Per partition (`ReindexAsync`, under a distributed lock keyed on the alias):
 
 Partitions past `MaxIndexAge` are skipped (left for maintenance). The umbrella alias spans both migrated (v2) and not-yet-migrated (v1) partitions during the upgrade, so reads/writes keep working. Ordering: `GetIndexesAsync` → `.OrderBy(i => i.DateUtc)`; per-partition delete: `ElasticReindexer.ReindexAsync`.
 
+**Concurrency:** *Within an index* a reindex is strictly sequential — one partition at a time (`await`ed `foreach` in `DailyIndex.ReindexAsync`), and each ES `_reindex` is a single **unsliced** task (library never sets `slices`). *Across indexes* it depends on the trigger: `configuration.ReindexAsync()` runs them sequentially (`foreach`), but `ElasticMigrationJob` runs them **in parallel** (`Task.WhenAll`, one task per outdated index). A distributed lock keyed on the alias (`reindex:<alias>`, held 20 min, auto-renewed on progress) still caps a given index to one reindex cluster-wide across pods. So a single-index upgrade needs ~one partition of disk headroom; parallel multi-index runs need ~one in-flight partition per concurrent index.
+
+**What triggers it:** `ElasticMigrationJobBase` is the canonical job (*"Runs any pending system migrations and reindexing tasks."*) — it calls `ConfigureIndexesAsync(null, beginReindexingOutdated: false)` (avoids the no-op queue path), runs migrations, then reindexes every outdated `IVersionedIndex` in parallel. Or trigger manually via `configuration.ReindexAsync()` / `index.ReindexAsync()`, or from a `MigrationBase`. `MaintainIndexesJob` does **not** reindex (aliases/retention only).
+
+**Write flip / no gap:** writes target the unversioned dated alias (`audit-2024.01`). After the first pass, all aliases on the old partition (dated + umbrella + windowed) are repointed to v2 in a **single atomic `UpdateAliasesAsync`** → no aliasing gap. Docs written to v1 during the first pass are copied by the second-pass catch-up (timestamp/ObjectId `>= now-1s`, `Conflicts=proceed`), so no lost-write gap for append-only data.
+
+**Why oldest → newest:** time-series writes land in the current period, so old partitions are effectively immutable — migrating them first means near-empty second-pass catch-up and no write contention, while the one volatile (current) partition is done last with the smallest catch-up window. Also frees disk progressively from oldest data, and is deterministic/resumable (each run lists only still-old-version partitions via the min-version `GetCurrentVersionAsync`, so an interrupted run resumes with the remainder in the same order). Introduced as an index-management stability fix (2017).
+
 ### Reindex Scripts
 
 #### Rename a Field

@@ -469,6 +469,64 @@ The old index for a period is deleted at the very end of *that period's* reindex
 
 If any condition fails, the old partition is **retained** so you can inspect or retry it, and the alias already points at the new partition. Because deletion happens per-partition immediately after that partition's data is verified, the originals are never all held simultaneously and then dropped in one batch.
 
+#### What triggers a reindex (jobs, migrations, or direct calls)
+
+Reindexing is **not automatic** on its own — something has to call `ReindexAsync`. In production this is usually one of:
+
+- **`ElasticMigrationJob`** (derive from `ElasticMigrationJobBase`) — the built-in job for this, described as *"Runs any pending system migrations and reindexing tasks."* On each run it: (1) calls `ConfigureIndexesAsync(beginReindexingOutdated: false)` to create the new index version and mappings **without** enqueuing the (no-op) queue work item, (2) runs any data [migrations](/guide/migrations), then (3) calls `index.ReindexAsync()` for every outdated `IVersionedIndex` — the correct per-partition path. Run it on startup and/or on a schedule.
+- **A data [migration](/guide/migrations)** (`MigrationBase`) that calls `configuration.ReindexAsync(...)`.
+- **A direct call** to `configuration.ReindexAsync()` or `index.ReindexAsync()` from your own startup or admin tooling.
+
+What does **not** reindex time-series data: `MaintainIndexesJob` (it only updates aliases and applies retention), a bare `ConfigureIndexesAsync()` (see the warning above), and the `ReindexWorkItemHandler` queue for daily/monthly indexes (the enqueued work item targets the unversioned base name).
+
+#### Concurrency: within an index, one partition at a time
+
+**Within a single index** a reindex is **strictly sequential** — one partition at a time, with no parallel fan-out:
+
+| Level | Behavior | Where |
+|---|---|---|
+| **Partitions within an index** | `ReindexAsync` iterates partitions in a single `await`ed `foreach`; the next partition never starts until the current one finishes (including its delete). | `DailyIndex.ReindexAsync` |
+| **The Elasticsearch reindex itself** | Each partition is copied with a **single, unsliced** `_reindex` task. The library does not set `slices`, so there is no parallel sub-task fan-out; it submits the task and polls until it completes. | `ElasticReindexer.InternalReindexAsync` |
+
+**Across different indexes** it depends on how you trigger it: `configuration.ReindexAsync()` processes indexes **sequentially** (one index fully finishes before the next starts), while `ElasticMigrationJob` reindexes them **in parallel** (`Task.WhenAll`, one task per outdated index). Either way each index is internally sequential, and a **distributed lock keyed on the alias** (`reindex:audit`) guarantees a given index is never reindexed by two runners at once — even across multiple application instances (pods, workers). The lock is held for 20 minutes and auto-renewed on every progress callback, so long partition copies keep it alive.
+
+::: tip Predictable, bounded disk usage per index
+Within one index the upgrade only ever duplicates **one partition at a time**, so bumping a single index (e.g. `audit`) needs roughly one extra partition of headroom regardless of how many partitions it has. If several indexes reindex in parallel (via `ElasticMigrationJob`), peak extra disk is about the sum of one in-flight partition per concurrently-migrating index. Wall-clock time scales with partition count; run during off-peak hours if needed.
+:::
+
+#### Multiple versions and interrupted upgrades
+
+In normal operation only **two** versions of a period ever coexist, and only transiently — the old partition and the new one — during that single period's reindex. The process is designed to be **resumable and idempotent**:
+
+- The **lowest version still present** is treated as the current version (`GetCurrentVersionAsync`), and each run processes only the partitions still on that version. Partitions that were already migrated are excluded automatically, so re-running never redoes completed work.
+- If a run is interrupted — a process restart, a failure on one partition, a lost lock — just **run it again**. It picks up the remaining old partitions and continues, oldest first. A partition whose reindex failed keeps its old index (the delete is gated on success), so nothing is lost.
+- Reindex scripts **compose across skipped versions**: going straight from v1 to v3 applies the v2 and v3 scripts in order, so transformations are never skipped.
+- If partitions end up at genuinely mixed versions (for example a v1→v2 upgrade was interrupted and you have since bumped to v3), each run advances the oldest cohort one step; run the reindex until `GetCurrentVersionAsync()` equals the target `Version`. The migration job converges this over repeated runs.
+
+Throughout, the umbrella alias spans whatever the current partitions are, so reads and writes keep working even while the index is a mix of versions.
+
+#### When do writes flip to the new partition — and is there a gap?
+
+Writes for a period target the **unversioned dated alias** (e.g. `audit-2024.01`), so they flip when that alias is repointed:
+
+1. During the **first pass**, the dated alias still points to the old partition, so any concurrent writes for that period land in **v1**.
+2. When the first pass finishes (~91–92%), **every alias pointing at the old partition — the dated alias, the umbrella alias, and any windowed aliases — is repointed to the new partition in a single `UpdateAliases` call**. From that instant, new writes for that period land in **v2**.
+3. The **second-pass catch-up** then copies anything written to v1 during the first pass into v2.
+
+**Is there a gap?**
+
+- **No aliasing gap.** The remove-old and add-new actions are submitted together in one `UpdateAliases` request, which Elasticsearch applies **atomically**. The alias is never pointing at zero indexes (or at both), so reads and writes always resolve to exactly one partition — there is no window where a write fails to route or a read sees nothing.
+- **No lost-write gap for append-only data.** Documents written to the old partition during the first pass are picked up by the second-pass catch-up, which runs *after* the swap and copies every document with a timestamp (or ObjectId creation time) at or after a start time captured ~1 second before the reindex began. After the swap the old partition receives no new writes, and `Conflicts=proceed` keeps the catch-up from failing on documents already copied. This is why a `TimestampField` or ObjectId-format IDs are recommended (see [Second-Pass Catch-Up Strategy](#second-pass-catch-up-strategy)) — they let the catch-up find late writes precisely.
+
+Only the currently-reindexing period has this brief hand-off; periods not yet reached still write to v1, and periods already migrated write to v2 — all through the same unchanging dated-alias names.
+
+#### Why partitions are processed oldest → newest
+
+Partitions are always migrated in ascending date order (`GetIndexesAsync` sorts by `DateUtc`). This is deliberate, and it matters most for exactly the append-only time-series workloads these indexes are built for (audit logs, events):
+
+- **Least write contention and near-empty catch-up.** In a time-series workload new documents land in the **current** period; older periods are effectively immutable (and writing to a period past `MaxIndexAge` throws). Migrating the old, static partitions first means their first pass captures everything and the [second-pass catch-up](#second-pass-catch-up-strategy) has little or nothing to copy. The one volatile partition — today/this month — is migrated **last**, so the short window where concurrent writes must be caught up is isolated at the very end instead of being reopened repeatedly.
+- **Progressive, predictable disk reclamation.** Since each old partition is deleted before the next starts, disk is freed starting with your oldest data and continues steadily — helpful when the whole reason for going one-at-a-time is limited headroom.
+- **Deterministic and resumable.** The "current version" is the **lowest** version still present, and each run lists only the partitions still on that old version — already-migrated partitions are excluded automatically. So if a run is interrupted or retried, it simply resumes with the remaining old partitions in the same order, without redoing completed work. (This deterministic ordering was introduced as an index-management stability fix and has been the behavior since.)
 
 ### Field Operations During Reindex
 
