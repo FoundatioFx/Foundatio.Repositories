@@ -101,6 +101,38 @@ public sealed class AuditLogIndex : MonthlyIndex<AuditLog>
 
 Index naming: `audit-v1-2024.01`.
 
+## How Time-Series Routing Works
+
+`DailyIndex`/`MonthlyIndex` keep **one** physical index per period (day/month) — not parallel copies of the same data. Two copies of a period only coexist transiently during a version reindex (`logs-v1-2024.01.15` → `logs-v2-2024.01.15`), then the old is dropped when `DiscardIndexesOnReindex` is `true` (default). Retention deletes aged-out periods one index at a time.
+
+### Three naming layers
+
+| Layer | Example | Purpose |
+|---|---|---|
+| Physical index | `logs-v1-2024.01.15` | Actual index on disk (version encoded) |
+| Dated alias | `logs-2024.01.15` | Current version's index for one period; target for single-doc routing |
+| Umbrella alias | `logs` | All current, non-expired indexes; target for cross-period queries |
+| Windowed alias | `logs-last-7-days` | Indexes within a rolling window (`AddAlias(name, maxAge)`) |
+
+Single-doc read/write routing targets the **unversioned dated alias**, so the physical version can change (via reindex) without changing how documents are addressed.
+
+### Picking the index at write time
+
+`GetIndex(target)` derives the destination from the document's date, resolved in order (`_getDocumentDateUtc`):
+
+1. ObjectId creation time embedded in the id (`CreateDocumentId` encodes the date into the id).
+2. `CreatedUtc` if the model implements `IHaveCreatedDate`.
+3. A custom `getDocumentDateUtc` delegate passed to the constructor.
+
+`EnsureIndexAsync` then creates the physical index for that period if missing and attaches the dated, umbrella, and matching windowed aliases in one call. The `MaxIndexAge` check runs **first** — writing to a date already past `MaxIndexAge` throws `ArgumentException: Index max age exceeded`. Bulk writes are grouped by resolved index (one write per period).
+
+### Resolving the index at read time
+
+- **Single-doc lookups** (`GetByIdAsync`, `ExistsAsync`, id-based patch/remove) parse the ObjectId back into its date and route to **one** dated alias. If not found and `HasMultipleIndexes`, they fall back to a query across the umbrella alias.
+- **Queries** (`FindAsync`, `CountAsync`, `PatchAllAsync`, `RemoveAllAsync`) resolve indexes via `GetIndexesByQuery`: explicit `.Index("name")`, or `.Index(start, end)` expanded to dated aliases (partition pruning), else the umbrella alias (also the [large-range fallback](#large-range-fallback)).
+
+> Full explanation with lifecycle diagrams: `docs/guide/index-management.md` → "How Time-Series Indexes Work".
+
 ## Schema Versioning
 
 ### How Versioned Indexes Work
@@ -117,7 +149,23 @@ When you increment the version and call `ConfigureIndexesAsync()`:
 2. Elasticsearch reindex API copies data from v1 to v2
 3. Reindex scripts transform data during migration
 4. Alias atomically switched from v1 to v2
-5. Old index deleted (if `DiscardIndexesOnReindex = true`)
+5. Old index deleted (if `DiscardIndexesOnReindex = true`, no failures, and new count >= old count)
+
+### Version Upgrades for Time-Series Indexes (Daily/Monthly)
+
+`DailyIndex`/`MonthlyIndex` migrate **one dated partition at a time**, oldest → newest. Each partition's old index is deleted as the *final step of that partition's own reindex*, before the next partition starts — it never duplicates all partitions then bulk-deletes the originals. Peak extra disk = ~one partition, not the whole dataset.
+
+> **Trigger explicitly with `configuration.ReindexAsync()` or `index.ReindexAsync()`.** Unlike a single `VersionedIndex<T>`, time-series indexes are **not** migrated by `ConfigureIndexesAsync(beginReindexingOutdated: true)`: its queued work item targets the unversioned base name (`audit-v1`), which doesn't match dated partitions (`audit-v1-2024.01`). `DailyIndex`/`MonthlyIndex` don't override `CreateReindexWorkItem`/`VersionedName`, so the queue path is a safe no-op for them. All time-series reindex tests call `index.ReindexAsync()` directly.
+
+Per partition (`ReindexAsync`, under a distributed lock keyed on the alias):
+
+1. Create `audit-v2-2024.01` with the new mapping.
+2. Reindex v1 → v2 (first pass).
+3. Swap aliases: remove `audit-v1-2024.01`, add `audit-v2-2024.01` (reads now hit v2).
+4. Second-pass catch-up for docs written during the first pass.
+5. Delete `audit-v1-2024.01` — only if `DiscardIndexesOnReindex` (default true), no failures, and new count >= old count.
+
+Partitions past `MaxIndexAge` are skipped (left for maintenance). The umbrella alias spans both migrated (v2) and not-yet-migrated (v1) partitions during the upgrade, so reads/writes keep working. Ordering: `GetIndexesAsync` → `.OrderBy(i => i.DateUtc)`; per-partition delete: `ElasticReindexer.ReindexAsync`.
 
 ### Reindex Scripts
 
