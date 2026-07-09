@@ -13,8 +13,8 @@ public class ElasticIndexExtensionsTests
         // Arrange & Act
         var request = ElasticIndexExtensions.CreateGetIndexNamesRequest(Indices.Parse("my-index-v1-*"));
 
-        // Assert: requesting only the aliases feature makes Elasticsearch omit the (potentially huge)
-        // mappings/settings sections, which is what prevents the OOM described in
+        // Assert: requesting only the aliases feature strips the potentially huge mapping/settings
+        // content, which is what prevents the OOM described in
         // https://github.com/elastic/elasticsearch-net/issues/8919.
         Assert.NotNull(request.Features);
         var feature = Assert.Single(request.Features);

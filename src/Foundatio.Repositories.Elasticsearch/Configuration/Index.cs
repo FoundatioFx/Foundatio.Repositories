@@ -302,8 +302,6 @@ public class Index : IIndex
         {
             if (name.Contains("*") || name.Contains("?"))
             {
-                // Resolve only the index names (mappings/settings are omitted) to avoid materializing
-                // potentially huge mappings for every matching index. See ElasticIndexExtensions.CreateGetIndexNamesRequest.
                 var getResponse = await Configuration.Client.Indices.GetAsync(ElasticIndexExtensions.CreateGetIndexNamesRequest(Indices.Parse(name), ignoreUnavailable: true)).AnyContext();
                 if (getResponse.IsValidResponse && getResponse.Indices is not null)
                 {
