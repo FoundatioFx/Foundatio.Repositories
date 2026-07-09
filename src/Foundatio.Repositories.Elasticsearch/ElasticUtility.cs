@@ -120,7 +120,7 @@ public class ElasticUtility
     public async Task<ICollection<string>> GetIndexListAsync()
     {
         // Note: ResolveIndexAsync sends a body in ES 9.x client which ES rejects; use GetAsync instead.
-        var response = await _client.Indices.GetAsync(Indices.All, d => d.IgnoreUnavailable()).AnyContext();
+        var response = await _client.Indices.GetAsync(Indices.All, d => d.LimitToNamesAndAliases().IgnoreUnavailable()).AnyContext();
         _logger.LogRequest(response);
         if (!response.IsValidResponse || response.Indices is null)
         {

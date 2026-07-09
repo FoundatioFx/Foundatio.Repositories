@@ -57,7 +57,7 @@ public class CleanupIndexesJob : IJob
         var sw = Stopwatch.StartNew();
         // Note: ResolveIndexAsync sends a body in ES 9.x client which ES rejects; use GetAsync instead.
         var result = await _client.Indices.GetAsync(Indices.All,
-            d => d.IgnoreUnavailable().RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
+            d => d.LimitToNamesAndAliases().IgnoreUnavailable().RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
         sw.Stop();
 
         if (result.IsValidResponse)
