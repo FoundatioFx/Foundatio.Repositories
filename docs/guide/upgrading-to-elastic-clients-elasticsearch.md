@@ -387,7 +387,7 @@ The `TopHitsAggregate` now serializes the raw document JSON in its `Hits` proper
 
 ### ResolveIndexAsync in Elastic.Clients.Elasticsearch 9.x
 
-The `Indices.ResolveIndexAsync` method in Elastic.Clients.Elasticsearch 9.x is broken — it does not correctly resolve wildcard index patterns. Foundatio.Repositories works around this by using `Indices.GetAsync` with `IgnoreUnavailable()` instead. When you only need index names, request the smallest possible index metadata to avoid materializing full mappings and settings for every matched index:
+The `Indices.ResolveIndexAsync` method in Elastic.Clients.Elasticsearch 9.x is broken — it does not correctly resolve wildcard index patterns. Foundatio.Repositories works around this by using `Indices.GetAsync` with `IgnoreUnavailable()` instead:
 
 ```csharp
 // DON'T use ResolveIndexAsync — broken in Elastic.Clients.Elasticsearch 9.x
@@ -396,10 +396,7 @@ The `Indices.ResolveIndexAsync` method in Elastic.Clients.Elasticsearch 9.x is b
 // DO use GetAsync to resolve wildcard patterns
 var getResponse = await client.Indices.GetAsync(
     Indices.Parse("my-index-*"),
-    d => d
-        .Features(Feature.Aliases)
-        .IncludeDefaults(false)
-        .IgnoreUnavailable());
+    d => d.IgnoreUnavailable());
 
 if (getResponse.IsValidResponse && getResponse.Indices is not null)
 {
@@ -408,7 +405,7 @@ if (getResponse.IsValidResponse && getResponse.Indices is not null)
 }
 ```
 
-If you have code that calls `ResolveIndexAsync` directly, switch to `GetAsync`. For large wildcard lookups, avoid the default full `GetIndexResponse` shape unless the caller actually needs mappings or settings.
+If you have code that calls `ResolveIndexAsync` directly, switch to `GetAsync`.
 
 ### EnableApiVersioningHeader Removed
 

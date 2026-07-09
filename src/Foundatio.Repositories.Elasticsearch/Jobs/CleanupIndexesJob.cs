@@ -7,11 +7,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
-using Elastic.Transport;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Jobs;
 using Foundatio.Lock;
-using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Extensions;
 using Microsoft.Extensions.Logging;
@@ -58,24 +56,23 @@ public class CleanupIndexesJob : IJob
 
         var sw = Stopwatch.StartNew();
         // Note: ResolveIndexAsync sends a body in ES 9.x client which ES rejects; use GetAsync instead.
-        var request = ElasticIndexExtensions.CreateGetIndexNamesRequest(Indices.All, ignoreUnavailable: true);
-        request.RequestConfiguration = new RequestConfiguration { RequestTimeout = TimeSpan.FromMinutes(5) };
-        var result = await _client.Indices.GetAsync(request, cancellationToken).AnyContext();
+        var result = await _client.Indices.GetAsync(Indices.All,
+            d => d.LimitToNamesAndAliases().IgnoreUnavailable().RequestConfiguration(r => r.RequestTimeout(TimeSpan.FromMinutes(5))), cancellationToken).AnyContext();
         sw.Stop();
 
-        if (!result.IsValidResponse)
+        if (result.IsValidResponse)
+        {
+            _logger.LogRequest(result);
+            _logger.LogInformation("Retrieved list of {IndexCount} indexes in {Duration:g}", result.Indices?.Count, sw.Elapsed.ToWords(true));
+        }
+        else
         {
             _logger.LogErrorRequest(result, "Failed to retrieve list of indexes");
-            string message = result.GetErrorMessage("Failed to retrieve list of indexes");
-            return result.OriginalException() is { } exception
-                ? JobResult.FromException(exception, message)
-                : JobResult.FailedWithMessage(message);
         }
 
-        _logger.LogRequest(result);
-        _logger.LogInformation("Retrieved list of {IndexCount} indexes in {Duration:g}", result.Indices?.Count, sw.Elapsed.ToWords(true));
-
-        var indexes = result.Indices?.Keys.Select(k => GetIndexDate(k.ToString())).OfType<IndexDate>().ToList() ?? [];
+        var indexes = new List<IndexDate>();
+        if (result.IsValidResponse && result.Indices is not null)
+            indexes = result.Indices?.Keys.Select(k => GetIndexDate(k.ToString())).OfType<IndexDate>().ToList() ?? [];
 
         if (indexes.Count is 0)
             return JobResult.Success;

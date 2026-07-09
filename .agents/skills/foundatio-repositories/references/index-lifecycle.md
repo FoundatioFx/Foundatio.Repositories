@@ -366,10 +366,6 @@ Updates aliases for time-series indexes, deletes expired indexes:
 await configuration.MaintainIndexesAsync();
 ```
 
-### CleanupIndexesJob
-
-`CleanupIndexesJob` enumerates index names with a minimal aliases-only Get Index request before applying its age rules. A successful empty response is a successful no-op. If Elasticsearch rejects or cannot complete the enumeration request, the job returns a failed `JobResult` rather than reporting an empty cluster and successful cleanup.
-
 ### ReindexAsync
 
 ```csharp

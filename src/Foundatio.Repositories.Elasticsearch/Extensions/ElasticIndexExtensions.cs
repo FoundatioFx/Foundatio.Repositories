@@ -23,29 +23,9 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 public static class ElasticIndexExtensions
 {
-    /// <summary>
-    /// Builds a <see cref="GetIndexRequest"/> that resolves the names of the indexes matching
-    /// <paramref name="indices"/> without materializing their mapping properties or settings content.
-    /// </summary>
-    /// <param name="indices">The index name(s) or pattern(s) to resolve (e.g. a wildcard or <c>Indices.All</c>).</param>
-    /// <param name="ignoreUnavailable">When <see langword="true"/>, missing or closed indexes are ignored instead of producing an error.</param>
-    /// <remarks>
-    /// Requesting only the <see cref="Feature.Aliases"/> feature (together with
-    /// <c>IncludeDefaults = false</c>) strips the large <c>mappings</c> and <c>settings</c> content from
-    /// the response. This avoids the substantial memory amplification the typed client incurs while
-    /// deserializing mapping properties for every matching index, which can
-    /// throw an <see cref="OutOfMemoryException"/> when a pattern matches many indexes that each have
-    /// large mappings. The response still exposes every matching index name via its <c>Indices</c>
-    /// keys. See https://github.com/elastic/elasticsearch-net/issues/8919.
-    /// </remarks>
-    internal static GetIndexRequest CreateGetIndexNamesRequest(Indices indices, bool ignoreUnavailable = false)
+    internal static GetIndexRequestDescriptor LimitToNamesAndAliases(this GetIndexRequestDescriptor descriptor)
     {
-        return new GetIndexRequest(indices)
-        {
-            Features = [Feature.Aliases],
-            IncludeDefaults = false,
-            IgnoreUnavailable = ignoreUnavailable ? true : null
-        };
+        return descriptor.Features(Feature.Aliases).IncludeDefaults(false);
     }
 
     public static SubmitAsyncSearchRequest ToAsyncSearchSubmitRequest<T>(this SearchRequest searchRequest) where T : class, new()

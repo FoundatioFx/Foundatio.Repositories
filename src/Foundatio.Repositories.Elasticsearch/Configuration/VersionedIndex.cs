@@ -370,7 +370,7 @@ public class VersionedIndex : Index, IVersionedIndex
             filter += "-*";
 
         var sw = Stopwatch.StartNew();
-        var response = await Configuration.Client.Indices.GetAsync(ElasticIndexExtensions.CreateGetIndexNamesRequest((Indices)(IndexName)filter)).AnyContext();
+        var response = await Configuration.Client.Indices.GetAsync((Indices)(IndexName)filter, d => d.LimitToNamesAndAliases()).AnyContext();
         sw.Stop();
         _logger.LogRequest(response);
 
@@ -385,18 +385,34 @@ public class VersionedIndex : Index, IVersionedIndex
         if (response.Indices.Count == 0)
             return new List<IndexInfo>();
 
-        var indices = response.Indices
-            .Where(i => version < 0 || GetIndexVersion(i.Key) == version)
+        var aliasResponse = await Configuration.Client.Indices.GetAliasAsync(a => a.Name($"{Name}-*")).AnyContext();
+        _logger.LogRequest(aliasResponse);
+
+        if (!aliasResponse.IsValidResponse && aliasResponse.ElasticsearchServerError?.Status != 404)
+            throw new RepositoryException(aliasResponse.GetErrorMessage($"Error getting index aliases for {filter}"), aliasResponse.OriginalException());
+
+#if ELASTICSEARCH9
+        var aliasIndices = aliasResponse.Aliases;
+#else
+        var aliasIndices = aliasResponse.Values;
+#endif
+        var indices = response.Indices.Keys
+            .Where(i => version < 0 || GetIndexVersion(i.ToString()) == version)
             .Select(i =>
             {
-                string indexName = i.Key;
+                string indexName = i.ToString();
                 var indexDate = GetIndexDate(indexName);
-                int indexVersion = GetIndexVersion(indexName);
-                string indexAliasName = GetIndexByDate(indexDate);
+                string indexAliasName = GetIndexByDate(GetIndexDate(indexName));
 
-                int currentVersion = i.Value.Aliases?.ContainsKey(indexAliasName) is true ? indexVersion : -1;
+                int currentVersion = -1;
+                if (aliasResponse.IsValidResponse && aliasIndices != null && aliasIndices.TryGetValue(i, out var indexAliases))
+                {
+                    // Find if any of our aliases point to this index
+                    if (indexAliases.Aliases.ContainsKey(indexAliasName))
+                        currentVersion = GetIndexVersion(indexName);
+                }
 
-                return new IndexInfo { DateUtc = indexDate, Index = indexName, Version = indexVersion, CurrentVersion = currentVersion };
+                return new IndexInfo { DateUtc = indexDate, Index = indexName, Version = GetIndexVersion(indexName), CurrentVersion = currentVersion };
             })
             .OrderBy(i => i.DateUtc)
             .ToList();

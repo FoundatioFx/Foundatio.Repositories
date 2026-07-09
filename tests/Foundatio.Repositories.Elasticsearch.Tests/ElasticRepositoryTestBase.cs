@@ -8,7 +8,6 @@ using Foundatio.Jobs;
 using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Queues;
-using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration;
 using Foundatio.Serializer;
 using Foundatio.Utility;
@@ -78,7 +77,7 @@ public abstract class ElasticRepositoryTestBase : TestWithLoggingBase
     {
         // Use GetAsync to resolve wildcards to actual index names to avoid issues with action.destructive_requires_name=true.
         // Note: ResolveIndexAsync sends a body in ES 9.x client which ES rejects; use GetAsync instead.
-        var getResponse = await _client.Indices.GetAsync(ElasticIndexExtensions.CreateGetIndexNamesRequest(Indices.Parse(pattern), ignoreUnavailable: true));
+        var getResponse = await _client.Indices.GetAsync(Indices.Parse(pattern), d => d.IgnoreUnavailable());
         if (getResponse.IsValidResponse && getResponse.Indices != null && getResponse.Indices.Count > 0)
         {
             var indexNames = string.Join(",", getResponse.Indices.Keys);

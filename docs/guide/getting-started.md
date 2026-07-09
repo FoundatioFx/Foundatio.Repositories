@@ -229,17 +229,20 @@ app.Run();
 
 ## Running Elasticsearch
 
-For local development, use the provided `docker-compose.yml`. It starts Elasticsearch 9.4.0 by default:
+For local development, use Docker:
 
 ```bash
-docker compose up -d --wait elasticsearch
+docker run -d --name elasticsearch \
+  -p 9200:9200 \
+  -e "discovery.type=single-node" \
+  -e "xpack.security.enabled=false" \
+  docker.elastic.co/elasticsearch/elasticsearch:8.11.0
 ```
 
-Set `ELASTICSEARCH_VERSION` to run against another supported server version. Stop the current container before switching versions:
+Or use the provided `docker-compose.yml`:
 
 ```bash
-docker compose down
-ELASTICSEARCH_VERSION=8.19.15 docker compose up -d --wait elasticsearch
+docker compose up -d
 ```
 
 ## Next Steps

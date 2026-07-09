@@ -179,7 +179,7 @@ This registers `DoubleSystemTextJsonConverter`, `ObjectToInferredTypesConverter`
 6. **object-typed properties**: Without `ObjectToInferredTypesConverter`, System.Text.Json deserializes `object` as `JsonElement` instead of CLR primitives.
 7. **`Indices.Parse` vs `IndexName` cast**: Use `(IndexName)name` for single names, `Indices.Parse(name)` for wildcards/comma-separated.
 8. **OriginalException is a method**: `response.OriginalException` → `response.OriginalException()`.
-9. **ResolveIndexAsync broken in ES 9.x**: Use `Indices.GetAsync` with `IgnoreUnavailable()` instead. For name-only wildcard resolution, also set `.Features(Feature.Aliases).IncludeDefaults(false)` to avoid deserializing full mappings/settings.
+9. **ResolveIndexAsync broken in ES 9.x**: Use `Indices.GetAsync` with `IgnoreUnavailable()` instead.
 10. **EnableApiVersioningHeader removed**: Delete any `settings.EnableApiVersioningHeader()` calls.
 
 ## Migration Checklist
@@ -204,6 +204,6 @@ This registers `DoubleSystemTextJsonConverter`, `ObjectToInferredTypesConverter`
 - [ ] Replace `response.IsValid` with `response.IsValidResponse`
 - [ ] Replace `response.OriginalException` with `response.OriginalException()`
 - [ ] Update `ICustomFieldType.ConfigureMapping<T>` signature
-- [ ] Replace `ResolveIndexAsync` with `Indices.GetAsync`; for name-only wildcard resolution, request aliases only and set `IncludeDefaults(false)`
+- [ ] Replace `ResolveIndexAsync` with `Indices.GetAsync`
 - [ ] Invalidate caches with Newtonsoft-serialized data
 - [ ] Test document round-tripping with System.Text.Json

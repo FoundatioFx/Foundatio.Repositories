@@ -302,7 +302,7 @@ public class Index : IIndex
         {
             if (name.Contains("*") || name.Contains("?"))
             {
-                var getResponse = await Configuration.Client.Indices.GetAsync(ElasticIndexExtensions.CreateGetIndexNamesRequest(Indices.Parse(name), ignoreUnavailable: true)).AnyContext();
+                var getResponse = await Configuration.Client.Indices.GetAsync(Indices.Parse(name), d => d.LimitToNamesAndAliases().IgnoreUnavailable()).AnyContext();
                 if (getResponse.IsValidResponse && getResponse.Indices is not null)
                 {
                     foreach (var kvp in getResponse.Indices)

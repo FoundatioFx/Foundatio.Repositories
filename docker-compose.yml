@@ -1,6 +1,6 @@
 services:
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTICSEARCH_VERSION:-9.4.0}
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTICSEARCH_VERSION:-9.4.3}
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
@@ -13,16 +13,14 @@ services:
       - foundatio
     healthcheck:
       interval: 2s
-      retries: 30
-      start_period: 60s
-      timeout: 5s
+      retries: 10
       test: curl -s http://localhost:9200/_cluster/health | grep -vq '"status":"red"'
 
   kibana:
     depends_on:
       elasticsearch:
         condition: service_healthy
-    image: docker.elastic.co/kibana/kibana:${ELASTICSEARCH_VERSION:-9.4.0}
+    image: docker.elastic.co/kibana/kibana:${ELASTICSEARCH_VERSION:-9.4.3}
     environment:
       xpack.security.enabled: "false"
     ports:

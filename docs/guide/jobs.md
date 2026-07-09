@@ -168,8 +168,6 @@ public class CleanupIndexesJob : IJob
 }
 ```
 
-Before selecting indexes for deletion, the built-in job enumerates index names with Elasticsearch's Get Index API. If that request fails, `RunAsync` returns a failed `JobResult`; an Elasticsearch outage or permissions error is not treated as an empty cluster or a successful cleanup.
-
 ### ElasticMigrationJob
 
 `ElasticMigrationJobBase` is an **abstract, opt-in** base class for a job that runs pending data migrations and then reindexes every outdated versioned index:
