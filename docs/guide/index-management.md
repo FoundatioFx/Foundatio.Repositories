@@ -108,6 +108,108 @@ public sealed class AuditLogIndex : MonthlyIndex<AuditLog>
 - `audit-v1-2024.01`
 - `audit-v1-2024.02`
 
+## How Time-Series Indexes Work
+
+`DailyIndex` and `MonthlyIndex` spread documents across many small time-partitioned indexes rather than one large index. Understanding how a document's index is **picked at write time** and **resolved at read time** explains the whole model — including why there is normally exactly **one** index per time period and no parallel copies of the same data.
+
+### One index per period, not parallel copies
+
+A common question is whether the library keeps multiple copies of an index in parallel or processes one index at a time with cleanup. The answer is the latter:
+
+- **Steady state:** exactly **one** physical index exists per time period (per day for `DailyIndex`, per month for `MonthlyIndex`). The umbrella alias unions all of them so the repository can query them as if they were a single index.
+- **Retention:** as periods age past `MaxIndexAge`, their indexes are removed from the aliases and then deleted (see [Retention Policy](#retention-policy-for-time-series-indexes)). Old data is cleaned up one index at a time, not held indefinitely.
+- **The only time two copies of the same period coexist** is transiently during a [version reindex](#version-upgrade-process) (e.g. `logs-v1-2024.01.15` → `logs-v2-2024.01.15`). After the reindex succeeds, the old version is discarded when `DiscardIndexesOnReindex` is `true` (the default).
+
+### Three naming layers
+
+Time-series indexes use three distinct name layers. Knowing which is which is the key to understanding routing:
+
+| Layer | Example | Points to | Used for |
+|---|---|---|---|
+| **Physical index** | `logs-v1-2024.01.15` | Actual Lucene index on disk (version encoded) | Where documents physically live |
+| **Dated alias** | `logs-2024.01.15` | The current version's physical index for that one day | Routing a single document's read/write |
+| **Umbrella alias** | `logs` | All current, non-expired physical indexes | Querying across all periods |
+| **Windowed alias** | `logs-last-7-days` | Physical indexes within a rolling window | Fixed-window queries (see [Time-Based Aliases](#time-based-aliases)) |
+
+Because read/write routing targets the **dated alias** (unversioned), the physical version can change underneath (via reindex) without changing how the repository addresses documents.
+
+### Picking the index at write time
+
+When you write a document (`AddAsync`, `SaveAsync`, bulk operations), the library derives the target index from the document's **date**, resolved in this order (`DailyIndex.GetIndex` / `_getDocumentDateUtc`):
+
+1. If the document id is an [ObjectId](/guide/crud-operations), its embedded **creation timestamp** is used. `CreateDocumentId` generates an ObjectId that encodes the document date, so the id and its index stay consistent.
+2. Otherwise, if the model implements `IHaveCreatedDate`, its `CreatedUtc` value is used.
+3. You can override resolution entirely by passing a `getDocumentDateUtc` delegate to the index constructor.
+
+That date maps to a dated alias (`logs-2024.01.15` for daily, `logs-2024.01` for monthly). Before the write, `EnsureIndexAsync` creates the physical index for that period **if it does not already exist** and attaches its aliases in the same call:
+
+- the **dated alias** (`logs-2024.01.15`),
+- the **umbrella alias** (`logs`), and
+- any **windowed aliases** whose age window still includes that date.
+
+Writes are grouped by resolved index, so a bulk insert spanning several days fans out into one write per dated index.
+
+```mermaid
+flowchart TD
+    Doc["Document to write"] --> Date["Resolve document date\nObjectId.CreationTime → CreatedUtc → custom func"]
+    Date --> Dated["Target = dated alias\nlogs-2024.01.15"]
+    Dated --> Age{"Date older than\nMaxIndexAge?"}
+    Age -->|Yes| Reject["Throw: Index max age exceeded"]
+    Age -->|No| Exists{"Physical index\nlogs-v1-2024.01.15\nexists?"}
+    Exists -->|No| Create["Create physical index +\nattach umbrella / dated / windowed aliases"]
+    Exists -->|Yes| Write
+    Create --> Write["Index document into that single dated index"]
+```
+
+::: warning Writing to an already-expired period fails
+If a document's date is older than `MaxIndexAge`, `EnsureDateIndexAsync` throws `ArgumentException: Index max age exceeded` rather than silently recreating a period that retention has already reclaimed. See [Preventing Writes to Expired Indexes](#preventing-writes-to-expired-indexes).
+:::
+
+### Resolving the index at read time
+
+Reads resolve differently depending on whether you look up a single document or run a query:
+
+- **Single-document lookups** (`GetByIdAsync`, `ExistsAsync`, and id-based `PatchAsync` / `RemoveAsync`) route directly to **one** dated alias by parsing the ObjectId in the id back into its creation date. This avoids scanning every period. If the document is not found there and the index has multiple partitions, the repository falls back to a query across the umbrella alias.
+- **Queries** (`FindAsync`, `CountAsync`, `PatchAllAsync`, `RemoveAllAsync`) resolve their target indexes via `GetIndexesByQuery`:
+  - `.Index("name")` targets explicit index/alias names.
+  - `.Index(start, end)` expands to the list of dated aliases in that range (partition pruning).
+  - When neither is set — or the range is too wide (see [Large Range Fallback](#large-range-fallback)) — the query targets the **umbrella alias** covering all periods.
+
+```mermaid
+flowchart TD
+    subgraph Single["Single-document lookup (GetByIdAsync)"]
+        Id["id (ObjectId)"] --> Parse["Parse creation date"]
+        Parse --> Route["Route to dated alias\nlogs-2024.01.15"]
+        Route --> Found{"Found?"}
+        Found -->|Yes| Return["Return document"]
+        Found -->|"No + multiple indexes"| Umbrella1["Fallback: query umbrella alias logs"]
+    end
+
+    subgraph Query["Query (FindAsync / CountAsync)"]
+        Q["Query"] --> HasRange{".Index(start, end) set\nand range within threshold?"}
+        HasRange -->|Yes| Prune["Target only matching dated aliases"]
+        HasRange -->|"No / too wide"| Umbrella2["Target umbrella alias logs (all periods)"]
+    end
+```
+
+### Alias management and retention over time
+
+`MaintainIndexesAsync` (run on a schedule via [`MaintainIndexesJob`](/guide/jobs)) keeps aliases in sync with `MaxIndexAge`:
+
+- Current-version, non-expired indexes are **added** to the umbrella and any matching windowed aliases.
+- Expired indexes (age past `MaxIndexAge`) and superseded versions are **removed** from all aliases so queries stop hitting them.
+- When `DiscardExpiredIndexes` is `true`, expired physical indexes are then **deleted**.
+
+```mermaid
+flowchart LR
+    Maintain["MaintainIndexesAsync()"] --> Update["UpdateAliasesAsync:\nadd current/non-expired,\nremove expired + old versions"]
+    Maintain --> Age{"DiscardExpiredIndexes\nand age &gt; MaxIndexAge?"}
+    Age -->|Yes| Delete["Delete expired physical index"]
+    Age -->|No| Keep["Keep index, only drop from aliases"]
+```
+
+See [Retention Policy for Time-Series Indexes](#retention-policy-for-time-series-indexes) for configuration details.
+
 ## Querying Time-Series Indexes
 
 ### Index Selection vs. Document Filtering
@@ -249,7 +351,7 @@ When you use `VersionedIndex<T>`, the library manages schema evolution through a
 
 1. **Index Naming**: Each version creates a separate index (e.g., `employees-v1`, `employees-v2`)
 2. **Alias Management**: An alias (`employees`) always points to the current version
-3. **Automatic Reindexing**: When you increment the version, data is automatically migrated
+3. **Reindexing**: When you increment the version, data is migrated by a reindex — but that reindex has to be explicitly triggered (see [What actually triggers a reindex](#what-actually-triggers-a-reindex)); nothing runs it for you automatically
 
 ```mermaid
 graph LR
@@ -267,7 +369,11 @@ Only increment the version when you need to **change an existing field's mapping
 
 ### Version Upgrade Process
 
-When you increment the version and call `ConfigureIndexesAsync()`, the following happens:
+::: info Single index vs. time-series
+The steps below describe a single-index type (`Index<T>` / `VersionedIndex<T>`), where one physical index is swapped. For `DailyIndex` / `MonthlyIndex`, the same steps run **per dated partition, one at a time** — see [Version Upgrades for Time-Series Indexes](#version-upgrades-for-time-series-indexes-daily-monthly) for exactly when each old partition is dropped.
+:::
+
+When an index's version is incremented, the actual upgrade is always these 5 steps. The only variable is *what triggers them* — see [What actually triggers a reindex](#what-actually-triggers-a-reindex) below, because it is **not** simply "calling `ConfigureIndexesAsync()`":
 
 1. **New Index Creation**: Creates `employees-v2` with the new mapping
 2. **Reindex Task**: Elasticsearch's reindex API copies data from v1 to v2
@@ -288,9 +394,158 @@ public sealed class EmployeeIndex : VersionedIndex<Employee>
     }
 }
 
-// Step 2: Configure indexes (triggers reindex)
-await configuration.ConfigureIndexesAsync();
+// Step 2: Run the reindex directly — deterministic and awaitable.
+// ConfigureIndexesAsync()'s default only enqueues a work item; see below.
+await configuration.ReindexAsync();
 ```
+
+::: warning `ConfigureIndexesAsync()` does not reindex inline
+`ConfigureIndexesAsync()` (default `beginReindexingOutdated: true`) does **not** run the 5 steps above itself — it only *enqueues* a `ReindexWorkItem`. Something else (a queue worker with `ReindexWorkItemHandler` registered) has to dequeue and actually run it. If you never configured an `IQueue<WorkItemData>` on `ElasticConfiguration`, this throws `InvalidOperationException: Must specify work item queue and lock provider in order to migrate index versions.` the moment it finds an outdated index. See [What actually triggers a reindex](#what-actually-triggers-a-reindex) for the recommended, direct alternative.
+:::
+
+### Version Upgrades for Time-Series Indexes (Daily/Monthly)
+
+`DailyIndex` and `MonthlyIndex` store one physical index per time period, so bumping the version has to migrate **every** existing partition. It does this **one partition at a time**, and each partition's old index is deleted as the *final step of that partition's own reindex* — before the next partition begins. It never creates new copies of all partitions first and then bulk-deletes the originals.
+
+::: tip One at a time, not all-at-once
+Peak extra disk usage during a time-series version upgrade is roughly **one partition** (the one currently being migrated), not a full duplicate of the entire dataset. Already-migrated partitions have their old index deleted; not-yet-migrated partitions still have only their original.
+:::
+
+Trigger a time-series version upgrade explicitly with `configuration.ReindexAsync()` (or `auditIndex.ReindexAsync()`). It runs inline (awaitable) and reports progress through the optional callback:
+
+```csharp
+// After bumping the index version (e.g. new MonthlyIndex<AuditLog>(configuration, version: 2)):
+await configuration.ReindexAsync((progress, message) =>
+{
+    logger.LogInformation("Reindex {Progress:F0}%: {Message}", progress, message);
+    return Task.CompletedTask;
+});
+
+// Or reindex a single time-series index directly:
+await auditIndex.ReindexAsync();
+```
+
+::: warning Trigger time-series upgrades with `ReindexAsync()`, not `ConfigureIndexesAsync()`
+Unlike a single `VersionedIndex<T>`, a `DailyIndex` / `MonthlyIndex` is **not** migrated by the automatic background reindex that `ConfigureIndexesAsync(beginReindexingOutdated: true)` enqueues — that path targets the unversioned base name (`audit-v1`), which does not match the dated partitions (`audit-v1-2024.01`, …). Always trigger a time-series version upgrade explicitly with `configuration.ReindexAsync()` or `index.ReindexAsync()`, which runs the per-partition loop described below.
+:::
+
+`ReindexAsync` then:
+
+1. **Acquires a distributed lock** keyed on the alias (`reindex:audit`) so only one reindex runs at a time. The lock is auto-renewed on every progress callback.
+2. **Lists all v1 partitions** and orders them **oldest → newest** by index date.
+3. **For each partition**, runs the full sequence to completion before moving to the next:
+   1. Create `audit-v2-2024.01` with the new mapping.
+   2. Reindex documents from `audit-v1-2024.01` into it (first pass).
+   3. **Swap aliases** — atomically remove `audit-v1-2024.01` from every alias and add `audit-v2-2024.01`. Reads for that month now hit v2.
+   4. **Second-pass catch-up** copies any documents written during the first pass (see [Second-Pass Catch-Up Strategy](#second-pass-catch-up-strategy)).
+   5. **Delete `audit-v1-2024.01`** (conditional — see below).
+4. Move on to `audit-v1-2024.02`, then `audit-v1-2024.03`, and so on.
+
+Partitions already past `MaxIndexAge` are **skipped** (left for [retention/maintenance](#retention-policy-for-time-series-indexes) to clean up rather than reindexed).
+
+During the migration the umbrella alias (`audit`) transparently spans both already-migrated (v2) and not-yet-migrated (v1) partitions, so reads and writes keep working the entire time.
+
+```mermaid
+flowchart TD
+    Start["Bump version → configuration.ReindexAsync()"] --> Lock["Acquire distributed lock (keyed on alias)"]
+    Lock --> List["List v1 partitions,\nordered oldest → newest"]
+    List --> Loop{"More partitions?"}
+    Loop -->|No| Done["Upgrade complete"]
+    Loop -->|Yes| Expired{"Partition past\nMaxIndexAge?"}
+    Expired -->|Yes| Loop
+    Expired -->|No| Create["Create audit-v2-YYYY.MM"]
+    Create --> Reindex["Reindex v1 → v2 (first pass)"]
+    Reindex --> Swap["Swap aliases:\nremove v1 partition, add v2 partition"]
+    Swap --> Catchup["Second-pass catch-up"]
+    Catchup --> Check{"DiscardIndexesOnReindex\nAND no failures\nAND new count ≥ old count?"}
+    Check -->|Yes| Delete["Delete audit-v1-YYYY.MM"]
+    Check -->|No| Keep["Keep old partition\n(inspect / retry)"]
+    Delete --> Loop
+    Keep --> Loop
+```
+
+#### When the old partition is deleted
+
+The old index for a period is deleted at the very end of *that period's* reindex (~98–99% progress), and **only** when all of the following hold:
+
+- `DiscardIndexesOnReindex` is `true` (the default).
+- Neither the first nor the second reindex pass reported any failures.
+- The new partition's document count is **greater than or equal to** the old partition's count (a safety check against data loss).
+
+If any condition fails, the old partition is **retained** so you can inspect or retry it, and the alias already points at the new partition. Because deletion happens per-partition immediately after that partition's data is verified, the originals are never all held simultaneously and then dropped in one batch.
+
+#### What actually triggers a reindex
+
+No mechanism in the library starts a reindex automatically — there is no background timer, hosted service, or auto-discovered job. A version bump only takes effect once something explicitly calls it. There are three ways to do that:
+
+1. **Call `configuration.ReindexAsync()` / `index.ReindexAsync()` directly.** This is the deterministic, inline, awaitable path described throughout this section — one partition at a time — and it's what every reindex test in this repo uses. Run it from a deploy step, an admin endpoint, a one-off console command, or a job you write and schedule yourself. **This is the recommended way to run a version upgrade**, time-series or not.
+
+2. **The `beginReindexingOutdated: true` default on `ConfigureIndexesAsync()`.** This does **not** perform a reindex itself — it only *enqueues* a `ReindexWorkItem` (see [Configure Indexes](#configure-indexes)). For that work item to actually run, two more things must be true: (a) a real `IQueue<WorkItemData>` was passed into `ElasticConfiguration`'s constructor, and (b) something in the app is dequeuing work items with `ReindexWorkItemHandler` registered to handle `ReindexWorkItem`s. **Neither is wired up by the library.** If no queue is configured and an index turns out to be outdated, `ConfigureIndexesAsync()` throws `InvalidOperationException: Must specify work item queue and lock provider in order to migrate index versions.` — which is why this repo's own [sample app](https://github.com/FoundatioFx/Foundatio.Repositories/blob/main/samples/Foundatio.SampleApp/Server/Repositories/Configuration/ElasticExtensions.cs) calls `ConfigureIndexesAsync(beginReindexingOutdated: false)` instead of relying on the default. Even fully wired up, this path is a **no-op for time-series indexes** (see the warning above) — the enqueued work item names the non-dated base index, which matches no dated partition.
+
+3. **`ElasticMigrationJobBase`** (`Jobs/ElasticMigrationJob.cs`) is an abstract helper class for a repeatable "run migrations, then reindex everything outdated" job — it correctly calls `ConfigureIndexesAsync(beginReindexingOutdated: false)` (sidestepping the no-op queue path) and then `index.ReindexAsync()` for every outdated index. **It is opt-in scaffolding, not something registered or run automatically.** Nothing in the library subclasses it, schedules it, or references it, and no consuming application in this repository — including its own sample app — derives from it. Derive from it and register it with your own job runner for a repeatable/scheduled job; for a one-time upgrade, calling `ReindexAsync()` directly (option 1) is simpler and is what's actually tested.
+
+For a manual, one-time upgrade — such as bumping the version on a monthly audit index — call `configuration.ReindexAsync()` or `auditIndex.ReindexAsync()` explicitly when ready to run it. `ConfigureIndexesAsync()`'s default does not perform the upgrade, and no built-in job runs it automatically.
+
+Neither of the following reindexes time-series data: `MaintainIndexesJob` (aliases/retention only), and the `ReindexWorkItemHandler` queue path for daily/monthly indexes (the enqueued work item's name doesn't match any dated partition).
+
+#### Concurrency: within an index, one partition at a time
+
+**Within a single index** a reindex is **strictly sequential** — one partition at a time, with no parallel fan-out:
+
+| Level | Behavior | Where |
+|---|---|---|
+| **Partitions within an index** | `ReindexAsync` iterates partitions in a single `await`ed `foreach`; the next partition never starts until the current one finishes (including its delete). | `DailyIndex.ReindexAsync` |
+| **The Elasticsearch reindex itself** | Each partition is copied with a **single, unsliced** `_reindex` task. The library does not set `slices`, so there is no parallel sub-task fan-out; it submits the task and polls until it completes. | `ElasticReindexer.InternalReindexAsync` |
+
+**Across different indexes** it depends on how you trigger it: `configuration.ReindexAsync()` processes indexes **sequentially** (one index fully finishes before the next starts), while `ElasticMigrationJob` reindexes them **in parallel** (`Task.WhenAll`, one task per outdated index). Either way each index is internally sequential, and a **distributed lock keyed on the alias** (`reindex:audit`) guarantees a given index is never reindexed by two runners at once — even across multiple application instances (pods, workers). The lock is held for 20 minutes and auto-renewed on every progress callback, so long partition copies keep it alive.
+
+::: tip Predictable, bounded disk usage per index
+Within one index the upgrade only ever duplicates **one partition at a time**, so bumping a single index (e.g. `audit`) needs roughly one extra partition of headroom regardless of how many partitions it has. If several indexes reindex in parallel (via `ElasticMigrationJob`), peak extra disk is about the sum of one in-flight partition per concurrently-migrating index. Wall-clock time scales with partition count; run during off-peak hours if needed.
+:::
+
+#### Multiple versions and interrupted upgrades
+
+In normal operation only **two** versions of a period ever coexist, and only transiently — the old partition and the new one — during that single period's reindex. The process is designed to be **resumable and idempotent**:
+
+- The **lowest version still present** is treated as the current version (`GetCurrentVersionAsync`), and each run processes only the partitions still on that version. Partitions that were already migrated are excluded automatically, so re-running never redoes completed work.
+- If a run is interrupted — a process restart, a failure on one partition, a lost lock — just **run it again**. It picks up the remaining old partitions and continues, oldest first. A partition whose reindex failed keeps its old index (the delete is gated on success), so nothing is lost.
+- Reindex scripts **compose across skipped versions**: going straight from v1 to v3 applies the v2 and v3 scripts in order, so transformations are never skipped.
+- If partitions end up at genuinely mixed versions (for example a v1→v2 upgrade was interrupted and you have since bumped to v3), each run advances the oldest cohort one step; run the reindex until `GetCurrentVersionAsync()` equals the target `Version`. The migration job converges this over repeated runs.
+
+Throughout, the umbrella alias spans whatever the current partitions are, so reads and writes keep working even while the index is a mix of versions.
+
+#### Recovering from a rolling restart mid-upgrade
+
+A reindex can be interrupted at any point — a deploy recycles the pod running it, a node is drained, the process crashes. Re-running `configuration.ReindexAsync()` (or `index.ReindexAsync()`) afterward recovers cleanly, without manual cleanup, for the following reasons:
+
+- **The lock expires; nobody has to release it.** The distributed lock (`reindex:audit`) is held for 20 minutes and renewed on every progress callback. If the process holding it dies, the lock is never explicitly released — it simply expires 20 minutes after the last renewal. A new instance's call to `ReindexAsync()` waits for the lock (up to 30 minutes) and then proceeds.
+- **The Elasticsearch-side copy isn't tied to the calling process.** Each partition's copy runs as an asynchronous Elasticsearch task (`wait_for_completion=false`); the library only polls it for progress. That task lives in the cluster's task manager, so if the .NET process dies while polling, the copy already running in Elasticsearch is unaffected and keeps going independently.
+- **A retried first pass copies only the delta.** On retry, the first pass queries the new partition for the most recent document it already contains and reindexes only source documents at or after that point, rather than recopying the whole period. If the new partition is empty (nothing had landed before the interruption), the retry does a full copy, same as an initial run.
+- **A partition whose alias was already swapped is still found and finished.** Partitions to migrate are discovered by matching physical index names, not by current alias membership. If the process died after the alias swap but before the old partition's delete, the next run still finds that now-orphaned old partition, reruns its (now-cheap) resume copy and alias swap, and deletes it — reaching the same end state as an uninterrupted run.
+- **Two instances never migrate the same index at once.** The alias-keyed lock caps a given index to one active reindex cluster-wide. If a rolling restart briefly leaves two instances both calling `ReindexAsync()` for the same index, one holds the lock while the other waits; once the first finishes, the current version has already advanced, so the second call's version check finds nothing left to do and returns immediately.
+
+#### When do writes flip to the new partition — and is there a gap?
+
+Writes for a period target the **unversioned dated alias** (e.g. `audit-2024.01`), so they flip when that alias is repointed:
+
+1. During the **first pass**, the dated alias still points to the old partition, so any concurrent writes for that period land in **v1**.
+2. When the first pass finishes (~91–92%), **every alias pointing at the old partition — the dated alias, the umbrella alias, and any windowed aliases — is repointed to the new partition in a single `UpdateAliases` call**. From that instant, new writes for that period land in **v2**.
+3. The **second-pass catch-up** then copies anything written to v1 during the first pass into v2.
+
+**Is there a gap?**
+
+- **No aliasing gap.** The remove-old and add-new actions are submitted together in one `UpdateAliases` request, which Elasticsearch applies **atomically**. The alias is never pointing at zero indexes (or at both), so reads and writes always resolve to exactly one partition — there is no window where a write fails to route or a read sees nothing.
+- **No lost-write gap for append-only data.** Documents written to the old partition during the first pass are picked up by the second-pass catch-up, which runs *after* the swap and copies every document with a timestamp (or ObjectId creation time) at or after a start time captured ~1 second before the reindex began. After the swap the old partition receives no new writes, and `Conflicts=proceed` keeps the catch-up from failing on documents already copied. This is why a `TimestampField` or ObjectId-format IDs are recommended (see [Second-Pass Catch-Up Strategy](#second-pass-catch-up-strategy)) — they let the catch-up find late writes precisely.
+
+Only the currently-reindexing period has this brief hand-off; periods not yet reached still write to v1, and periods already migrated write to v2 — all through the same unchanging dated-alias names.
+
+#### Why partitions are processed oldest → newest
+
+Partitions are always migrated in ascending date order (`GetIndexesAsync` sorts by `DateUtc`). This is deliberate, and it matters most for exactly the append-only time-series workloads these indexes are built for (audit logs, events):
+
+- **Least write contention and near-empty catch-up.** In a time-series workload new documents land in the **current** period; older periods are effectively immutable (and writing to a period past `MaxIndexAge` throws). Migrating the old, static partitions first means their first pass captures everything and the [second-pass catch-up](#second-pass-catch-up-strategy) has little or nothing to copy. The one volatile partition — today/this month — is migrated **last**, so the short window where concurrent writes must be caught up is isolated at the very end instead of being reopened repeatedly.
+- **Progressive, predictable disk reclamation.** Since each old partition is deleted before the next starts, disk is freed starting with your oldest data and continues steadily — helpful when the whole reason for going one-at-a-time is limited headroom.
+- **Deterministic and resumable.** The "current version" is the **lowest** version still present, and each run lists only the partitions still on that old version — already-migrated partitions are excluded automatically. So if a run is interrupted or retried, it simply resumes with the remaining old partitions in the same order, without redoing completed work. (This deterministic ordering was introduced as an index-management stability fix and has been the behavior since.)
 
 ### Field Operations During Reindex
 
@@ -469,6 +724,8 @@ public EmployeeIndex(IElasticConfiguration configuration)
     // DiscardIndexesOnReindex = false;
 }
 ```
+
+Even with `DiscardIndexesOnReindex = true`, the old index is only deleted when the reindex reported **no failures** and the new index's document count is **greater than or equal to** the old index's count. If either check fails, the old index is kept so you can inspect or retry. For time-series indexes this evaluation happens independently per dated partition — see [When the old partition is deleted](#when-the-old-partition-is-deleted).
 
 ### Reindex Progress Monitoring
 
@@ -818,7 +1075,7 @@ Options:
 - Creates indexes that don't exist
 - Updates mappings for existing indexes (if compatible)
 - Creates aliases
-- Starts reindexing for outdated indexes
+- With the default `beginReindexingOutdated: true`, **enqueues** (does not run) a reindex work item for each outdated index — see [What actually triggers a reindex](#what-actually-triggers-a-reindex) for why you usually want `configuration.ReindexAsync()` instead
 
 #### Concurrency Protection
 

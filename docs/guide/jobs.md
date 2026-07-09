@@ -168,6 +168,54 @@ public class CleanupIndexesJob : IJob
 }
 ```
 
+### ElasticMigrationJob
+
+`ElasticMigrationJobBase` is an **abstract, opt-in** base class for a job that runs pending data migrations and then reindexes every outdated versioned index:
+
+```csharp
+public abstract class ElasticMigrationJobBase : JobBase
+{
+    protected override async Task<JobResult> RunInternalAsync(JobContext context)
+    {
+        // Create/update indexes and mappings without enqueuing the (no-op for
+        // time-series) queue-based reindex path:
+        await _configuration.ConfigureIndexesAsync(null, false);
+
+        await _migrationManager.Value.RunMigrationsAsync();
+
+        // Reindexes every outdated IVersionedIndex directly (index.ReindexAsync()),
+        // one index at a time internally, but all outdated indexes IN PARALLEL
+        // (Task.WhenAll) relative to each other.
+        var tasks = _configuration.Indexes.OfType<IVersionedIndex>().Select(ReindexIfNecessary);
+        await Task.WhenAll(tasks);
+
+        return JobResult.Success;
+    }
+}
+```
+
+::: warning This is scaffolding you opt into — nothing runs it for you
+`ElasticMigrationJobBase` is **not** auto-registered, auto-discovered, or scheduled by the library, and nothing in this repo (including its own [sample app](https://github.com/FoundatioFx/Foundatio.Repositories/tree/main/samples/Foundatio.SampleApp)) derives from it. If you want a repeatable "run migrations + reindex everything outdated" job, derive from it yourself and register/schedule it in your own app (`services.AddJob<YourMigrationJob>()`). For a one-time version upgrade, it's simpler — and more predictable — to call `configuration.ReindexAsync()` / `index.ReindexAsync()` directly; see [What actually triggers a reindex](/guide/index-management#what-actually-triggers-a-reindex).
+:::
+
+**Usage (if you choose to derive from it):**
+
+```csharp
+public class MyMigrationJob : ElasticMigrationJobBase
+{
+    public MyMigrationJob(MigrationManager migrationManager, IElasticConfiguration configuration, ILoggerFactory loggerFactory)
+        : base(migrationManager, configuration, loggerFactory) { }
+
+    protected override void Configure(MigrationManager manager)
+    {
+        // Register your MigrationBase implementations here
+    }
+}
+
+// Register and run it like any other job
+services.AddJob<MyMigrationJob>();
+```
+
 ### ReindexWorkItemHandler
 
 Handles reindexing operations as background work items with automatic lock renewal and progress reporting:
@@ -190,6 +238,10 @@ public class ReindexWorkItem
 - **Progress Reporting**: Reports progress percentage and status messages during reindex
 - **Two-Pass Reindex**: Performs a second pass to catch documents modified during the first pass. Uses `TimestampField` if available; falls back to ObjectId-based range queries if document IDs are ObjectId-format; logs a warning if neither strategy is available
 - **Error Handling**: Failed documents are stored in an error index (`{newIndex}-error`)
+
+::: warning Enqueuing a work item is not enough on its own
+For this to run, something has to actually dequeue `ReindexWorkItem`s and dispatch them to `ReindexWorkItemHandler` — you need your own queue worker with the handler registered (e.g. via a `JobManager`/`WorkItemHandlers` setup). Simply calling `queue.EnqueueAsync(...)` below, with nothing processing the queue, leaves the work item sitting there indefinitely. Also, **this path does not work for `DailyIndex`/`MonthlyIndex`** — the old/new index names must be exact, existing index (or alias) names, so a dated partition's real name (`audit-v1-2024.01`) has to be used, not the unversioned base name. See [What actually triggers a reindex](/guide/index-management#what-actually-triggers-a-reindex) for the recommended direct alternative for time-series indexes.
+:::
 
 **Usage:**
 
