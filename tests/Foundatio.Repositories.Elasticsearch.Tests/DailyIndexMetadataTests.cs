@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
@@ -26,7 +27,7 @@ public sealed class DailyIndexMetadataTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task GetIndexNamesRequest_ReturnsNamesAndAliasesWithoutMappingProperties()
+    public async Task CreateGetIndexNamesRequest_WithDailyIndexes_ReturnsNamesAndAliasesWithoutMappingOrSettingsContent()
     {
         var utcNow = new DateTime(2024, 1, 15, 0, 0, 0, DateTimeKind.Utc);
         _configuration.TimeProvider = new FakeTimeProvider(new DateTimeOffset(utcNow, TimeSpan.Zero));
@@ -53,6 +54,16 @@ public sealed class DailyIndexMetadataTests : ElasticRepositoryTestBase
 
         Assert.Equal(SummarizeIndexAliases(fullResponse), SummarizeIndexAliases(namesResponse));
         Assert.All(namesResponse.Indices.Values, s => Assert.True(s.Mappings?.Properties is null || !s.Mappings.Properties.Any()));
+
+        Assert.NotNull(namesResponse.ApiCallDetails?.ResponseBodyInBytes);
+        using var responseBody = JsonDocument.Parse(namesResponse.ApiCallDetails.ResponseBodyInBytes);
+        foreach (var indexState in responseBody.RootElement.EnumerateObject())
+        {
+            Assert.True(indexState.Value.TryGetProperty("aliases", out var aliases));
+            Assert.Equal(JsonValueKind.Object, aliases.ValueKind);
+            AssertEmptyObjectIfPresent(indexState.Value, "mappings");
+            AssertEmptyObjectIfPresent(indexState.Value, "settings");
+        }
 
         Assert.NotNull(namesResponse.ApiCallDetails?.Uri);
         string query = namesResponse.ApiCallDetails.Uri.Query;
@@ -98,5 +109,11 @@ public sealed class DailyIndexMetadataTests : ElasticRepositoryTestBase
             .OrderBy(i => i.Key)
             .Select(i => $"{i.Key}:{(i.Value.Aliases is null ? String.Empty : String.Join(',', i.Value.Aliases.Keys.OrderBy(alias => alias)))}")
             .ToArray();
+    }
+
+    private static void AssertEmptyObjectIfPresent(JsonElement indexState, string propertyName)
+    {
+        if (indexState.TryGetProperty(propertyName, out var value))
+            Assert.Empty(value.EnumerateObject());
     }
 }
