@@ -11,6 +11,7 @@ using Elastic.Transport;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Jobs;
 using Foundatio.Lock;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Extensions;
 using Microsoft.Extensions.Logging;
@@ -62,19 +63,19 @@ public class CleanupIndexesJob : IJob
         var result = await _client.Indices.GetAsync(request, cancellationToken).AnyContext();
         sw.Stop();
 
-        if (result.IsValidResponse)
-        {
-            _logger.LogRequest(result);
-            _logger.LogInformation("Retrieved list of {IndexCount} indexes in {Duration:g}", result.Indices?.Count, sw.Elapsed.ToWords(true));
-        }
-        else
+        if (!result.IsValidResponse)
         {
             _logger.LogErrorRequest(result, "Failed to retrieve list of indexes");
+            string message = result.GetErrorMessage("Failed to retrieve list of indexes");
+            return result.OriginalException() is { } exception
+                ? JobResult.FromException(exception, message)
+                : JobResult.FailedWithMessage(message);
         }
 
-        var indexes = new List<IndexDate>();
-        if (result.IsValidResponse && result.Indices is not null)
-            indexes = result.Indices?.Keys.Select(k => GetIndexDate(k.ToString())).OfType<IndexDate>().ToList() ?? [];
+        _logger.LogRequest(result);
+        _logger.LogInformation("Retrieved list of {IndexCount} indexes in {Duration:g}", result.Indices?.Count, sw.Elapsed.ToWords(true));
+
+        var indexes = result.Indices?.Keys.Select(k => GetIndexDate(k.ToString())).OfType<IndexDate>().ToList() ?? [];
 
         if (indexes.Count is 0)
             return JobResult.Success;
