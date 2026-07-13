@@ -272,7 +272,9 @@ public class DailyIndex : VersionedIndex
                 NewIndex = GetVersionedIndex(GetIndexDate(index.Index), Version),
                 Alias = Name,
                 Script = GetReindexScripts(index.CurrentVersion),
-                TimestampField = GetTimeStampField()
+                TimestampField = GetTimeStampField(),
+                ReindexBatchSize = ReindexBatchSize,
+                ReindexRequestsPerSecond = ReindexRequestsPerSecond
             };
 
             reindexWorkItem.DeleteOld = DiscardIndexesOnReindex && reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;

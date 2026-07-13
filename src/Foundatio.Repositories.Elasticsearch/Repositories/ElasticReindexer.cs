@@ -71,6 +71,12 @@ public class ElasticReindexer
         if (String.IsNullOrEmpty(workItem.NewIndex))
             throw new ArgumentNullException(nameof(workItem.NewIndex));
 
+        if (workItem.ReindexBatchSize is <= 0)
+            throw new ArgumentOutOfRangeException(nameof(workItem.ReindexBatchSize), workItem.ReindexBatchSize, "Must be greater than zero when specified.");
+
+        if (workItem.ReindexRequestsPerSecond is <= 0 or float.NaN)
+            throw new ArgumentOutOfRangeException(nameof(workItem.ReindexRequestsPerSecond), workItem.ReindexRequestsPerSecond, "Must be greater than zero when specified.");
+
         if (progressCallbackAsync == null)
         {
             progressCallbackAsync = (progress, message) =>
@@ -238,10 +244,15 @@ public class ElasticReindexer
                     src.Indices(workItem.OldIndex);
                     if (query != null)
                         src.Query(query);
+                    if (workItem.ReindexBatchSize.HasValue)
+                        src.Size(workItem.ReindexBatchSize.Value);
                 });
                 d.Dest(dest => dest.Index(workItem.NewIndex));
                 d.Conflicts(Conflicts.Proceed);
                 d.WaitForCompletion(false);
+
+                if (workItem.ReindexRequestsPerSecond.HasValue)
+                    d.RequestsPerSecond(workItem.ReindexRequestsPerSecond.Value);
 
                 if (!String.IsNullOrWhiteSpace(workItem.Script))
                     d.Script(new Script { Source = workItem.Script });
@@ -287,6 +298,9 @@ public class ElasticReindexer
                     break;
                 }
 
+                // Back off before retrying so a struggling cluster (e.g. rejecting requests due to
+                // indexing pressure) isn't hammered with an immediate retry.
+                await _timeProvider.Delay(GetStatusRetryDelay(statusGetFails), cancellationToken).AnyContext();
                 continue;
             }
 
@@ -629,6 +643,34 @@ public class ElasticReindexer
     {
         if (total == 0) return startProgress;
         return startProgress + (int)((100 * (double)completed / total) * (((double)endProgress - startProgress) / 100));
+    }
+
+    private static readonly Func<int, TimeSpan> _statusRetryExponentialDelay = ResiliencePolicy.ExponentialDelay(TimeSpan.FromSeconds(1));
+    private static readonly TimeSpan _maxStatusRetryDelay = TimeSpan.FromSeconds(30);
+
+    // Any attempt count at or beyond this already saturates the exponential delay past _maxStatusRetryDelay
+    // (2^(6-1) = 32s > 30s cap), so clamping here is purely overflow-safety headroom for Math.Pow, not a
+    // behavioral limit. It intentionally isn't tied to MAX_STATUS_FAILS - those are separate concerns that
+    // happen to share the same value today.
+    private const int MaxAttemptsForDelayCalculation = 10;
+
+    /// <summary>
+    /// Computes the backoff delay before retrying a failed task status check, e.g. after Elasticsearch
+    /// rejects the request due to indexing pressure (HTTP 429). Grows exponentially starting at 1 second,
+    /// caps at 30 seconds so repeated failures don't hammer a struggling cluster, and applies +/-25% jitter
+    /// (matching <see cref="ResiliencePolicy"/>'s own jitter formula) so multiple reindex operations failing
+    /// at the same time due to a cluster-wide condition don't retry in lockstep.
+    /// </summary>
+    internal static TimeSpan GetStatusRetryDelay(int failedAttempts)
+    {
+        int clampedAttempts = Math.Clamp(failedAttempts, 1, MaxAttemptsForDelayCalculation);
+        var delay = _statusRetryExponentialDelay(clampedAttempts);
+
+        double offset = delay.TotalMilliseconds * 0.25;
+        double jitteredMilliseconds = delay.TotalMilliseconds + (delay.TotalMilliseconds * 0.5 * Random.Shared.NextDouble() - offset);
+        delay = TimeSpan.FromMilliseconds(Math.Max(0, jitteredMilliseconds));
+
+        return delay > _maxStatusRetryDelay ? _maxStatusRetryDelay : delay;
     }
 
     private record ReindexResult

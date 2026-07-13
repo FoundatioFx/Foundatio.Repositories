@@ -65,15 +65,15 @@ public class SnapshotJob : IJob
     public async Task<JobResult> RunAsync(CancellationToken cancellationToken = default)
     {
         var snapshotName = $"snapshot-{DateTime.UtcNow:yyyy-MM-dd-HH-mm-ss}";
-        
+
         var response = await _client.Snapshot.CreateAsync(
             _repositoryName,
             snapshotName,
             s => s.WaitForCompletion(false));
-        
+
         if (!response.IsValidResponse)
             return JobResult.FromException(response.OriginalException(), response.GetErrorMessage());
-        
+
         return JobResult.Success;
     }
 }
@@ -114,9 +114,9 @@ public class CleanupSnapshotJob : IJob
     public async Task<JobResult> RunAsync(CancellationToken cancellationToken = default)
     {
         var cutoffDate = DateTime.UtcNow - _maxAge;
-        
+
         var snapshots = await _client.Snapshot.GetAsync(_repositoryName, "_all");
-        
+
         foreach (var snapshot in snapshots.Snapshots)
         {
             if (snapshot.StartTime < cutoffDate)
@@ -124,7 +124,7 @@ public class CleanupSnapshotJob : IJob
                 await _client.Snapshot.DeleteAsync(_repositoryName, snapshot.Name);
             }
         }
-        
+
         return JobResult.Success;
     }
 }
@@ -151,9 +151,9 @@ public class CleanupIndexesJob : IJob
     public async Task<JobResult> RunAsync(CancellationToken cancellationToken = default)
     {
         var cutoffDate = DateTime.UtcNow - _maxAge;
-        
+
         var indices = await _client.Cat.IndicesAsync(i => i.Index(_indexPattern));
-        
+
         foreach (var index in indices.Records)
         {
             // Parse date from index name (e.g., logs-2024.01.15)
@@ -162,7 +162,7 @@ public class CleanupIndexesJob : IJob
                 await _client.Indices.DeleteAsync(index.Index);
             }
         }
-        
+
         return JobResult.Success;
     }
 }
@@ -230,6 +230,8 @@ public class ReindexWorkItem
     public bool DeleteOld { get; set; }       // Delete old index after successful reindex
     public string TimestampField { get; set; } // Field for incremental reindex
     public DateTime? StartUtc { get; set; }   // Start time for incremental reindex
+    public int? ReindexBatchSize { get; set; }          // Documents per internal bulk batch (default: 1000)
+    public float? ReindexRequestsPerSecond { get; set; } // Throttle in docs/sec (default: unlimited)
 }
 ```
 
@@ -238,6 +240,8 @@ public class ReindexWorkItem
 - **Progress Reporting**: Reports progress percentage and status messages during reindex
 - **Two-Pass Reindex**: Performs a second pass to catch documents modified during the first pass. Uses `TimestampField` if available; falls back to ObjectId-based range queries if document IDs are ObjectId-format; logs a warning if neither strategy is available
 - **Error Handling**: Failed documents are stored in an error index (`{newIndex}-error`)
+- **Resilient Status Polling**: Progress is tracked by repeatedly polling the Elasticsearch task status API; failures back off exponentially with jitter (1 second, doubling up to a 30 second cap, +/-25% jitter) instead of retrying immediately, so a struggling cluster isn't hammered with repeated requests, and multiple work items failing at once don't retry in lockstep
+- **Validated Throttle Settings**: `ReindexBatchSize`/`ReindexRequestsPerSecond` must be positive when set - `ReindexAsync` throws `ArgumentOutOfRangeException` immediately for a zero, negative, or `NaN` value
 
 ::: warning Enqueuing a work item is not enough on its own
 For this to run, something has to actually dequeue `ReindexWorkItem`s and dispatch them to `ReindexWorkItemHandler` — you need your own queue worker with the handler registered (e.g. via a `JobManager`/`WorkItemHandlers` setup). Simply calling `queue.EnqueueAsync(...)` below, with nothing processing the queue, leaves the work item sitting there indefinitely. Also, **this path does not work for `DailyIndex`/`MonthlyIndex`** — the old/new index names must be exact, existing index (or alias) names, so a dated partition's real name (`audit-v1-2024.01`) has to be used, not the unversioned base name. See [What actually triggers a reindex](/guide/index-management#what-actually-triggers-a-reindex) for the recommended direct alternative for time-series indexes.
@@ -254,9 +258,13 @@ await queue.EnqueueAsync(new ReindexWorkItem
     Alias = "employees",
     Script = "ctx._source.department = ctx._source.dept; ctx._source.remove('dept');",
     DeleteOld = true,
-    TimestampField = "updatedUtc"  // Enable two-pass reindex
+    TimestampField = "updatedUtc",  // Enable two-pass reindex
+    ReindexBatchSize = 200,          // Lower this if large documents trip indexing pressure limits
+    ReindexRequestsPerSecond = 500   // Optional: throttle to reduce load on a busy cluster
 });
 ```
+
+See [Throttling Reindex Load](/guide/index-management#throttling-reindex-load) and [Reindex Rejected Due to Indexing Pressure](/guide/troubleshooting#reindex-rejected-due-to-indexing-pressure) for why you'd set these.
 
 ## Reindex Progress Monitoring
 
@@ -269,9 +277,9 @@ await configuration.ReindexAsync(async (progress, message) =>
 {
     // progress: 0-100 percentage
     // message: Status description
-    
+
     _logger.LogInformation("Reindex {Progress}%: {Message}", progress, message);
-    
+
     // Update metrics or UI
     await UpdateProgressMetricAsync(progress);
 });
@@ -331,7 +339,7 @@ public class ReindexMigration : MigrationBase
         await _configuration.ReindexAsync(async (progress, message) =>
         {
             context.Logger.LogInformation("Reindex {Progress}%: {Message}", progress, message);
-            
+
             // Renew lock during long reindex operations
             await context.Lock.RenewAsync(TimeSpan.FromMinutes(30));
         });
@@ -353,7 +361,7 @@ if (existsResponse.Exists)
     var failures = await client.SearchAsync<object>(s => s
         .Index(errorIndex)
         .Size(100));
-    
+
     foreach (var hit in failures.Hits)
     {
         _logger.LogError("Failed to reindex document: {Id}", hit.Id);
@@ -477,7 +485,7 @@ public class IndexStatisticsJob : IJob
     public async Task<JobResult> RunAsync(CancellationToken cancellationToken = default)
     {
         var stats = await _client.Indices.StatsAsync("_all");
-        
+
         foreach (var index in stats.Indices)
         {
             _logger.LogInformation(
@@ -486,7 +494,7 @@ public class IndexStatisticsJob : IJob
                 index.Value.Primaries.Documents.Count,
                 index.Value.Primaries.Store.Size);
         }
-        
+
         return JobResult.Success;
     }
 }
@@ -509,19 +517,19 @@ public class ElasticsearchHealthJob : IJob
     public async Task<JobResult> RunAsync(CancellationToken cancellationToken = default)
     {
         var health = await _client.Cluster.HealthAsync();
-        
+
         _logger.LogInformation(
             "Cluster health: {Status}, Nodes: {Nodes}, Shards: {Shards}",
             health.Status,
             health.NumberOfNodes,
             health.ActiveShards);
-        
+
         if (health.Status == HealthStatus.Red)
         {
             _logger.LogError("Cluster is in RED status!");
             return JobResult.FromException(new Exception("Cluster health is RED"));
         }
-        
+
         return JobResult.Success;
     }
 }
@@ -550,24 +558,24 @@ public class ArchiveOldDataJob : IJob
     {
         var cutoffDate = DateTime.UtcNow.AddYears(-5);
         long archived = 0;
-        
+
         await _repository.BatchProcessAsync(
             q => q.DateRange(null, cutoffDate, (Employee e) => e.TerminationDate),
             async batch =>
             {
                 // Archive to cold storage
                 await _archiveRepository.AddAsync(batch.Documents);
-                
+
                 // Remove from hot storage
                 await _repository.RemoveAsync(batch.Documents);
-                
+
                 archived += batch.Documents.Count;
                 _logger.LogInformation("Archived {Count} records", archived);
-                
+
                 return !cancellationToken.IsCancellationRequested;
             },
             o => o.IncludeSoftDeletes());
-        
+
         _logger.LogInformation("Archival completed: {Total} records archived", archived);
         return JobResult.Success;
     }
@@ -583,7 +591,7 @@ public async Task<JobResult> RunAsync(CancellationToken cancellationToken = defa
 {
     int retries = 3;
     TimeSpan delay = TimeSpan.FromSeconds(1);
-    
+
     while (retries > 0)
     {
         try
@@ -599,7 +607,7 @@ public async Task<JobResult> RunAsync(CancellationToken cancellationToken = defa
             retries--;
         }
     }
-    
+
     return JobResult.FromException(new Exception("Job failed after retries"));
 }
 ```
@@ -613,13 +621,13 @@ public async Task<JobResult> RunAsync(CancellationToken cancellationToken = defa
         "maintenance-job",
         TimeSpan.FromMinutes(30),
         cancellationToken);
-    
+
     if (lockHandle == null)
     {
         _logger.LogInformation("Could not acquire lock, another instance is running");
         return JobResult.Success;
     }
-    
+
     await DoMaintenanceAsync(cancellationToken);
     return JobResult.Success;
 }
@@ -632,20 +640,20 @@ public async Task<JobResult> RunAsync(CancellationToken cancellationToken = defa
 {
     long total = await _repository.CountAsync();
     long processed = 0;
-    
+
     await _repository.BatchProcessAsync(
         q => q.All(),
         async batch =>
         {
             await ProcessBatchAsync(batch);
-            
+
             processed += batch.Documents.Count;
             var progress = (double)processed / total * 100;
             _logger.LogInformation("Progress: {Progress:F1}%", progress);
-            
+
             return true;
         });
-    
+
     return JobResult.Success;
 }
 ```

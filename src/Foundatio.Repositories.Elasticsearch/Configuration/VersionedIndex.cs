@@ -231,7 +231,9 @@ public class VersionedIndex : Index, IVersionedIndex
             NewIndex = VersionedName,
             Alias = Name,
             Script = GetReindexScripts(currentVersion),
-            TimestampField = GetTimeStampField()
+            TimestampField = GetTimeStampField(),
+            ReindexBatchSize = ReindexBatchSize,
+            ReindexRequestsPerSecond = ReindexRequestsPerSecond
         };
 
         reindexWorkItem.DeleteOld = DiscardIndexesOnReindex && reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;
