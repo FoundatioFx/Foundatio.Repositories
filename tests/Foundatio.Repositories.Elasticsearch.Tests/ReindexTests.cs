@@ -136,92 +136,6 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task CanReindexWithBatchSizeAsync()
-    {
-        const int numberOfEmployeesToCreate = 250;
-
-        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
-        await version1Index.DeleteAsync();
-
-        var version2Index = new VersionedEmployeeIndex(_configuration, 2)
-        {
-            ReindexBatchSize = 50
-        };
-        await version2Index.DeleteAsync();
-
-        await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
-        await version1Index.ConfigureAsync();
-        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
-
-        IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
-        await version1Repository.AddAsync(EmployeeGenerator.GenerateEmployees(numberOfEmployeesToCreate), o => o.ImmediateConsistency());
-
-        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.Name), cancellationToken: TestCancellationToken);
-        _logger.LogRequest(countResponse);
-        Assert.True(countResponse.IsValidResponse);
-        Assert.Equal(numberOfEmployeesToCreate, countResponse.Count);
-        Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
-
-        await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
-        await version2Index.ConfigureAsync();
-        Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
-
-        // A batch size smaller than the total document count forces the Elasticsearch reindex API to
-        // issue multiple internal bulk sub-requests; verify all documents still migrate successfully.
-        await version2Index.ReindexAsync();
-
-        Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
-        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
-
-        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), cancellationToken: TestCancellationToken);
-        _logger.LogRequest(countResponse);
-        Assert.True(countResponse.IsValidResponse);
-        Assert.Equal(numberOfEmployeesToCreate, countResponse.Count);
-    }
-
-    [Fact]
-    public async Task CanReindexWithThrottleAsync()
-    {
-        const int numberOfEmployeesToCreate = 200;
-
-        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
-        await version1Index.DeleteAsync();
-
-        var version2Index = new VersionedEmployeeIndex(_configuration, 2)
-        {
-            ReindexBatchSize = 50,
-            ReindexRequestsPerSecond = 25
-        };
-        await version2Index.DeleteAsync();
-
-        await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
-        await version1Index.ConfigureAsync();
-
-        IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
-        await version1Repository.AddAsync(EmployeeGenerator.GenerateEmployees(numberOfEmployeesToCreate), o => o.ImmediateConsistency());
-
-        await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
-        await version2Index.ConfigureAsync();
-
-        // With a 50-doc batch throttled to 25 docs/sec, Elasticsearch pauses ~2s between each of the 4
-        // batches, so a correctly-throttled reindex takes noticeably longer than an unthrottled one would
-        // (which typically completes well under a second locally).
-        var sw = Stopwatch.StartNew();
-        await version2Index.ReindexAsync();
-        sw.Stop();
-
-        Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
-        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
-
-        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), cancellationToken: TestCancellationToken);
-        _logger.LogRequest(countResponse);
-        Assert.True(countResponse.IsValidResponse);
-        Assert.Equal(numberOfEmployeesToCreate, countResponse.Count);
-
-        Assert.True(sw.Elapsed >= TimeSpan.FromSeconds(3), $"Expected throttled reindex to take at least 3s, but took {sw.Elapsed}.");
-    }
-
-    [Fact]
     public async Task CanHandleReindexFailureAsync()
     {
         var version1Index = new VersionedEmployeeIndex(_configuration, 1);
@@ -1332,6 +1246,98 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Assert
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => reindexTask);
         Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    [Fact]
+    public async Task ReindexAsync_WithBatchSize_MigratesAllDocuments()
+    {
+        // Arrange
+        const int numberOfEmployeesToCreate = 250;
+
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2)
+        {
+            ReindexBatchSize = 50
+        };
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+        Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+
+        IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
+        await version1Repository.AddAsync(EmployeeGenerator.GenerateEmployees(numberOfEmployeesToCreate), o => o.ImmediateConsistency());
+
+        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1Index.Name), cancellationToken: TestCancellationToken);
+        _logger.LogRequest(countResponse);
+        Assert.True(countResponse.IsValidResponse);
+        Assert.Equal(numberOfEmployeesToCreate, countResponse.Count);
+        Assert.Equal(1, await version1Index.GetCurrentVersionAsync());
+
+        await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
+        await version2Index.ConfigureAsync();
+        Assert.True((await _client.Indices.ExistsAsync(version2Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+
+        // Act
+        // A batch size smaller than the total document count forces the Elasticsearch reindex API to
+        // issue multiple internal bulk sub-requests; verify all documents still migrate successfully.
+        await version2Index.ReindexAsync();
+
+        // Assert
+        Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+        countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), cancellationToken: TestCancellationToken);
+        _logger.LogRequest(countResponse);
+        Assert.True(countResponse.IsValidResponse);
+        Assert.Equal(numberOfEmployeesToCreate, countResponse.Count);
+    }
+
+    [Fact]
+    public async Task ReindexAsync_WithRequestsPerSecondThrottle_TakesLongerThanUnthrottled()
+    {
+        // Arrange
+        const int numberOfEmployeesToCreate = 200;
+
+        var version1Index = new VersionedEmployeeIndex(_configuration, 1);
+        await version1Index.DeleteAsync();
+
+        var version2Index = new VersionedEmployeeIndex(_configuration, 2)
+        {
+            ReindexBatchSize = 50,
+            ReindexRequestsPerSecond = 25
+        };
+        await version2Index.DeleteAsync();
+
+        await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+
+        IEmployeeRepository version1Repository = new EmployeeRepository(_configuration);
+        await version1Repository.AddAsync(EmployeeGenerator.GenerateEmployees(numberOfEmployeesToCreate), o => o.ImmediateConsistency());
+
+        await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
+        await version2Index.ConfigureAsync();
+
+        // Act
+        // With a 50-doc batch throttled to 25 docs/sec, Elasticsearch pauses ~2s between each of the 4
+        // batches, so a correctly-throttled reindex takes noticeably longer than an unthrottled one would
+        // (which typically completes well under a second locally).
+        var sw = Stopwatch.StartNew();
+        await version2Index.ReindexAsync();
+        sw.Stop();
+
+        // Assert
+        Assert.Equal(2, await version1Index.GetCurrentVersionAsync());
+        Assert.Equal(2, await version2Index.GetCurrentVersionAsync());
+
+        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version2Index.VersionedName), cancellationToken: TestCancellationToken);
+        _logger.LogRequest(countResponse);
+        Assert.True(countResponse.IsValidResponse);
+        Assert.Equal(numberOfEmployeesToCreate, countResponse.Count);
+
+        Assert.True(sw.Elapsed >= TimeSpan.FromSeconds(3), $"Expected throttled reindex to take at least 3s, but took {sw.Elapsed}.");
     }
 
     private static string GetExpectedEmployeeDailyAliases(IIndex index, DateTime utcNow, DateTime indexDateUtc)
