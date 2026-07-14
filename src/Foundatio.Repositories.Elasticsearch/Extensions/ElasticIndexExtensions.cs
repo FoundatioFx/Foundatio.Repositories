@@ -6,6 +6,7 @@ using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.AsyncSearch;
 using Elastic.Clients.Elasticsearch.Core.Bulk;
 using Elastic.Clients.Elasticsearch.Core.Search;
+using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
@@ -22,6 +23,11 @@ namespace Foundatio.Repositories.Elasticsearch.Extensions;
 
 public static class ElasticIndexExtensions
 {
+    internal static GetIndexRequestDescriptor LimitToNamesAndAliases(this GetIndexRequestDescriptor descriptor)
+    {
+        return descriptor.Features(Feature.Aliases).IncludeDefaults(false);
+    }
+
     public static SubmitAsyncSearchRequest ToAsyncSearchSubmitRequest<T>(this SearchRequest searchRequest) where T : class, new()
     {
         var asyncSearchRequest = new SubmitAsyncSearchRequest(searchRequest.Indices)

@@ -372,7 +372,7 @@ public class VersionedIndex : Index, IVersionedIndex
             filter += "-*";
 
         var sw = Stopwatch.StartNew();
-        var response = await Configuration.Client.Indices.GetAsync((Indices)(IndexName)filter).AnyContext();
+        var response = await Configuration.Client.Indices.GetAsync((Indices)(IndexName)filter, d => d.LimitToNamesAndAliases()).AnyContext();
         sw.Stop();
         _logger.LogRequest(response);
 
