@@ -10,6 +10,69 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 public sealed class ElasticReindexerTests
 {
     [Fact]
+    public void GetNoProgressTimeout_WhenBatchSizeNotSpecified_UsesElasticsearchDefaultBatchSize()
+    {
+        // Arrange
+        // No ReindexBatchSize means Elasticsearch applies its own default of 1000 docs/batch, so the
+        // expected inter-batch pause is 1000 docs / 1 doc-per-sec = 1000s, extended 3x to 3000s (50 min).
+        var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias", ReindexRequestsPerSecond = 1 };
+        var expectedTimeout = TimeSpan.FromSeconds(3000);
+
+        // Act
+        var timeout = ElasticReindexer.GetNoProgressTimeout(workItem);
+
+        // Assert
+        Assert.Equal(expectedTimeout, timeout);
+    }
+
+    [Fact]
+    public void GetNoProgressTimeout_WhenNoThrottleConfigured_ReturnsDefaultTimeout()
+    {
+        // Arrange
+        var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias" };
+        var expectedTimeout = TimeSpan.FromMinutes(10);
+
+        // Act
+        var timeout = ElasticReindexer.GetNoProgressTimeout(workItem);
+
+        // Assert
+        Assert.Equal(expectedTimeout, timeout);
+    }
+
+    [Fact]
+    public void GetNoProgressTimeout_WhenThrottleIsGenerous_ReturnsDefaultTimeout()
+    {
+        // Arrange
+        // 1000 docs/batch at 10000 docs/sec is an expected pause of 0.1s - nowhere near the 10 minute
+        // default, so the default should still apply rather than shrinking the timeout.
+        var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias", ReindexBatchSize = 1000, ReindexRequestsPerSecond = 10000 };
+        var expectedTimeout = TimeSpan.FromMinutes(10);
+
+        // Act
+        var timeout = ElasticReindexer.GetNoProgressTimeout(workItem);
+
+        // Assert
+        Assert.Equal(expectedTimeout, timeout);
+    }
+
+    [Fact]
+    public void GetNoProgressTimeout_WhenThrottleIsRestrictive_ExtendsTimeoutBeyondDefault()
+    {
+        // Arrange
+        // 500 docs/batch at 2 docs/sec is an expected pause of 250s, extended 3x to 750s (12.5 min) -
+        // beyond the 10 minute default, so a healthy but slow, intentionally throttled reindex isn't
+        // mistaken for a stall and cancelled.
+        var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias", ReindexBatchSize = 500, ReindexRequestsPerSecond = 2 };
+        var expectedTimeout = TimeSpan.FromSeconds(750);
+
+        // Act
+        var timeout = ElasticReindexer.GetNoProgressTimeout(workItem);
+
+        // Assert
+        Assert.Equal(expectedTimeout, timeout);
+    }
+
+    [Fact]
     public void GetStatusRetryDelay_WhenCalledRepeatedly_ProducesVariedDelays()
     {
         // Arrange
@@ -105,6 +168,19 @@ public sealed class ElasticReindexerTests
         }
     }
 
+    [Theory]
+    [InlineData(float.PositiveInfinity)]
+    [InlineData(float.NegativeInfinity)]
+    public Task ReindexAsync_WithInfiniteRequestsPerSecond_ThrowsArgumentOutOfRangeException(float requestsPerSecond)
+    {
+        // Arrange
+        var reindexer = new ElasticReindexer(null!, new SystemTextJsonSerializer());
+        var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias", ReindexRequestsPerSecond = requestsPerSecond };
+
+        // Act & Assert
+        return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem));
+    }
+
     [Fact]
     public Task ReindexAsync_WithNaNRequestsPerSecond_ThrowsArgumentOutOfRangeException()
     {
@@ -136,5 +212,15 @@ public sealed class ElasticReindexerTests
 
         // Act & Assert
         return Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reindexer.ReindexAsync(workItem));
+    }
+
+    [Fact]
+    public Task ReindexAsync_WithNullWorkItem_ThrowsArgumentNullException()
+    {
+        // Arrange
+        var reindexer = new ElasticReindexer(null!, new SystemTextJsonSerializer());
+
+        // Act & Assert
+        return Assert.ThrowsAsync<ArgumentNullException>(() => reindexer.ReindexAsync(null!));
     }
 }

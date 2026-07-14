@@ -392,6 +392,8 @@ ReindexRequestsPerSecond = 500; // default: unlimited
 
 See [Throttling Reindex Load](./index-management.md#throttling-reindex-load) for more on both properties. Reindex task-status polling also backs off automatically (starting at 1 second, doubling up to a 30 second cap, with +/-25% jitter) after this library's fix for this exact scenario, so transient rejections while polling no longer retry in a tight loop or in lockstep with other reindex operations hitting the same cluster-wide condition.
 
+If you configure a low `ReindexRequestsPerSecond` to work around this, note that the reindex's stall-detection timeout (10 minutes by default) automatically extends to accommodate the resulting longer pause between batches, so throttling to avoid indexing pressure rejections won't itself cause the reindex to be cancelled as falsely "stalled."
+
 ## Notification Issues
 
 ### EntityChanged Not Received
