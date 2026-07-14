@@ -73,6 +73,23 @@ public sealed class ElasticReindexerTests
     }
 
     [Fact]
+    public void GetNoProgressTimeout_WhenThrottleWouldOverflowTimeSpan_ReturnsMaxValue()
+    {
+        // Arrange
+        // int.MaxValue docs/batch at 0.001 docs/sec is an expected pause of ~2.15 billion seconds,
+        // extended 3x to ~6.44 trillion seconds - far beyond TimeSpan's ~29,247 year (~922 billion
+        // second) range. Computing this via TimeSpan arithmetic (rather than clamping in double space
+        // first) would throw OverflowException instead of returning a usable timeout.
+        var workItem = new ReindexWorkItem { OldIndex = "old", NewIndex = "new", Alias = "alias", ReindexBatchSize = int.MaxValue, ReindexRequestsPerSecond = 0.001f };
+
+        // Act
+        var timeout = ElasticReindexer.GetNoProgressTimeout(workItem);
+
+        // Assert
+        Assert.Equal(TimeSpan.MaxValue, timeout);
+    }
+
+    [Fact]
     public void GetStatusRetryDelay_WhenCalledRepeatedly_ProducesVariedDelays()
     {
         // Arrange

@@ -684,7 +684,7 @@ public class ElasticReindexer
     private static readonly TimeSpan DefaultNoProgressTimeout = TimeSpan.FromMinutes(10);
 
     // Elasticsearch's own reindex API default for Source.Size when ReindexBatchSize isn't specified -
-    // see https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-reindex.html#docs-reindex-throttle.
+    // see https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-reindex.
     private const int DefaultElasticsearchBatchSize = 1000;
 
     // Elasticsearch pauses roughly batchSize/requestsPerSecond between batches to honor the throttle. This
@@ -697,7 +697,10 @@ public class ElasticReindexer
     /// reindex, Elasticsearch pauses between batches to honor that rate, and the pause can exceed the
     /// default timeout for a low configured rate relative to the batch size. In that case the timeout is
     /// extended (with a safety margin) so a healthy, intentionally throttled reindex isn't mistaken for a
-    /// stalled one and cancelled.
+    /// stalled one and cancelled. The result is clamped to <see cref="TimeSpan.MaxValue"/> instead of
+    /// overflowing for extreme (but otherwise valid) batch size/throttle combinations, such as an unbounded
+    /// <see cref="ReindexWorkItem.ReindexBatchSize"/> paired with a very low
+    /// <see cref="ReindexWorkItem.ReindexRequestsPerSecond"/>.
     /// </summary>
     internal static TimeSpan GetNoProgressTimeout(ReindexWorkItem workItem)
     {
@@ -705,9 +708,15 @@ public class ElasticReindexer
             return DefaultNoProgressTimeout;
 
         int effectiveBatchSize = workItem.ReindexBatchSize is > 0 ? workItem.ReindexBatchSize.Value : DefaultElasticsearchBatchSize;
-        var expectedBatchDelay = TimeSpan.FromSeconds(effectiveBatchSize / (double)workItem.ReindexRequestsPerSecond.Value);
-        var throttledTimeout = expectedBatchDelay * NoProgressTimeoutSafetyMultiplier;
 
+        // Computed entirely in double (seconds) space and clamped before constructing a TimeSpan - an
+        // extreme batch size/throttle combination (e.g. a very large ReindexBatchSize with a tiny
+        // ReindexRequestsPerSecond) can otherwise overflow TimeSpan's ~29,000 year range and throw.
+        double throttledTimeoutSeconds = effectiveBatchSize / (double)workItem.ReindexRequestsPerSecond.Value * NoProgressTimeoutSafetyMultiplier;
+        if (throttledTimeoutSeconds >= TimeSpan.MaxValue.TotalSeconds)
+            return TimeSpan.MaxValue;
+
+        var throttledTimeout = TimeSpan.FromSeconds(throttledTimeoutSeconds);
         return throttledTimeout > DefaultNoProgressTimeout ? throttledTimeout : DefaultNoProgressTimeout;
     }
 
