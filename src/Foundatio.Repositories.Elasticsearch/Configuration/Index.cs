@@ -186,6 +186,21 @@ public class Index : IIndex
 
     public int BulkBatchSize { get; set; } = 1000;
 
+    /// <summary>
+    /// The number of documents Elasticsearch reads and writes per internal bulk batch while reindexing via
+    /// <see cref="ReindexAsync"/>. Defaults to null, which uses the Elasticsearch reindex API default of 1000.
+    /// Lower this if reindexing large documents triggers "rejected execution of coordinating operation" errors
+    /// from indexing pressure limits.
+    /// </summary>
+    public int? ReindexBatchSize { get; set; }
+
+    /// <summary>
+    /// Throttles <see cref="ReindexAsync"/> to approximately this many documents per second. Defaults to null,
+    /// which uses the Elasticsearch reindex API default of unlimited. Combine with <see cref="ReindexBatchSize"/>
+    /// to reduce load on a cluster that is rejecting reindex requests due to indexing pressure limits.
+    /// </summary>
+    public float? ReindexRequestsPerSecond { get; set; }
+
     public virtual async Task DeleteAsync()
     {
         using (await _lock.LockAsync(_disposedCancellationTokenSource.Token).AnyContext())
@@ -370,7 +385,9 @@ public class Index : IIndex
             NewIndex = Name,
             Alias = Name,
             DeleteOld = false,
-            TimestampField = GetTimeStampField()
+            TimestampField = GetTimeStampField(),
+            ReindexBatchSize = ReindexBatchSize,
+            ReindexRequestsPerSecond = ReindexRequestsPerSecond
         };
 
         var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);

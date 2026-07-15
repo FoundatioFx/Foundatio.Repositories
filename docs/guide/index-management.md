@@ -741,6 +741,30 @@ await configuration.ReindexAsync(async (progress, message) =>
 });
 ```
 
+### Throttling Reindex Load
+
+Internally, reindexing uses Elasticsearch's `_reindex` API, which reads and writes documents in bulk batches (default 1000 documents per batch, unlimited throughput). For indexes with large documents, the default batch size can produce bulk sub-requests large enough to exceed a node's [indexing pressure](https://www.elastic.co/docs/reference/elasticsearch/configuration-reference/indexing-pressure-settings) memory limit (10% of heap by default), causing Elasticsearch to reject the request with an `es_rejected_execution_exception` (`rejected execution of coordinating operation`). See [Troubleshooting: Reindex Rejected Due to Indexing Pressure](./troubleshooting.md#reindex-rejected-due-to-indexing-pressure) for how to recognize this error.
+
+Set `ReindexBatchSize` and/or `ReindexRequestsPerSecond` on the index to reduce the size and rate of these internal batches:
+
+```csharp
+public EmployeeIndex(IElasticConfiguration configuration)
+    : base(configuration, "employees", version: 2)
+{
+    // Read/write at most 200 documents per internal bulk batch (default: 1000)
+    ReindexBatchSize = 200;
+
+    // Throttle to ~500 documents/second (default: unlimited)
+    ReindexRequestsPerSecond = 500;
+}
+```
+
+Both properties are `null` by default, which preserves the current Elasticsearch defaults. They apply to `Index<T>`, `VersionedIndex<T>`, `DailyIndex<T>`, and `MonthlyIndex<T>` since all of them build on the same reindex work item. Lower `ReindexBatchSize` first if you're seeing indexing pressure rejections; add `ReindexRequestsPerSecond` on top of that if the cluster is still under load from other traffic during the reindex.
+
+Both values must be greater than zero when set - `ReindexAsync` throws `ArgumentOutOfRangeException` immediately for a zero, negative, infinite, or `NaN` value rather than sending an invalid request to Elasticsearch.
+
+A low `ReindexRequestsPerSecond` makes Elasticsearch pause longer between internal batches (roughly `ReindexBatchSize` ÷ `ReindexRequestsPerSecond`) to honor the throttle. Reindex progress is monitored by polling for status, and a reindex that reports no progress for too long is treated as stalled and abandoned - the threshold defaults to 10 minutes but automatically extends (with a 3x safety margin) when a configured throttle would otherwise make that inter-batch pause exceed it, so a slow but healthy, intentionally throttled reindex isn't cancelled by mistake.
+
 ### Error Handling During Reindex
 
 Failed documents are stored in an error index (`employees-v2-error`):
@@ -1174,6 +1198,8 @@ public class Index<T>
     public string Name { get; }
     public bool HasMultipleIndexes { get; }
     public int BulkBatchSize { get; set; } = 1000;
+    public int? ReindexBatchSize { get; set; }
+    public float? ReindexRequestsPerSecond { get; set; }
 
     // Query field restrictions
     public ISet<string> AllowedQueryFields { get; }

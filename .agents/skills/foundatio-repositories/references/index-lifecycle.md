@@ -8,7 +8,7 @@ Full documentation: https://github.com/FoundatioFx/Foundatio.Repositories/blob/m
 
 | Type | Use Case | Naming | Key Properties |
 | --- | --- | --- | --- |
-| `Index<T>` | Simple entities, single index | `employees` | `BulkBatchSize` |
+| `Index<T>` | Simple entities, single index | `employees` | `BulkBatchSize`, `ReindexBatchSize`, `ReindexRequestsPerSecond` |
 | `VersionedIndex<T>` | Evolving schemas, automatic reindex | `employees-v2` + `employees` alias | `Version`, `DiscardIndexesOnReindex` |
 | `DailyIndex<T>` | High-volume time-series, short retention | `logs-v1-2024.01.15` + `logs` alias | `MaxIndexAge`, `DiscardExpiredIndexes` |
 | `MonthlyIndex<T>` | Lower-volume time-series, longer retention | `audit-v1-2024.01` + `audit` alias | `MaxIndexAge`, `DiscardExpiredIndexes` |
@@ -375,6 +375,12 @@ await configuration.ReindexAsync(async (progress, message) =>
 });
 ```
 
+Reindexing is throttled via `ReindexBatchSize` (documents per internal ES bulk batch, default 1000) and `ReindexRequestsPerSecond` (default unlimited), set on the index before calling `ReindexAsync`. Both are `null` by default (ES defaults apply) and flow through `Index<T>` → `ReindexWorkItem` → the `_reindex` API's `Source.Size`/`RequestsPerSecond`. Lower `ReindexBatchSize` if large documents trigger `es_rejected_execution_exception` ("rejected execution of coordinating operation") from Elasticsearch's [indexing pressure](https://www.elastic.co/docs/reference/elasticsearch/configuration-reference/indexing-pressure-settings) limit (10% of heap by default). Both throw `ArgumentOutOfRangeException` from `ReindexAsync` (which also throws `ArgumentNullException` for a `null` work item) if set to zero, negative, or (for `ReindexRequestsPerSecond`) `NaN`/infinite - checked explicitly with `float.IsNaN`/`float.IsInfinity` rather than relying on `<= 0`, since `+Infinity` isn't `<= 0`.
+
+Task-status polling during reindex (`ElasticReindexer.InternalReindexAsync`) also backs off exponentially on failure — 1 second, doubling up to a 30 second cap, with +/-25% jitter (`ElasticReindexer.GetStatusRetryDelay`) — instead of retrying immediately, up to `MAX_STATUS_FAILS` (10) consecutive failures before giving up. The jitter prevents multiple reindex operations that fail from the same cluster-wide condition (e.g. indexing pressure) from retrying in lockstep.
+
+A reindex reporting no progress for too long is treated as stalled and abandoned (`ElasticReindexer.GetNoProgressTimeout`). This defaults to 10 minutes, but scales up when `ReindexRequestsPerSecond` is set low enough that Elasticsearch's own inter-batch pause (`ReindexBatchSize ?? 1000` ÷ `ReindexRequestsPerSecond`, ×3 safety margin) would otherwise exceed 10 minutes - so a healthy, intentionally throttled reindex isn't mistaken for a stalled one and cancelled. The scaled timeout is computed in `double` (seconds) space and clamped to `TimeSpan.MaxValue` before constructing the result - an extreme `ReindexBatchSize`/`ReindexRequestsPerSecond` combination (e.g. a huge batch size with a near-zero rate) would otherwise overflow `TimeSpan`'s ~29,247 year range and throw `OverflowException` mid-reindex, abandoning an already-started, untracked server-side task.
+
 ## Concurrency Safety
 
 ### Reindex Locking
@@ -470,5 +476,7 @@ public class EmployeeIndex : VersionedIndex<Employee>
 | Error | `Error updating index ({name}) mappings.` | PUT Mapping failed |
 | Error | `Error updating index ({name}) mappings. Changing existing fields requires a new index version.` | Tried to change existing field type on VersionedIndex |
 | Warning | `Adding new analyzer/tokenizer/filter to existing index (requires close/reopen)` | New analysis component needs index close/reopen |
+| Error | `Error getting task status while reindexing: {OldIndex} -> {NewIndex}` | Task status poll failed (e.g. `es_rejected_execution_exception` from indexing pressure); retried with exponential backoff (1s, doubling, capped at 30s) |
+| Error | `Failed to get the status {N} times in a row for reindex task ... reindexing {OldIndex} -> {NewIndex}` | Status polling gave up after `MAX_STATUS_FAILS` (10) consecutive failures; reindex progress can no longer be tracked, but the server-side `_reindex` task keeps running |
 
 DailyIndex never emits mapping errors from the built-in configuration path (since `ConfigureAsync` is a no-op).

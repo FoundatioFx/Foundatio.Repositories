@@ -65,11 +65,22 @@ public class ElasticReindexer
 
     public async Task ReindexAsync(ReindexWorkItem workItem, Func<int, string?, Task>? progressCallbackAsync = null)
     {
+        ArgumentNullException.ThrowIfNull(workItem);
+
         if (String.IsNullOrEmpty(workItem.OldIndex))
             throw new ArgumentNullException(nameof(workItem.OldIndex));
 
         if (String.IsNullOrEmpty(workItem.NewIndex))
             throw new ArgumentNullException(nameof(workItem.NewIndex));
+
+        if (workItem.ReindexBatchSize is <= 0)
+            throw new ArgumentOutOfRangeException(nameof(workItem.ReindexBatchSize), workItem.ReindexBatchSize, "Must be greater than zero when specified.");
+
+        // Checked explicitly (rather than a `float.NaN` constant pattern) so the intent - and the fact
+        // that infinities are rejected alongside NaN - is obvious without knowing pattern-matching's
+        // NaN semantics. `<= 0` alone wouldn't catch +Infinity, since +Infinity > 0.
+        if (workItem.ReindexRequestsPerSecond is float requestsPerSecond && (requestsPerSecond <= 0 || float.IsNaN(requestsPerSecond) || float.IsInfinity(requestsPerSecond)))
+            throw new ArgumentOutOfRangeException(nameof(workItem.ReindexRequestsPerSecond), workItem.ReindexRequestsPerSecond, "Must be a positive, finite number when specified.");
 
         if (progressCallbackAsync == null)
         {
@@ -238,10 +249,15 @@ public class ElasticReindexer
                     src.Indices(workItem.OldIndex);
                     if (query != null)
                         src.Query(query);
+                    if (workItem.ReindexBatchSize.HasValue)
+                        src.Size(workItem.ReindexBatchSize.Value);
                 });
                 d.Dest(dest => dest.Index(workItem.NewIndex));
                 d.Conflicts(Conflicts.Proceed);
                 d.WaitForCompletion(false);
+
+                if (workItem.ReindexRequestsPerSecond.HasValue)
+                    d.RequestsPerSecond(workItem.ReindexRequestsPerSecond.Value);
 
                 if (!String.IsNullOrWhiteSpace(workItem.Script))
                     d.Script(new Script { Source = workItem.Script });
@@ -267,6 +283,7 @@ public class ElasticReindexer
         TaskReindexResult? lastReindexResponse = null;
         int statusGetFails = 0;
         long lastProgress = 0;
+        var noProgressTimeout = GetNoProgressTimeout(workItem);
         var sw = Stopwatch.StartNew();
         do
         {
@@ -287,6 +304,9 @@ public class ElasticReindexer
                     break;
                 }
 
+                // Back off before retrying so a struggling cluster (e.g. rejecting requests due to
+                // indexing pressure) isn't hammered with an immediate retry.
+                await _timeProvider.Delay(GetStatusRetryDelay(statusGetFails), cancellationToken).AnyContext();
                 continue;
             }
 
@@ -347,10 +367,12 @@ public class ElasticReindexer
                 break;
             }
 
-            // waited more than 10 minutes with no progress made
-            if (sw.Elapsed > TimeSpan.FromMinutes(10))
+            // waited longer than noProgressTimeout (extended beyond the 10 minute default when
+            // ReindexRequestsPerSecond makes Elasticsearch's own inter-batch pause longer than that) with
+            // no progress made
+            if (sw.Elapsed > noProgressTimeout)
             {
-                _logger.LogError("Timed out waiting for reindex {OldIndex} -> {NewIndex}", workItem.OldIndex, workItem.NewIndex);
+                _logger.LogError("Timed out waiting for reindex {OldIndex} -> {NewIndex}. NoProgressTimeout: {NoProgressTimeout}", workItem.OldIndex, workItem.NewIndex, noProgressTimeout);
                 break;
             }
 
@@ -629,6 +651,73 @@ public class ElasticReindexer
     {
         if (total == 0) return startProgress;
         return startProgress + (int)((100 * (double)completed / total) * (((double)endProgress - startProgress) / 100));
+    }
+
+    private static readonly Func<int, TimeSpan> _statusRetryExponentialDelay = ResiliencePolicy.ExponentialDelay(TimeSpan.FromSeconds(1));
+    private static readonly TimeSpan _maxStatusRetryDelay = TimeSpan.FromSeconds(30);
+
+    // Any attempt count at or beyond this already saturates the exponential delay past _maxStatusRetryDelay
+    // (2^(6-1) = 32s > 30s cap), so clamping here is purely overflow-safety headroom for Math.Pow, not a
+    // behavioral limit. It intentionally isn't tied to MAX_STATUS_FAILS - those are separate concerns that
+    // happen to share the same value today.
+    private const int MaxAttemptsForDelayCalculation = 10;
+
+    /// <summary>
+    /// Computes the backoff delay before retrying a failed task status check, e.g. after Elasticsearch
+    /// rejects the request due to indexing pressure (HTTP 429). Grows exponentially starting at 1 second,
+    /// caps at 30 seconds so repeated failures don't hammer a struggling cluster, and applies +/-25% jitter
+    /// (matching <see cref="ResiliencePolicy"/>'s own jitter formula) so multiple reindex operations failing
+    /// at the same time due to a cluster-wide condition don't retry in lockstep.
+    /// </summary>
+    internal static TimeSpan GetStatusRetryDelay(int failedAttempts)
+    {
+        int clampedAttempts = Math.Clamp(failedAttempts, 1, MaxAttemptsForDelayCalculation);
+        var delay = _statusRetryExponentialDelay(clampedAttempts);
+
+        double offset = delay.TotalMilliseconds * 0.25;
+        double jitteredMilliseconds = delay.TotalMilliseconds + (delay.TotalMilliseconds * 0.5 * Random.Shared.NextDouble() - offset);
+        delay = TimeSpan.FromMilliseconds(Math.Max(0, jitteredMilliseconds));
+
+        return delay > _maxStatusRetryDelay ? _maxStatusRetryDelay : delay;
+    }
+
+    private static readonly TimeSpan DefaultNoProgressTimeout = TimeSpan.FromMinutes(10);
+
+    // Elasticsearch's own reindex API default for Source.Size when ReindexBatchSize isn't specified -
+    // see https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-reindex.
+    private const int DefaultElasticsearchBatchSize = 1000;
+
+    // Elasticsearch pauses roughly batchSize/requestsPerSecond between batches to honor the throttle. This
+    // multiplier gives that pause headroom (write time, network latency) before treating it as a stall.
+    private const int NoProgressTimeoutSafetyMultiplier = 3;
+
+    /// <summary>
+    /// Computes how long to wait for progress before treating a reindex as stalled and abandoning it.
+    /// Defaults to 10 minutes. When <see cref="ReindexWorkItem.ReindexRequestsPerSecond"/> throttles the
+    /// reindex, Elasticsearch pauses between batches to honor that rate, and the pause can exceed the
+    /// default timeout for a low configured rate relative to the batch size. In that case the timeout is
+    /// extended (with a safety margin) so a healthy, intentionally throttled reindex isn't mistaken for a
+    /// stalled one and cancelled. The result is clamped to <see cref="TimeSpan.MaxValue"/> instead of
+    /// overflowing for extreme (but otherwise valid) batch size/throttle combinations, such as an unbounded
+    /// <see cref="ReindexWorkItem.ReindexBatchSize"/> paired with a very low
+    /// <see cref="ReindexWorkItem.ReindexRequestsPerSecond"/>.
+    /// </summary>
+    internal static TimeSpan GetNoProgressTimeout(ReindexWorkItem workItem)
+    {
+        if (workItem.ReindexRequestsPerSecond is not > 0)
+            return DefaultNoProgressTimeout;
+
+        int effectiveBatchSize = workItem.ReindexBatchSize is > 0 ? workItem.ReindexBatchSize.Value : DefaultElasticsearchBatchSize;
+
+        // Computed entirely in double (seconds) space and clamped before constructing a TimeSpan - an
+        // extreme batch size/throttle combination (e.g. a very large ReindexBatchSize with a tiny
+        // ReindexRequestsPerSecond) can otherwise overflow TimeSpan's ~29,000 year range and throw.
+        double throttledTimeoutSeconds = effectiveBatchSize / (double)workItem.ReindexRequestsPerSecond.Value * NoProgressTimeoutSafetyMultiplier;
+        if (throttledTimeoutSeconds >= TimeSpan.MaxValue.TotalSeconds)
+            return TimeSpan.MaxValue;
+
+        var throttledTimeout = TimeSpan.FromSeconds(throttledTimeoutSeconds);
+        return throttledTimeout > DefaultNoProgressTimeout ? throttledTimeout : DefaultNoProgressTimeout;
     }
 
     private record ReindexResult

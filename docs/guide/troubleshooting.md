@@ -351,6 +351,49 @@ await repository.BatchProcessAsync(query, async batch =>
 var results = await repository.FindAsync(query, o => o.SnapshotPaging());
 ```
 
+### Reindex Rejected Due to Indexing Pressure
+
+**Symptoms:**
+
+- A reindex fails (or the reindex task status can no longer be retrieved) with a server error like:
+
+```text
+Server Error (Index=): rejected execution of coordinating operation
+[coordinating_and_primary_bytes=0, replica_bytes=0, all_bytes=0,
+coordinating_operation_bytes=158478331, max_coordinating_bytes=107374182]
+```
+
+- The error `type` is `es_rejected_execution_exception` with an HTTP `429` status.
+- Repeated `Error getting task status while reindexing: "{OldIndex}" -> "{NewIndex}"` log entries, possibly followed by `Failed to get the status {N} times in a row for reindex task ...`.
+
+**Cause:**
+
+Elasticsearch reserves a portion of JVM heap for in-flight indexing work — the [`indexing_pressure.memory.limit`](https://www.elastic.co/docs/reference/elasticsearch/configuration-reference/indexing-pressure-settings) node setting, which defaults to **10% of heap**. Every indexing request (including the internal bulk writes issued by the `_reindex` API) is accounted against this budget for the full duration of its coordinating/primary/replica stages. If a single bulk sub-request's estimated size exceeds the remaining budget, Elasticsearch immediately rejects it rather than queuing it — this is a deliberate back-pressure mechanism, not a bug. It's more likely to trigger during reindexing because reindex batches (default 1000 documents) scale with document size: large documents can produce a bulk payload well over 100MB on a modestly sized node. See [Rejected requests: Analyze indexing pressure](https://www.elastic.co/docs/troubleshoot/elasticsearch/rejected-requests#analyze-indexing-pressure) for the full explanation.
+
+**Solutions:**
+
+1. **Reduce the reindex batch size** so each internal bulk sub-request stays well under the indexing pressure limit:
+
+```csharp
+public EmployeeIndex(IElasticConfiguration configuration)
+    : base(configuration, "employees", version: 2)
+{
+    ReindexBatchSize = 200; // default: 1000
+}
+```
+
+2. **Throttle the reindex** to reduce sustained load on a cluster that's also serving other traffic:
+
+```csharp
+ReindexRequestsPerSecond = 500; // default: unlimited
+```
+
+3. **Check node heap and `indexing_pressure.memory.limit`** via the [node stats API](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-nodes-stats) if rejections continue after lowering the batch size — the node may simply be undersized for the document volume/size involved.
+
+See [Throttling Reindex Load](./index-management.md#throttling-reindex-load) for more on both properties. Reindex task-status polling also backs off automatically (starting at 1 second, doubling up to a 30 second cap, with +/-25% jitter) after this library's fix for this exact scenario, so transient rejections while polling no longer retry in a tight loop or in lockstep with other reindex operations hitting the same cluster-wide condition.
+
+If you configure a low `ReindexRequestsPerSecond` to work around this, note that the reindex's stall-detection timeout (10 minutes by default) automatically extends to accommodate the resulting longer pause between batches, so throttling to avoid indexing pressure rejections won't itself cause the reindex to be cancelled as falsely "stalled."
+
 ## Notification Issues
 
 ### EntityChanged Not Received
@@ -456,6 +499,7 @@ curl http://localhost:9200/employees/_stats
 | `search_phase_execution_exception` | Query error | Check query syntax |
 | `circuit_breaking_exception` | Memory limit | Reduce batch size |
 | `cluster_block_exception` | Cluster read-only | Check disk space |
+| `es_rejected_execution_exception` ("rejected execution of coordinating operation") | Indexing pressure limit exceeded, often during reindex of large documents | Lower `ReindexBatchSize`/`ReindexRequestsPerSecond`, see [Reindex Rejected Due to Indexing Pressure](#reindex-rejected-due-to-indexing-pressure) |
 
 ## Repository Exception Types
 
@@ -502,6 +546,10 @@ The repository automatically retries transient Elasticsearch errors:
 - **HTTP 503** (Service Unavailable) — retried with exponential backoff, up to 3 retries (4 total attempts)
 - **HTTP 409** (Version Conflict) — **not** retried; the caller must handle conflict resolution
 - `DuplicateDocumentException` — **not** retried by the resilience policy
+
+::: info Reindex task-status polling uses its own backoff
+This resilience policy covers the initial reindex kickoff request. Once reindexing has started, progress is monitored by repeatedly polling the Elasticsearch task status API, which is a plain "did this succeed" response rather than a thrown exception — so it isn't covered by the policy above. That polling loop has its own dedicated exponential backoff (1 second, doubling up to a 30 second cap, with +/-25% jitter so concurrent reindex operations failing for the same reason don't retry in lockstep) on failure. See [Reindex Rejected Due to Indexing Pressure](#reindex-rejected-due-to-indexing-pressure) for the scenario this protects against.
+:::
 
 ## Aggregation Warnings
 
