@@ -103,7 +103,8 @@ public class ElasticReindexer
         await progressCallbackAsync(0, "Starting reindex...").AnyContext();
         var firstPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 0, 90, workItem.StartUtc).AnyContext();
 
-        if (!firstPassResult.Succeeded) return;
+        if (!firstPassResult.Succeeded)
+            return;
 
         await progressCallbackAsync(91, $"Total: {firstPassResult.Total:N0} Completed: {firstPassResult.Completed:N0}").AnyContext();
 
@@ -150,7 +151,8 @@ public class ElasticReindexer
         if (!String.IsNullOrEmpty(workItem.TimestampField))
         {
             secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime).AnyContext();
-            if (!secondPassResult.Succeeded) return;
+            if (!secondPassResult.Succeeded)
+                return;
 
             await progressCallbackAsync(97, $"Total: {secondPassResult.Total:N0} Completed: {secondPassResult.Completed:N0}").AnyContext();
         }
