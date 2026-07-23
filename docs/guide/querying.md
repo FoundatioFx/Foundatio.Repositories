@@ -381,12 +381,12 @@ More efficient for deep pagination:
 
 ```csharp
 var results = await repository.FindAsync(
-    q => q.SortExpression("createdUtc"),
+    q => q.SortDescending(e => e.CreatedUtc),
     o => o.SearchAfterPaging());
 
 // For subsequent pages, use the token
 var nextResults = await repository.FindAsync(
-    q => q.SortExpression("createdUtc"),
+    q => q.SortDescending(e => e.CreatedUtc),
     o => o.SearchAfterToken(results.GetSearchAfterToken()));
 ```
 
@@ -395,13 +395,15 @@ var nextResults = await repository.FindAsync(
 > stable *within* a point-in-time. In the default `Live` mode the underlying `search_after` cursor
 > can be invalidated by index refreshes or segment merges, causing pagination to **silently skip
 > documents or stop early** — this is especially likely when you write to the same index you are
-> paging over (read-modify-write). The repository logs a warning when it detects this. Sort by a
-> stable, unique field, or open a point-in-time snapshot:
+> paging over (read-modify-write). See Elasticsearch's own
+> [paginate search results](https://www.elastic.co/docs/reference/elasticsearch/rest-apis/paginate-search-results#search-after)
+> guide for details on why `_doc` is only safe within a point-in-time. The repository logs a
+> warning when it detects this. Sort by a stable, unique field, or open a point-in-time snapshot:
 >
 > ```csharp
 > // Frozen view: _doc/_score stay stable and the cursor remains valid across pages.
 > var results = await repository.FindAsync(
->     q => q.SortExpression("createdUtc"),
+>     q => q.SortDescending(e => e.CreatedUtc),
 >     o => o.SearchAfterPaging(SearchAfterPagingMode.PointInTime));
 > ```
 >
