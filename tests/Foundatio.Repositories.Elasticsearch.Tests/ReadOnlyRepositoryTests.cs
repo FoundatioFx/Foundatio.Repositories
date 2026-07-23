@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
 using Exceptionless.DateTimeExtensions;
 using Foundatio.Parsers;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -9,6 +10,7 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
+using Foundatio.Repositories.Options;
 using Foundatio.Repositories.Utility;
 using Microsoft.Extensions.Logging;
 using TimeZoneConverter;
@@ -985,6 +987,123 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
             Assert.Equal(1, findResults.Page);
             Assert.Equal(2, findResults.Total);
         } while (await findResults.NextPageAsync());
+    }
+
+    [Fact]
+    public async Task FindAsync_WithSearchAfterPagingLiveModeAndUnstableSortAcrossMultiplePages_LogsWarningOnce()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Eric"), o => o.ImmediateConsistency());
+        int start = Log.LogEntries.Count;
+
+        // Act
+        // The same ICommandOptions instance is reused by NextPageAsync(), so BuildAsync runs once per
+        // page; the warning must only be logged once per paging session, not once per page.
+        var results = await _employeeRepository.FindAsync(q => q.Sort("_doc"), o => o.PageLimit(1).SearchAfterPaging());
+        int pageCount = 1;
+        while (await results.NextPageAsync())
+            pageCount++;
+
+        // Assert
+        Assert.True(pageCount >= 3);
+        Assert.Single(Log.LogEntries.Skip(start), l => l.LogLevel == LogLevel.Warning && l.Message.Contains("_doc") && l.Message.Contains("search_after"));
+    }
+
+    [Theory]
+    [InlineData("_doc")]
+    [InlineData("_score")]
+    public async Task FindAsync_WithSearchAfterPagingLiveModeAndUnstableSort_LogsWarning(string unstableSortField)
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
+        int start = Log.LogEntries.Count;
+
+        // Act
+        var results = await _employeeRepository.FindAsync(q => q.Sort(unstableSortField), o => o.PageLimit(1).SearchAfterPaging());
+
+        // Assert
+        Assert.NotNull(results);
+        Assert.Contains(Log.LogEntries.Skip(start), l => l.LogLevel == LogLevel.Warning && l.Message.Contains(unstableSortField) && l.Message.Contains("search_after"));
+    }
+
+    [Theory]
+    [InlineData("_doc")]
+    [InlineData("_score")]
+    public async Task FindAsync_WithSearchAfterPagingPointInTimeModeAndUnstableSort_DoesNotLogWarning(string unstableSortField)
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
+        int start = Log.LogEntries.Count;
+
+        // Act
+        // A Point-In-Time snapshot keeps the sort key stable across the paging session, so no warning is expected.
+        var results = await _employeeRepository.FindAsync(q => q.Sort(unstableSortField), o => o.PageLimit(1).SearchAfterPaging(SearchAfterPagingMode.PointInTime));
+
+        // Assert
+        Assert.NotNull(results);
+        Assert.DoesNotContain(Log.LogEntries.Skip(start), l => l.LogLevel == LogLevel.Warning && l.Message.Contains(unstableSortField) && l.Message.Contains("search_after"));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task FindAsync_WithSearchAfterPagingLiveModeAndTypedScoreOrDocSort_LogsWarning(bool useDocSort)
+    {
+        // Arrange
+        // SortOptions is a discriminated union: Elasticsearch's client models an explicit "_doc" or
+        // "_score" sort as a typed Doc/Score variant (ScoreSort), not just as a FieldSort literally
+        // named "_doc"/"_score". The unstable-sort check must catch both shapes.
+        await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
+        int start = Log.LogEntries.Count;
+        var sort = useDocSort ? new SortOptions { Doc = new ScoreSort() } : new SortOptions { Score = new ScoreSort() };
+        string expectedField = useDocSort ? "_doc" : "_score";
+
+        // Act
+        var results = await _employeeRepository.FindAsync(
+            q => q.AddCollectionOptionValue<IRepositoryQuery<Employee>, SortOptions>(SortQueryExtensions.SortsKey, sort),
+            o => o.PageLimit(1).SearchAfterPaging());
+
+        // Assert
+        Assert.NotNull(results);
+        Assert.Contains(Log.LogEntries.Skip(start), l => l.LogLevel == LogLevel.Warning && l.Message.Contains(expectedField) && l.Message.Contains("search_after"));
+    }
+
+    [Fact]
+    public async Task FindAsync_WithSearchAfterPagingAndExplicitStableSort_DoesNotLogWarning()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
+        int start = Log.LogEntries.Count;
+
+        // Act
+        var results = await _employeeRepository.FindAsync(q => q.SortDescending(d => d.Name), o => o.PageLimit(1).SearchAfterPaging());
+
+        // Assert
+        Assert.NotNull(results);
+        Assert.DoesNotContain(Log.LogEntries.Skip(start), l => l.LogLevel == LogLevel.Warning && l.Message.Contains("search_after"));
+    }
+
+    [Fact]
+    public async Task FindAsync_WithSearchAfterPagingAndNoExplicitSort_DoesNotLogWarning()
+    {
+        // Arrange
+        await _employeeRepository.AddAsync(EmployeeGenerator.Default, o => o.ImmediateConsistency());
+        await _employeeRepository.AddAsync(EmployeeGenerator.Generate(name: "Blake"), o => o.ImmediateConsistency());
+        int start = Log.LogEntries.Count;
+
+        // Act
+        // No explicit sort means only the library's implicit id tiebreaker is used, which is stable.
+        var results = await _employeeRepository.FindAsync(q => q, o => o.PageLimit(1).SearchAfterPaging());
+
+        // Assert
+        Assert.NotNull(results);
+        Assert.DoesNotContain(Log.LogEntries.Skip(start), l => l.LogLevel == LogLevel.Warning && l.Message.Contains("search_after"));
     }
 
     [Fact]

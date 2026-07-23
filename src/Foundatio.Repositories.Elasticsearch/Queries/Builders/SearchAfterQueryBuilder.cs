@@ -8,6 +8,9 @@ using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Serializer;
+using Foundatio.Utility;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Foundatio.Repositories
 {
@@ -25,6 +28,7 @@ namespace Foundatio.Repositories
         internal const string SearchBeforeKey = "@SearchBefore";
         internal const string PointInTimeIdKey = "@PointInTimeId";
         internal const string RepoOwnedPointInTimeKey = "@RepoOwnedPointInTime";
+        internal const string UnstableSortWarnedKey = "@SearchAfterUnstableSortWarned";
 
         public static T SearchAfterPaging<T>(this T options, bool enabled = true) where T : ICommandOptions
         {
@@ -183,9 +187,25 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
     /// adding the ID field for uniqueness, and reversing sorts for SearchBefore.
     /// This builder runs last (Int32.MaxValue priority) so it sees all accumulated sorts.
     /// </summary>
+    /// <remarks>
+    /// Also logs a warning when Live-mode search_after paging is combined with an unstable sort
+    /// key (<c>_doc</c> or <c>_score</c>), since those keys are only stable within a Point-In-Time
+    /// and can otherwise cause paging to silently skip documents or stop early. Because the same
+    /// <see cref="ICommandOptions"/> instance is reused across <c>FindResults.NextPageAsync()</c>
+    /// calls, the warning is only logged once per paging session (i.e. on the first page).
+    /// </remarks>
     public class SearchAfterQueryBuilder : IElasticQueryBuilder
     {
         private const string Id = nameof(IIdentity.Id);
+
+        // Internal Lucene/relevance sort keys that are not stable across index refreshes or
+        // segment merges. Using them as a search_after cursor in Live paging mode can silently
+        // skip documents or terminate paging early while the index is being written to.
+        private static readonly HashSet<string> UnstableSortFields = new(StringComparer.Ordinal)
+        {
+            "_doc",
+            "_score"
+        };
 
         public Task BuildAsync<T>(QueryBuilderContext<T> ctx) where T : class, new()
         {
@@ -204,14 +224,60 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 var resolver = ctx.GetMappingResolver();
                 string idField = resolver.GetResolvedField(Id) ?? "_id";
 
-                // Check if id field is already in the sort list
-                bool hasIdField = sortFields.Any(s =>
+                // Live search_after paging with an unstable sort key (e.g. _doc, _score) is only safe
+                // within a Point-In-Time: index refreshes and segment merges can invalidate the cursor,
+                // silently skipping documents or stopping paging early. Not applicable in PointInTime
+                // mode, where a frozen view keeps these sort keys stable.
+                bool warnOnUnstableSort = ctx.Options.GetSearchAfterPagingMode() is SearchAfterPagingMode.Live;
+
+                // The same ICommandOptions instance is reused across FindResults.NextPageAsync() calls,
+                // so BuildAsync runs once per page. Only warn on the first page to avoid flooding logs
+                // with the same warning for every page of a long-running paging session.
+                bool alreadyWarned = ctx.Options.SafeGetOption<bool>(SearchAfterQueryExtensions.UnstableSortWarnedKey, false);
+
+                // Single pass: resolve each sort's unstable field name (if any) once to check
+                // both for the ID tiebreaker and for unstable sort keys, avoiding redundant
+                // resolver calls. SortOptions is a discriminated union: _doc/_score can arrive
+                // either as a FieldSort with a literal field name, or as the ES client's typed
+                // Doc/Score variants, so both shapes need to be checked.
+                bool hasIdField = false;
+                foreach (var sort in sortFields)
                 {
-                    if (s?.Field?.Field == null)
-                        return false;
-                    string fieldName = resolver.GetSortFieldName(s.Field.Field);
-                    return fieldName?.Equals(idField) == true;
-                });
+                    string? fieldName;
+                    bool isIdField = false;
+
+                    if (sort?.Field?.Field is { } sortField)
+                    {
+                        fieldName = resolver.GetSortFieldName(sortField);
+                        if (fieldName is null)
+                            continue;
+
+                        isIdField = String.Equals(fieldName, idField, StringComparison.Ordinal);
+                    }
+                    else if (sort?.Doc is not null)
+                    {
+                        fieldName = "_doc";
+                    }
+                    else if (sort?.Score is not null)
+                    {
+                        fieldName = "_score";
+                    }
+                    else
+                    {
+                        continue;
+                    }
+
+                    if (isIdField)
+                        hasIdField = true;
+
+                    if (warnOnUnstableSort && !alreadyWarned && UnstableSortFields.Contains(fieldName))
+                    {
+                        var logger = (ctx.Options.GetElasticIndex() as IHaveLogger)?.Logger ?? NullLogger.Instance;
+                        logger.LogWarning("Sorting by {SortField} with Live search_after paging is unstable: {SortField} is not stable across index refreshes or segment merges, so the cursor can become invalid and paging may silently stop early (especially while writing to the index being paged). Sort by a stable, unique field or use SearchAfterPaging(SearchAfterPagingMode.PointInTime).", fieldName, fieldName);
+                        ctx.Options.Values.Set(SearchAfterQueryExtensions.UnstableSortWarnedKey, true);
+                        alreadyWarned = true;
+                    }
+                }
 
                 if (!hasIdField)
                 {

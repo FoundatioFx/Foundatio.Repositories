@@ -390,6 +390,24 @@ var nextResults = await repository.FindAsync(
     o => o.SearchAfterToken(results.GetSearchAfterToken()));
 ```
 
+> [!WARNING]
+> **Avoid unstable sort keys (`_doc`, `_score`) with search after paging.** These keys are only
+> stable *within* a point-in-time. In the default `Live` mode the underlying `search_after` cursor
+> can be invalidated by index refreshes or segment merges, causing pagination to **silently skip
+> documents or stop early** — this is especially likely when you write to the same index you are
+> paging over (read-modify-write). The repository logs a warning when it detects this. Sort by a
+> stable, unique field, or open a point-in-time snapshot:
+>
+> ```csharp
+> // Frozen view: _doc/_score stay stable and the cursor remains valid across pages.
+> var results = await repository.FindAsync(
+>     q => q.SortExpression("createdUtc"),
+>     o => o.SearchAfterPaging(SearchAfterPagingMode.PointInTime));
+> ```
+>
+> Note: the repository always appends the document id as a tiebreaker, so a query with no explicit
+> sort is safe. The danger is an explicit unstable sort key in `Live` mode.
+
 ## Aggregations
 
 ### Aggregation Expression

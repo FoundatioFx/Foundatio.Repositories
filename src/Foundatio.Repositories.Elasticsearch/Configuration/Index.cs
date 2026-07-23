@@ -21,12 +21,13 @@ using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Utility;
+using Foundatio.Utility;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
-public class Index : IIndex
+public class Index : IIndex, IHaveLogger
 {
     private readonly Lazy<IElasticQueryBuilder> _queryBuilder;
     private readonly Lazy<ElasticQueryParser> _queryParser;
@@ -118,6 +119,7 @@ public class Index : IIndex
     public ISet<string> AllowedAggregationFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     public ISet<string> AllowedSortFields { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     public IElasticConfiguration Configuration { get; }
+    public ILogger Logger => _logger;
 
     public virtual string CreateDocumentId(object document)
     {
