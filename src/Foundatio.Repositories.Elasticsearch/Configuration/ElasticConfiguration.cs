@@ -13,9 +13,13 @@ using Foundatio.Jobs;
 using Foundatio.Lock;
 using Foundatio.Messaging;
 using Foundatio.Parsers.ElasticQueries;
+using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Queues;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
+using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Repositories.Serialization;
 using Foundatio.Resilience;
@@ -26,7 +30,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
-public class ElasticConfiguration : IElasticConfiguration
+public class ElasticConfiguration : IElasticConfigurationCompatibility
 {
     protected readonly IQueue<WorkItemData>? _workItemQueue;
     protected readonly ILogger _logger;
@@ -215,6 +219,77 @@ public class ElasticConfiguration : IElasticConfiguration
         await _beginReindexLockProvider.TryUsingAsync(enqueueReindexLockName, async () => { await _workItemQueue.EnqueueAsync(reindexWorkItem).AnyContext(); }, TimeSpan.Zero, new CancellationToken(true)).AnyContext();
     }
 
+    private static async Task<IReadOnlyCollection<ReindexWorkItem>> GetCompatibilityWorkItemsAsync(Index idx)
+    {
+        var infos = await idx.GetIndexCompatibilityAsync().AnyContext();
+        return CreateCompatibilityReindexWorkItems(idx, infos);
+    }
+
+    internal static IReadOnlyCollection<ReindexWorkItem> CreateCompatibilityReindexWorkItems(Index idx, IReadOnlyCollection<IndexCompatibilityInfo> infos)
+    {
+        ArgumentNullException.ThrowIfNull(idx);
+        ArgumentNullException.ThrowIfNull(infos);
+
+        var revisions = infos.Where(i => i.RequiresReindexBeforeNextMajorUpgrade).Select(info =>
+        {
+            string originalName = idx is IVersionedIndex versionedIndex ? versionedIndex.VersionedName : idx.Name;
+            bool isOriginalName = !idx.HasMultipleIndexes && String.Equals(info.Name, originalName, StringComparison.Ordinal);
+            var revision = isOriginalName ? new IndexNameRevision(info.Name, 0, false) : IndexNameRevision.Parse(info.Name);
+
+            return (Info: info, Name: revision);
+        }).OrderBy(x => x.Name.BaseName, StringComparer.Ordinal).ThenBy(x => x.Name.Revision);
+
+        var workItems = new List<ReindexWorkItem>();
+        foreach (var revision in revisions)
+        {
+            if (revision.Name.Revision is Int32.MaxValue)
+                throw new RepositoryException($"Cannot create another compatibility revision for index '{revision.Info.Name}'.");
+
+            workItems.Add(new ReindexWorkItem
+            {
+                OldIndex = revision.Info.Name,
+                NewIndex = $"{revision.Name.BaseName}-r{revision.Name.Revision + 1}",
+                Alias = idx.Name,
+                PreserveSourceIndexName = !revision.Name.HasRevision && !idx.HasMultipleIndexes,
+                DeleteOld = true,
+                TimestampField = idx.CompatibilityTimestampField,
+                ReindexBatchSize = idx.ReindexBatchSize,
+                ReindexRequestsPerSecond = idx.ReindexRequestsPerSecond
+            });
+        }
+
+        return workItems;
+    }
+
+    private async Task EnsureCompatibilityDestinationsAvailableAsync(IReadOnlyCollection<ReindexWorkItem> workItems)
+    {
+        var existing = await GetConcreteIndexNamesAsync(workItems.Select(w => w.NewIndex)).AnyContext();
+        if (existing.Count is 0)
+            return;
+
+        throw new RepositoryException($"Compatibility reindex destination indexes already exist: {String.Join(", ", existing)}. Inspect and remove or rename them before retrying.");
+    }
+
+    private async Task EnsureCompatibilitySourcesRemovedAsync(IReadOnlyCollection<ReindexWorkItem> workItems)
+    {
+        var sourceNames = workItems.Select(w => w.OldIndex).ToHashSet(StringComparer.Ordinal);
+        var concreteNames = await GetConcreteIndexNamesAsync(sourceNames).AnyContext();
+        var remainingSources = concreteNames.Where(sourceNames.Contains).ToArray();
+        if (remainingSources.Length > 0)
+            throw new RepositoryException($"Compatibility reindex did not remove source indexes: {String.Join(", ", remainingSources)}.");
+    }
+
+    private async Task<IReadOnlyCollection<string>> GetConcreteIndexNamesAsync(IEnumerable<string> names)
+    {
+        string joinedNames = String.Join(",", names.Distinct(StringComparer.Ordinal));
+        var response = await Client.Indices.GetAsync(Indices.Parse(joinedNames), d => d.LimitToNamesAndAliases().IgnoreUnavailable()).AnyContext();
+        if (!response.IsValidResponse && response.ElasticsearchServerError?.Status is not 404)
+            throw new RepositoryException(response.GetErrorMessage($"Error resolving compatibility indexes {joinedNames}"), response.OriginalException());
+
+        _logger.LogRequest(response);
+        return response.Indices?.Keys.Select(k => k.ToString()).ToArray() ?? [];
+    }
+
     public Task MaintainIndexesAsync(IEnumerable<IIndex>? indexes = null)
     {
         if (indexes is null)
@@ -282,6 +357,83 @@ public class ElasticConfiguration : IElasticConfiguration
         }
 
         await TryRemoveCacheMarkerAsync().AnyContext();
+    }
+
+    public async Task<int?> GetServerMajorVersionAsync()
+    {
+        try
+        {
+            var response = await Client.InfoAsync().AnyContext();
+            _logger.LogRequest(response);
+            string? versionNumber = response.IsValidResponse ? response.Version?.Number : null;
+            int? major = Index.ParseCreatedMajor(null, versionNumber);
+            if (major.HasValue)
+                return major;
+
+            _logger.LogWarning("Unable to determine the Elasticsearch server version");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Error getting the Elasticsearch server version: {Message}", ex.Message);
+        }
+
+        return null;
+    }
+
+    public async Task UpgradeIndexCompatibilityAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null)
+    {
+        indexes ??= Indexes;
+
+        foreach (var idx in indexes)
+        {
+            if (idx is not Index compatibilityIndex)
+                continue;
+
+            var workItems = await GetCompatibilityWorkItemsAsync(compatibilityIndex).AnyContext();
+            if (workItems.Count == 0)
+                continue;
+
+            string lockKey = ElasticReindexer.GetLockName(idx.Name);
+            await using var reindexLock = await _lockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(30)).AnyContext();
+            if (reindexLock is null)
+                throw new RepositoryException($"Unable to acquire the reindex lock for Elasticsearch version compatibility upgrade of index '{idx.Name}'.");
+
+            // Recompute under the lock: another process may have already upgraded these indexes, which would leave
+            // the work items above pointing at a stale old index and an already-taken revision name.
+            workItems = await GetCompatibilityWorkItemsAsync(compatibilityIndex).AnyContext();
+            if (workItems.Count == 0)
+                continue;
+
+            await EnsureCompatibilityDestinationsAvailableAsync(workItems).AnyContext();
+
+            var reindexer = new ElasticReindexer(Client, Serializer, TimeProvider, ResiliencePolicyProvider, _logger);
+            foreach (var workItem in workItems)
+            {
+                await compatibilityIndex.CreateCompatibilityIndexAsync(workItem.NewIndex).AnyContext();
+                await ResiliencePolicy.ExecuteAsync(async _ =>
+                {
+                    await reindexLock.RenewAsync().AnyContext();
+                    await reindexer.ReindexAsync(workItem, async (progress, message) =>
+                    {
+                        await reindexLock.RenewAsync().AnyContext();
+
+                        if (progressCallbackAsync is not null)
+                            await progressCallbackAsync(progress, message).AnyContext();
+                        else
+                            _logger.LogInformation("Compatibility reindex {OldIndex} -> {NewIndex} progress {Progress:F1}%: {Message}", workItem.OldIndex, workItem.NewIndex, progress, message);
+                    }).AnyContext();
+                }).AnyContext();
+            }
+
+            await EnsureCompatibilitySourcesRemovedAsync(workItems).AnyContext();
+
+            var remainingWorkItems = await GetCompatibilityWorkItemsAsync(compatibilityIndex).AnyContext();
+            if (remainingWorkItems.Count > 0)
+            {
+                string remainingIndexes = String.Join(", ", remainingWorkItems.Select(w => w.OldIndex));
+                throw new RepositoryException($"Elasticsearch version compatibility upgrade for index '{idx.Name}' did not complete. Remaining incompatible indexes: {remainingIndexes}.");
+            }
+        }
     }
 
     private string GetConfigureIndexesCacheKey()

@@ -125,11 +125,15 @@ public class DailyIndex : VersionedIndex
 
     protected override DateTime GetIndexDate(string index)
     {
-        int version = GetIndexVersion(index);
+        // Strip an optional trailing compatibility-upgrade revision suffix (e.g. "-r1") before parsing the date -
+        // it isn't part of the DateFormat-based physical name pattern.
+        string nameToParse = IndexNameRevision.Parse(index).BaseName;
+
+        int version = GetIndexVersion(nameToParse);
         if (version < 0)
             version = Version;
 
-        if (DateTime.TryParseExact(index, $"\'{Name}-v{version}-\'{DateFormat}", EnUs, DateTimeStyles.AdjustToUniversal, out var result))
+        if (DateTime.TryParseExact(nameToParse, $"\'{Name}-v{version}-\'{DateFormat}", EnUs, DateTimeStyles.AdjustToUniversal, out var result))
             return DateTime.SpecifyKind(result.Date, DateTimeKind.Utc);
 
         return DateTime.MaxValue;
@@ -211,6 +215,18 @@ public class DailyIndex : VersionedIndex
             .ToList();
 
         return allVersions.Count > 0 ? allVersions.First() : Version;
+    }
+
+    /// <summary>
+    /// Excludes date partitions that have already aged past their retention period, since the maintenance job is
+    /// about to delete them anyway.
+    /// </summary>
+    public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync()
+    {
+        var infos = await base.GetIndexCompatibilityAsync().AnyContext();
+        var utcNow = Configuration.TimeProvider.GetUtcNow().UtcDateTime;
+
+        return infos.Where(i => GetIndexVersion(i.Name) == Version && utcNow <= GetIndexExpirationDate(GetIndexDate(i.Name))).ToArray();
     }
 
     public virtual string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd)

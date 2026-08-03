@@ -59,6 +59,43 @@ public sealed class ElasticIndexExtensionsTests : ElasticRepositoryTestBase
         }
     }
 
+    [Fact]
+    public async Task LimitToIndexSettings_WithMappedIndexes_ReturnsCreatedVersionWithoutMappings()
+    {
+        string prefix = $"index-settings-{Guid.NewGuid():N}";
+        string firstIndex = $"{prefix}-1";
+        string secondIndex = $"{prefix}-2";
+        var indices = Indices.Parse($"{prefix}-*");
+
+        await using AsyncDisposableAction cleanup = new(async () =>
+            await _client.Indices.DeleteAsync(indices, d => d.IgnoreUnavailable(), TestCancellationToken));
+
+        var firstCreateResponse = await _client.Indices.CreateAsync(firstIndex,
+            d => d.Mappings(m => m.Properties(p => p.Keyword("first"))), TestCancellationToken);
+        var secondCreateResponse = await _client.Indices.CreateAsync(secondIndex,
+            d => d.Mappings(m => m.Properties(p => p.Keyword("second"))), TestCancellationToken);
+        Assert.True(firstCreateResponse.IsValidResponse);
+        Assert.True(secondCreateResponse.IsValidResponse);
+
+        var response = await _client.Indices.GetAsync(indices, d => d.LimitToIndexSettings(), TestCancellationToken);
+
+        Assert.True(response.IsValidResponse);
+        Assert.Equal(2, response.Indices.Count);
+        Assert.All(response.Indices.Values, state => Assert.NotNull(state.Settings?.Index?.Version?.Created));
+        var requestUri = response.ApiCallDetails.Uri;
+        Assert.NotNull(requestUri);
+        Assert.Contains("features=settings", requestUri.Query);
+        Assert.Contains("include_defaults=false", requestUri.Query);
+
+        Assert.NotNull(response.ApiCallDetails.ResponseBodyInBytes);
+        using var responseBody = JsonDocument.Parse(response.ApiCallDetails.ResponseBodyInBytes);
+        foreach (var indexState in responseBody.RootElement.EnumerateObject())
+        {
+            Assert.True(indexState.Value.TryGetProperty("settings", out _));
+            AssertEmptyObjectIfPresent(indexState.Value, "mappings");
+        }
+    }
+
     private static void AssertEmptyObjectIfPresent(JsonElement indexState, string propertyName)
     {
         if (indexState.TryGetProperty(propertyName, out var value))

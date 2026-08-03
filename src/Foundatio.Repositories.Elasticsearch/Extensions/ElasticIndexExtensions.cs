@@ -28,6 +28,11 @@ public static class ElasticIndexExtensions
         return descriptor.Features(Feature.Aliases).IncludeDefaults(false);
     }
 
+    internal static GetIndexRequestDescriptor LimitToIndexSettings(this GetIndexRequestDescriptor descriptor)
+    {
+        return descriptor.Features(Feature.Settings).IncludeDefaults(false);
+    }
+
     public static SubmitAsyncSearchRequest ToAsyncSearchSubmitRequest<T>(this SearchRequest searchRequest) where T : class, new()
     {
         var asyncSearchRequest = new SubmitAsyncSearchRequest(searchRequest.Indices)

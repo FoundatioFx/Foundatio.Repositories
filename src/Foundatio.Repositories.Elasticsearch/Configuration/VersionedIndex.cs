@@ -241,6 +241,15 @@ public class VersionedIndex : Index, IVersionedIndex
         return reindexWorkItem;
     }
 
+    /// <summary>
+    /// Matches the configured schema version's physical indexes. The configuration orchestrator skips this check
+    /// when a schema-version reindex is pending because that reindex creates new, compatible physical indexes.
+    /// </summary>
+    protected override string GetCompatibilityIndexPattern()
+    {
+        return HasMultipleIndexes ? Name : VersionedName;
+    }
+
     protected string? GetReindexScripts(int currentVersion)
     {
         var scripts = ReindexScripts.Where(s => s.Version > currentVersion && Version >= s.Version).OrderBy(s => s.Version).ToList();

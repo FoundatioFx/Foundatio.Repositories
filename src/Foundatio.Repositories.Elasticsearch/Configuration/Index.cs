@@ -27,7 +27,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
-public class Index : IIndex, IHaveLogger
+public class Index : IIndexCompatibility, IHaveLogger
 {
     private readonly Lazy<IElasticQueryBuilder> _queryBuilder;
     private readonly Lazy<ElasticQueryParser> _queryParser;
@@ -253,7 +253,11 @@ public class Index : IIndex, IHaveLogger
             throw new RepositoryException(currentSettings.GetErrorMessage($"Error getting index settings for {name}"), currentSettings.OriginalException());
         }
 
-        var indexState = currentSettings.Settings.TryGetValue(name, out var indexSettings) ? indexSettings : null;
+        currentSettings.Settings.TryGetValue(name, out var indexState);
+        if (indexState is null && currentSettings.Settings.Count is 1)
+            indexState = currentSettings.Settings.Values.Single();
+        else if (indexState is null)
+            throw new RepositoryException($"Index name '{name}' resolved to {currentSettings.Settings.Count} indexes while updating settings; expected exactly one.");
 
         // GetSettingsAsync nests analysis settings under the "index" key (Settings.Index.Analysis); the root
         // Settings.Analysis is the write-time shape used in create requests and is not populated on reads. Read
@@ -264,7 +268,9 @@ public class Index : IIndex, IHaveLogger
         var createIndexRequestDescriptor = new CreateIndexRequestDescriptor((IndexName)name);
         ConfigureIndex(createIndexRequestDescriptor);
         CreateIndexRequest createRequest = createIndexRequestDescriptor;
-        var settings = createRequest.Settings!;
+        var settings = createRequest.Settings;
+        if (settings is null)
+            return;
 
         // strip off non-dynamic index settings
         settings.Store = null;
@@ -313,29 +319,16 @@ public class Index : IIndex, IHaveLogger
         if (names == null || names.Length == 0)
             throw new ArgumentNullException(nameof(names));
 
-        // Resolve wildcards to actual index names; use GetAsync because ResolveIndexAsync is broken in ES 9.x client.
-        var indexNames = new List<string>();
-        foreach (var name in names)
+        // Resolve wildcards and aliases to their concrete backing indexes; use GetAsync because
+        // ResolveIndexAsync is broken in ES 9.x client, and Elasticsearch rejects deleting an index by alias name.
+        var getResponse = await Configuration.Client.Indices.GetAsync(Indices.Parse(String.Join(",", names)), d => d.LimitToNamesAndAliases().IgnoreUnavailable()).AnyContext();
+        if (!getResponse.IsValidResponse && getResponse.ElasticsearchServerError?.Status is not 404)
         {
-            if (name.Contains("*") || name.Contains("?"))
-            {
-                var getResponse = await Configuration.Client.Indices.GetAsync(Indices.Parse(name), d => d.LimitToNamesAndAliases().IgnoreUnavailable()).AnyContext();
-                if (getResponse.IsValidResponse && getResponse.Indices is not null)
-                {
-                    foreach (var kvp in getResponse.Indices)
-                        indexNames.Add(kvp.Key);
-                }
-                else if (getResponse.ElasticsearchServerError?.Status is not 404)
-                {
-                    _logger.LogErrorRequest(getResponse, "Error resolving wildcard index pattern {Pattern}", name);
-                }
-            }
-            else
-            {
-                indexNames.Add(name);
-            }
+            _logger.LogErrorRequest(getResponse, "Error resolving indexes {Names}", String.Join(", ", names));
+            throw new RepositoryException(getResponse.GetErrorMessage($"Error resolving indexes {String.Join(",", names)}"), getResponse.OriginalException());
         }
 
+        var indexNames = getResponse.Indices?.Keys.ToList() ?? [];
         if (indexNames.Count == 0)
             return;
 
@@ -351,6 +344,12 @@ public class Index : IIndex, IHaveLogger
                 _logger.LogRequest(response);
                 continue;
             }
+
+            // Another caller may delete a concrete index after the metadata lookup above. The request is
+            // explicitly ignore-unavailable, so preserve that contract even when the client surfaces the 404
+            // as an invalid response.
+            if (response.ElasticsearchServerError?.Status is 404)
+                continue;
 
             _logger.LogErrorRequest(response, "Error deleting the index {Indexes}", String.Join(",", batch));
             throw new RepositoryException(response.GetErrorMessage($"Error deleting the index {String.Join(",", batch)}"), response.OriginalException());
@@ -395,6 +394,90 @@ public class Index : IIndex, IHaveLogger
         var reindexer = new ElasticReindexer(Configuration.Client, Configuration.Serializer, _logger);
         return reindexer.ReindexAsync(reindexWorkItem, progressCallbackAsync);
     }
+
+    internal static int? ParseCreatedMajor(string? created, string? createdString)
+    {
+        if (!String.IsNullOrEmpty(createdString))
+        {
+            int dotIndex = createdString.IndexOf('.');
+            string majorPart = dotIndex > 0 ? createdString[..dotIndex] : createdString;
+            if (Int32.TryParse(majorPart, out int major) && major > 0)
+                return major;
+        }
+
+        if (!String.IsNullOrEmpty(created) && Int64.TryParse(created, out long createdId))
+        {
+            long major = createdId / 1_000_000;
+            if (major is > 0 and <= Int32.MaxValue)
+                return (int)major;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the stable index or alias name that resolves every physical index currently backing this index.
+    /// </summary>
+    protected virtual string GetCompatibilityIndexPattern()
+    {
+        return Name;
+    }
+
+    /// <summary>
+    /// Checks the Elasticsearch version compatibility of every physical index currently backing this index. This
+    /// issues a single <c>GET</c> request for the pattern returned by <see cref="GetCompatibilityIndexPattern"/>.
+    /// </summary>
+    public virtual async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync()
+    {
+        if (Configuration is not IElasticConfigurationCompatibility compatibilityConfiguration)
+            throw new NotSupportedException($"{nameof(GetIndexCompatibilityAsync)} requires an {nameof(IElasticConfigurationCompatibility)} configuration.");
+
+        int? serverMajor = await compatibilityConfiguration.GetServerMajorVersionAsync().AnyContext();
+        if (!serverMajor.HasValue)
+            throw new RepositoryException("Unable to determine the current Elasticsearch server version while checking index compatibility.");
+
+        string pattern = GetCompatibilityIndexPattern();
+
+        // Ask for settings rather than aliases so index.version.created comes back in this same response; the
+        // response is keyed by concrete index name, so aliases in the pattern resolve and de-duplicate for free.
+        var response = await Configuration.Client.Indices.GetAsync(Indices.Parse(pattern), d => d.LimitToIndexSettings().IgnoreUnavailable()).AnyContext();
+        if (!response.IsValidResponse)
+        {
+            if (response.ElasticsearchServerError?.Status is 404)
+                return [];
+
+            _logger.LogErrorRequest(response, "Error getting indexes matching {Pattern} while checking Elasticsearch version compatibility", pattern);
+            throw new RepositoryException(response.GetErrorMessage($"Error getting indexes matching {pattern} while checking Elasticsearch version compatibility"), response.OriginalException());
+        }
+
+        _logger.LogRequest(response);
+
+        if (response.Indices is null || response.Indices.Count == 0)
+            return [];
+
+        var infos = new List<IndexCompatibilityInfo>(response.Indices.Count);
+        foreach (var kvp in response.Indices)
+        {
+            var versioning = kvp.Value?.Settings?.Index?.Version;
+            int? createdMajor = ParseCreatedMajor(versioning?.Created, versioning?.CreatedString);
+            if (!createdMajor.HasValue)
+                throw new RepositoryException($"Unable to determine the Elasticsearch version that created index '{kvp.Key}'.");
+
+            infos.Add(new IndexCompatibilityInfo
+            {
+                Name = kvp.Key,
+                CreatedMajor = createdMajor,
+                CreatedVersion = versioning?.CreatedString,
+                RequiresReindexBeforeNextMajorUpgrade = createdMajor < serverMajor
+            });
+        }
+
+        return infos;
+    }
+
+    internal string? CompatibilityTimestampField => GetTimeStampField();
+
+    internal Task CreateCompatibilityIndexAsync(string name) => CreateIndexAsync(name);
 
     protected virtual string? GetTimeStampField()
     {

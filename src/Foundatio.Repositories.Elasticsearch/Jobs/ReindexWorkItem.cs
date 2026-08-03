@@ -12,6 +12,8 @@ public record ReindexWorkItem
     public string? TimestampField { get; init; }
     public DateTime? StartUtc { get; init; }
 
+    internal bool PreserveSourceIndexName { get; init; }
+
     /// <summary>
     /// The number of documents Elasticsearch reads and writes per internal bulk batch while reindexing.
     /// Defaults to null, which uses the Elasticsearch reindex API default of 1000. Lower this if reindexing
