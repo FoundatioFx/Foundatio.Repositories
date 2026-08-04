@@ -407,8 +407,13 @@ var nextResults = await repository.FindAsync(
 >     o => o.SearchAfterPaging(SearchAfterPagingMode.PointInTime));
 > ```
 >
-> Note: the repository always appends the document id as a tiebreaker, so a query with no explicit
-> sort is safe. The danger is an explicit unstable sort key in `Live` mode.
+> Note: the repository appends the document id as a tiebreaker whenever the model's id field is
+> mapped and sortable in the target index, so a query with no explicit sort is safe in that case.
+> The id tiebreaker is skipped entirely for models that don't implement `IIdentity` (there is no id
+> to sort by) and for indexes managed outside this library (see
+> [Externally-Managed Indexes](index-management.md#externally-managed-indexes)). In both cases,
+> pair paging with your own stable, unique sort field. The danger is an explicit unstable sort key
+> in `Live` mode.
 
 ## Aggregations
 

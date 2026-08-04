@@ -450,14 +450,36 @@ public class DailyIndex : VersionedIndex
         return ElasticMappingResolver.Create(GetLatestIndexMapping, Configuration.Client.Infer, _logger);
     }
 
+    /// <summary>
+    /// Gets the wildcard filter used to find the latest server-managed index whose mapping should
+    /// be used for field resolution. Defaults to the version-qualified pattern this library uses
+    /// when it creates the index itself (<c>{Name}-v{Version}-*</c>).
+    /// </summary>
+    /// <remarks>
+    /// Override this for indexes whose actual index names don't follow that pattern -- for
+    /// example an externally-managed (e.g. Logstash-created) daily index named
+    /// <c>{Name}-{yyyy.MM.dd}</c> with no version segment -- so the resolver can find and use the
+    /// real server-side mapping instead of falling back entirely to the code-declared mapping.
+    /// </remarks>
+    protected virtual string GetIndexMappingFilter()
+    {
+        return $"{Name}-v{Version}-*";
+    }
+
     protected TypeMapping? GetLatestIndexMapping()
     {
-        string filter = $"{Name}-v{Version}-*";
+        string filter = GetIndexMappingFilter();
+
+        void LogNoMatchWarning() => _logger.LogWarning("No indexes matched filter {Filter} when resolving the server-side mapping; field resolution will fall back to the code-declared mapping only", filter);
+
         var indicesResponse = Configuration.Client.Indices.Get((Indices)(IndexName)filter, d => d.LimitToNamesAndAliases());
         if (!indicesResponse.IsValidResponse)
         {
             if (indicesResponse.ElasticsearchServerError?.Status == 404)
+            {
+                LogNoMatchWarning();
                 return null;
+            }
 
             throw new RepositoryException(indicesResponse.GetErrorMessage($"Error getting latest index mapping {filter}"), indicesResponse.OriginalException());
         }
@@ -473,7 +495,10 @@ public class DailyIndex : VersionedIndex
             .FirstOrDefault();
 
         if (latestIndex == null)
+        {
+            LogNoMatchWarning();
             return null;
+        }
 
         var mappingResponse = Configuration.Client.Indices.GetMapping(new GetMappingRequest(latestIndex.Index));
         _logger.LogTrace("GetMapping: {Request}", mappingResponse.GetRequest(false, true));

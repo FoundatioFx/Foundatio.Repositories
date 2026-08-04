@@ -200,6 +200,44 @@ var results = await repository.FindAsync(q => q
     .FilterExpression("age:[25 TO *]"));
 ```
 
+### "All Shards Failed" on FindAsync/CountAsync (Unmapped Sort Field)
+
+**Symptoms:**
+- `all shards failed` or `illegal_argument_exception: No mapping found for [id] in order to sort on`
+- Only occurs on `DailyIndex`/`MonthlyIndex` instances whose partitions are created by something outside this library (Logstash, ILM, a custom writer)
+- No explicit sort was specified in the query
+
+**Cause:**
+
+`FindAsync`/`CountAsync` append an automatic `id` sort as a pagination tiebreaker. That tiebreaker is derived from the model's *code* mapping (any type implementing `IIdentity` declares `id`), not the real server-side mapping. For an index this library never wrote to, the server may have no `id` field at all — the query then asks Elasticsearch to sort by a field the index doesn't have.
+
+**Solutions:**
+
+1. **Opt the index out of the automatic id tiebreaker:**
+
+```csharp
+public class ExternallyManagedIndex : DailyIndex<LogEvent>
+{
+    public ExternallyManagedIndex(IElasticConfiguration configuration)
+        : base(configuration, "logs", 1, doc => ((LogEvent)doc).Date.UtcDateTime)
+    {
+        HasSortableIdField = false;
+    }
+}
+```
+
+2. **Always pair queries against that index with your own stable sort**, since pagination is no longer automatically deterministic:
+
+```csharp
+var results = await repository.FindAsync(
+    q => q.SortAscending(e => e.CreatedUtc),
+    o => o.PageLimit(50).SearchAfterPaging());
+```
+
+3. **If the index's real mapping is discoverable** (e.g., you control the naming and just need this library to find it), override `GetIndexMappingFilter()` so the mapping resolver can locate the real server mapping instead of guessing from the code mapping. See [Externally-Managed Indexes](/guide/index-management#externally-managed-indexes) for the full explanation and code.
+
+> If the model doesn't implement `IIdentity` at all, none of the above is needed: the id tiebreaker is skipped automatically, since there is no `Id` property to sort by in the first place.
+
 ## Cache Issues
 
 ### Stale Data

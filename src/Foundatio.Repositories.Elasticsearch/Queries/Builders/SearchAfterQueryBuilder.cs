@@ -59,7 +59,7 @@ namespace Foundatio.Repositories
         public static T SearchAfter<T>(this T options, params object[] values) where T : ICommandOptions
         {
             options.SearchAfterPaging();
-            if (values != null && values.Count(v => v != null) > 0)
+            if (values is { Length: > 0 })
             {
                 options.Values.Set(SearchAfterKey, values);
             }
@@ -91,7 +91,7 @@ namespace Foundatio.Repositories
         public static T SearchBefore<T>(this T options, params object[] values) where T : ICommandOptions
         {
             options.SearchAfterPaging();
-            if (values != null && values.Count(v => v != null) > 0)
+            if (values is { Length: > 0 })
             {
                 options.Values.Set(SearchBeforeKey, values);
             }
@@ -193,11 +193,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
     /// and can otherwise cause paging to silently skip documents or stop early. Because the same
     /// <see cref="ICommandOptions"/> instance is reused across <c>FindResults.NextPageAsync()</c>
     /// calls, the warning is only logged once per paging session (i.e. on the first page).
+    /// See <see cref="IdTiebreakerField.TryResolve{T}"/> for when the id tiebreaker is skipped
+    /// entirely (models without <see cref="IIdentity"/>, or indexes that opt out via
+    /// <see cref="Foundatio.Repositories.Elasticsearch.Configuration.IIndex.HasSortableIdField"/>);
+    /// callers of a search_after query against such a model or index must supply their own unique,
+    /// sortable field(s) to keep the cursor stable.
     /// </remarks>
     public class SearchAfterQueryBuilder : IElasticQueryBuilder
     {
-        private const string Id = nameof(IIdentity.Id);
-
         // Internal Lucene/relevance sort keys that are not stable across index refreshes or
         // segment merges. Using them as a search_after cursor in Live paging mode can silently
         // skip documents or terminate paging early while the index is being written to.
@@ -222,7 +225,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 sortFields ??= new List<SortOptions>();
 
                 var resolver = ctx.GetMappingResolver();
-                string idField = resolver.GetResolvedField(Id) ?? "_id";
+                bool canAddIdTiebreaker = IdTiebreakerField.TryResolve(ctx, out string idField, out string idSortFieldName);
 
                 // Live search_after paging with an unstable sort key (e.g. _doc, _score) is only safe
                 // within a Point-In-Time: index refreshes and segment merges can invalidate the cursor,
@@ -240,7 +243,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 // resolver calls. SortOptions is a discriminated union: _doc/_score can arrive
                 // either as a FieldSort with a literal field name, or as the ES client's typed
                 // Doc/Score variants, so both shapes need to be checked.
-                bool hasIdField = false;
+                bool hasIdField = !canAddIdTiebreaker;
                 foreach (var sort in sortFields)
                 {
                     string? fieldName;
@@ -252,7 +255,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                         if (fieldName is null)
                             continue;
 
-                        isIdField = String.Equals(fieldName, idField, StringComparison.Ordinal);
+                        isIdField = String.Equals(fieldName, idSortFieldName, StringComparison.Ordinal);
                     }
                     else if (sort?.Doc is not null)
                     {

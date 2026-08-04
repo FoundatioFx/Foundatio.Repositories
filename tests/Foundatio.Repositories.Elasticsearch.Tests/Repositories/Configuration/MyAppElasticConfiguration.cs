@@ -24,6 +24,7 @@ public class MyAppElasticConfiguration : ElasticConfiguration
         AddIndex(MonthlyEmployees = new MonthlyEmployeeIndex(this, 1));
         AddIndex(DailyLogEvents = new DailyLogEventIndex(this));
         AddIndex(MonthlyLogEvents = new MonthlyLogEventIndex(this));
+        AddIndex(ExternallyManagedLogEvents = new ExternallyManagedLogEventIndex(this));
         AddIndex(ParentChild = new ParentChildIndex(this));
         AddIndex(DailyFileAccessHistory = new DailyFileAccessHistoryIndex(this));
         AddIndex(MonthlyFileAccessHistory = new MonthlyFileAccessHistoryIndex(this));
@@ -61,6 +62,7 @@ public class MyAppElasticConfiguration : ElasticConfiguration
     public MonthlyEmployeeIndex MonthlyEmployees { get; }
     public DailyLogEventIndex DailyLogEvents { get; }
     public MonthlyLogEventIndex MonthlyLogEvents { get; }
+    public ExternallyManagedLogEventIndex ExternallyManagedLogEvents { get; }
     public ParentChildIndex ParentChild { get; }
     public DailyFileAccessHistoryIndex DailyFileAccessHistory { get; }
     public MonthlyFileAccessHistoryIndex MonthlyFileAccessHistory { get; }
