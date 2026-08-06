@@ -43,9 +43,7 @@ public class CleanupIndexesJob : IJob
     {
         _indexes.Add(new IndexMaxAge(maxAge, idx =>
         {
-            // Physical index names pick up a trailing "-r{n}" after an explicit Elasticsearch compatibility
-            // upgrade, which the exact-format parse below would otherwise reject, leaving them never cleaned up.
-            string name = Configuration.IndexNameRevision.Parse(idx).BaseName;
+            string name = Configuration.CompatibilityIndexName.GetCanonicalName(idx);
 
             if (DateTime.TryParseExact(name, "'" + prefix + "-'yyyy.MM.dd", _enUS, DateTimeStyles.None, out var result))
                 return result;

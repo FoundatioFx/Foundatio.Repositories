@@ -153,7 +153,8 @@ public class VersionedIndex : Index, IVersionedIndex
 
     public override async Task ConfigureAsync()
     {
-        if (!await IndexExistsAsync(VersionedName).AnyContext())
+        string? existingIndex = await GetConfiguredVersionIndexAsync().AnyContext();
+        if (existingIndex is null)
         {
             if (!await AliasExistsAsync(Name).AnyContext())
             {
@@ -168,13 +169,13 @@ public class VersionedIndex : Index, IVersionedIndex
         }
         else
         {
-            await UpdateIndexAsync(VersionedName).AnyContext();
+            await UpdateIndexAsync(existingIndex).AnyContext();
         }
     }
 
     protected override ElasticMappingResolver CreateMappingResolver()
     {
-        return ElasticMappingResolver.Create(Configuration.Client, VersionedName, _logger);
+        return ElasticMappingResolver.Create(GetConfiguredVersionMapping, Configuration.Client.Infer, _logger);
     }
 
     protected virtual async Task CreateAliasAsync(string index, string name)
@@ -216,10 +217,14 @@ public class VersionedIndex : Index, IVersionedIndex
         {
             indexesToDelete.Add(String.Concat(Name, "-v", currentVersion));
             indexesToDelete.Add(String.Concat(Name, "-v", currentVersion, "-error"));
+            indexesToDelete.Add(CompatibilityIndexName.CreatePattern(String.Concat(Name, "-v", currentVersion)));
+            indexesToDelete.Add(CompatibilityIndexName.CreatePattern(String.Concat(Name, "-v", currentVersion, "-error")));
         }
 
         indexesToDelete.Add(VersionedName);
         indexesToDelete.Add(String.Concat(VersionedName, "-error"));
+        indexesToDelete.Add(CompatibilityIndexName.CreatePattern(VersionedName));
+        indexesToDelete.Add(CompatibilityIndexName.CreatePattern(String.Concat(VersionedName, "-error")));
         await DeleteIndexesAsync(indexesToDelete.ToArray()).AnyContext();
     }
 
@@ -239,15 +244,6 @@ public class VersionedIndex : Index, IVersionedIndex
         reindexWorkItem.DeleteOld = DiscardIndexesOnReindex && reindexWorkItem.OldIndex != reindexWorkItem.NewIndex;
 
         return reindexWorkItem;
-    }
-
-    /// <summary>
-    /// Matches the configured schema version's physical indexes. The configuration orchestrator skips this check
-    /// when a schema-version reindex is pending because that reindex creates new, compatible physical indexes.
-    /// </summary>
-    protected override string GetCompatibilityIndexPattern()
-    {
-        return HasMultipleIndexes ? Name : VersionedName;
     }
 
     protected string? GetReindexScripts(int currentVersion)
@@ -284,7 +280,10 @@ public class VersionedIndex : Index, IVersionedIndex
         if (currentVersion < 0 || currentVersion >= Version)
             return;
 
-        var reindexWorkItem = CreateReindexWorkItem(currentVersion);
+        var currentIndexes = await GetIndexesAsync(currentVersion).AnyContext();
+        var currentIndex = currentIndexes.SingleOrDefault()
+            ?? throw new RepositoryException($"Unable to identify the physical index for schema version {currentVersion} of '{Name}'.");
+        var reindexWorkItem = CreateReindexWorkItem(currentVersion) with { OldIndex = currentIndex.Index };
 
         Func<int, string?, Task> wrappedCallback = async (progress, message) =>
         {
@@ -313,7 +312,8 @@ public class VersionedIndex : Index, IVersionedIndex
         if (currentVersion < 0)
             currentVersion = Version;
 
-        await CreateAliasAsync(String.Concat(Name, "-v", currentVersion), Name).AnyContext();
+        var currentIndex = (await GetIndexesAsync(currentVersion).AnyContext()).FirstOrDefault();
+        await CreateAliasAsync(currentIndex?.Index ?? String.Concat(Name, "-v", currentVersion), Name).AnyContext();
     }
 
     /// <summary>
@@ -359,6 +359,8 @@ public class VersionedIndex : Index, IVersionedIndex
         if (String.IsNullOrEmpty(name))
             throw new ArgumentNullException(nameof(name));
 
+        name = CompatibilityIndexName.GetCanonicalName(name);
+
         string namePrefix = $"{Name}-v";
         if (name.Length <= namePrefix.Length || !name.StartsWith(namePrefix))
             return -1;
@@ -374,14 +376,69 @@ public class VersionedIndex : Index, IVersionedIndex
         return -1;
     }
 
+    internal override void ValidateCompatibilityUpgradeSource(string sourceIndex)
+    {
+        int sourceVersion = GetIndexVersion(sourceIndex);
+        if (sourceVersion != Version)
+            throw new RepositoryException($"Index '{sourceIndex}' uses schema version {sourceVersion}, but '{Name}' is configured for version {Version}. Run the schema reindex before upgrading Elasticsearch index compatibility.");
+    }
+
+    private async Task<string?> GetConfiguredVersionIndexAsync()
+    {
+        string pattern = $"{VersionedName},{CompatibilityIndexName.CreatePattern(VersionedName)}";
+        var response = await Configuration.Client.Indices.GetAsync(Indices.Parse(pattern), d => d.LimitToNamesAndAliases().IgnoreUnavailable()).AnyContext();
+        _logger.LogRequest(response);
+        if (!response.IsValidResponse && response.ElasticsearchServerError?.Status is not 404)
+            throw new RepositoryException(response.GetErrorMessage($"Error resolving configured index version '{VersionedName}'"), response.OriginalException());
+
+        var matches = response.Indices?.Keys
+            .Select(i => i.ToString())
+            .Where(i => String.Equals(CompatibilityIndexName.GetCanonicalName(i), VersionedName, StringComparison.Ordinal))
+            .ToArray() ?? [];
+        return matches.Length switch
+        {
+            0 => null,
+            1 => matches[0],
+            _ => throw new RepositoryException($"Configured index version '{VersionedName}' resolves to multiple physical indexes: {String.Join(", ", matches)}.")
+        };
+    }
+
+    protected TypeMapping? GetConfiguredVersionMapping()
+    {
+        string pattern = $"{VersionedName},{CompatibilityIndexName.CreatePattern(VersionedName)}";
+        var response = Configuration.Client.Indices.Get(Indices.Parse(pattern), d => d.LimitToNamesAndAliases().IgnoreUnavailable());
+        _logger.LogRequest(response);
+        if (!response.IsValidResponse)
+        {
+            if (response.ElasticsearchServerError?.Status is 404)
+                return null;
+
+            throw new RepositoryException(response.GetErrorMessage($"Error resolving configured index version '{VersionedName}'"), response.OriginalException());
+        }
+
+        string? index = response.Indices.Keys
+            .Select(i => i.ToString())
+            .SingleOrDefault(i => String.Equals(CompatibilityIndexName.GetCanonicalName(i), VersionedName, StringComparison.Ordinal));
+        if (index is null)
+            return null;
+
+        var mappingResponse = Configuration.Client.Indices.GetMapping(new GetMappingRequest(index));
+        _logger.LogRequest(mappingResponse);
+        if (!mappingResponse.IsValidResponse)
+            throw new RepositoryException(mappingResponse.GetErrorMessage($"Error getting configured index mapping '{index}'"), mappingResponse.OriginalException());
+
+        return mappingResponse.Mappings.Values.SingleOrDefault()?.Mappings;
+    }
+
     protected virtual async Task<IList<IndexInfo>> GetIndexesAsync(int version = -1)
     {
-        string filter = version < 0 ? $"{Name}-v*" : $"{Name}-v{version}";
+        string canonicalFilter = version < 0 ? $"{Name}-v*" : $"{Name}-v{version}";
         if (HasMultipleIndexes)
-            filter += "-*";
+            canonicalFilter += "-*";
+        string filter = $"{canonicalFilter},{CompatibilityIndexName.CreatePattern(canonicalFilter)}";
 
         var sw = Stopwatch.StartNew();
-        var response = await Configuration.Client.Indices.GetAsync((Indices)(IndexName)filter, d => d.LimitToNamesAndAliases()).AnyContext();
+        var response = await Configuration.Client.Indices.GetAsync((Indices)(IndexName)filter, d => d.LimitToNamesAndAliases().IgnoreUnavailable()).AnyContext();
         sw.Stop();
         _logger.LogRequest(response);
 
@@ -462,7 +519,7 @@ public class VersionedIndex<T> : VersionedIndex, IIndex<T> where T : class
 
     protected override ElasticMappingResolver CreateMappingResolver()
     {
-        return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client, VersionedName, _logger);
+        return ElasticMappingResolver.Create<T>(ConfigureIndexMapping, Configuration.Client.Infer, GetConfiguredVersionMapping, _logger);
     }
 
     public virtual void ConfigureIndexMapping(TypeMappingDescriptor<T> map)

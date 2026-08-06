@@ -99,24 +99,9 @@ public class ElasticReindexer
         });
 
         _logger.LogInformation("Received reindex work item for {OldIndex} -> {NewIndex}", workItem.OldIndex, workItem.NewIndex);
-        string concreteOldIndex = workItem.OldIndex;
-        bool oldIndexWasConcrete = true;
-        if (workItem.OldIndex != workItem.NewIndex)
-        {
-            concreteOldIndex = await ResolveConcreteIndexAsync(workItem.OldIndex).AnyContext();
-            oldIndexWasConcrete = String.Equals(workItem.OldIndex, concreteOldIndex, StringComparison.Ordinal);
-            if (String.Equals(concreteOldIndex, workItem.NewIndex, StringComparison.Ordinal))
-            {
-                _logger.LogInformation("Skipping stale reindex work item because {OldIndex} already resolves to {NewIndex}", workItem.OldIndex, workItem.NewIndex);
-                await progressCallbackAsync(100, "Reindex already complete").AnyContext();
-                return;
-            }
-        }
-
-        var sourceWorkItem = oldIndexWasConcrete ? workItem : workItem with { OldIndex = concreteOldIndex };
         var startTime = _timeProvider.GetUtcNow().UtcDateTime.AddSeconds(-1);
         await progressCallbackAsync(0, "Starting reindex...").AnyContext();
-        var firstPassResult = await InternalReindexAsync(sourceWorkItem, progressCallbackAsync, 0, 90, workItem.StartUtc).AnyContext();
+        var firstPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 0, 90, workItem.StartUtc).AnyContext();
 
         if (!firstPassResult.Succeeded)
             return;
@@ -126,36 +111,21 @@ public class ElasticReindexer
         // TODO: Check to make sure the docs have been added to the new index before changing alias
         if (workItem.OldIndex != workItem.NewIndex)
         {
-            var aliases = await GetIndexAliasesAsync(concreteOldIndex).AnyContext();
-            if (!workItem.PreserveSourceIndexName && !String.IsNullOrEmpty(workItem.Alias) && !aliases.ContainsKey(workItem.Alias))
-                aliases.Add(workItem.Alias, new AliasDefinition());
+            var aliases = await GetIndexAliasesAsync(workItem.OldIndex).AnyContext();
+            if (!String.IsNullOrEmpty(workItem.Alias) && !aliases.Contains(workItem.Alias))
+                aliases.Add(workItem.Alias);
 
             if (aliases.Count > 0)
             {
                 // Build list of actions - each action is either an Add or Remove
                 var aliasActions = new List<IndexUpdateAliasesAction>();
 
-                foreach (var alias in aliases)
+                foreach (string alias in aliases)
                 {
                     // Remove from old index
-                    aliasActions.Add(new IndexUpdateAliasesAction { Remove = new RemoveAction { Alias = alias.Key, Index = concreteOldIndex } });
+                    aliasActions.Add(new IndexUpdateAliasesAction { Remove = new RemoveAction { Alias = alias, Index = workItem.OldIndex } });
                     // Add to new index
-                    var addAction = new AddAction
-                    {
-                        Alias = alias.Key,
-                        Index = workItem.NewIndex,
-                        Filter = alias.Value.Filter,
-                        IsHidden = alias.Value.IsHidden,
-                        IsWriteIndex = alias.Value.IsWriteIndex
-                    };
-                    if (!String.IsNullOrEmpty(alias.Value.IndexRouting))
-                        addAction.IndexRouting = alias.Value.IndexRouting;
-                    if (!String.IsNullOrEmpty(alias.Value.Routing))
-                        addAction.Routing = alias.Value.Routing;
-                    if (!String.IsNullOrEmpty(alias.Value.SearchRouting))
-                        addAction.SearchRouting = alias.Value.SearchRouting;
-
-                    aliasActions.Add(new IndexUpdateAliasesAction { Add = addAction });
+                    aliasActions.Add(new IndexUpdateAliasesAction { Add = new AddAction { Alias = alias, Index = workItem.NewIndex } });
                 }
 
                 var bulkResponse = await _client.Indices.UpdateAliasesAsync(x => x.Actions(aliasActions)).AnyContext();
@@ -168,7 +138,7 @@ public class ElasticReindexer
 
                 _logger.LogRequest(bulkResponse);
 
-                await progressCallbackAsync(92, $"Updated aliases: {String.Join(", ", aliases.Keys)} Remove: {concreteOldIndex} Add: {workItem.NewIndex}").AnyContext();
+                await progressCallbackAsync(92, $"Updated aliases: {String.Join(", ", aliases)} Remove: {workItem.OldIndex} Add: {workItem.NewIndex}").AnyContext();
             }
         }
 
@@ -180,7 +150,7 @@ public class ElasticReindexer
         ReindexResult? secondPassResult = null;
         if (!String.IsNullOrEmpty(workItem.TimestampField))
         {
-            secondPassResult = await InternalReindexAsync(sourceWorkItem, progressCallbackAsync, 92, 96, startTime).AnyContext();
+            secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime).AnyContext();
             if (!secondPassResult.Succeeded)
                 return;
 
@@ -188,11 +158,11 @@ public class ElasticReindexer
         }
         else
         {
-            var sampleResult = await GetSampleDocumentIdAsync(concreteOldIndex).AnyContext();
+            var sampleResult = await GetSampleDocumentIdAsync(workItem.OldIndex).AnyContext();
 
             async Task RunObjectIdSecondPassAsync()
             {
-                secondPassResult = await InternalReindexAsync(sourceWorkItem, progressCallbackAsync, 92, 96, startTime).AnyContext();
+                secondPassResult = await InternalReindexAsync(workItem, progressCallbackAsync, 92, 96, startTime).AnyContext();
                 if (!secondPassResult.Succeeded)
                     return;
 
@@ -245,45 +215,23 @@ public class ElasticReindexer
             if (!newDocCountResponse.IsValidResponse)
                 _logger.LogWarning("Failed to get new index doc count for {NewIndex}: {Error}", workItem.NewIndex, newDocCountResponse.ElasticsearchServerError);
 
-            var oldDocCountResponse = await _client.CountAsync<object>(d => d.Indices(concreteOldIndex)).AnyContext();
+            var oldDocCountResponse = await _client.CountAsync<object>(d => d.Indices(workItem.OldIndex)).AnyContext();
             _logger.LogRequest(oldDocCountResponse);
             if (!oldDocCountResponse.IsValidResponse)
-                _logger.LogWarning("Failed to get old index doc count for {OldIndex}: {Error}", concreteOldIndex, oldDocCountResponse.ElasticsearchServerError);
+                _logger.LogWarning("Failed to get old index doc count for {OldIndex}: {Error}", workItem.OldIndex, oldDocCountResponse.ElasticsearchServerError);
 
             await progressCallbackAsync(98, $"Old Docs: {oldDocCountResponse.Count} New Docs: {newDocCountResponse.Count}").AnyContext();
             if (newDocCountResponse.IsValidResponse && oldDocCountResponse.IsValidResponse && newDocCountResponse.Count >= oldDocCountResponse.Count)
             {
-                if (workItem.PreserveSourceIndexName && oldIndexWasConcrete)
-                {
-                    var actions = new List<IndexUpdateAliasesAction>
-                    {
-                        new() { RemoveIndex = new RemoveIndexAction { Index = concreteOldIndex } },
-                        new() { Add = new AddAction { Index = workItem.NewIndex, Alias = workItem.OldIndex } }
-                    };
-                    var swapResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(actions)).AnyContext();
-                    _logger.LogRequest(swapResponse);
-                    if (!swapResponse.IsValidResponse)
-                    {
-                        _logger.LogErrorRequest(swapResponse, "Failed to atomically replace {OldIndex} with an alias for {NewIndex}", workItem.OldIndex, workItem.NewIndex);
-                        await progressCallbackAsync(99, $"Failed to replace index {concreteOldIndex} with an alias: {swapResponse.ElasticsearchServerError}").AnyContext();
-                        return;
-                    }
+                var deleteIndexResponse = await _client.Indices.DeleteAsync(Indices.Index(workItem.OldIndex)).AnyContext();
+                _logger.LogRequest(deleteIndexResponse);
+                if (!deleteIndexResponse.IsValidResponse)
+                    _logger.LogWarning("Failed to delete old index {OldIndex}: {Error}", workItem.OldIndex, deleteIndexResponse.ElasticsearchServerError);
 
-                    _logger.LogInformation("Replaced {OldIndex} with an alias for {NewIndex}", workItem.OldIndex, workItem.NewIndex);
-                }
+                if (deleteIndexResponse.IsValidResponse)
+                    await progressCallbackAsync(99, $"Deleted index: {workItem.OldIndex}").AnyContext();
                 else
-                {
-                    var deleteIndexResponse = await _client.Indices.DeleteAsync(Indices.Index(concreteOldIndex)).AnyContext();
-                    _logger.LogRequest(deleteIndexResponse);
-                    if (!deleteIndexResponse.IsValidResponse)
-                    {
-                        _logger.LogWarning("Failed to delete old index {OldIndex}: {Error}", concreteOldIndex, deleteIndexResponse.ElasticsearchServerError);
-                        await progressCallbackAsync(99, $"Failed to delete old index {concreteOldIndex}: {deleteIndexResponse.ElasticsearchServerError}").AnyContext();
-                        return;
-                    }
-                }
-
-                await progressCallbackAsync(99, $"Deleted index: {concreteOldIndex}").AnyContext();
+                    await progressCallbackAsync(99, $"Failed to delete old index {workItem.OldIndex}: {deleteIndexResponse.ElasticsearchServerError}").AnyContext();
             }
         }
 
@@ -571,26 +519,7 @@ public class ElasticReindexer
         }
     }
 
-    /// <summary>
-    /// Resolves <paramref name="name"/> to its concrete backing index. <paramref name="name"/> may already be
-    /// concrete (returned as-is) or an alias (resolved to the concrete index it points at).
-    /// </summary>
-    private async Task<string> ResolveConcreteIndexAsync(string name)
-    {
-        var response = await _client.Indices.GetAsync((Indices)name, d => d.LimitToNamesAndAliases()).AnyContext();
-        if (!response.IsValidResponse)
-            throw new InvalidOperationException(response.GetErrorMessage($"Unable to resolve source index '{name}'"), response.OriginalException());
-
-        if (response.Indices is null || response.Indices.Count is 0)
-            throw new InvalidOperationException($"Source index '{name}' did not resolve to a concrete index.");
-
-        if (response.Indices.Count > 1)
-            throw new InvalidOperationException($"Source index '{name}' resolved to multiple concrete indexes. Reindex work items must identify exactly one source index.");
-
-        return response.Indices.Keys.Single().ToString();
-    }
-
-    private async Task<Dictionary<string, AliasDefinition>> GetIndexAliasesAsync(string index)
+    private async Task<List<string>> GetIndexAliasesAsync(string index)
     {
         var aliasesResponse = await _client.Indices.GetAliasAsync(Indices.Index(index)).AnyContext();
         _logger.LogRequest(aliasesResponse);
@@ -606,7 +535,7 @@ public class ElasticReindexer
             {
                 var aliases = indices.SingleOrDefault(a => String.Equals(a.Key, index));
                 if (aliases.Value?.Aliases != null)
-                    return aliases.Value.Aliases.ToDictionary(a => a.Key.ToString(), a => a.Value, StringComparer.Ordinal);
+                    return aliases.Value.Aliases.Select(a => a.Key).ToList();
             }
 
             return [];

@@ -427,20 +427,17 @@ public class Index : IIndexCompatibility, IHaveLogger
     /// Checks the Elasticsearch version compatibility of every physical index currently backing this index. This
     /// issues a single <c>GET</c> request for the pattern returned by <see cref="GetCompatibilityIndexPattern"/>.
     /// </summary>
-    public virtual async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync()
+    /// <param name="cancellationToken">The token used to cancel the server-info or index-settings request.</param>
+    public virtual async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
     {
-        if (Configuration is not IElasticConfigurationCompatibility compatibilityConfiguration)
-            throw new NotSupportedException($"{nameof(GetIndexCompatibilityAsync)} requires an {nameof(IElasticConfigurationCompatibility)} configuration.");
-
-        int? serverMajor = await compatibilityConfiguration.GetServerMajorVersionAsync().AnyContext();
-        if (!serverMajor.HasValue)
-            throw new RepositoryException("Unable to determine the current Elasticsearch server version while checking index compatibility.");
+        var serverVersion = await GetServerVersionAsync(cancellationToken).AnyContext();
+        int serverMajor = serverVersion.Major;
 
         string pattern = GetCompatibilityIndexPattern();
 
         // Ask for settings rather than aliases so index.version.created comes back in this same response; the
         // response is keyed by concrete index name, so aliases in the pattern resolve and de-duplicate for free.
-        var response = await Configuration.Client.Indices.GetAsync(Indices.Parse(pattern), d => d.LimitToIndexSettings().IgnoreUnavailable()).AnyContext();
+        var response = await Configuration.Client.Indices.GetAsync(Indices.Parse(pattern), d => d.LimitToIndexSettings().IgnoreUnavailable(), cancellationToken).AnyContext();
         if (!response.IsValidResponse)
         {
             if (response.ElasticsearchServerError?.Status is 404)
@@ -466,18 +463,35 @@ public class Index : IIndexCompatibility, IHaveLogger
             infos.Add(new IndexCompatibilityInfo
             {
                 Name = kvp.Key,
-                CreatedMajor = createdMajor,
+                CreatedMajor = createdMajor.Value,
                 CreatedVersion = versioning?.CreatedString,
-                RequiresReindexBeforeNextMajorUpgrade = createdMajor < serverMajor
+                ServerMajor = serverMajor,
+                ServerVersion = serverVersion.Version,
+                RequiresReindexBeforeNextMajorUpgrade = createdMajor.Value < serverMajor
             });
         }
 
         return infos;
     }
 
-    internal string? CompatibilityTimestampField => GetTimeStampField();
+    internal virtual void ValidateCompatibilityUpgradeSource(string sourceIndex)
+    {
+    }
 
-    internal Task CreateCompatibilityIndexAsync(string name) => CreateIndexAsync(name);
+    private async Task<(int Major, string Version)> GetServerVersionAsync(CancellationToken cancellationToken)
+    {
+        var response = await Configuration.Client.InfoAsync(cancellationToken).AnyContext();
+        _logger.LogRequest(response);
+        if (!response.IsValidResponse)
+            throw new RepositoryException(response.GetErrorMessage("Unable to determine the current Elasticsearch server version while checking index compatibility."), response.OriginalException());
+
+        string? version = response.Version?.Number;
+        int? major = ParseCreatedMajor(null, version);
+        if (!major.HasValue)
+            throw new RepositoryException("Unable to determine the current Elasticsearch server version while checking index compatibility.");
+
+        return (major.Value, version!);
+    }
 
     protected virtual string? GetTimeStampField()
     {
