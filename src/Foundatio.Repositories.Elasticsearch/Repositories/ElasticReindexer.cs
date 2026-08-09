@@ -100,11 +100,9 @@ public class ElasticReindexer
 
         _logger.LogInformation("Received reindex work item for {OldIndex} -> {NewIndex}", workItem.OldIndex, workItem.NewIndex);
         string concreteOldIndex = workItem.OldIndex;
-        bool oldIndexWasConcrete = true;
         if (workItem.OldIndex != workItem.NewIndex)
         {
             concreteOldIndex = await ResolveConcreteIndexAsync(workItem.OldIndex).AnyContext();
-            oldIndexWasConcrete = String.Equals(workItem.OldIndex, concreteOldIndex, StringComparison.Ordinal);
             if (String.Equals(concreteOldIndex, workItem.NewIndex, StringComparison.Ordinal))
             {
                 _logger.LogInformation("Skipping stale reindex work item because {OldIndex} already resolves to {NewIndex}", workItem.OldIndex, workItem.NewIndex);
@@ -113,7 +111,9 @@ public class ElasticReindexer
             }
         }
 
-        var sourceWorkItem = oldIndexWasConcrete ? workItem : workItem with { OldIndex = concreteOldIndex };
+        // Keep the caller's source name for _reindex so filtered/routed aliases retain their semantics.
+        // Use concreteOldIndex only for alias movement, counts, sampling, and deletion below.
+        var sourceWorkItem = workItem;
         var startTime = _timeProvider.GetUtcNow().UtcDateTime.AddSeconds(-1);
         await progressCallbackAsync(0, "Starting reindex...").AnyContext();
         var firstPassResult = await InternalReindexAsync(sourceWorkItem, progressCallbackAsync, 0, 90, workItem.StartUtc).AnyContext();
@@ -127,6 +127,9 @@ public class ElasticReindexer
         if (workItem.OldIndex != workItem.NewIndex)
         {
             var aliases = await GetIndexAliasesAsync(concreteOldIndex).AnyContext();
+            // Older compatibility implementations could leave an alias matching the physical source name.
+            // It is a migration artifact, not a stable application alias, and must not leak into the new schema.
+            aliases.Remove(concreteOldIndex);
             if (!String.IsNullOrEmpty(workItem.Alias) && !aliases.ContainsKey(workItem.Alias))
                 aliases.Add(workItem.Alias, new AliasDefinition());
 
