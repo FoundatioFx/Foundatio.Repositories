@@ -1171,7 +1171,7 @@ Elasticsearch supports indexes created by the immediately previous major version
 
 **How detection works:**
 
-1. Calling `GetIndexCompatibilityAsync()` reads the connected server version and issues one settings-only request through the index's stable alias. For a daily index, the alias resolves every still-existing partition in one request, including expired partitions that maintenance has not deleted and hidden indexes; retention is not assumed to have completed.
+1. Calling `GetIndexCompatibilityAsync()` reads the connected server version and issues one settings-only request. Plain and versioned indexes use their stable alias; daily indexes use one wildcard request over all physical partitions, including expired partitions that maintenance has not deleted and hidden indexes. Retention is not assumed to have completed.
 2. The response is keyed by the current concrete backing index names and includes `index.version.created`, so alias resolution, physical-name discovery, and compatibility detection happen in that same request without loading mappings or matching orphaned revision names.
 3. The created version is compared with a fresh read of the connected server's major version. The result is intentionally not cached because the same process may survive a rolling Elasticsearch upgrade.
 4. If the index was created under an older major version than the server, it sets `RequiresReindexBeforeNextMajorUpgrade`. The index remains supported on the current server; this is preparation for the following major.

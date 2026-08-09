@@ -120,11 +120,11 @@ public class IndexCompatibilityTests
     }
 
     [Fact]
-    public void GetCompatibilityIndexPattern_ForDailyIndex_UsesStableAlias()
+    public void GetCompatibilityIndexPattern_ForDailyIndex_IncludesAllPhysicalPartitions()
     {
         var index = new TestDailyIndex(new ElasticConfiguration(), "logs", 1);
 
-        Assert.Equal("logs", index.GetCompatibilityIndexPatternPublic());
+        Assert.Equal("logs-v*-*,reindexed-v*-logs-v*-*", index.GetCompatibilityIndexPatternPublic());
     }
 
     [Fact]

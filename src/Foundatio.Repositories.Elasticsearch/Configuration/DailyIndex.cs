@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
@@ -135,6 +136,18 @@ public class DailyIndex : VersionedIndex
             return DateTime.SpecifyKind(result.Date, DateTimeKind.Utc);
 
         return DateTime.MaxValue;
+    }
+
+    protected override string GetCompatibilityIndexPattern()
+    {
+        string canonicalPattern = $"{Name}-v*-*";
+        return $"{canonicalPattern},{CompatibilityIndexName.CreatePattern(canonicalPattern)}";
+    }
+
+    public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
+    {
+        var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
+        return infos.Where(i => GetIndexDate(i.Name) != DateTime.MaxValue).ToArray();
     }
 
     protected async Task EnsureDateIndexAsync(DateTime utcDate)
