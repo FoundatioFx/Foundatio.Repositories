@@ -1182,7 +1182,7 @@ Normal index configuration has **zero compatibility-check requests**. Each expli
 
 The implementation follows Elasticsearch Upgrade Assistant's maintenance lifecycle while keeping it isolated from normal schema reindexing:
 
-1. Confirm the destination does not exist and validate the concrete source. Data-stream backing indexes, system indexes, ILM-managed indexes, CCR followers, non-standard index modes, and indexes with `_source` disabled are rejected.
+1. Confirm the destination does not exist and validate the concrete source. Data-stream backing indexes, system indexes, ILM-managed indexes, CCR followers, non-standard index modes, and indexes with `_source` disabled are rejected. A pre-existing write-only block is preserved; read, metadata, and read-only blocks must be removed by the operator first.
 2. Add `index.blocks.write` with Elasticsearch's dedicated add-block API. That API waits for in-flight writes to finish before returning. Refresh the exact source afterward.
 3. Create `reindexed-v{serverMajor}-{canonicalSourceName}` with the `_create_from` API. This requires Elasticsearch 8.18 or later and copies the source settings and mappings without reconstructing them from application configuration.
 4. Temporarily set replicas to `0`, refresh interval to `-1`, and both `index.default_pipeline` and `index.final_pipeline` to `_none`. Reindex with `op_type=create`, conflict abort, automatic slicing, and destination pipeline `_none` so existing documents are not transformed a second time.
@@ -1231,7 +1231,7 @@ if (compatibility.Any(c => c.RequiresReindexBeforeNextMajorUpgrade) &&
 
 This operation intentionally causes a write outage for each physical index while it is copied. Stop application writers, queue consumers, maintenance jobs, and alias/index-management processes before starting it. The server write block prevents Elasticsearch writes, but it cannot invalidate `IHaveVersion` values or sequence-number/primary-term values already held in application memory or distributed caches. Restart or drain application instances before resuming writes so stale concurrency tokens are not reused against the replacement index.
 
-Cancellation or a pre-cutover failure cancels the Elasticsearch task, removes the known destination, and removes only the write block added by this operation. If cleanup cannot be confirmed, the exception explicitly instructs the operator to inspect both indexes and the source write block. Once the atomic alias/delete action completes, cancellation cannot roll the migration back.
+Cancellation or a pre-cutover failure cancels the Elasticsearch task, removes the known destination, and removes only the write block added by this operation. If cleanup cannot be confirmed, the exception explicitly instructs the operator to inspect both indexes and the source write block. Once the atomic alias/delete action is dispatched, a lost response is treated as an uncertain cutover: no index is deleted automatically, and the aliases and both physical indexes must be inspected before retrying. Cancellation cannot roll a completed cutover back.
 
 #### Safe major-version rollout and rollback boundary
 

@@ -305,6 +305,8 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         string compatibilityTarget = CompatibilityIndexName.Create(version1.VersionedName, compatibility.ServerMajor);
         await _configuration.UpgradeIndexCompatibilityAsync([version1], cancellationToken: TestCancellationToken);
 
+        Assert.Equal(compatibilityTarget, await version1.GetCurrentPhysicalIndexAsync(version1.Version));
+
         await version2.ConfigureAsync();
         await version2.ReindexAsync();
 
@@ -408,6 +410,35 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
 
         var addedAfterCleanup = await repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
         Assert.NotNull(addedAfterCleanup);
+    }
+
+    [Fact]
+    public async Task UpgradeIndexCompatibilityAsync_PreservesExistingWriteBlockOnReplacement()
+    {
+        string name = $"compat-existing-block-{Guid.NewGuid():N}";
+        var index = new ForcedIncompatibleEmployeeIndex(_configuration, name);
+        await index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+        await index.ConfigureAsync();
+
+        var repository = new EmployeeRepository(index);
+        var employee = await repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
+        Assert.NotNull(employee);
+
+        var blockResponse = await _client.Indices.PutSettingsAsync(name,
+            d => d.Settings(s => s.Blocks(b => b.Write(true))), TestCancellationToken);
+        Assert.True(blockResponse.IsValidResponse);
+
+        await _configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestCancellationToken);
+
+        var targetSettingsResponse = await _client.Indices.GetSettingsAsync((Indices)name, cancellationToken: TestCancellationToken);
+        Assert.True(targetSettingsResponse.IsValidResponse);
+        Assert.True(targetSettingsResponse.Settings.Values.Single().Settings?.Index?.Blocks?.Write is true);
+        Assert.NotNull(await repository.GetByIdAsync(employee.Id));
+
+        var blockedWrite = await _client.IndexAsync(EmployeeGenerator.Generate(), d => d.Index(name), TestCancellationToken);
+        Assert.False(blockedWrite.IsValidResponse);
+        Assert.Equal("cluster_block_exception", blockedWrite.ElasticsearchServerError?.Error?.Type);
     }
 
     [Fact]

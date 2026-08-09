@@ -246,6 +246,12 @@ public class VersionedIndex : Index, IVersionedIndex
         return reindexWorkItem;
     }
 
+    internal async Task<string?> GetCurrentPhysicalIndexAsync(int currentVersion)
+    {
+        var indexes = await GetIndexesAsync(currentVersion).AnyContext();
+        return indexes.Count is 1 ? indexes[0].Index : null;
+    }
+
     protected string? GetReindexScripts(int currentVersion)
     {
         var scripts = ReindexScripts.Where(s => s.Version > currentVersion && Version >= s.Version).OrderBy(s => s.Version).ToList();

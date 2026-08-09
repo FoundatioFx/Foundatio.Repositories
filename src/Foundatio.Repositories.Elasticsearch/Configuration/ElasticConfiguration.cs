@@ -207,6 +207,12 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
             throw new InvalidOperationException("Must specify work item queue and lock provider in order to migrate index versions.");
 
         var reindexWorkItem = versionedIndex.CreateReindexWorkItem(currentVersion);
+        if (versionedIndex is VersionedIndex concreteVersionedIndex && !concreteVersionedIndex.HasMultipleIndexes)
+        {
+            string? currentPhysicalIndex = await concreteVersionedIndex.GetCurrentPhysicalIndexAsync(currentVersion).AnyContext();
+            if (!String.IsNullOrEmpty(currentPhysicalIndex))
+                reindexWorkItem = reindexWorkItem with { OldIndex = currentPhysicalIndex };
+        }
         bool isReindexing = await _lockProvider.IsLockedAsync(ElasticReindexer.GetLockName(versionedIndex.Name)).AnyContext();
         if (isReindexing)
             return;
@@ -301,6 +307,8 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
 
             string lockKey = ElasticReindexer.GetLockName(idx.Name);
             await using var reindexLock = await _lockProvider.AcquireAsync(lockKey, TimeSpan.FromMinutes(20), cancellationToken).AnyContext();
+            if (reindexLock is null)
+                throw new RepositoryException($"Unable to acquire the reindex lock for Elasticsearch version compatibility upgrade of index '{idx.Name}'.");
 
             compatibility = await compatibilityIndex.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
             var candidates = compatibility

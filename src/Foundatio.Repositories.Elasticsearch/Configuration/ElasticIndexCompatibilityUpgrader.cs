@@ -59,8 +59,10 @@ internal sealed class ElasticIndexCompatibilityUpgrader
 
         string sourceIndex = compatibility.Name;
         string targetIndex = CompatibilityIndexName.Create(sourceIndex, compatibility.ServerMajor);
+        bool sourceBlockAttempted = false;
         bool sourceBlockAdded = false;
         bool targetCreated = false;
+        bool cutoverAttempted = false;
         bool cutoverCompleted = false;
         bool topologyUncertain = false;
 
@@ -81,6 +83,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
 
             if (!sourceState.WasWriteBlocked)
             {
+                sourceBlockAttempted = true;
                 await AddWriteBlockAsync(sourceIndex, cancellationToken).AnyContext();
                 sourceBlockAdded = true;
             }
@@ -102,15 +105,19 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                 cancellationToken).AnyContext();
 
             await VerifyDocumentCountsAsync(sourceIndex, targetIndex, reindexResult, cancellationToken).AnyContext();
-            await RestoreTargetSettingsAsync(targetIndex, sourceState.Settings, cancellationToken).AnyContext();
+            await RestoreTargetSettingsAsync(targetIndex, sourceState.Settings, sourceState.WasWriteBlocked, cancellationToken).AnyContext();
             await ReportProgressAsync(92, $"Validated {reindexResult.Total:N0} documents and restored index settings").AnyContext();
 
             var expectedAliases = CreateAliasActions(index.Name, sourceState, targetIndex, out var aliasActions);
-            aliasActions.Add(new IndexUpdateAliasesAction
+            aliasActions.Insert(0, new IndexUpdateAliasesAction
             {
                 RemoveIndex = new RemoveIndexAction { Index = sourceIndex }
             });
 
+            // Once this request is dispatched, Elasticsearch may have committed the atomic alias swap even if
+            // the client observes a timeout or cancellation. Never delete the destination after that point until
+            // the resulting topology has been positively established.
+            cutoverAttempted = true;
             var cutoverResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(aliasActions), cancellationToken).AnyContext();
             _logger.LogRequest(cutoverResponse);
 
@@ -121,6 +128,8 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             }
             else if (topology is CutoverTopology.NotStarted && !cutoverResponse.IsValidResponse)
             {
+                // The independent topology read proved that the failed request did not change either index.
+                cutoverAttempted = false;
                 throw new RepositoryException(cutoverResponse.GetErrorMessage($"Unable to atomically replace '{sourceIndex}' with '{targetIndex}'."), cutoverResponse.OriginalException());
             }
             else
@@ -134,6 +143,22 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         }
         catch (Exception upgradeException)
         {
+            if (sourceBlockAttempted && !sourceBlockAdded)
+            {
+                const string message = "The request outcome is unknown; inspect the source write block before retrying.";
+                if (upgradeException is OperationCanceledException)
+                    throw new OperationCanceledException($"Compatibility upgrade for '{sourceIndex}' was canceled while adding its write block. {message}", upgradeException, cancellationToken);
+
+                throw new RepositoryException($"Compatibility upgrade for '{sourceIndex}' failed while adding its write block. {message}", upgradeException);
+            }
+
+            string? uncertainCutoverMessage = null;
+            if (cutoverAttempted && !cutoverCompleted)
+            {
+                topologyUncertain = true;
+                uncertainCutoverMessage = $"Compatibility cutover for '{sourceIndex}' may have committed before the client observed the failure. Do not retry or delete either index until the aliases and both physical indexes have been inspected manually.";
+            }
+
             if (!cutoverCompleted && !topologyUncertain)
             {
                 try
@@ -146,6 +171,14 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                         $"Compatibility upgrade for '{sourceIndex}' failed and automatic cleanup did not complete. Inspect the source write block and destination index '{targetIndex}' before retrying.",
                         new AggregateException(upgradeException, cleanupException));
                 }
+            }
+
+            if (uncertainCutoverMessage is not null)
+            {
+                if (upgradeException is OperationCanceledException)
+                    throw new OperationCanceledException(uncertainCutoverMessage, upgradeException, cancellationToken);
+
+                throw new RepositoryException(uncertainCutoverMessage, upgradeException);
             }
 
             throw;
@@ -185,6 +218,10 @@ internal sealed class ElasticIndexCompatibilityUpgrader
 
         if (source.SourceEnabled is false)
             throw new RepositoryException($"Index '{source.Name}' has _source disabled and cannot be reindexed.");
+
+        var blocks = source.Settings.Blocks;
+        if (blocks?.Read is true || blocks?.Metadata is true || blocks?.ReadOnly is true || blocks?.ReadOnlyAllowDelete is true)
+            throw new RepositoryException($"Index '{source.Name}' has a read or metadata block. Remove that block before using the compatibility upgrader; only an index write block is supported.");
 
         if (!String.IsNullOrEmpty(source.Settings.Mode) && !String.Equals(source.Settings.Mode, "standard", StringComparison.OrdinalIgnoreCase))
             throw new RepositoryException($"Index '{source.Name}' uses index mode '{source.Settings.Mode}', which is not supported by the Foundatio compatibility upgrader.");
@@ -274,7 +311,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         }
     }
 
-    private async Task RestoreTargetSettingsAsync(string targetIndex, IndexSettings sourceSettings, CancellationToken cancellationToken)
+    private async Task RestoreTargetSettingsAsync(string targetIndex, IndexSettings sourceSettings, bool preserveWriteBlock, CancellationToken cancellationToken)
     {
         var settings = new Dictionary<string, object?>
         {
@@ -283,6 +320,10 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             ["index.default_pipeline"] = sourceSettings.DefaultPipeline,
             ["index.final_pipeline"] = sourceSettings.FinalPipeline
         };
+
+        if (preserveWriteBlock)
+            settings["index.blocks.write"] = true;
+
         string body = JsonSerializer.Serialize(settings);
         string escapedIndex = Uri.EscapeDataString(targetIndex);
         var path = new EndpointPath(TransportHttpMethod.PUT, $"/{escapedIndex}/_settings");
