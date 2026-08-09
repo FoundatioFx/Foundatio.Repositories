@@ -40,11 +40,7 @@ public sealed class ExternallyManagedLogEventIndex : DailyIndex<LogEvent>
     // so the default "{Name}-v{Version}-*" pattern this library uses for its own indexes never matches.
     protected override string GetIndexMappingFilter() => $"{Name}-*";
 
-    // GetIndexVersion/GetIndexDate assume the version-qualified "{Name}-v{Version}-{date}" pattern this
-    // library uses when it creates the index itself; an unversioned externally-managed index has no
-    // version segment to parse, so both must be overridden to match GetIndexByDate's "{Name}-{date}" shape.
-    protected override int GetIndexVersion(string name) => Version;
-
+    // The mapping filter selects candidates; this parser orders them and rejects malformed names.
     protected override DateTime GetIndexDate(string index)
     {
         if (DateTime.TryParseExact(index, $"'{Name}-'{DateFormat}", EnUs, DateTimeStyles.AdjustToUniversal, out var result))

@@ -146,6 +146,8 @@ foreach (var bucket in result.Aggregations.DateHistogram("date_created_utc").Buc
 
 Always use `SearchAfterPaging()` for deep pagination. Never use offset-based `.PageNumber()` for large result sets.
 
+The repository appends the id's sort-safe mapped field (for example `id.sort`) as a tiebreaker when the model implements `IIdentity` and the index guarantees that field is sortable. Otherwise, Live mode requires an explicit stable, unique sort and throws `QueryValidationException` when none exists. Point-in-time mode explicitly appends `_shard_doc` after caller sorts when no sortable id tiebreaker is available, keeping forward and backward cursors reversible.
+
 ```csharp
 var results = await repository.GetAllAsync(o => o.SearchAfterPaging().PageLimit(500));
 do

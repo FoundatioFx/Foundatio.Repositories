@@ -322,6 +322,15 @@ var results = await repository.FindAsync(q => q.Index("logs-last-7-days"));
 | `DailyIndex<T>` | **No-op** -- existing partitions never updated | Creates partition with full mapping only if missing | **Manual** |
 | `MonthlyIndex<T>` | Same as `DailyIndex<T>` | Same | **Manual** |
 
+### Externally Managed Daily/Monthly Partitions
+
+Use `DailyIndex<T>` or `MonthlyIndex<T>` over externally-created partitions only as a read-only adapter behind `ElasticReadOnlyRepositoryBase<T>`. `ConfigureAsync()` is a no-op, but repository writes still call `EnsureIndexAsync()` and can create library-owned versioned partitions and aliases.
+
+- `.Index(start, end)` targets unversioned dated names such as `{Name}-2026.08.05`.
+- Queries without `.Index(...)`, plus large-range fallbacks, target the `{Name}` umbrella alias; the external system must maintain it.
+- For unversioned names, override `GetIndexMappingFilter()` and `GetIndexDate()` together. The filter is the authoritative candidate set; return `DateTime.MaxValue` for malformed names so mapping selection ignores those wildcard matches.
+- Set `HasSortableIdField = false` when the server mapping does not guarantee a sortable id. Live `SearchAfterPaging()` must then include an explicit stable, unique sort or it throws `QueryValidationException`; point-in-time mode explicitly appends `_shard_doc` after caller sorts so backward cursors can reverse the complete sort tuple.
+
 ### Updating Existing Daily/Monthly Partitions
 
 | Strategy | Cost | When to use |

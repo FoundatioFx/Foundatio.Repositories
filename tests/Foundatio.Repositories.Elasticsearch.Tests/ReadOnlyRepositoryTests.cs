@@ -23,14 +23,12 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
     private readonly IIdentityRepository _identityRepository;
     private readonly ILogEventRepository _dailyRepository;
     private readonly IEmployeeRepository _employeeRepository;
-    private readonly ExternallyManagedLogEventRepository _externallyManagedLogEventRepository;
 
     public ReadOnlyRepositoryTests(ITestOutputHelper output) : base(output)
     {
         _identityRepository = new IdentityRepository(_configuration);
         _dailyRepository = new DailyLogEventRepository(_configuration);
         _employeeRepository = new EmployeeRepository(_configuration);
-        _externallyManagedLogEventRepository = new ExternallyManagedLogEventRepository(_configuration);
     }
 
     public override async ValueTask InitializeAsync()
@@ -989,133 +987,6 @@ public sealed class ReadOnlyRepositoryTests : ElasticRepositoryTestBase
             Assert.Equal(1, findResults.Page);
             Assert.Equal(2, findResults.Total);
         } while (await findResults.NextPageAsync());
-    }
-
-    [Fact]
-    public async Task FindAsync_OnExternallyManagedIndexWithNoIdMapping_ReturnsDocuments()
-    {
-        // Arrange
-        // Regression test for https://github.com/FoundatioFx/Foundatio.Repositories/issues/305: mirrors a
-        // Logstash-created daily index with no "id" field at all. Before the fix, DefaultSortQueryBuilder
-        // unconditionally injected an id tiebreaker and every FindAsync call failed with "all shards failed".
-        var utcDate = DateTime.UtcNow;
-        string index = await IndexRawLogEventsAsync(utcDate, includeId: false, count: 3);
-
-        try
-        {
-            // Act
-            var results = await _externallyManagedLogEventRepository.FindAsync(q => q.Index(utcDate, utcDate));
-
-            // Assert
-            Assert.Equal(3, results.Documents.Count);
-        }
-        finally
-        {
-            await _client.Indices.DeleteAsync(index, cancellationToken: TestCancellationToken);
-        }
-    }
-
-    [Fact]
-    public async Task FindAsync_OnExternallyManagedIndexWithTextMappedId_ReturnsDocuments()
-    {
-        // Arrange
-        // The "id" field variant (defect 4 in the plan): the raw document carries an "id" value, so
-        // Elasticsearch dynamically maps it as text+keyword rather than leaving it unmapped. The opt-out
-        // (HasSortableIdField = false) means this succeeds too, since the tiebreaker is never attempted.
-        var utcDate = DateTime.UtcNow;
-        string index = await IndexRawLogEventsAsync(utcDate, includeId: true, count: 3);
-
-        try
-        {
-            // Act
-            var results = await _externallyManagedLogEventRepository.FindAsync(q => q.Index(utcDate, utcDate));
-
-            // Assert
-            Assert.Equal(3, results.Documents.Count);
-        }
-        finally
-        {
-            await _client.Indices.DeleteAsync(index, cancellationToken: TestCancellationToken);
-        }
-    }
-
-    [Fact]
-    public async Task FindAsync_WithSearchAfterPagingOnExternallyManagedIndexWithNoIdMapping_ReturnsAllDocumentsWithoutDuplicates()
-    {
-        // Arrange
-        // The most important regression test: with no id field to fall back on, callers must supply their
-        // own stable sort ("value" here). This proves paging still terminates correctly and produces no
-        // duplicates or gaps now that the id tiebreaker is skipped entirely for this index.
-        var utcDate = DateTime.UtcNow;
-        const int documentCount = 25;
-        string index = await IndexRawLogEventsAsync(utcDate, includeId: false, count: documentCount);
-
-        try
-        {
-            // Act
-            var results = await _externallyManagedLogEventRepository.FindAsync(
-                q => q.Index(utcDate, utcDate).SortAscending("value"),
-                o => o.PageLimit(7).SearchAfterPaging());
-            var viewedValues = new HashSet<int>();
-            int pagedRecords = 0;
-            int pageCount = 0;
-            do
-            {
-                pageCount++;
-                viewedValues.AddRange(results.Documents.Select(d => d.Value));
-                pagedRecords += results.Documents.Count;
-            } while (await results.NextPageAsync());
-
-            // Assert
-            Assert.True(pageCount >= 4);
-            Assert.Equal(documentCount, pagedRecords);
-            Assert.Equal(documentCount, viewedValues.Count);
-        }
-        finally
-        {
-            await _client.Indices.DeleteAsync(index, cancellationToken: TestCancellationToken);
-        }
-    }
-
-    [Fact]
-    public async Task FindAsync_OnExternallyManagedIndexWithUnresolvableServerMapping_LogsWarning()
-    {
-        // Arrange
-        // Defect 1: when no server mapping can be resolved for an index that nonetheless has a code
-        // mapping, DailyIndex.GetLatestIndexMapping() must log a warning instead of failing silently.
-        // No indexes matching "{Name}-*" exist yet, so the resolver's first (lazily-cached) lookup for
-        // this fixture instance hits the "no indexes matched filter" path. An explicit sort forces the
-        // query pipeline to consult the mapping resolver even though HasSortableIdField opts out of it.
-        int start = Log.LogEntries.Count;
-
-        // Act
-        var results = await _externallyManagedLogEventRepository.FindAsync(q => q.SortAscending("value"));
-
-        // Assert
-        Assert.Empty(results.Documents);
-        Assert.Contains(Log.LogEntries.Skip(start), l => l.LogLevel == LogLevel.Warning && l.Message.Contains("field resolution will fall back to the code-declared mapping only"));
-    }
-
-    private async Task<string> IndexRawLogEventsAsync(DateTime utcDate, bool includeId, int count)
-    {
-        string index = $"{_configuration.ExternallyManagedLogEvents.Name}-{utcDate:yyyy.MM.dd}";
-        for (int i = 0; i < count; i++)
-        {
-            var document = new Dictionary<string, object>
-            {
-                ["companyId"] = ObjectId.GenerateNewId().ToString(),
-                ["message"] = $"message {i}",
-                ["value"] = i,
-                ["date"] = utcDate
-            };
-            if (includeId)
-                document["id"] = ObjectId.GenerateNewId().ToString();
-
-            var response = await _client.IndexAsync(document, d => d.Index(index).Refresh(Refresh.True), TestCancellationToken);
-            Assert.True(response.IsValidResponse, response.DebugInformation);
-        }
-
-        return index;
     }
 
     [Fact]

@@ -21,7 +21,8 @@ public interface IIndex : IDisposable
     /// sort or search_after tiebreaker.
     /// </summary>
     /// <remarks>
-    /// Defaults to <c>true</c> for indexes whose mapping is created and owned by this library.
+    /// The interface implementation defaults to <c>true</c> for backward compatibility and for
+    /// indexes whose mapping is created and owned by this library.
     /// Override to <c>false</c> for indexes whose mapping is managed externally (e.g. by
     /// Logstash, ILM, or another system), where the code-declared <c>id</c> mapping cannot be
     /// trusted to reflect the real server-side mapping: <see cref="ElasticMappingResolver"/>
@@ -30,7 +31,7 @@ public interface IIndex : IDisposable
     /// query builders skip the automatic <c>id</c> tiebreaker; supply an explicit, verified sort
     /// field of your own for deterministic paging.
     /// </remarks>
-    bool HasSortableIdField { get; }
+    bool HasSortableIdField => true;
 
     IElasticQueryBuilder QueryBuilder { get; }
     ElasticMappingResolver MappingResolver { get; }

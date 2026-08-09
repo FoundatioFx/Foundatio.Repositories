@@ -870,17 +870,21 @@ POST /logs-v1-2025.05.*/_update_by_query?conflicts=proceed
 
 ### Externally-Managed Indexes
 
-A `DailyIndex<T>` / `MonthlyIndex<T>` can also front partitions that this library never creates or maps — for example a Logstash pipeline, an ILM policy, or any other external writer that produces indexes named `{name}-{date}` (no `-v{version}-` segment). Since `ConfigureAsync()` is a no-op for these index types (see the table above), there is no write path that ever applies this library's mapping to them; the real mapping is whatever the external writer's own dynamic or explicit mapping produced.
+A `DailyIndex<T>` / `MonthlyIndex<T>` can be used as a **read-only routing and mapping adapter** over partitions created by Logstash, ILM, or another external writer. Use it only behind `ElasticReadOnlyRepositoryBase<T>`. Although `ConfigureAsync()` is a no-op for time-series indexes, repository write methods still call `EnsureIndexAsync()` and can create a versioned physical index with this library's mapping and aliases. Do not expose write APIs through an externally-managed index unless this library is also intended to own that lifecycle.
+
+External routing must also match the library's query targets:
+
+- Queries with `.Index(start, end)` target unversioned dated names such as `{Name}-2026.08.05`; the external indexes or aliases must use those names.
+- Queries without `.Index(...)` target the umbrella alias `{Name}`. The external system must maintain that alias across all readable partitions. Large date ranges can also fall back to the umbrella alias, so use explicit date routing only for ranges that do not trigger the [large range fallback](#large-range-fallback).
 
 This matters for two reasons:
 
-1. **The server-side mapping lookup pattern must match your naming.** `GetLatestIndexMapping()` (used by the `ElasticMappingResolver` to resolve field names and types for building queries, sorts, and aggregations) defaults to filtering indexes by `{Name}-v{Version}-*`, and its version filter expects `GetIndexVersion()` to parse a `-v{version}-` segment out of the index name. An externally-managed index with no version segment fails both: the name filter never matches, and even if you fix that filter alone, the version comparison still discards every result, since `GetIndexVersion()` returns `-1` for a name it can't parse. If your index naming has no version segment, override all three of `GetIndexMappingFilter()`, `GetIndexVersion()`, and `GetIndexDate()` together so the resolver can find and use the real mapping:
+1. **The server-side mapping lookup pattern must match your naming.** `GetLatestIndexMapping()` (used by the `ElasticMappingResolver` to resolve field names and types for building queries, sorts, and aggregations) defaults to filtering indexes by `{Name}-v{Version}-*`. That filter is the authoritative candidate set, so an externally-managed index with no version segment must override it. Override `GetIndexDate()` as well so the resolver can select the latest valid partition:
 
    ```csharp
    public class ExternallyManagedIndex : DailyIndex<LogEvent>
    {
        protected override string GetIndexMappingFilter() => $"{Name}-*";
-       protected override int GetIndexVersion(string name) => Version;
 
        protected override DateTime GetIndexDate(string index)
        {
@@ -892,9 +896,9 @@ This matters for two reasons:
    }
    ```
 
-   Overriding `GetIndexMappingFilter()` alone looks like it should work but doesn't: `GetLatestIndexMapping()` still filters its results through `GetIndexVersion()`, so without the other two overrides every matched index gets discarded by that filter and field resolution silently falls back to the code-declared mapping only, exactly as if none of this were overridden.
+   Keep a custom filter version-qualified when the external naming scheme has multiple incompatible mapping versions. `GetLatestIndexMapping()` does not apply a second version check after the filter.
 
-   If no index matches the filter, `GetLatestIndexMapping()` logs a warning (`"No indexes matched filter ... field resolution will fall back to the code-declared mapping only"`) rather than failing silently — check your logs for this message if queries against an externally-managed index behave unexpectedly.
+   If no valid dated index matches the filter, `GetLatestIndexMapping()` logs a warning (`"No indexes matched filter ... field resolution will fall back to the code-declared mapping only"`) rather than failing silently — check your logs for this message if queries against an externally-managed index behave unexpectedly. Wildcard matches whose `GetIndexDate()` result is `DateTime.MaxValue` are treated as malformed and ignored, so a stray prefixed index cannot outrank the latest valid partition.
 
 2. **The id tiebreaker cannot be trusted to detect sortability on its own.** `FindAsync`/`CountAsync` queries normally get an automatic `id` sort appended as a tiebreaker for deterministic pagination (see [Search After Paging](querying.md#search-after-paging)). That tiebreaker is derived from the *code* mapping, which always declares `id` for any model implementing `IIdentity` — regardless of whether the real, externally-managed index has an `id` field at all. Because the mapping resolver merges server and code mappings (backfilling anything missing on the server from the code mapping), there is no reliable way to detect at query time whether `id` is genuinely sortable on the server. Set `HasSortableIdField = false` in the index constructor to opt out explicitly:
 
@@ -909,7 +913,7 @@ This matters for two reasons:
    }
    ```
 
-   With `HasSortableIdField = false`, no query against this index ever attempts to sort by `id`, so an unmapped or wrongly-typed (dynamically-mapped `text`) `id` field can no longer cause `all shards failed` or `Fielddata is disabled on text fields` errors. The trade-off is that pagination is no longer automatically deterministic — pair `FindAsync` with your own stable, unique sort field, especially when using [search after paging](querying.md#search-after-paging).
+   With `HasSortableIdField = false`, no query against this index ever attempts to sort by `id`, so an unmapped or wrongly-typed (dynamically-mapped `text`) `id` field can no longer cause `all shards failed` or `Fielddata is disabled on text fields` errors. Pair Live [search after paging](querying.md#search-after-paging) with your own stable, unique sort field; the query builder throws `QueryValidationException` when Live mode has neither an explicit sort nor an automatic id sort, instead of silently falling back to offset paging.
 
    If your model has no `id` concept at all — it doesn't implement `IIdentity` — the id tiebreaker is skipped automatically regardless of `HasSortableIdField`, since there is no `Id` property to sort by in the first place.
 

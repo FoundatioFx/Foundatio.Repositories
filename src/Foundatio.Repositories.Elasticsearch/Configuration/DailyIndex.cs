@@ -460,6 +460,9 @@ public class DailyIndex : VersionedIndex
     /// example an externally-managed (e.g. Logstash-created) daily index named
     /// <c>{Name}-{yyyy.MM.dd}</c> with no version segment -- so the resolver can find and use the
     /// real server-side mapping instead of falling back entirely to the code-declared mapping.
+    /// The filter is authoritative for candidate selection, including the applicable version.
+    /// Matching names whose <see cref="GetIndexDate(string)"/> result is <see cref="DateTime.MaxValue"/>
+    /// are treated as malformed and excluded from mapping selection.
     /// </remarks>
     protected virtual string GetIndexMappingFilter()
     {
@@ -485,12 +488,12 @@ public class DailyIndex : VersionedIndex
         }
 
         var latestIndex = indicesResponse.Indices.Keys
-            .Where(i => GetIndexVersion(i.ToString()) == Version)
             .Select(i =>
             {
                 string indexName = i.ToString();
-                return new IndexInfo { DateUtc = GetIndexDate(indexName), Index = indexName, Version = GetIndexVersion(indexName) };
+                return new { DateUtc = GetIndexDate(indexName), Index = indexName };
             })
+            .Where(i => i.DateUtc != DateTime.MaxValue)
             .OrderByDescending(i => i.DateUtc)
             .FirstOrDefault();
 

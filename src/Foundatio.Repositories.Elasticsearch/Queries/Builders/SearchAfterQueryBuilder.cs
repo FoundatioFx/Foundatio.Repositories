@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Models;
 using Foundatio.Repositories.Options;
 using Foundatio.Serializer;
@@ -59,7 +60,7 @@ namespace Foundatio.Repositories
         public static T SearchAfter<T>(this T options, params object[] values) where T : ICommandOptions
         {
             options.SearchAfterPaging();
-            if (values is { Length: > 0 })
+            if (values is { Length: > 0 } && values.Any(v => v is not null))
             {
                 options.Values.Set(SearchAfterKey, values);
             }
@@ -91,7 +92,7 @@ namespace Foundatio.Repositories
         public static T SearchBefore<T>(this T options, params object[] values) where T : ICommandOptions
         {
             options.SearchAfterPaging();
-            if (values is { Length: > 0 })
+            if (values is { Length: > 0 } && values.Any(v => v is not null))
             {
                 options.Values.Set(SearchBeforeKey, values);
             }
@@ -183,8 +184,8 @@ namespace Foundatio.Repositories.Options
 namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
 {
     /// <summary>
-    /// Handles search_after paging by collecting sorts from context data,
-    /// adding the ID field for uniqueness, and reversing sorts for SearchBefore.
+    /// Handles search_after paging by collecting sorts from context data, ensuring a deterministic
+    /// tiebreaker when possible, and reversing sorts for SearchBefore.
     /// This builder runs last (Int32.MaxValue priority) so it sees all accumulated sorts.
     /// </summary>
     /// <remarks>
@@ -193,14 +194,19 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
     /// and can otherwise cause paging to silently skip documents or stop early. Because the same
     /// <see cref="ICommandOptions"/> instance is reused across <c>FindResults.NextPageAsync()</c>
     /// calls, the warning is only logged once per paging session (i.e. on the first page).
-    /// See <see cref="IdTiebreakerField.TryResolve{T}"/> for when the id tiebreaker is skipped
+    /// See <see cref="IdTiebreakerField.TryEnsure{T}"/> for when the id tiebreaker is skipped
     /// entirely (models without <see cref="IIdentity"/>, or indexes that opt out via
     /// <see cref="Foundatio.Repositories.Elasticsearch.Configuration.IIndex.HasSortableIdField"/>);
-    /// callers of a search_after query against such a model or index must supply their own unique,
-    /// sortable field(s) to keep the cursor stable.
+    /// Live-mode callers of a search_after query against such a model or index must supply their
+    /// own unique, sortable field(s) to keep the cursor stable; the builder throws
+    /// <see cref="QueryValidationException"/> when no sort is available. When no sortable id is
+    /// available, point-in-time mode appends an explicit <c>_shard_doc</c> tiebreaker so forward
+    /// and backward cursors are reversible.
     /// </remarks>
     public class SearchAfterQueryBuilder : IElasticQueryBuilder
     {
+        private const string ShardDocumentSort = "_shard_doc";
+
         // Internal Lucene/relevance sort keys that are not stable across index refreshes or
         // segment merges. Using them as a search_after cursor in Live paging mode can silently
         // skip documents or terminate paging early while the index is being written to.
@@ -219,19 +225,19 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 sortFields = sorts;
             }
 
-            // For search_after paging, we need to ensure we have at least the ID field for uniqueness
+            // Search-after paging requires a concrete sort so every cursor can be replayed.
             if (ctx.Options.ShouldUseSearchAfterPaging())
             {
                 sortFields ??= new List<SortOptions>();
 
                 var resolver = ctx.GetMappingResolver();
-                bool canAddIdTiebreaker = IdTiebreakerField.TryResolve(ctx, out string idField, out string idSortFieldName);
+                bool hasIdTiebreaker = IdTiebreakerField.TryEnsure(ctx, sortFields);
 
                 // Live search_after paging with an unstable sort key (e.g. _doc, _score) is only safe
                 // within a Point-In-Time: index refreshes and segment merges can invalidate the cursor,
                 // silently skipping documents or stopping paging early. Not applicable in PointInTime
                 // mode, where a frozen view keeps these sort keys stable.
-                bool warnOnUnstableSort = ctx.Options.GetSearchAfterPagingMode() is SearchAfterPagingMode.Live;
+                bool isLivePaging = ctx.Options.GetSearchAfterPagingMode() is SearchAfterPagingMode.Live;
 
                 // The same ICommandOptions instance is reused across FindResults.NextPageAsync() calls,
                 // so BuildAsync runs once per page. Only warn on the first page to avoid flooding logs
@@ -239,15 +245,14 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                 bool alreadyWarned = ctx.Options.SafeGetOption<bool>(SearchAfterQueryExtensions.UnstableSortWarnedKey, false);
 
                 // Single pass: resolve each sort's unstable field name (if any) once to check
-                // both for the ID tiebreaker and for unstable sort keys, avoiding redundant
-                // resolver calls. SortOptions is a discriminated union: _doc/_score can arrive
+                // whether a shard-document tiebreaker is already present and for unstable sort
+                // keys. SortOptions is a discriminated union: _doc/_score can arrive
                 // either as a FieldSort with a literal field name, or as the ES client's typed
                 // Doc/Score variants, so both shapes need to be checked.
-                bool hasIdField = !canAddIdTiebreaker;
+                bool hasShardDocumentSort = false;
                 foreach (var sort in sortFields)
                 {
                     string? fieldName;
-                    bool isIdField = false;
 
                     if (sort?.Field?.Field is { } sortField)
                     {
@@ -255,7 +260,8 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                         if (fieldName is null)
                             continue;
 
-                        isIdField = String.Equals(fieldName, idSortFieldName, StringComparison.Ordinal);
+                        if (String.Equals(fieldName, ShardDocumentSort, StringComparison.Ordinal))
+                            hasShardDocumentSort = true;
                     }
                     else if (sort?.Doc is not null)
                     {
@@ -270,10 +276,7 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                         continue;
                     }
 
-                    if (isIdField)
-                        hasIdField = true;
-
-                    if (warnOnUnstableSort && !alreadyWarned && UnstableSortFields.Contains(fieldName))
+                    if (isLivePaging && !alreadyWarned && UnstableSortFields.Contains(fieldName))
                     {
                         var logger = (ctx.Options.GetElasticIndex() as IHaveLogger)?.Logger ?? NullLogger.Instance;
                         logger.LogWarning("Sorting by {SortField} with Live search_after paging is unstable: {SortField} is not stable across index refreshes or segment merges, so the cursor can become invalid and paging may silently stop early (especially while writing to the index being paged). Sort by a stable, unique field or use SearchAfterPaging(SearchAfterPagingMode.PointInTime).", fieldName, fieldName);
@@ -282,9 +285,12 @@ namespace Foundatio.Repositories.Elasticsearch.Queries.Builders
                     }
                 }
 
-                if (!hasIdField)
+                if (isLivePaging && !hasIdTiebreaker && sortFields.Count is 0)
+                    throw new QueryValidationException("Live search_after paging requires at least one sortable field. Supply an explicit stable sort or use PointInTime mode.");
+
+                if (!isLivePaging && !hasIdTiebreaker && !hasShardDocumentSort)
                 {
-                    sortFields.Add(new FieldSort { Field = idField });
+                    sortFields.Add(new FieldSort { Field = ShardDocumentSort });
                 }
 
                 // Reverse sort orders if searching before

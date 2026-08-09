@@ -226,7 +226,7 @@ public class ExternallyManagedIndex : DailyIndex<LogEvent>
 }
 ```
 
-2. **Always pair queries against that index with your own stable sort**, since pagination is no longer automatically deterministic:
+2. **Always pair Live search-after queries against that index with your own stable, unique sort.** Live mode now throws `QueryValidationException` when no explicit or automatic sort is available, preventing the next-page path from silently degrading to offset paging:
 
 ```csharp
 var results = await repository.FindAsync(
@@ -234,7 +234,7 @@ var results = await repository.FindAsync(
     o => o.PageLimit(50).SearchAfterPaging());
 ```
 
-3. **If the index's real mapping is discoverable** (e.g., you control the naming and just need this library to find it), override `GetIndexMappingFilter()` so the mapping resolver can locate the real server mapping instead of guessing from the code mapping. See [Externally-Managed Indexes](/guide/index-management#externally-managed-indexes) for the full explanation and code.
+3. **If the index's real mapping is discoverable** (e.g., you control the naming and just need this library to find it), override `GetIndexMappingFilter()` and `GetIndexDate()` together so the mapping resolver can locate and order the real server mappings instead of guessing from the code mapping. See [Externally-Managed Indexes](/guide/index-management#externally-managed-indexes) for the full explanation and code.
 
 > If the model doesn't implement `IIdentity` at all, none of the above is needed: the id tiebreaker is skipped automatically, since there is no `Id` property to sort by in the first place.
 

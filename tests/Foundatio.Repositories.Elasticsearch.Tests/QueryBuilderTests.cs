@@ -11,6 +11,7 @@ using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.CustomFields;
 using Foundatio.Repositories.Elasticsearch.Queries.Builders;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Options;
 using Foundatio.Xunit;
 using Xunit;
@@ -19,14 +20,14 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 /// <summary>
 /// A minimal <see cref="IIndex"/> test double that exposes a caller-supplied mapping resolver and
-/// <see cref="HasSortableIdField"/> flag. Only the members exercised by
+/// intentionally relies on the default <see cref="IIndex.HasSortableIdField"/> implementation.
+/// Only the members exercised by
 /// <see cref="DefaultSortQueryBuilder"/> and <see cref="SearchAfterQueryBuilder"/> are implemented;
 /// everything else throws because these tests never touch a real Elasticsearch index.
 /// </summary>
-public sealed class FakeIndex : IIndex
+internal class FakeIndex : IIndex
 {
     public required ElasticMappingResolver MappingResolver { get; init; }
-    public bool HasSortableIdField { get; init; } = true;
 
     public string Name => "fake";
     public bool HasMultipleIndexes => false;
@@ -47,15 +48,63 @@ public sealed class FakeIndex : IIndex
     public void Dispose() { }
 }
 
+internal sealed class UnsortableIdFakeIndex : FakeIndex, IIndex
+{
+    bool IIndex.HasSortableIdField => false;
+}
+
 /// <summary>
 /// A model with no <see cref="Foundatio.Repositories.Models.IIdentity"/> concept at all -- e.g. a
 /// read-only projection or report. <see cref="ISearchableReadOnlyRepository{T}"/> only requires
 /// <c>class, new()</c>, so this is a legitimate shape for <see cref="DefaultSortQueryBuilder"/> and
 /// <see cref="SearchAfterQueryBuilder"/> to encounter, and neither should attempt an id sort for it.
 /// </summary>
-public sealed class NonIdentityDocument
+internal sealed class NonIdentityDocument
 {
     public string Name { get; set; } = null!;
+}
+
+public sealed class SearchAfterQueryExtensionsTests
+{
+    [Fact]
+    public void SearchAfter_WithAllNullValues_RemovesExistingCursor()
+    {
+        var options = new CommandOptions<Employee>().SearchAfter("existing");
+
+        options.SearchAfter(new object[] { null!, null! });
+
+        Assert.False(options.HasSearchAfter());
+    }
+
+    [Fact]
+    public void SearchAfter_WithMixedNullValues_PreservesCursor()
+    {
+        var options = new CommandOptions<Employee>();
+
+        options.SearchAfter(new object[] { "value", null! });
+
+        Assert.Equal(new object?[] { "value", null }, options.GetSearchAfter());
+    }
+
+    [Fact]
+    public void SearchBefore_WithAllNullValues_RemovesExistingCursor()
+    {
+        var options = new CommandOptions<Employee>().SearchBefore("existing");
+
+        options.SearchBefore(new object[] { null!, null! });
+
+        Assert.False(options.HasSearchBefore());
+    }
+
+    [Fact]
+    public void SearchBefore_WithMixedNullValues_PreservesCursor()
+    {
+        var options = new CommandOptions<Employee>();
+
+        options.SearchBefore(new object[] { "value", null! });
+
+        Assert.Equal(new object?[] { "value", null }, options.GetSearchBefore());
+    }
 }
 
 public sealed class DefaultSortQueryBuilderTests : TestWithLoggingBase
@@ -73,8 +122,7 @@ public sealed class DefaultSortQueryBuilderTests : TestWithLoggingBase
         return new ElasticMappingResolver(codeMapping, inferrer, () => null);
     }
 
-    // Mirrors a dynamically-mapped text `id` field with a `sort` sub-field (defect 4 from the
-    // plan): the resolved field name ("id") and the resolved *sort* field name ("id.sort") diverge.
+    // A text id with a keyword sort sub-field resolves "id" to "id.sort" for sorting.
     private static ElasticMappingResolver CreateTextSortableIdResolver()
     {
         var inferrer = new Inferrer(new ElasticsearchClientSettings(new Uri("http://localhost:9200")));
@@ -86,8 +134,19 @@ public sealed class DefaultSortQueryBuilderTests : TestWithLoggingBase
     private static QueryBuilderContext<Employee> CreateContext(ElasticMappingResolver resolver, bool hasSortableIdField = true)
     {
         var query = new RepositoryQuery<Employee>();
-        var options = new CommandOptions<Employee>().ElasticIndex(new FakeIndex { MappingResolver = resolver, HasSortableIdField = hasSortableIdField });
+        IIndex index = hasSortableIdField
+            ? new FakeIndex { MappingResolver = resolver }
+            : new UnsortableIdFakeIndex { MappingResolver = resolver };
+        var options = new CommandOptions<Employee>().ElasticIndex(index);
         return new QueryBuilderContext<Employee>(query, options);
+    }
+
+    [Fact]
+    public void HasSortableIdField_WhenImplementationOmitsMember_DefaultsToTrue()
+    {
+        IIndex index = new FakeIndex { MappingResolver = CreateKeywordIdResolver() };
+
+        Assert.True(index.HasSortableIdField);
     }
 
     [Fact]
@@ -127,19 +186,21 @@ public sealed class DefaultSortQueryBuilderTests : TestWithLoggingBase
     [Fact]
     public async Task BuildAsync_WithExplicitIdSortOnTextMappedField_DoesNotAddDuplicateIdSort()
     {
-        // Arrange: the caller sorts by the logical "id" field, which resolves to "id.sort" for
-        // sorting purposes. The duplicate check must resolve both sides the same way (defect 3)
-        // or it will append a second, redundant "id.sort" tiebreaker.
+        // Arrange: exercise the same resolved sort data that the default pipeline produces.
         var queryBuilder = new DefaultSortQueryBuilder();
-        var ctx = CreateContext(CreateTextSortableIdResolver());
-        ctx.Data[SortQueryBuilder.SortFieldsKey] = new List<SortOptions> { new FieldSort { Field = "id" } };
+        var resolver = CreateTextSortableIdResolver();
+        var query = new RepositoryQuery<Employee>().SortAscending(e => e.Id);
+        var options = new CommandOptions<Employee>().ElasticIndex(new FakeIndex { MappingResolver = resolver });
+        var ctx = new QueryBuilderContext<Employee>(query, options);
 
         // Act
+        await new SortQueryBuilder().BuildAsync(ctx);
         await queryBuilder.BuildAsync(ctx);
 
         // Assert
         var sortFields = Assert.IsType<List<SortOptions>>(ctx.Data[SortQueryBuilder.SortFieldsKey]);
-        Assert.Single(sortFields);
+        var sort = Assert.Single(sortFields);
+        Assert.Equal("id.sort", sort.Field!.Field.Name);
     }
 
     [Fact]
@@ -171,6 +232,19 @@ public sealed class DefaultSortQueryBuilderTests : TestWithLoggingBase
         var sortFields = Assert.IsType<List<SortOptions>>(ctx.Data[SortQueryBuilder.SortFieldsKey]);
         Assert.Single(sortFields);
         Assert.Equal("id", sortFields[0].Field!.Field.Name);
+    }
+
+    [Fact]
+    public async Task BuildAsync_WithTextMappedId_AddsSortSafeIdFieldAsDefault()
+    {
+        var queryBuilder = new DefaultSortQueryBuilder();
+        var ctx = CreateContext(CreateTextSortableIdResolver());
+
+        await queryBuilder.BuildAsync(ctx);
+
+        var sortFields = Assert.IsType<List<SortOptions>>(ctx.Data[SortQueryBuilder.SortFieldsKey]);
+        var sort = Assert.Single(sortFields);
+        Assert.Equal("id.sort", sort.Field!.Field.Name);
     }
 
     [Fact]
@@ -274,8 +348,7 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
         return new ElasticMappingResolver(codeMapping, inferrer, () => null);
     }
 
-    // Mirrors a dynamically-mapped text `id` field with a `sort` sub-field (defect 4 from the
-    // plan): the resolved field name ("id") and the resolved *sort* field name ("id.sort") diverge.
+    // A text id with a keyword sort sub-field resolves "id" to "id.sort" for sorting.
     private static ElasticMappingResolver CreateTextSortableIdResolver()
     {
         var inferrer = new Inferrer(new ElasticsearchClientSettings(new Uri("http://localhost:9200")));
@@ -287,7 +360,10 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
     private static QueryBuilderContext<Employee> CreateContext(ElasticMappingResolver resolver, bool hasSortableIdField = true, bool useSearchAfterPaging = true)
     {
         var query = new RepositoryQuery<Employee>();
-        var options = new CommandOptions<Employee>().ElasticIndex(new FakeIndex { MappingResolver = resolver, HasSortableIdField = hasSortableIdField });
+        IIndex index = hasSortableIdField
+            ? new FakeIndex { MappingResolver = resolver }
+            : new UnsortableIdFakeIndex { MappingResolver = resolver };
+        var options = new CommandOptions<Employee>().ElasticIndex(index);
         if (useSearchAfterPaging)
             options.SearchAfterPaging();
 
@@ -352,18 +428,22 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
     [Fact]
     public async Task BuildAsync_WithSearchAfterPagingAndExplicitIdSortOnTextMappedField_DoesNotAddDuplicateIdSort()
     {
-        // Arrange: the caller sorts by the logical "id" field, which resolves to "id.sort" for
-        // sorting purposes. The duplicate check must resolve both sides the same way (defect 3)
-        // or it will append a second, redundant "id.sort" tiebreaker.
+        // Arrange: exercise the same resolved sort data that the default pipeline produces.
         var queryBuilder = new SearchAfterQueryBuilder();
-        var ctx = CreateContext(CreateTextSortableIdResolver());
-        ctx.Data[SortQueryBuilder.SortFieldsKey] = new List<SortOptions> { new FieldSort { Field = "id" } };
+        var resolver = CreateTextSortableIdResolver();
+        var query = new RepositoryQuery<Employee>().SortAscending(e => e.Id);
+        var options = new CommandOptions<Employee>()
+            .ElasticIndex(new FakeIndex { MappingResolver = resolver })
+            .SearchAfterPaging();
+        var ctx = new QueryBuilderContext<Employee>(query, options);
 
         // Act
+        await new SortQueryBuilder().BuildAsync(ctx);
         await queryBuilder.BuildAsync(ctx);
 
         // Assert
-        Assert.Single(GetAppliedSort(ctx));
+        var sort = Assert.Single(GetAppliedSort(ctx));
+        Assert.Equal("id.sort", sort.Field!.Field.Name);
     }
 
     [Fact]
@@ -400,6 +480,117 @@ public sealed class SearchAfterQueryBuilderTests : TestWithLoggingBase
         var sortFields = GetAppliedSort(ctx);
         Assert.Single(sortFields);
         Assert.Equal("id", sortFields[0].Field!.Field.Name);
+    }
+
+    [Fact]
+    public async Task BuildAsync_WithSearchAfterPagingAndTextMappedId_AddsSortSafeIdFieldAsTiebreaker()
+    {
+        var queryBuilder = new SearchAfterQueryBuilder();
+        var ctx = CreateContext(CreateTextSortableIdResolver());
+
+        await queryBuilder.BuildAsync(ctx);
+
+        var sort = Assert.Single(GetAppliedSort(ctx));
+        Assert.Equal("id.sort", sort.Field!.Field.Name);
+    }
+
+    [Fact]
+    public async Task BuildAsync_WithLiveSearchAfterPagingAndNoAvailableSort_ThrowsQueryValidationException()
+    {
+        var queryBuilder = new SearchAfterQueryBuilder();
+        var ctx = CreateContext(CreateKeywordIdResolver(), hasSortableIdField: false);
+
+        var exception = await Assert.ThrowsAsync<QueryValidationException>(() => queryBuilder.BuildAsync(ctx));
+
+        Assert.Contains("requires at least one sortable field", exception.Message);
+    }
+
+    [Fact]
+    public async Task BuildAsync_WithPointInTimeSearchAfterPagingAndNoAvailableSort_AddsShardDocSort()
+    {
+        var queryBuilder = new SearchAfterQueryBuilder();
+        var query = new RepositoryQuery<Employee>();
+        var options = new CommandOptions<Employee>()
+            .ElasticIndex(new UnsortableIdFakeIndex { MappingResolver = CreateKeywordIdResolver() })
+            .SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+        var ctx = new QueryBuilderContext<Employee>(query, options);
+
+        await queryBuilder.BuildAsync(ctx);
+
+        var sort = Assert.Single(((SearchRequest)ctx.Search).Sort!);
+        Assert.Equal("_shard_doc", sort.Field!.Field.Name);
+    }
+
+    [Fact]
+    public async Task BuildAsync_WithPointInTimeSearchBeforePagingAndNoSortableId_ReversesCallerAndShardDocSorts()
+    {
+        var queryBuilder = new SearchAfterQueryBuilder();
+        var query = new RepositoryQuery<Employee>();
+        var options = new CommandOptions<Employee>()
+            .ElasticIndex(new UnsortableIdFakeIndex { MappingResolver = CreateKeywordIdResolver() })
+            .SearchAfterPaging(SearchAfterPagingMode.PointInTime)
+            .SearchBefore(42);
+        var ctx = new QueryBuilderContext<Employee>(query, options);
+        ctx.Data[SortQueryBuilder.SortFieldsKey] = new List<SortOptions> { new FieldSort { Field = "name", Order = SortOrder.Asc } };
+
+        await queryBuilder.BuildAsync(ctx);
+
+        var sorts = ((SearchRequest)ctx.Search).Sort!.ToList();
+        Assert.Equal(2, sorts.Count);
+        Assert.Equal("name", sorts[0].Field!.Field.Name);
+        Assert.Equal(SortOrder.Desc, sorts[0].Field!.Order);
+        Assert.Equal("_shard_doc", sorts[1].Field!.Field.Name);
+        Assert.Equal(SortOrder.Desc, sorts[1].Field!.Order);
+    }
+
+    [Fact]
+    public async Task BuildAsync_WithPointInTimeSearchAfterPagingAndExplicitShardDoc_DoesNotAddDuplicate()
+    {
+        var queryBuilder = new SearchAfterQueryBuilder();
+        var query = new RepositoryQuery<Employee>();
+        var options = new CommandOptions<Employee>()
+            .ElasticIndex(new UnsortableIdFakeIndex { MappingResolver = CreateKeywordIdResolver() })
+            .SearchAfterPaging(SearchAfterPagingMode.PointInTime);
+        var ctx = new QueryBuilderContext<Employee>(query, options);
+        ctx.Data[SortQueryBuilder.SortFieldsKey] = new List<SortOptions> { new FieldSort { Field = "_shard_doc" } };
+
+        await queryBuilder.BuildAsync(ctx);
+
+        var sort = Assert.Single(((SearchRequest)ctx.Search).Sort!);
+        Assert.Equal("_shard_doc", sort.Field!.Field.Name);
+    }
+
+    [Fact]
+    public async Task BuildAsync_WithPointInTimeSearchBeforePagingAndNoAvailableSort_ReversesShardDocSort()
+    {
+        var queryBuilder = new SearchAfterQueryBuilder();
+        var query = new RepositoryQuery<Employee>();
+        var options = new CommandOptions<Employee>()
+            .ElasticIndex(new UnsortableIdFakeIndex { MappingResolver = CreateKeywordIdResolver() })
+            .SearchAfterPaging(SearchAfterPagingMode.PointInTime)
+            .SearchBefore(42);
+        var ctx = new QueryBuilderContext<Employee>(query, options);
+
+        await queryBuilder.BuildAsync(ctx);
+
+        var sort = Assert.Single(((SearchRequest)ctx.Search).Sort!);
+        Assert.Equal("_shard_doc", sort.Field!.Field.Name);
+        Assert.Equal(SortOrder.Desc, sort.Field.Order);
+    }
+
+    [Fact]
+    public async Task BuildAsync_WithLiveSearchAfterPagingAndNonIdentityModelWithoutSort_ThrowsQueryValidationException()
+    {
+        var queryBuilder = new SearchAfterQueryBuilder();
+        var query = new RepositoryQuery<NonIdentityDocument>();
+        var options = new CommandOptions<NonIdentityDocument>()
+            .ElasticIndex(new FakeIndex { MappingResolver = CreateKeywordIdResolver() })
+            .SearchAfterPaging();
+        var ctx = new QueryBuilderContext<NonIdentityDocument>(query, options);
+
+        var exception = await Assert.ThrowsAsync<QueryValidationException>(() => queryBuilder.BuildAsync(ctx));
+
+        Assert.Contains("requires at least one sortable field", exception.Message);
     }
 
     [Fact]

@@ -407,13 +407,16 @@ var nextResults = await repository.FindAsync(
 >     o => o.SearchAfterPaging(SearchAfterPagingMode.PointInTime));
 > ```
 >
-> Note: the repository appends the document id as a tiebreaker whenever the model's id field is
-> mapped and sortable in the target index, so a query with no explicit sort is safe in that case.
+> Note: the repository appends the document id's sort-safe mapped field (for example `id.sort`)
+> as a tiebreaker whenever the model's id field is mapped and sortable in the target index, so a
+> query with no explicit sort is safe in that case.
 > The id tiebreaker is skipped entirely for models that don't implement `IIdentity` (there is no id
 > to sort by) and for indexes managed outside this library (see
 > [Externally-Managed Indexes](index-management.md#externally-managed-indexes)). In both cases,
-> pair paging with your own stable, unique sort field. The danger is an explicit unstable sort key
-> in `Live` mode.
+> Live mode requires your own stable, unique sort field and throws `QueryValidationException` if
+> none is available. When point-in-time mode has no sortable id tiebreaker, the repository
+> explicitly appends `_shard_doc` after any caller sorts so both forward and backward cursors can
+> reverse the same concrete sort. An explicit unstable sort key remains dangerous in `Live` mode.
 
 ## Aggregations
 
