@@ -34,12 +34,13 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         _reindexTaskRunner = new ElasticReindexTaskRunner(client, serializer, timeProvider, _logger);
     }
 
-    public async Task ValidateAsync(IndexCompatibilityInfo compatibility, CancellationToken cancellationToken)
+    public async Task ValidateAsync(Index index, IndexCompatibilityInfo compatibility, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(index);
         ArgumentNullException.ThrowIfNull(compatibility);
 
         EnsureCreateFromSupported(compatibility.ServerVersion);
-        string targetIndex = CompatibilityIndexName.Create(compatibility.Name, compatibility.ServerMajor);
+        string targetIndex = CompatibilityIndexName.Create(compatibility.Name, compatibility.ServerMajor, index.Name);
         await EnsureTargetDoesNotExistAsync(targetIndex, cancellationToken).AnyContext();
         var sourceState = await GetSourceStateAsync(compatibility.Name, cancellationToken).AnyContext();
         ValidateSource(sourceState);
@@ -58,7 +59,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         ArgumentNullException.ThrowIfNull(progressCallbackAsync);
 
         string sourceIndex = compatibility.Name;
-        string targetIndex = CompatibilityIndexName.Create(sourceIndex, compatibility.ServerMajor);
+        string targetIndex = CompatibilityIndexName.Create(sourceIndex, compatibility.ServerMajor, index.Name);
         bool sourceBlockAttempted = false;
         bool sourceBlockAdded = false;
         bool targetCreated = false;

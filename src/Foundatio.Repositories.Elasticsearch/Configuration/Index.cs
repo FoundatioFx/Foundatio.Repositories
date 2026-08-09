@@ -321,7 +321,7 @@ public class Index : IIndexCompatibility, IHaveLogger
 
         // Resolve wildcards and aliases to their concrete backing indexes; use GetAsync because
         // ResolveIndexAsync is broken in ES 9.x client, and Elasticsearch rejects deleting an index by alias name.
-        var getResponse = await Configuration.Client.Indices.GetAsync(Indices.Parse(String.Join(",", names)), d => d.LimitToNamesAndAliases().IgnoreUnavailable()).AnyContext();
+        var getResponse = await Configuration.Client.Indices.GetAsync(Indices.Parse(String.Join(",", names)), d => d.LimitToNamesAndAliases().ExpandWildcards(ExpandWildcard.All).IgnoreUnavailable()).AnyContext();
         if (!getResponse.IsValidResponse && getResponse.ElasticsearchServerError?.Status is not 404)
         {
             _logger.LogErrorRequest(getResponse, "Error resolving indexes {Names}", String.Join(", ", names));
@@ -437,7 +437,7 @@ public class Index : IIndexCompatibility, IHaveLogger
 
         // Ask for settings rather than aliases so index.version.created comes back in this same response; the
         // response is keyed by concrete index name, so aliases in the pattern resolve and de-duplicate for free.
-        var response = await Configuration.Client.Indices.GetAsync(Indices.Parse(pattern), d => d.LimitToIndexSettings().IgnoreUnavailable(), cancellationToken).AnyContext();
+        var response = await Configuration.Client.Indices.GetAsync(Indices.Parse(pattern), d => d.LimitToIndexSettings().ExpandWildcards(ExpandWildcard.All).IgnoreUnavailable(), cancellationToken).AnyContext();
         if (!response.IsValidResponse)
         {
             if (response.ElasticsearchServerError?.Status is 404)

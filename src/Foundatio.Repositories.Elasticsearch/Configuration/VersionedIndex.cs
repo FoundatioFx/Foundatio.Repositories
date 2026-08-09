@@ -365,7 +365,7 @@ public class VersionedIndex : Index, IVersionedIndex
         if (String.IsNullOrEmpty(name))
             throw new ArgumentNullException(nameof(name));
 
-        name = CompatibilityIndexName.GetCanonicalName(name);
+        name = CompatibilityIndexName.GetCanonicalName(name, Name);
 
         string namePrefix = $"{Name}-v";
         if (name.Length <= namePrefix.Length || !name.StartsWith(namePrefix))
@@ -392,14 +392,14 @@ public class VersionedIndex : Index, IVersionedIndex
     private async Task<string?> GetConfiguredVersionIndexAsync()
     {
         string pattern = $"{VersionedName},{CompatibilityIndexName.CreatePattern(VersionedName)}";
-        var response = await Configuration.Client.Indices.GetAsync(Indices.Parse(pattern), d => d.LimitToNamesAndAliases().IgnoreUnavailable()).AnyContext();
+        var response = await Configuration.Client.Indices.GetAsync(Indices.Parse(pattern), d => d.LimitToNamesAndAliases().ExpandWildcards(ExpandWildcard.All).IgnoreUnavailable()).AnyContext();
         _logger.LogRequest(response);
         if (!response.IsValidResponse && response.ElasticsearchServerError?.Status is not 404)
             throw new RepositoryException(response.GetErrorMessage($"Error resolving configured index version '{VersionedName}'"), response.OriginalException());
 
         var matches = response.Indices?.Keys
             .Select(i => i.ToString())
-            .Where(i => String.Equals(CompatibilityIndexName.GetCanonicalName(i), VersionedName, StringComparison.Ordinal))
+            .Where(i => String.Equals(CompatibilityIndexName.GetCanonicalName(i, Name), VersionedName, StringComparison.Ordinal))
             .ToArray() ?? [];
         return matches.Length switch
         {
@@ -412,7 +412,7 @@ public class VersionedIndex : Index, IVersionedIndex
     protected TypeMapping? GetConfiguredVersionMapping()
     {
         string pattern = $"{VersionedName},{CompatibilityIndexName.CreatePattern(VersionedName)}";
-        var response = Configuration.Client.Indices.Get(Indices.Parse(pattern), d => d.LimitToNamesAndAliases().IgnoreUnavailable());
+        var response = Configuration.Client.Indices.Get(Indices.Parse(pattern), d => d.LimitToNamesAndAliases().ExpandWildcards(ExpandWildcard.All).IgnoreUnavailable());
         _logger.LogRequest(response);
         if (!response.IsValidResponse)
         {
@@ -424,7 +424,7 @@ public class VersionedIndex : Index, IVersionedIndex
 
         string? index = response.Indices.Keys
             .Select(i => i.ToString())
-            .SingleOrDefault(i => String.Equals(CompatibilityIndexName.GetCanonicalName(i), VersionedName, StringComparison.Ordinal));
+            .SingleOrDefault(i => String.Equals(CompatibilityIndexName.GetCanonicalName(i, Name), VersionedName, StringComparison.Ordinal));
         if (index is null)
             return null;
 
@@ -444,7 +444,7 @@ public class VersionedIndex : Index, IVersionedIndex
         string filter = $"{canonicalFilter},{CompatibilityIndexName.CreatePattern(canonicalFilter)}";
 
         var sw = Stopwatch.StartNew();
-        var response = await Configuration.Client.Indices.GetAsync((Indices)(IndexName)filter, d => d.LimitToNamesAndAliases().IgnoreUnavailable()).AnyContext();
+        var response = await Configuration.Client.Indices.GetAsync((Indices)(IndexName)filter, d => d.LimitToNamesAndAliases().ExpandWildcards(ExpandWildcard.All).IgnoreUnavailable()).AnyContext();
         sw.Stop();
         _logger.LogRequest(response);
 

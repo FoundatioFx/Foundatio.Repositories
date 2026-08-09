@@ -35,6 +35,17 @@ public class IndexCompatibilityTests
         Assert.Equal(expected, CompatibilityIndexName.Create(source, serverMajor));
     }
 
+    [Fact]
+    public void CompatibilityIndexName_ConfiguredPrefixPreservesNaturalName()
+    {
+        const string configuredName = "reindexed-v8-events";
+        const string source = "reindexed-v8-events-v1";
+
+        Assert.Equal(source, CompatibilityIndexName.GetCanonicalName(source, configuredName));
+        Assert.Equal("reindexed-v9-reindexed-v8-events-v1", CompatibilityIndexName.Create(source, 9, configuredName));
+        Assert.Equal(source, CompatibilityIndexName.GetCanonicalName("reindexed-v9-reindexed-v8-events-v1", configuredName));
+    }
+
     [Theory]
     [InlineData(null, "7.17.19", 7)]
     [InlineData(null, "8.11.0", 8)]
@@ -147,6 +158,15 @@ public class IndexCompatibilityTests
     }
 
     [Fact]
+    public void VersionedIndex_GetIndexVersion_WithNaturalCompatibilityPrefixPreservesName()
+    {
+        var index = new TestVersionedIndex(new ElasticConfiguration(), "reindexed-v8-events", 1);
+
+        Assert.Equal(1, index.GetIndexVersionPublic("reindexed-v8-events-v1"));
+        Assert.Equal(1, index.GetIndexVersionPublic("reindexed-v9-reindexed-v8-events-v1"));
+    }
+
+    [Fact]
     public void DailyIndex_GetIndexDate_WithInvalidName_ReturnsMaxValue()
     {
         var index = new TestDailyIndex(new ElasticConfiguration(), "logs", 1);
@@ -163,6 +183,13 @@ public class IndexCompatibilityTests
         public DateTime GetIndexDatePublic(string index) => GetIndexDate(index);
 
         public string GetCompatibilityIndexPatternPublic() => GetCompatibilityIndexPattern();
+    }
+
+    private sealed class TestVersionedIndex : VersionedIndex
+    {
+        public TestVersionedIndex(IElasticConfiguration configuration, string name, int version) : base(configuration, name, version) { }
+
+        public int GetIndexVersionPublic(string name) => GetIndexVersion(name);
     }
 
     private sealed class BecomesCompatibleIndex : Index<object>

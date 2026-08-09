@@ -313,7 +313,7 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
             compatibility = await compatibilityIndex.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
             var candidates = compatibility
                 .Where(i => i.RequiresReindexBeforeNextMajorUpgrade)
-                .OrderBy(i => CompatibilityIndexName.GetCanonicalName(i.Name), StringComparer.Ordinal)
+                .OrderBy(i => CompatibilityIndexName.GetCanonicalName(i.Name, compatibilityIndex.Name), StringComparer.Ordinal)
                 .ToArray();
             if (candidates.Length is 0)
                 continue;
@@ -324,7 +324,7 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
             foreach (var candidate in candidates)
             {
                 await reindexLock.RenewAsync().AnyContext();
-                await upgrader.ValidateAsync(candidate, cancellationToken).AnyContext();
+                await upgrader.ValidateAsync(compatibilityIndex, candidate, cancellationToken).AnyContext();
             }
 
             foreach (var candidate in candidates)

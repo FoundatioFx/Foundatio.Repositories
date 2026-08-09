@@ -1171,7 +1171,7 @@ Elasticsearch supports indexes created by the immediately previous major version
 
 **How detection works:**
 
-1. Calling `GetIndexCompatibilityAsync()` reads the connected server version and issues one settings-only request through the index's stable alias. For a daily index, the alias resolves all retained partitions in one request, not one request per partition.
+1. Calling `GetIndexCompatibilityAsync()` reads the connected server version and issues one settings-only request through the index's stable alias. For a daily index, the alias resolves every still-existing partition in one request, including expired partitions that maintenance has not deleted and hidden indexes; retention is not assumed to have completed.
 2. The response is keyed by the current concrete backing index names and includes `index.version.created`, so alias resolution, physical-name discovery, and compatibility detection happen in that same request without loading mappings or matching orphaned revision names.
 3. The created version is compared with a fresh read of the connected server's major version. The result is intentionally not cached because the same process may survive a rolling Elasticsearch upgrade.
 4. If the index was created under an older major version than the server, it sets `RequiresReindexBeforeNextMajorUpgrade`. The index remains supported on the current server; this is preparation for the following major.
@@ -1188,7 +1188,7 @@ The implementation follows Elasticsearch Upgrade Assistant's maintenance lifecyc
 4. Temporarily set replicas to `0`, refresh interval to `-1`, and both `index.default_pipeline` and `index.final_pipeline` to `_none`. Reindex with `op_type=create`, conflict abort, automatic slicing, and destination pipeline `_none` so existing documents are not transformed a second time.
 5. Require a clean task result and exact source/target counts, then restore replicas, refresh interval, and both pipeline settings.
 6. Atomically add every source alias to the destination and remove the concrete source. Alias filters, routing, hidden status, and write-index status are preserved. Plain indexes also receive their original application name as an alias.
-7. Verify the resulting topology and refresh the mapping resolver. Versioned and time-series lifecycle code recognizes the prefixed physical name without creating a permanent alias for every old physical name.
+7. Verify the resulting topology and refresh the mapping resolver. Versioned and time-series lifecycle code recognizes the prefixed physical name without creating a permanent alias for every old physical name. A configured name that itself begins with `reindexed-v{major}-` is treated as a natural name and receives an additional outer compatibility prefix.
 
 The compatibility upgrader is a dedicated component; it does not add compatibility branches to `ElasticReindexer`, whose schema-reindex behavior remains unchanged.
 

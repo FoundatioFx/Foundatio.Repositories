@@ -14,6 +14,28 @@ internal static class CompatibilityIndexName
         return $"{Prefix}{serverMajor}-{GetCanonicalName(sourceIndex)}";
     }
 
+    public static string Create(string sourceIndex, int serverMajor, string configuredIndexName)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sourceIndex);
+        ArgumentException.ThrowIfNullOrEmpty(configuredIndexName);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(serverMajor);
+
+        return $"{Prefix}{serverMajor}-{GetCanonicalName(sourceIndex, configuredIndexName)}";
+    }
+
+    public static string GetCanonicalName(string index, string configuredIndexName)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(index);
+        ArgumentException.ThrowIfNullOrEmpty(configuredIndexName);
+
+        // A user may legitimately configure a name beginning with "reindexed-vN-". Treat its own
+        // physical names as canonical; only strip a compatibility prefix wrapped around that name.
+        if (index.StartsWith($"{configuredIndexName}-v", StringComparison.Ordinal))
+            return index;
+
+        return GetCanonicalName(index);
+    }
+
     public static string GetCanonicalName(string index)
     {
         ArgumentException.ThrowIfNullOrEmpty(index);

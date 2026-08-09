@@ -5,7 +5,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
@@ -126,7 +125,7 @@ public class DailyIndex : VersionedIndex
 
     protected override DateTime GetIndexDate(string index)
     {
-        string nameToParse = CompatibilityIndexName.GetCanonicalName(index);
+        string nameToParse = CompatibilityIndexName.GetCanonicalName(index, Name);
 
         int version = GetIndexVersion(nameToParse);
         if (version < 0)
@@ -214,21 +213,6 @@ public class DailyIndex : VersionedIndex
             .ToList();
 
         return allVersions.Count > 0 ? allVersions.First() : Version;
-    }
-
-    /// <summary>
-    /// Excludes date partitions that have already aged past their retention period, since the maintenance job is
-    /// about to delete them anyway.
-    /// </summary>
-    public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
-    {
-        var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
-        var utcNow = Configuration.TimeProvider.GetUtcNow().UtcDateTime;
-
-        if (!DiscardExpiredIndexes || !MaxIndexAge.HasValue)
-            return infos;
-
-        return infos.Where(i => utcNow <= GetIndexExpirationDate(GetIndexDate(i.Name))).ToArray();
     }
 
     public virtual string[] GetIndexes(DateTime? utcStart, DateTime? utcEnd)
@@ -473,7 +457,7 @@ public class DailyIndex : VersionedIndex
     {
         string canonicalFilter = $"{Name}-v{Version}-*";
         string filter = $"{canonicalFilter},{CompatibilityIndexName.CreatePattern(canonicalFilter)}";
-        var indicesResponse = Configuration.Client.Indices.Get((Indices)(IndexName)filter, d => d.LimitToNamesAndAliases().IgnoreUnavailable());
+        var indicesResponse = Configuration.Client.Indices.Get((Indices)(IndexName)filter, d => d.LimitToNamesAndAliases().ExpandWildcards(ExpandWildcard.All).IgnoreUnavailable());
         if (!indicesResponse.IsValidResponse)
         {
             if (indicesResponse.ElasticsearchServerError?.Status == 404)
