@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
+using Elastic.Transport;
+using Elastic.Transport.Products.Elasticsearch;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
@@ -94,6 +96,18 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
             d => d.LimitToNamesAndAliases(), TestCancellationToken);
         Assert.DoesNotContain(compatibility.Name, allIndexesResponse.Indices.Keys.Select(k => k.ToString()));
         Assert.DoesNotContain(await index.GetIndexCompatibilityAsync(TestCancellationToken), i => i.RequiresReindexBeforeNextMajorUpgrade);
+
+        var targetSettingsResponse = await _client.Indices.GetSettingsAsync((Indices)targetIndex,
+            d => d.IncludeDefaults(false), TestCancellationToken);
+        Assert.True(targetSettingsResponse.IsValidResponse);
+        var targetSettings = targetSettingsResponse.Settings.Values.Single().Settings?.Index;
+        Assert.Null(targetSettings?.RefreshInterval);
+        Assert.Null(targetSettings?.DefaultPipeline);
+        Assert.Null(targetSettings?.FinalPipeline);
+
+        var targetAliases = getResponse.Indices.Values.Single().Aliases;
+        Assert.NotNull(targetAliases);
+        Assert.DoesNotContain(ElasticIndexCompatibilityUpgrader.OwnershipAlias, targetAliases.Keys.Select(k => k.ToString()));
     }
 
     [Fact]
@@ -284,7 +298,7 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task RecoverIndexCompatibilityUpgradeAsync_WithInterruptedPreCutoverState_ResetsOnlyConfirmedArtifacts()
+    public async Task RecoverIndexCompatibilityUpgradeAsync_WithOwnedInterruptedPreCutoverState_ResetsOnlyConfirmedArtifacts()
     {
         // Arrange
         string name = $"compat-recovery-{Guid.NewGuid():N}";
@@ -300,6 +314,11 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         Assert.True(blockResponse.IsValidResponse);
         var createResponse = await _client.Indices.CreateAsync(targetIndex, cancellationToken: TestCancellationToken);
         Assert.True(createResponse.IsValidResponse);
+        var ownershipResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(actions => actions.Add(add => add
+            .Index(targetIndex)
+            .Alias(ElasticIndexCompatibilityUpgrader.OwnershipAlias)
+            .IsHidden(true))), TestCancellationToken);
+        Assert.True(ownershipResponse.IsValidResponse);
 
         // Act
         var before = await _configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
@@ -312,6 +331,30 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         Assert.True(after.SourceExists);
         Assert.False(after.SourceWriteBlocked);
         Assert.False(after.TargetExists);
+    }
+
+    [Fact]
+    public async Task RecoverIndexCompatibilityUpgradeAsync_WithUnownedUnaliasedDestination_FailsClosed()
+    {
+        string name = $"compat-recovery-unowned-{Guid.NewGuid():N}";
+        using var index = new Index<object>(_configuration, name);
+        await index.ConfigureAsync();
+        var compatibility = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
+        string targetIndex = CompatibilityIndexName.Create(name, compatibility.ServerMajor);
+        await using AsyncDisposableAction _ = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{name},{targetIndex}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+
+        var createResponse = await _client.Indices.CreateAsync(targetIndex, cancellationToken: TestCancellationToken);
+        Assert.True(createResponse.IsValidResponse);
+
+        var status = await _configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
+        var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
+            _configuration.RecoverIndexCompatibilityUpgradeAsync(index, name, removeWriteBlock: true, TestCancellationToken));
+
+        Assert.Equal(IndexCompatibilityUpgradeRecoveryState.Ambiguous, status.State);
+        Assert.False(status.CanRecover);
+        Assert.Contains("cannot be recovered automatically", exception.Message);
+        Assert.True((await _client.Indices.ExistsAsync(targetIndex, cancellationToken: TestCancellationToken)).Exists);
     }
 
     [Fact]
@@ -560,6 +603,83 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task UpgradeIndexCompatibilityAsync_WhenDestinationTemplateAddsSetting_FailsBeforeCopy()
+    {
+        string name = $"compat-template-setting-{Guid.NewGuid():N}";
+        string templateName = $"{name}-template";
+        var index = new ForcedIncompatibleEmployeeIndex(_configuration, name);
+        await index.DeleteAsync();
+        await using AsyncDisposableAction indexScope = new(() => index.DeleteAsync());
+        await index.ConfigureAsync();
+        var compatibility = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
+        string targetIndex = CompatibilityIndexName.Create(name, compatibility.ServerMajor);
+
+        string templateBody = $$"""
+            {
+              "index_patterns": ["{{targetIndex}}"],
+              "template": {
+                "settings": {
+                  "index.codec": "best_compression"
+                }
+              }
+            }
+            """;
+        var putTemplateResponse = await _client.Transport.RequestAsync<ElasticsearchStringResponse>(
+            new EndpointPath(Elastic.Transport.HttpMethod.PUT, $"/_index_template/{Uri.EscapeDataString(templateName)}"),
+            PostData.String(templateBody), null, null, TestCancellationToken);
+        Assert.True(putTemplateResponse.IsValidResponse, putTemplateResponse.DebugInformation);
+        await using AsyncDisposableAction templateScope = new(async () =>
+            await _client.Transport.RequestAsync<ElasticsearchStringResponse>(
+                new EndpointPath(Elastic.Transport.HttpMethod.DELETE, $"/_index_template/{Uri.EscapeDataString(templateName)}"),
+                null, null, null, TestCancellationToken));
+
+        var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
+            _configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestCancellationToken));
+
+        Assert.Contains("unexpected index settings", exception.Message);
+        Assert.True((await _client.Indices.ExistsAsync(name, cancellationToken: TestCancellationToken)).Exists);
+        Assert.False((await _client.Indices.ExistsAsync(targetIndex, cancellationToken: TestCancellationToken)).Exists);
+        var sourceSettingsResponse = await _client.Indices.GetSettingsAsync((Indices)name, cancellationToken: TestCancellationToken);
+        Assert.False(sourceSettingsResponse.Settings.Values.Single().Settings?.Index?.Blocks?.Write is true);
+    }
+
+    [Fact]
+    public async Task UpgradeIndexCompatibilityAsync_WhenDestinationAliasesChangeBeforeCutover_FailsBeforeDeletingSource()
+    {
+        string name = $"compat-target-alias-change-{Guid.NewGuid():N}";
+        string unexpectedAlias = $"{name}-unexpected";
+        var index = new ForcedIncompatibleEmployeeIndex(_configuration, name);
+        await index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+        await index.ConfigureAsync();
+        var repository = new EmployeeRepository(index);
+        await repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
+        var compatibility = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
+        string targetIndex = CompatibilityIndexName.Create(name, compatibility.ServerMajor);
+        bool aliasAdded = false;
+
+        var exception = await Assert.ThrowsAsync<RepositoryException>(() => _configuration.UpgradeIndexCompatibilityAsync(
+            [index],
+            async (progress, message) =>
+            {
+                if (progress is not 90 || aliasAdded || message?.Contains("Total:", StringComparison.Ordinal) is not true)
+                    return;
+
+                var aliasResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(actions => actions.Add(add => add
+                    .Index(targetIndex)
+                    .Alias(unexpectedAlias))), TestCancellationToken);
+                Assert.True(aliasResponse.IsValidResponse);
+                aliasAdded = true;
+            },
+            TestCancellationToken));
+
+        Assert.True(aliasAdded);
+        Assert.Contains("unexpected aliases before cutover", exception.Message);
+        Assert.True((await _client.Indices.ExistsAsync(name, cancellationToken: TestCancellationToken)).Exists);
+        Assert.False((await _client.Indices.ExistsAsync(targetIndex, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    [Fact]
     public async Task UpgradeIndexCompatibilityAsync_WhenCanceledDuringReindex_RemovesTargetAndWriteBlock()
     {
         string name = $"compat-cancel-{Guid.NewGuid():N}";
@@ -690,6 +810,30 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         Assert.Contains(name, sourceResponse.Indices.Keys.Select(k => k.ToString()));
         var destinationResponse = await _client.Indices.GetAsync((Indices)destination, cancellationToken: TestCancellationToken);
         Assert.Contains(destination, destinationResponse.Indices.Keys.Select(k => k.ToString()));
+    }
+
+    [Fact]
+    public async Task UpgradeIndexCompatibilityAsync_WhenSourceIsClosed_ThrowsBeforeChanges()
+    {
+        string name = $"compat-closed-{Guid.NewGuid():N}";
+        var index = new ForcedIncompatibleEmployeeIndex(_configuration, name);
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+        await index.ConfigureAsync();
+
+        var compatibility = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
+        string targetIndex = CompatibilityIndexName.Create(name, compatibility.ServerMajor);
+        var closeResponse = await _client.Indices.CloseAsync(name, cancellationToken: TestCancellationToken);
+        Assert.True(closeResponse.IsValidResponse);
+        Assert.True(closeResponse.Acknowledged);
+
+        var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
+            _configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestCancellationToken));
+
+        Assert.Contains("must be opened before using the Foundatio compatibility upgrader", exception.Message);
+        Assert.False((await _client.Indices.ExistsAsync(targetIndex, cancellationToken: TestCancellationToken)).Exists);
+        var countResponse = await _client.CountAsync<object>(d => d.Indices(name), TestCancellationToken);
+        Assert.False(countResponse.IsValidResponse);
+        Assert.Equal("index_closed_exception", countResponse.ElasticsearchServerError?.Error?.Type);
     }
 
     [Fact]

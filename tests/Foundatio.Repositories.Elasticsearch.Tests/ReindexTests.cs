@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Clients.Elasticsearch.Mapping;
 using Foundatio.AsyncEx;
 using Foundatio.Lock;
@@ -123,6 +124,102 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         Assert.Equal(sourceIndex, unrelatedAliasResponse.Indices.Keys.Single().ToString());
         Assert.Equal(2, (await _client.CountAsync<object>(d => d.Indices(sourceIndex), TestCancellationToken)).Count);
         Assert.Equal(0, (await _client.CountAsync<object>(d => d.Indices(targetIndex), TestCancellationToken)).Count);
+    }
+
+    [Fact]
+    public async Task ReindexAsync_WhenAliasIsAddedAfterFirstPass_MovesLatestAliasSet()
+    {
+        string sourceIndex = $"late-alias-source-{Guid.NewGuid():N}";
+        string targetIndex = $"late-alias-target-{Guid.NewGuid():N}";
+        string logicalAlias = $"late-alias-logical-{Guid.NewGuid():N}";
+        string addedAlias = $"late-alias-added-{Guid.NewGuid():N}";
+        await using AsyncDisposableAction _ = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{sourceIndex},{targetIndex}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+
+        var sourceResponse = await _client.Indices.CreateAsync(sourceIndex,
+            d => d.Aliases(a => a.Add(logicalAlias, new Alias())), TestCancellationToken);
+        Assert.True(sourceResponse.IsValidResponse);
+        var targetResponse = await _client.Indices.CreateAsync(targetIndex, cancellationToken: TestCancellationToken);
+        Assert.True(targetResponse.IsValidResponse);
+        var indexResponse = await _client.IndexAsync(new { name = "first" },
+            d => d.Index(sourceIndex).Id(ObjectId.GenerateNewId().ToString()).Refresh(Refresh.WaitFor), TestCancellationToken);
+        Assert.True(indexResponse.IsValidResponse);
+
+        bool aliasAdded = false;
+        var reindexer = new ElasticReindexer(_client, _configuration.Serializer, _logger);
+        await reindexer.ReindexAsync(new ReindexWorkItem
+        {
+            OldIndex = logicalAlias,
+            NewIndex = targetIndex,
+            Alias = logicalAlias,
+            DeleteOld = true
+        }, async (progress, _) =>
+        {
+            if (progress is not 91 || aliasAdded)
+                return;
+
+            var addAliasResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(actions => actions.Add(add => add
+                .Index(sourceIndex)
+                .Alias(addedAlias)
+                .SearchRouting("search-route")
+                .IsHidden(false))), TestCancellationToken);
+            Assert.True(addAliasResponse.IsValidResponse);
+            aliasAdded = true;
+        });
+
+        Assert.True(aliasAdded);
+        var aliasResponse = await _client.Indices.GetAliasAsync((Indices)targetIndex, d => d.Name(addedAlias), TestCancellationToken);
+        Assert.True(aliasResponse.IsValidResponse, aliasResponse.GetErrorMessage());
+#if ELASTICSEARCH9
+        var aliases = aliasResponse.Aliases;
+#else
+        var aliases = aliasResponse.Values;
+#endif
+        Assert.NotNull(aliases);
+        var definition = aliases[targetIndex].Aliases![addedAlias];
+        Assert.Equal("search-route", definition.SearchRouting?.ToString());
+        Assert.False(definition.IsHidden);
+    }
+
+    [Fact]
+    public async Task ReindexAsync_WithEmptySource_PerformsPostCutoverCatchUpPass()
+    {
+        string sourceIndex = $"empty-catchup-source-{Guid.NewGuid():N}";
+        string targetIndex = $"empty-catchup-target-{Guid.NewGuid():N}";
+        string logicalAlias = $"empty-catchup-alias-{Guid.NewGuid():N}";
+        await using AsyncDisposableAction _ = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{sourceIndex},{targetIndex}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+
+        var sourceResponse = await _client.Indices.CreateAsync(sourceIndex,
+            d => d.Aliases(a => a.Add(logicalAlias, new Alias())), TestCancellationToken);
+        Assert.True(sourceResponse.IsValidResponse);
+        var targetResponse = await _client.Indices.CreateAsync(targetIndex, cancellationToken: TestCancellationToken);
+        Assert.True(targetResponse.IsValidResponse);
+
+        int reindexRequests = 0;
+        string elasticsearchUrl = Environment.GetEnvironmentVariable("ELASTICSEARCH_URL")?.Split(',')[0]
+            ?? "http://elastic.localtest.me:9200";
+        var countingSettings = new ElasticsearchClientSettings(new Uri(elasticsearchUrl))
+            .OnRequestCompleted(call =>
+            {
+                if (call.Uri?.AbsolutePath is "/_reindex")
+                    Interlocked.Increment(ref reindexRequests);
+            });
+        var countingClient = new ElasticsearchClient(countingSettings);
+        var reindexer = new ElasticReindexer(countingClient, _configuration.Serializer, _logger);
+
+        await reindexer.ReindexAsync(new ReindexWorkItem
+        {
+            OldIndex = logicalAlias,
+            NewIndex = targetIndex,
+            Alias = logicalAlias,
+            DeleteOld = true
+        });
+
+        Assert.Equal(2, reindexRequests);
+        Assert.False((await _client.Indices.ExistsAsync(sourceIndex, cancellationToken: TestCancellationToken)).Exists);
+        var aliasResponse = await _client.Indices.GetAsync((Indices)logicalAlias, cancellationToken: TestCancellationToken);
+        Assert.Equal(targetIndex, aliasResponse.Indices.Keys.Single().ToString());
     }
 
     [Fact]

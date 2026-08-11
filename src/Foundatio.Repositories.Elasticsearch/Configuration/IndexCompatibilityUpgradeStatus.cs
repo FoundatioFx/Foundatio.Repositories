@@ -37,9 +37,12 @@ public sealed record IndexCompatibilityUpgradeStatus
     /// <summary>Aliases currently attached to the destination.</summary>
     public IReadOnlyCollection<string> TargetAliases { get; init; } = [];
 
+    /// <summary>Whether the destination carries the exact hidden marker added by this compatibility workflow.</summary>
+    public bool TargetOwnershipConfirmed { get; init; }
+
     /// <summary>
-    /// Number of active cluster-wide reindex tasks, or <c>null</c> when task state could not be established.
-    /// Recovery fails closed unless this is zero.
+    /// Number of active reindex tasks matching the source or destination, or <c>null</c> when task state could not
+    /// be established. Recovery fails closed unless this is zero.
     /// </summary>
     public int? ActiveReindexTaskCount { get; init; }
 
@@ -59,7 +62,7 @@ public enum IndexCompatibilityUpgradeRecoveryState
     /// <summary>The source exists and is write blocked, but the destination does not exist.</summary>
     SourceWriteBlocked,
 
-    /// <summary>Both indexes exist, the destination has no aliases, and no active reindex task was observed.</summary>
+    /// <summary>Both indexes exist, the destination has only the ownership marker, and no matching reindex task was observed.</summary>
     Interrupted,
 
     /// <summary>Both indexes exist and at least one reindex task is active.</summary>

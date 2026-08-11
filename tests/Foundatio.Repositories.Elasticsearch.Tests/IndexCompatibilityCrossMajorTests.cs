@@ -41,15 +41,21 @@ public sealed class IndexCompatibilityCrossMajorTests : ElasticRepositoryTestBas
         Assert.True(canonicalResponse.IsValidResponse, canonicalResponse.GetErrorMessage());
         Assert.Equal(targetIndex, canonicalResponse.Indices.Keys.Single().ToString());
 
-        var settingsResponse = await _client.Indices.GetSettingsAsync((Indices)targetIndex, cancellationToken: TestCancellationToken);
+        var settingsResponse = await _client.Indices.GetSettingsAsync((Indices)targetIndex,
+            d => d.IncludeDefaults(false), TestCancellationToken);
         Assert.True(settingsResponse.IsValidResponse, settingsResponse.GetErrorMessage());
-        var version = settingsResponse.Settings.Values.Single().Settings?.Index?.Version;
+        var settings = settingsResponse.Settings.Values.Single().Settings?.Index;
+        var version = settings?.Version;
         Assert.Equal(serverMajor, Foundatio.Repositories.Elasticsearch.Configuration.Index.ParseCreatedMajor(version?.Created, version?.CreatedString));
+        Assert.Null(settings?.RefreshInterval);
+        Assert.Null(settings?.DefaultPipeline);
+        Assert.Null(settings?.FinalPipeline);
 
         var after = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
         Assert.Equal(IndexCompatibilityState.Current, after.State);
         var aliases = canonicalResponse.Indices.Values.Single().Aliases;
         Assert.NotNull(aliases);
         Assert.DoesNotContain($"reindexed-v{serverMajor - 1}-{IndexName}-v1", aliases.Keys.Select(k => k.ToString()));
+        Assert.DoesNotContain(ElasticIndexCompatibilityUpgrader.OwnershipAlias, aliases.Keys.Select(k => k.ToString()));
     }
 }

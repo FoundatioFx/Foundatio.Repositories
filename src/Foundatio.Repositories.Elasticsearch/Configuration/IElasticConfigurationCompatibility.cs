@@ -24,8 +24,8 @@ public interface IElasticConfigurationCompatibility : IElasticConfiguration
 
     /// <summary>
     /// Conservatively resets an interrupted pre-cutover attempt after independently confirming that no reindex
-    /// task is active. It may delete an unaliased destination and optionally remove the source write block.
-    /// Completed or ambiguous cutovers are never changed.
+    /// task is active. It may delete a destination carrying the workflow's exact ownership marker and optionally
+    /// remove the source write block. Completed, unowned, or ambiguous cutovers are never changed.
     /// </summary>
     /// <param name="index">The configured index that owns <paramref name="sourceIndex"/>.</param>
     /// <param name="sourceIndex">The canonical concrete source name used to start the compatibility upgrade.</param>

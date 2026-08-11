@@ -29,13 +29,17 @@ internal static class ElasticReindexTaskCancellation
                 throw new RepositoryException(response.GetErrorMessage($"Unable to confirm termination of reindex task '{taskId.FullyQualifiedId}'."), response.OriginalException());
 
             var status = await client.Tasks.GetAsync(taskId.FullyQualifiedId, cleanupCancellation.Token).AnyContext();
-            if (status.IsValidResponse)
+            if (status.ApiCallDetails.HttpStatusCode is 404)
+            {
+                logger.LogRequest(status);
+            }
+            else if (status.IsValidResponse)
             {
                 logger.LogRequest(status);
                 if (!status.Completed)
                     throw new RepositoryException($"Reindex task '{taskId.FullyQualifiedId}' remained active after cancellation completed.");
             }
-            else if (status.ApiCallDetails.HttpStatusCode is not 404)
+            else
             {
                 throw new RepositoryException(status.GetErrorMessage($"Unable to verify termination of reindex task '{taskId.FullyQualifiedId}'."), status.OriginalException());
             }

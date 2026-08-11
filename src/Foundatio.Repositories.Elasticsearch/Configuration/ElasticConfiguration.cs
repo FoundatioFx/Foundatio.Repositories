@@ -289,7 +289,7 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
     public async Task UpgradeIndexCompatibilityAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
     {
         indexes ??= Indexes;
-        var upgrader = new ElasticIndexCompatibilityUpgrader(Client, Serializer, TimeProvider, _logger);
+        var upgrader = new ElasticIndexCompatibilityUpgrader(Client, TimeProvider, _logger);
 
         foreach (var idx in indexes)
         {

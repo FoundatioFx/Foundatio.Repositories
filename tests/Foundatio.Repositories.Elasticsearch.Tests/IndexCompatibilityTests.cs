@@ -21,7 +21,7 @@ public class IndexCompatibilityTests
         var transportException = new TimeoutException("The reindex response was not received.");
         var requestInvoker = new InMemoryRequestInvoker([], 500, transportException, "application/json");
         var client = new ElasticsearchClient(new ElasticsearchClientSettings(requestInvoker));
-        var runner = new ElasticReindexTaskRunner(client, new Foundatio.Serializer.SystemTextJsonSerializer(), TimeProvider.System);
+        var runner = new ElasticReindexTaskRunner(client, TimeProvider.System);
 
         // Act
         var exception = await Assert.ThrowsAsync<ElasticReindexTaskUncertainException>(() => runner.RunCompatibilityReindexAsync(
@@ -39,7 +39,7 @@ public class IndexCompatibilityTests
         var headers = new Dictionary<string, IEnumerable<string>> { ["x-elastic-product"] = ["Elasticsearch"] };
         var requestInvoker = new InMemoryRequestInvoker(Encoding.UTF8.GetBytes("{}"), 200, null, "application/json", headers);
         var client = new ElasticsearchClient(new ElasticsearchClientSettings(requestInvoker));
-        var runner = new ElasticReindexTaskRunner(client, new Foundatio.Serializer.SystemTextJsonSerializer(), TimeProvider.System);
+        var runner = new ElasticReindexTaskRunner(client, TimeProvider.System);
 
         // Act
         var exception = await Assert.ThrowsAsync<ElasticReindexTaskUncertainException>(() => runner.RunCompatibilityReindexAsync(
@@ -47,6 +47,83 @@ public class IndexCompatibilityTests
 
         // Assert
         Assert.Contains("no task ID", exception.Message);
+    }
+
+    [Fact]
+    public async Task RunCompatibilityReindexAsync_WhenTerminalResponseHasVersionConflict_RejectsExactCopy()
+    {
+        var requestInvoker = new SequenceRequestInvoker(
+            new StubResponse(200, "{\"task\":\"node:1\"}"),
+            new StubResponse(200, """
+                {
+                  "completed": true,
+                  "task": {
+                    "node": "node",
+                    "id": 1,
+                    "type": "transport",
+                    "action": "indices:data/write/reindex",
+                    "status": { "total": 1, "created": 1, "version_conflicts": 1 },
+                    "description": "reindex from [employees-v1] to [reindexed-v9-employees-v1]",
+                    "start_time_in_millis": 1,
+                    "running_time_in_nanos": 1,
+                    "cancellable": true,
+                    "cancelled": false,
+                    "headers": {}
+                  },
+                  "response": {
+                    "total": 1,
+                    "created": 1,
+                    "updated": 0,
+                    "deleted": 0,
+                    "noops": 0,
+                    "version_conflicts": 1,
+                    "failures": []
+                  }
+                }
+                """));
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), requestInvoker));
+        var runner = new ElasticReindexTaskRunner(client, TimeProvider.System);
+
+        var exception = await Assert.ThrowsAsync<RepositoryException>(() => runner.RunCompatibilityReindexAsync(
+            "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, CancellationToken.None));
+
+        Assert.Contains("Version conflicts: 1", exception.Message);
+    }
+
+    [Fact]
+    public async Task RunCompatibilityReindexAsync_WhenTaskHasTerminalError_ReportsWireErrorWithoutBufferedBody()
+    {
+        var requestInvoker = new SequenceRequestInvoker(
+            new StubResponse(200, "{\"task\":\"node:1\"}"),
+            new StubResponse(200, """
+                {
+                  "completed": true,
+                  "task": {
+                    "node": "node",
+                    "id": 1,
+                    "type": "transport",
+                    "action": "indices:data/write/reindex",
+                    "status": { "total": 1 },
+                    "description": "reindex from [employees-v1] to [reindexed-v9-employees-v1]",
+                    "start_time_in_millis": 1,
+                    "running_time_in_nanos": 1,
+                    "cancellable": true,
+                    "cancelled": false,
+                    "headers": {}
+                  },
+                  "error": {
+                    "type": "search_phase_execution_exception",
+                    "reason": "source failed"
+                  }
+                }
+                """));
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(new SingleNodePool(new Uri("http://localhost:9200")), requestInvoker));
+        var runner = new ElasticReindexTaskRunner(client, TimeProvider.System);
+
+        var exception = await Assert.ThrowsAnyAsync<RepositoryException>(() => runner.RunCompatibilityReindexAsync(
+            "employees-v1", "reindexed-v9-employees-v1", null, null, (_, _) => Task.CompletedTask, CancellationToken.None));
+
+        Assert.Contains("search_phase_execution_exception: source failed", exception.Message);
     }
 
     [Theory]
@@ -484,6 +561,52 @@ public class IndexCompatibilityTests
                 .OnRequestCompleted(_ => RequestCount++);
 
             return new ElasticsearchClient(settings);
+        }
+    }
+
+    private sealed record StubResponse(int StatusCode, string Content);
+
+    private sealed class SequenceRequestInvoker : IRequestInvoker
+    {
+        private static readonly Dictionary<string, IEnumerable<string>> _headers = new()
+        {
+            ["x-elastic-product"] = ["Elasticsearch"]
+        };
+
+        private readonly Queue<StubResponse> _responses;
+        private readonly InMemoryRequestInvoker _responseFactory = new();
+
+        public SequenceRequestInvoker(params StubResponse[] responses)
+        {
+            _responses = new Queue<StubResponse>(responses);
+        }
+
+        public ResponseFactory ResponseFactory => _responseFactory.ResponseFactory;
+
+        public TResponse Request<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData)
+            where TResponse : TransportResponse, new()
+        {
+            return GetResponse().Request<TResponse>(endpoint, boundConfiguration, postData);
+        }
+
+        public Task<TResponse> RequestAsync<TResponse>(Endpoint endpoint, BoundConfiguration boundConfiguration, PostData? postData, CancellationToken cancellationToken)
+            where TResponse : TransportResponse, new()
+        {
+            return GetResponse().RequestAsync<TResponse>(endpoint, boundConfiguration, postData, cancellationToken);
+        }
+
+        private InMemoryRequestInvoker GetResponse()
+        {
+            if (_responses.Count is 0)
+                throw new InvalidOperationException("No response configured for request.");
+
+            var response = _responses.Dequeue();
+            return new InMemoryRequestInvoker(Encoding.UTF8.GetBytes(response.Content), response.StatusCode, null, "application/json", _headers);
+        }
+
+        public void Dispose()
+        {
+            ((IDisposable)_responseFactory).Dispose();
         }
     }
 }

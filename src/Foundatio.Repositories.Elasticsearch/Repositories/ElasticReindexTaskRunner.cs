@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
@@ -10,7 +11,6 @@ using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
-using Foundatio.Serializer;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -20,14 +20,12 @@ internal sealed class ElasticReindexTaskRunner
 {
     private const int MaxStatusFailures = 10;
     private readonly ElasticsearchClient _client;
-    private readonly ITextSerializer _serializer;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
 
-    public ElasticReindexTaskRunner(ElasticsearchClient client, ITextSerializer serializer, TimeProvider timeProvider, ILogger? logger = null)
+    public ElasticReindexTaskRunner(ElasticsearchClient client, TimeProvider timeProvider, ILogger? logger = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
-        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger ?? NullLogger.Instance;
     }
@@ -88,9 +86,14 @@ internal sealed class ElasticReindexTaskRunner
             throw CreateUncertainStartException(sourceIndex, targetIndex, startException);
         }
 
+        TaskReindexResult result;
         try
         {
-            return await WaitForCompletionAsync(startResponse.Task, workItem, progressCallbackAsync, cancellationToken).AnyContext();
+            result = await WaitForCompletionAsync(startResponse.Task, workItem, progressCallbackAsync, cancellationToken).AnyContext();
+        }
+        catch (ElasticReindexTaskTerminalException)
+        {
+            throw;
         }
         catch (Exception reindexException)
         {
@@ -103,6 +106,9 @@ internal sealed class ElasticReindexTaskRunner
                 reindexException).AnyContext();
             throw;
         }
+
+        ValidateResult(result, workItem);
+        return new ElasticReindexTaskResult(result.Total, result.Created);
     }
 
     private static ElasticReindexTaskUncertainException CreateUncertainStartException(string sourceIndex, string targetIndex, Exception innerException)
@@ -112,7 +118,7 @@ internal sealed class ElasticReindexTaskRunner
             innerException);
     }
 
-    private async Task<ElasticReindexTaskResult> WaitForCompletionAsync(
+    private async Task<TaskReindexResult> WaitForCompletionAsync(
         TaskId taskId,
         ReindexWorkItem workItem,
         Func<int, string?, Task> progressCallbackAsync,
@@ -127,7 +133,7 @@ internal sealed class ElasticReindexTaskRunner
         {
             cancellationToken.ThrowIfCancellationRequested();
             var status = await _client.Tasks.GetAsync(taskId.FullyQualifiedId, cancellationToken).AnyContext();
-            if (!status.IsValidResponse)
+            if (status.ApiCallDetails.HttpStatusCode is 404 || !status.IsValidResponse)
             {
                 _logger.LogErrorRequest(status, "Error getting compatibility reindex task {TaskId} status", taskId.FullyQualifiedId);
                 statusFailures++;
@@ -141,12 +147,14 @@ internal sealed class ElasticReindexTaskRunner
             _logger.LogRequest(status);
             statusFailures = 0;
 
-            var taskResponse = status.DeserializeRaw<TaskWithReindexResponse>(_serializer);
-            if (taskResponse?.Error is not null)
-                throw new RepositoryException($"Compatibility reindex task '{taskId.FullyQualifiedId}' failed: {taskResponse.Error.Type}: {taskResponse.Error.Reason}");
+            if (status.Error is not null)
+            {
+                throw new ElasticReindexTaskTerminalException(
+                    $"Compatibility reindex task '{taskId.FullyQualifiedId}' failed: {status.Error.Type}: {status.Error.Reason}");
+            }
 
             var taskStatus = ReadTaskStatus(status.Task.Status);
-            long completed = taskStatus.Created + taskStatus.Updated + taskStatus.Noops;
+            long completed = taskStatus.Created + taskStatus.Updated + taskStatus.Deleted + taskStatus.Noops + taskStatus.VersionConflicts;
             if (completed > lastProgress)
                 noProgressStopwatch.Restart();
             lastProgress = completed;
@@ -156,9 +164,8 @@ internal sealed class ElasticReindexTaskRunner
 
             if (status.Completed)
             {
-                var result = taskResponse?.Response ?? throw new RepositoryException($"Compatibility reindex task '{taskId.FullyQualifiedId}' completed without a response.");
-                ValidateResult(result, workItem);
-                return new ElasticReindexTaskResult(result.Total, result.Created);
+                return ElasticTaskResponseParser.Deserialize<TaskReindexResult>(status.Response)
+                    ?? throw new ElasticReindexTaskTerminalException($"Compatibility reindex task '{taskId.FullyQualifiedId}' completed without a response.");
             }
 
             if (noProgressStopwatch.Elapsed > noProgressTimeout)
@@ -189,6 +196,7 @@ internal sealed class ElasticReindexTaskRunner
                 ReadInt64(jsonElement, "total"),
                 ReadInt64(jsonElement, "created"),
                 ReadInt64(jsonElement, "updated"),
+                ReadInt64(jsonElement, "deleted"),
                 ReadInt64(jsonElement, "noops"),
                 ReadInt64(jsonElement, "version_conflicts"));
         }
@@ -199,11 +207,12 @@ internal sealed class ElasticReindexTaskRunner
                 ReadInt64(values, "total"),
                 ReadInt64(values, "created"),
                 ReadInt64(values, "updated"),
+                ReadInt64(values, "deleted"),
                 ReadInt64(values, "noops"),
                 ReadInt64(values, "version_conflicts"));
         }
 
-        return new TaskStatusValues(0, 0, 0, 0, 0);
+        return new TaskStatusValues(0, 0, 0, 0, 0, 0);
     }
 
     private static long ReadInt64(JsonElement element, string propertyName)
@@ -216,18 +225,6 @@ internal sealed class ElasticReindexTaskRunner
         return values.TryGetValue(key, out var value) ? Convert.ToInt64(value) : 0;
     }
 
-    private sealed record TaskWithReindexResponse
-    {
-        public TaskReindexResult? Response { get; init; }
-        public TaskReindexError? Error { get; init; }
-    }
-
-    private sealed record TaskReindexError
-    {
-        public string? Type { get; init; }
-        public string? Reason { get; init; }
-    }
-
     private sealed record TaskReindexResult
     {
         public long Total { get; init; }
@@ -235,11 +232,17 @@ internal sealed class ElasticReindexTaskRunner
         public long Updated { get; init; }
         public long Deleted { get; init; }
         public long Noops { get; init; }
+        [JsonPropertyName("version_conflicts")]
         public long VersionConflicts { get; init; }
         public IReadOnlyCollection<object>? Failures { get; init; }
     }
 
-    private readonly record struct TaskStatusValues(long Total, long Created, long Updated, long Noops, long VersionConflicts);
+    private readonly record struct TaskStatusValues(long Total, long Created, long Updated, long Deleted, long Noops, long VersionConflicts);
+
+    private sealed class ElasticReindexTaskTerminalException : RepositoryException
+    {
+        public ElasticReindexTaskTerminalException(string message) : base(message) { }
+    }
 }
 
 internal readonly record struct ElasticReindexTaskResult(long Total, long Created);

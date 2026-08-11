@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,7 +14,6 @@ using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Extensions;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
-using Foundatio.Serializer;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using TransportHttpMethod = Elastic.Transport.HttpMethod;
@@ -22,16 +22,24 @@ namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
 internal sealed class ElasticIndexCompatibilityUpgrader
 {
+    internal const string OwnershipAlias = ".foundatio-compatibility-upgrade";
     private static readonly Version MinimumCreateFromVersion = new(8, 18);
+    private static readonly HashSet<string> TemporaryTargetSettings = new(StringComparer.Ordinal)
+    {
+        "index.number_of_replicas",
+        "index.refresh_interval",
+        "index.default_pipeline",
+        "index.final_pipeline"
+    };
     private readonly ElasticsearchClient _client;
     private readonly ElasticReindexTaskRunner _reindexTaskRunner;
     private readonly ILogger _logger;
 
-    public ElasticIndexCompatibilityUpgrader(ElasticsearchClient client, ITextSerializer serializer, TimeProvider timeProvider, ILogger? logger = null)
+    public ElasticIndexCompatibilityUpgrader(ElasticsearchClient client, TimeProvider timeProvider, ILogger? logger = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _logger = logger ?? NullLogger.Instance;
-        _reindexTaskRunner = new ElasticReindexTaskRunner(client, serializer, timeProvider, _logger);
+        _reindexTaskRunner = new ElasticReindexTaskRunner(client, timeProvider, _logger);
     }
 
     public async Task ValidateAsync(Index index, IndexCompatibilityInfo compatibility, CancellationToken cancellationToken)
@@ -98,6 +106,17 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                 throw new RepositoryException($"Compatibility destination index '{targetIndex}' received aliases during creation. Adjust matching index templates before retrying.");
             if (!String.Equals(sourceState.MappingSignature, targetState.MappingSignature, StringComparison.Ordinal))
                 throw new RepositoryException($"Compatibility destination index '{targetIndex}' did not receive the source mapping exactly. Adjust matching index templates before retrying.");
+            var unexpectedTargetSettings = targetState.ExplicitSettings.Keys
+                .Where(setting => !sourceState.ExplicitSettings.ContainsKey(setting) && !TemporaryTargetSettings.Contains(setting))
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+            if (unexpectedTargetSettings.Length > 0)
+            {
+                throw new RepositoryException(
+                    $"Compatibility destination index '{targetIndex}' received unexpected index settings: {String.Join(", ", unexpectedTargetSettings)}. Adjust matching index templates before retrying.");
+            }
+
+            await AddOwnershipAliasAsync(targetIndex, cancellationToken).AnyContext();
             await ReportProgressAsync(10, $"Created {targetIndex} from {sourceIndex}").AnyContext();
 
             var reindexResult = await _reindexTaskRunner.RunCompatibilityReindexAsync(
@@ -118,6 +137,8 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             {
                 throw new RepositoryException($"Compatibility destination index '{targetIndex}' did not preserve the source mapping and restorable settings exactly. The source remains intact and write blocked.");
             }
+            if (targetState.Aliases.Count is not 1 || !HasOwnershipAlias(targetState.Aliases))
+                throw new RepositoryException($"Compatibility destination index '{targetIndex}' received unexpected aliases before cutover. The source remains intact and write blocked.");
             await ReportProgressAsync(92, $"Validated {reindexResult.Total:N0} documents and restored index settings").AnyContext();
 
             var currentSourceState = await GetSourceStateAsync(sourceIndex, cancellationToken).AnyContext();
@@ -130,6 +151,10 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             }
 
             var expectedAliases = CreateAliasActions(index.Name, currentSourceState, targetIndex, out var aliasActions);
+            aliasActions.Insert(0, new IndexUpdateAliasesAction
+            {
+                Remove = new RemoveAction { Index = targetIndex, Alias = OwnershipAlias }
+            });
             aliasActions.Insert(0, new IndexUpdateAliasesAction
             {
                 RemoveIndex = new RemoveIndexAction { Index = sourceIndex }
@@ -233,16 +258,19 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             throw new RepositoryException($"Compatibility source '{sourceIndex}' must identify exactly one concrete index.");
 
         var settings = state.Settings?.Index ?? state.Settings ?? new IndexSettings();
+        var explicitSettings = await GetExplicitSettingsAsync(sourceIndex, cancellationToken).AnyContext();
         return new SourceIndexState(
             sourceIndex,
             state.Aliases ?? new Dictionary<string, Alias>(),
             settings.Blocks?.Write is true,
+            explicitSettings.ContainsKey("index.verified_before_close"),
             ReadBoolean(settings.Hidden),
             settings,
             state.DataStream,
             state.Mappings?.Source?.Enabled,
             _client.ElasticsearchClientSettings.RequestResponseSerializer.SerializeToString(state.Mappings),
-            CreateRestorableSettingsSignature(settings));
+            CreateRestorableSettingsSignature(settings),
+            explicitSettings);
     }
 
     private static void ValidateSource(SourceIndexState source)
@@ -255,6 +283,12 @@ internal sealed class ElasticIndexCompatibilityUpgrader
 
         if (source.SourceEnabled is false)
             throw new RepositoryException($"Index '{source.Name}' has _source disabled and cannot be reindexed.");
+
+        if (source.IsClosed)
+            throw new RepositoryException($"Index '{source.Name}' is closed and must be opened before using the Foundatio compatibility upgrader.");
+
+        if (source.Aliases.ContainsKey(OwnershipAlias))
+            throw new RepositoryException($"Index '{source.Name}' uses the reserved compatibility ownership alias '{OwnershipAlias}'. Remove or rename that alias before using the compatibility upgrader.");
 
         var blocks = source.Settings.Blocks;
         if (blocks?.Read is true || blocks?.Metadata is true || blocks?.ReadOnly is true || blocks?.ReadOnlyAllowDelete is true)
@@ -334,6 +368,44 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         _logger.LogRequest(response);
         if (!response.IsValidResponse || !response.Acknowledged || !String.Equals(response.Index, targetIndex, StringComparison.Ordinal))
             throw new RepositoryException(response.GetErrorMessage($"Unable to create compatibility destination index '{targetIndex}' from '{sourceIndex}'."), response.OriginalException());
+    }
+
+    private async Task AddOwnershipAliasAsync(string targetIndex, CancellationToken cancellationToken)
+    {
+        var response = await _client.Indices.UpdateAliasesAsync(a => a.Actions(actions => actions.Add(add => add
+            .Index(targetIndex)
+            .Alias(OwnershipAlias)
+            .IsHidden(true))), cancellationToken).AnyContext();
+        _logger.LogRequest(response);
+        if (!response.IsValidResponse || !response.Acknowledged)
+            throw new RepositoryException(response.GetErrorMessage($"Unable to mark compatibility destination index '{targetIndex}' for safe recovery."), response.OriginalException());
+    }
+
+    private async Task<IReadOnlyDictionary<string, string?>> GetExplicitSettingsAsync(string index, CancellationToken cancellationToken)
+    {
+        string escapedIndex = Uri.EscapeDataString(index);
+        var path = new EndpointPath(TransportHttpMethod.GET, $"/{escapedIndex}/_settings?flat_settings=true&include_defaults=false");
+        var response = await _client.Transport.RequestAsync<ElasticsearchStringResponse>(path, null, null, null, cancellationToken).AnyContext();
+        if (!response.IsValidResponse || String.IsNullOrEmpty(response.Body))
+            throw new RepositoryException($"Unable to read explicit settings for compatibility index '{index}'. {response.DebugInformation}");
+
+        using var document = JsonDocument.Parse(response.Body);
+        if (!document.RootElement.TryGetProperty(index, out var indexState)
+            || !indexState.TryGetProperty("settings", out var settings)
+            || settings.ValueKind is not JsonValueKind.Object)
+        {
+            throw new RepositoryException($"Elasticsearch did not return explicit settings for compatibility index '{index}'.");
+        }
+
+        var result = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var setting in settings.EnumerateObject())
+        {
+            result[setting.Name] = setting.Value.ValueKind is JsonValueKind.String
+                ? setting.Value.GetString()
+                : setting.Value.GetRawText();
+        }
+
+        return result;
     }
 
     private async Task VerifyDocumentCountsAsync(
@@ -484,7 +556,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         if (!sourceExists && targetExists && AliasDefinitionsMatch(expectedAliases, targetAliases))
             return CutoverTopology.Completed;
 
-        if (sourceExists && targetExists && targetAliases.Count is 0)
+        if (sourceExists && targetExists && HasOwnershipAlias(targetAliases) && targetAliases.Count is 1)
             return CutoverTopology.NotStarted;
 
         return CutoverTopology.Uncertain;
@@ -591,6 +663,19 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         return value?.Match<object?>(first => first, second => second);
     }
 
+    internal static bool HasOwnershipAlias(IReadOnlyDictionary<string, Alias>? aliases)
+    {
+        if (aliases is null || !aliases.TryGetValue(OwnershipAlias, out var alias))
+            return false;
+
+        return alias.IsHidden is true
+            && alias.IsWriteIndex is null
+            && alias.Filter is null
+            && alias.IndexRouting is null
+            && alias.Routing is null
+            && alias.SearchRouting is null;
+    }
+
     private static string CreateRestorableSettingsSignature(IndexSettings settings)
     {
         return String.Join('\n',
@@ -604,12 +689,14 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         string Name,
         IReadOnlyDictionary<string, Alias> Aliases,
         bool WasWriteBlocked,
+        bool IsClosed,
         bool IsHidden,
         IndexSettings Settings,
         string? DataStream,
         bool? SourceEnabled,
         string MappingSignature,
-        string RestorableSettingsSignature);
+        string RestorableSettingsSignature,
+        IReadOnlyDictionary<string, string?> ExplicitSettings);
 
     private enum CutoverTopology
     {

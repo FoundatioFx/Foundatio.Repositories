@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
@@ -28,7 +29,6 @@ namespace Foundatio.Repositories.Elasticsearch;
 public class ElasticReindexer
 {
     private readonly ElasticsearchClient _client;
-    private readonly ITextSerializer _serializer;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
     private readonly IResiliencePolicyProvider _resiliencePolicyProvider;
@@ -57,7 +57,7 @@ public class ElasticReindexer
     public ElasticReindexer(ElasticsearchClient client, ITextSerializer serializer, TimeProvider timeProvider, IResiliencePolicyProvider resiliencePolicyProvider, ILogger? logger = null)
     {
         _client = client;
-        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+        ArgumentNullException.ThrowIfNull(serializer);
         _timeProvider = timeProvider ?? TimeProvider.System;
         _resiliencePolicyProvider = resiliencePolicyProvider ?? new ResiliencePolicyProvider();
         _logger = logger ?? NullLogger.Instance;
@@ -102,7 +102,6 @@ public class ElasticReindexer
 
         _logger.LogInformation("Received reindex work item for {OldIndex} -> {NewIndex}", workItem.OldIndex, workItem.NewIndex);
         string concreteOldIndex = workItem.OldIndex;
-        Dictionary<string, AliasDefinition>? aliases = null;
         if (workItem.OldIndex != workItem.NewIndex)
         {
             concreteOldIndex = await ResolveConcreteIndexAsync(workItem.OldIndex).AnyContext();
@@ -113,8 +112,8 @@ public class ElasticReindexer
                 return;
             }
 
-            aliases = await GetIndexAliasesAsync(concreteOldIndex).AnyContext();
-            if (aliases.TryGetValue(workItem.OldIndex, out var sourceAlias) && IsFilteredOrRouted(sourceAlias))
+            var initialAliases = await GetIndexAliasesAsync(concreteOldIndex).AnyContext();
+            if (initialAliases.TryGetValue(workItem.OldIndex, out var sourceAlias) && IsFilteredOrRouted(sourceAlias))
                 throw new InvalidOperationException($"Cannot reindex filtered or routed alias '{workItem.OldIndex}'. Reindex its concrete index '{concreteOldIndex}' so catch-up reads use the same complete source.");
         }
 
@@ -148,7 +147,7 @@ public class ElasticReindexer
 
         if (workItem.OldIndex != workItem.NewIndex)
         {
-            aliases ??= await GetIndexAliasesAsync(concreteOldIndex).AnyContext();
+            var aliases = await GetIndexAliasesAsync(concreteOldIndex).AnyContext();
             // Older compatibility implementations could leave an alias matching the physical source name.
             // It is a migration artifact, not a stable application alias, and must not leak into the new schema.
             aliases.Remove(concreteOldIndex);
@@ -186,9 +185,9 @@ public class ElasticReindexer
         }
         else
         {
-            async Task RunObjectIdSecondPassAsync()
+            async Task RunObjectIdSecondPassAsync(bool forceFullCopy = false)
             {
-                secondPassResult = await InternalReindexAsync(sourceWorkItem, progressCallbackAsync, 93, 97, startTime).AnyContext();
+                secondPassResult = await InternalReindexAsync(sourceWorkItem, progressCallbackAsync, 93, 97, startTime, forceFullCopy: forceFullCopy).AnyContext();
                 if (!secondPassResult.Succeeded)
                     return;
 
@@ -197,6 +196,11 @@ public class ElasticReindexer
 
             switch (sampleResult!.Status)
             {
+                case SampleIdStatus.Empty when workItem.OldIndex != workItem.NewIndex:
+                    _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Source index was empty before cutover; running a full post-cutover catch-up pass.", workItem.OldIndex, workItem.NewIndex);
+                    await RunObjectIdSecondPassAsync(forceFullCopy: true).AnyContext();
+                    break;
+
                 case SampleIdStatus.Empty:
                     _logger.LogInformation("Reindex {OldIndex} -> {NewIndex}: Source index is empty, skipping second pass.", workItem.OldIndex, workItem.NewIndex);
                     break;
@@ -318,9 +322,9 @@ public class ElasticReindexer
         return true;
     }
 
-    private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, int startProgress = 0, int endProgress = 100, DateTime? startTime = null, CancellationToken cancellationToken = default)
+    private async Task<ReindexResult> InternalReindexAsync(ReindexWorkItem workItem, Func<int, string?, Task> progressCallbackAsync, int startProgress = 0, int endProgress = 100, DateTime? startTime = null, CancellationToken cancellationToken = default, bool forceFullCopy = false)
     {
-        var query = await GetResumeQueryAsync(workItem.NewIndex, workItem.TimestampField, startTime).AnyContext();
+        var query = forceFullCopy ? null : await GetResumeQueryAsync(workItem.NewIndex, workItem.TimestampField, startTime).AnyContext();
 
         var result = await _resiliencePolicy.ExecuteAsync(async ct =>
         {
@@ -372,7 +376,7 @@ public class ElasticReindexer
             do
             {
                 var status = await _client.Tasks.GetAsync(result.Task.FullyQualifiedId, cancellationToken).AnyContext();
-                if (status.IsValidResponse)
+                if (status.ApiCallDetails.HttpStatusCode is not 404 && status.IsValidResponse)
                 {
                     _logger.LogRequest(status);
                 }
@@ -396,14 +400,13 @@ public class ElasticReindexer
 
                 statusGetFails = 0;
 
-                var response = status.DeserializeRaw<TaskWithReindexResponse>(_serializer);
-                if (response?.Error != null)
+                if (status.Error is not null)
                 {
-                    _logger.LogError("Error reindex: {Type}, {Reason}, Cause: {CausedBy} Stack: {Stack}", response.Error.Type, response.Error.Reason, response.Error.Caused_By?.Reason, String.Join("\r\n", response.Error.Script_Stack ?? new List<string>()));
+                    _logger.LogError("Error reindex: {Type}, {Reason}, Cause: {CausedBy} Stack: {Stack}", status.Error.Type, status.Error.Reason, status.Error.CausedBy?.Reason, status.Error.StackTrace);
                     break;
                 }
 
-                lastReindexResponse = response?.Response;
+                lastReindexResponse = ElasticTaskResponseParser.Deserialize<TaskReindexResult>(status.Response);
 
                 // Extract status values from the raw JSON. The Status property is object? and may be
                 // deserialized as JsonElement or IDictionary<string, object> depending on serializer config.
@@ -415,6 +418,7 @@ public class ElasticReindexer
                         Total = jsonElement.TryGetProperty("total", out var totalProp) ? totalProp.GetInt64() : 0,
                         Created = jsonElement.TryGetProperty("created", out var createdProp) ? createdProp.GetInt64() : 0,
                         Updated = jsonElement.TryGetProperty("updated", out var updatedProp) ? updatedProp.GetInt64() : 0,
+                        Deleted = jsonElement.TryGetProperty("deleted", out var deletedProp) ? deletedProp.GetInt64() : 0,
                         Noops = jsonElement.TryGetProperty("noops", out var noopsProp) ? noopsProp.GetInt64() : 0,
                         VersionConflicts = jsonElement.TryGetProperty("version_conflicts", out var conflictsProp) ? conflictsProp.GetInt64() : 0
                     };
@@ -426,6 +430,7 @@ public class ElasticReindexer
                         Total = dict.TryGetValue("total", out var totalVal) ? Convert.ToInt64(totalVal) : 0,
                         Created = dict.TryGetValue("created", out var createdVal) ? Convert.ToInt64(createdVal) : 0,
                         Updated = dict.TryGetValue("updated", out var updatedVal) ? Convert.ToInt64(updatedVal) : 0,
+                        Deleted = dict.TryGetValue("deleted", out var deletedVal) ? Convert.ToInt64(deletedVal) : 0,
                         Noops = dict.TryGetValue("noops", out var noopsVal) ? Convert.ToInt64(noopsVal) : 0,
                         VersionConflicts = dict.TryGetValue("version_conflicts", out var conflictsVal) ? Convert.ToInt64(conflictsVal) : 0
                     };
@@ -435,7 +440,8 @@ public class ElasticReindexer
                     _logger.LogWarning("Unexpected task status type {StatusType}: {Status}", status.Task.Status.GetType().Name, status.Task.Status);
                 }
 
-                long lastCompleted = (taskStatus?.Created ?? 0) + (taskStatus?.Updated ?? 0) + (taskStatus?.Noops ?? 0);
+                long lastCompleted = (taskStatus?.Created ?? 0) + (taskStatus?.Updated ?? 0) + (taskStatus?.Deleted ?? 0)
+                    + (taskStatus?.Noops ?? 0) + (taskStatus?.VersionConflicts ?? 0);
 
                 // restart the stop watch if there was progress made
                 if (lastCompleted > lastProgress)
@@ -445,8 +451,15 @@ public class ElasticReindexer
                 string lastMessage = $"[{workItem.NewIndex}] Total: {taskStatus?.Total:N0} Completed: {lastCompleted:N0} VersionConflicts: {taskStatus?.VersionConflicts:N0}";
                 await progressCallbackAsync(CalculateProgress(taskStatus?.Total ?? 0, lastCompleted, startProgress, endProgress), lastMessage).AnyContext();
 
-                if (status.Completed && response?.Error == null)
+                if (status.Completed)
                 {
+                    if (lastReindexResponse is null)
+                    {
+                        _logger.LogError("Reindex task {ReindexTaskId} completed without a response while reindexing {OldIndex} -> {NewIndex}",
+                            result.Task.FullyQualifiedId, workItem.OldIndex, workItem.NewIndex);
+                        break;
+                    }
+
                     taskSuccess = true;
                     break;
                 }
@@ -522,7 +535,8 @@ public class ElasticReindexer
 
         long total = lastReindexResponse?.Total ?? 0;
         long versionConflicts = lastReindexResponse?.VersionConflicts ?? 0;
-        long completed = (lastReindexResponse?.Created ?? 0) + (lastReindexResponse?.Updated ?? 0) + (lastReindexResponse?.Noops ?? 0);
+        long completed = (lastReindexResponse?.Created ?? 0) + (lastReindexResponse?.Updated ?? 0) + (lastReindexResponse?.Deleted ?? 0)
+            + (lastReindexResponse?.Noops ?? 0) + versionConflicts;
         string message = $"Total: {total:N0} Completed: {completed:N0} VersionConflicts: {versionConflicts:N0}";
         await progressCallbackAsync(CalculateProgress(total, completed, startProgress, endProgress), message).AnyContext();
         return new ReindexResult { Total = total, Completed = completed, Failures = failures, Succeeded = taskSuccess };
@@ -633,13 +647,7 @@ public class ElasticReindexer
             return [];
         }
 
-        if (aliasesResponse.ApiCallDetails is { HttpStatusCode: 404 })
-            return [];
-
-        _logger.LogWarning("Failed to get aliases for index {Index}: {Error}", index,
-            aliasesResponse.ElasticsearchServerError?.Error?.Reason ?? "Unknown error");
-
-        return [];
+        throw new RepositoryException(aliasesResponse.GetErrorMessage($"Unable to read aliases for source index '{index}'."), aliasesResponse.OriginalException());
     }
 
     private async Task<Query?> GetResumeQueryAsync(string newIndex, string? timestampField, DateTime? startTime)
@@ -822,33 +830,14 @@ public class ElasticReindexer
         public bool Succeeded { get; init; }
     }
 
-    private record TaskWithReindexResponse
-    {
-        public TaskReindexResult? Response { get; init; }
-        public TaskReindexError? Error { get; init; }
-    }
-
-    private record TaskReindexError
-    {
-        public string? Type { get; init; }
-        public string? Reason { get; init; }
-        public List<string>? Script_Stack { get; init; }
-
-        public TaskCause? Caused_By { get; init; }
-    }
-
-    private record TaskCause
-    {
-        public string? Type { get; init; }
-        public string? Reason { get; init; }
-    }
-
     private record TaskReindexResult
     {
         public long Total { get; init; }
         public long Created { get; init; }
         public long Updated { get; init; }
+        public long Deleted { get; init; }
         public long Noops { get; init; }
+        [JsonPropertyName("version_conflicts")]
         public long VersionConflicts { get; init; }
 
         public IReadOnlyCollection<BulkIndexByScrollFailure>? Failures { get; init; }
@@ -859,6 +848,7 @@ public class ElasticReindexer
         public long Total { get; init; }
         public long Created { get; init; }
         public long Updated { get; init; }
+        public long Deleted { get; init; }
         public long Noops { get; init; }
         public long VersionConflicts { get; init; }
     }

@@ -55,10 +55,11 @@ internal sealed class ElasticIndexCompatibilityRecovery
         IndexState? targetState = null;
         bool sourceExists = response.Indices is not null && response.Indices.TryGetValue(sourceIndex, out sourceState);
         bool targetExists = response.Indices is not null && response.Indices.TryGetValue(targetIndex, out targetState);
-        string[] sourceAliases = sourceExists ? sourceState?.Aliases?.Keys.Select(k => k.ToString()).Order().ToArray() ?? [] : [];
-        string[] targetAliases = targetExists ? targetState?.Aliases?.Keys.Select(k => k.ToString()).Order().ToArray() ?? [] : [];
+        string[] sourceAliases = sourceExists ? sourceState?.Aliases?.Keys.Select(k => k.ToString()).Order(StringComparer.Ordinal).ToArray() ?? [] : [];
+        string[] targetAliases = targetExists ? targetState?.Aliases?.Keys.Select(k => k.ToString()).Order(StringComparer.Ordinal).ToArray() ?? [] : [];
         string canonicalSourceAlias = CompatibilityIndexName.GetCanonicalName(sourceIndex, index.Name);
         bool targetHasCanonicalSourceAlias = targetAliases.Contains(canonicalSourceAlias, StringComparer.Ordinal);
+        bool targetOwnershipConfirmed = targetExists && ElasticIndexCompatibilityUpgrader.HasOwnershipAlias(targetState?.Aliases);
         bool sourceWriteBlocked = sourceExists && ReadWriteBlock(sourceState?.Settings);
         bool targetWriteBlocked = targetExists && ReadWriteBlock(targetState?.Settings);
         int? activeReindexTasks = await GetActiveReindexTaskCountAsync(sourceIndex, targetIndex, cancellationToken).AnyContext();
@@ -68,13 +69,14 @@ internal sealed class ElasticIndexCompatibilityRecovery
             IndexName = index.Name,
             SourceIndex = sourceIndex,
             TargetIndex = targetIndex,
-            State = Classify(sourceExists, targetExists, sourceWriteBlocked, targetWriteBlocked, targetAliases.Length, targetHasCanonicalSourceAlias, activeReindexTasks),
+            State = Classify(sourceExists, targetExists, sourceWriteBlocked, targetWriteBlocked, targetAliases.Length, targetHasCanonicalSourceAlias, targetOwnershipConfirmed, activeReindexTasks),
             SourceExists = sourceExists,
             TargetExists = targetExists,
             SourceWriteBlocked = sourceWriteBlocked,
             TargetWriteBlocked = targetWriteBlocked,
             SourceAliases = sourceAliases,
             TargetAliases = targetAliases,
+            TargetOwnershipConfirmed = targetOwnershipConfirmed,
             ActiveReindexTaskCount = activeReindexTasks
         };
     }
@@ -146,13 +148,16 @@ internal sealed class ElasticIndexCompatibilityRecovery
 
             foreach (var task in tasks.EnumerateObject())
             {
-                if (!task.Value.TryGetProperty("description", out var description)
-                    || description.ValueKind is not JsonValueKind.String
-                    || description.GetString()?.Contains(sourceIndex, StringComparison.Ordinal) is true
-                    || description.GetString()?.Contains(targetIndex, StringComparison.Ordinal) is true)
+                if (!task.Value.TryGetProperty("description", out var description) || description.ValueKind is not JsonValueKind.String)
                 {
                     count++;
+                    continue;
                 }
+
+                string? value = description.GetString();
+                if (value?.Contains(sourceIndex, StringComparison.Ordinal) is true
+                    || value?.Contains(targetIndex, StringComparison.Ordinal) is true)
+                    count++;
             }
         }
 
@@ -166,6 +171,7 @@ internal sealed class ElasticIndexCompatibilityRecovery
         bool targetWriteBlocked,
         int targetAliasCount,
         bool targetHasCanonicalSourceAlias,
+        bool targetOwnershipConfirmed,
         int? activeReindexTaskCount)
     {
         if (!sourceExists && !targetExists)
@@ -184,7 +190,7 @@ internal sealed class ElasticIndexCompatibilityRecovery
                 : IndexCompatibilityUpgradeRecoveryState.Completed;
         }
 
-        if (targetAliasCount > 0 || !activeReindexTaskCount.HasValue)
+        if (!targetOwnershipConfirmed || targetAliasCount is not 1 || !activeReindexTaskCount.HasValue)
             return IndexCompatibilityUpgradeRecoveryState.Ambiguous;
 
         return activeReindexTaskCount.Value > 0
