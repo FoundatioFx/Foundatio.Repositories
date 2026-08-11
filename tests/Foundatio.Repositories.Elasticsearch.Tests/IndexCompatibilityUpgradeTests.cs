@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,7 +14,6 @@ using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Exceptions;
 using Foundatio.Repositories.Extensions;
 using Foundatio.Utility;
-using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace Foundatio.Repositories.Elasticsearch.Tests;
@@ -23,6 +21,21 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
 {
     public IndexCompatibilityUpgradeTests(ITestOutputHelper output) : base(output) { }
+
+    [Fact]
+    public async Task DeleteAsync_WhenCompatibilityPatternsAreMissing_DeletesExistingVersionedIndex()
+    {
+        string name = $"compat-delete-{Guid.NewGuid():N}";
+        var version1 = new ForcedIncompatibleVersionedEmployeeIndex(_configuration, name, 1);
+        var version2 = new ForcedIncompatibleVersionedEmployeeIndex(_configuration, name, 2);
+        await using AsyncDisposableAction _ = new(() => version2.DeleteAsync());
+        await version1.ConfigureAsync();
+        Assert.True((await _client.Indices.ExistsAsync(version1.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+
+        await version2.DeleteAsync();
+
+        Assert.False((await _client.Indices.ExistsAsync(version1.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+    }
 
     public override async ValueTask InitializeAsync()
     {
@@ -84,6 +97,28 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task CanUpgradePlainIndexWhoseConfiguredNameLooksLikeCompatibilityPrefixAsync()
+    {
+        string name = $"reindexed-v8-compat-natural-{Guid.NewGuid():N}";
+        var index = new ForcedIncompatibleEmployeeIndex(_configuration, name);
+        await index.DeleteAsync();
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+        await index.ConfigureAsync();
+        var compatibility = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
+        string targetIndex = CompatibilityIndexName.Create(name, compatibility.ServerMajor, name);
+
+        await _configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestCancellationToken);
+
+        Assert.Equal($"reindexed-v{compatibility.ServerMajor}-{name}", targetIndex);
+        var aliasResponse = await _client.Indices.GetAsync((Indices)name, cancellationToken: TestCancellationToken);
+        Assert.True(aliasResponse.IsValidResponse);
+        Assert.Equal(targetIndex, aliasResponse.Indices.Keys.Single().ToString());
+        var allIndexes = await _client.Indices.GetAsync(Indices.All, d => d.LimitToNamesAndAliases(), TestCancellationToken);
+        Assert.Contains(targetIndex, allIndexes.Indices.Keys.Select(k => k.ToString()));
+        Assert.DoesNotContain(name, allIndexes.Indices.Keys.Select(k => k.ToString()));
+    }
+
+    [Fact]
     public async Task CanUpgradeIndexCompatibilityForVersionedIndexAsync()
     {
         var index = new ForcedIncompatibleVersionedEmployeeIndex(_configuration, "compat-upgrade-versioned-employees", 1);
@@ -107,7 +142,7 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
 
         var versionedAliasResponse = await _client.Indices.GetAsync((Indices)index.VersionedName,
             d => d.IgnoreUnavailable(), TestCancellationToken);
-        Assert.Empty(versionedAliasResponse.Indices);
+        Assert.Equal(targetIndex, versionedAliasResponse.Indices.Keys.Single().ToString());
 
         await index.ConfigureAsync();
         logicalAliasResponse = await _client.Indices.GetAsync((Indices)index.Name, cancellationToken: TestCancellationToken);
@@ -139,7 +174,7 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task GetIndexCompatibilityAsync_UsesOneCurrentServerAndSettingsRequest()
+    public async Task GetIndexCompatibilityAsync_UsesFixedRequestBudget()
     {
         using var configuration = new RequestCountingElasticConfiguration();
         using var index = new RequestCountingIndex(configuration, $"compat-request-count-{Guid.NewGuid():N}");
@@ -149,21 +184,39 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         await index.ConfigureAsync();
         configuration.ResetRequestCounts();
 
-        var stopwatch = Stopwatch.StartNew();
         await index.GetIndexCompatibilityAsync(TestCancellationToken);
-        stopwatch.Stop();
 
         Assert.Equal(1, configuration.InfoRequestCount);
         Assert.Equal(1, configuration.CompatibilitySettingsRequestCount);
-        _logger.LogInformation("Cold explicit compatibility detection completed in {ElapsedMilliseconds} ms", stopwatch.Elapsed.TotalMilliseconds);
 
-        stopwatch.Restart();
         await index.GetIndexCompatibilityAsync(TestCancellationToken);
-        stopwatch.Stop();
 
         Assert.Equal(2, configuration.InfoRequestCount);
         Assert.Equal(2, configuration.CompatibilitySettingsRequestCount);
-        _logger.LogInformation("Warm explicit compatibility detection completed in {ElapsedMilliseconds} ms", stopwatch.Elapsed.TotalMilliseconds);
+    }
+
+    [Fact]
+    public async Task GetIndexCompatibilityAsync_WithMultipleDailyPartitions_StillUsesOneSettingsRequest()
+    {
+        using var configuration = new RequestCountingElasticConfiguration();
+        string name = $"compat-daily-request-count-{Guid.NewGuid():N}";
+        using var index = new DailyIndex<object>(configuration, name);
+        string first = $"{name}-v1-2026.08.10";
+        string second = $"{name}-v1-2026.08.11";
+        await using AsyncDisposableAction _ = new(async () =>
+            await configuration.Client.Indices.DeleteAsync(Indices.Parse($"{first},{second}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+
+        var firstResponse = await configuration.Client.Indices.CreateAsync(first, cancellationToken: TestCancellationToken);
+        var secondResponse = await configuration.Client.Indices.CreateAsync(second, cancellationToken: TestCancellationToken);
+        Assert.True(firstResponse.IsValidResponse);
+        Assert.True(secondResponse.IsValidResponse);
+        configuration.ResetRequestCounts();
+
+        var compatibility = await index.GetIndexCompatibilityAsync(TestCancellationToken);
+
+        Assert.Equal(2, compatibility.Count);
+        Assert.Equal(1, configuration.InfoRequestCount);
+        Assert.Equal(1, configuration.CompatibilitySettingsRequestCount);
     }
 
     [Fact]
@@ -208,7 +261,89 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
     }
 
     [Fact]
-    public async Task CanUpgradeIndexCompatibilityForDailyIndexWithoutLegacyPhysicalAliasesAsync()
+    public async Task RecoverIndexCompatibilityUpgradeAsync_WithInterruptedPreCutoverState_ResetsOnlyConfirmedArtifacts()
+    {
+        // Arrange
+        string name = $"compat-recovery-{Guid.NewGuid():N}";
+        using var index = new Index<object>(_configuration, name);
+        await index.ConfigureAsync();
+        var compatibility = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
+        string targetIndex = CompatibilityIndexName.Create(name, compatibility.ServerMajor);
+        await using AsyncDisposableAction _ = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{name},{targetIndex}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+
+        var blockResponse = await _client.Indices.PutSettingsAsync(name,
+            d => d.Settings(s => s.Blocks(b => b.Write(true))), TestCancellationToken);
+        Assert.True(blockResponse.IsValidResponse);
+        var createResponse = await _client.Indices.CreateAsync(targetIndex, cancellationToken: TestCancellationToken);
+        Assert.True(createResponse.IsValidResponse);
+
+        // Act
+        var before = await _configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
+        var after = await _configuration.RecoverIndexCompatibilityUpgradeAsync(index, name, removeWriteBlock: true, TestCancellationToken);
+
+        // Assert
+        Assert.Equal(IndexCompatibilityUpgradeRecoveryState.Interrupted, before.State);
+        Assert.True(before.CanRecover);
+        Assert.Equal(IndexCompatibilityUpgradeRecoveryState.Ready, after.State);
+        Assert.True(after.SourceExists);
+        Assert.False(after.SourceWriteBlocked);
+        Assert.False(after.TargetExists);
+    }
+
+    [Fact]
+    public async Task RecoverIndexCompatibilityUpgradeAsync_WithAliasedDestination_FailsClosed()
+    {
+        // Arrange
+        string name = $"compat-recovery-ambiguous-{Guid.NewGuid():N}";
+        using var index = new Index<object>(_configuration, name);
+        await index.ConfigureAsync();
+        var compatibility = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
+        string targetIndex = CompatibilityIndexName.Create(name, compatibility.ServerMajor);
+        await using AsyncDisposableAction _ = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{name},{targetIndex}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+
+        var createResponse = await _client.Indices.CreateAsync(targetIndex,
+            d => d.Aliases(a => a.Add($"{name}-unexpected", new Alias())), TestCancellationToken);
+        Assert.True(createResponse.IsValidResponse);
+
+        // Act
+        var status = await _configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
+        var exception = await Assert.ThrowsAsync<RepositoryException>(() =>
+            _configuration.RecoverIndexCompatibilityUpgradeAsync(index, name, removeWriteBlock: true, TestCancellationToken));
+
+        // Assert
+        Assert.Equal(IndexCompatibilityUpgradeRecoveryState.Ambiguous, status.State);
+        Assert.False(status.CanRecover);
+        Assert.Contains("cannot be recovered automatically", exception.Message);
+        Assert.True((await _client.Indices.ExistsAsync(targetIndex, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    [Fact]
+    public async Task InspectIndexCompatibilityUpgradeAsync_WithOnlyUnexpectedAliasedTarget_IsAmbiguous()
+    {
+        string name = $"compat-recovery-unexpected-target-{Guid.NewGuid():N}";
+        using var index = new Index<object>(_configuration, name);
+        await index.ConfigureAsync();
+        var compatibility = Assert.Single(await index.GetIndexCompatibilityAsync(TestCancellationToken));
+        string targetIndex = CompatibilityIndexName.Create(name, compatibility.ServerMajor);
+        await using AsyncDisposableAction _ = new(async () =>
+            await _client.Indices.DeleteAsync(Indices.Parse($"{name},{targetIndex}"), d => d.IgnoreUnavailable(), TestCancellationToken));
+
+        var deleteResponse = await _client.Indices.DeleteAsync(name, cancellationToken: TestCancellationToken);
+        Assert.True(deleteResponse.IsValidResponse);
+        var createResponse = await _client.Indices.CreateAsync(targetIndex,
+            d => d.Aliases(a => a.Add($"unexpected-{name}", new Alias())), TestCancellationToken);
+        Assert.True(createResponse.IsValidResponse);
+
+        var status = await _configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
+
+        Assert.Equal(IndexCompatibilityUpgradeRecoveryState.Ambiguous, status.State);
+        Assert.False(status.CanRecover);
+    }
+
+    [Fact]
+    public async Task CanUpgradeIndexCompatibilityForDailyIndexAndPreserveCanonicalPhysicalAliasAsync()
     {
         string name = $"compat-upgrade-daily-{Guid.NewGuid():N}";
         var index = new ForcedIncompatibleDailyEmployeeIndex(_configuration, name, 1);
@@ -255,7 +390,7 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         Assert.Contains(datedAlias, aliases.Keys.Select(k => k.ToString()));
         Assert.Contains(index.Name, aliases.Keys.Select(k => k.ToString()));
         Assert.Contains(windowedAlias, aliases.Keys.Select(k => k.ToString()));
-        Assert.DoesNotContain(oldPhysicalIndex, aliases.Keys.Select(k => k.ToString()));
+        Assert.Contains(oldPhysicalIndex, aliases.Keys.Select(k => k.ToString()));
 
         var routedAliasResponse = await _client.Indices.GetAliasAsync((Indices)targetIndex,
             d => d.Name(routedAlias), TestCancellationToken);
@@ -277,7 +412,7 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
 
         var oldPhysicalResponse = await _client.Indices.GetAsync((Indices)oldPhysicalIndex,
             d => d.IgnoreUnavailable(), TestCancellationToken);
-        Assert.Empty(oldPhysicalResponse.Indices);
+        Assert.Equal(targetIndex, oldPhysicalResponse.Indices.Keys.Single().ToString());
         Assert.NotNull(await repository.GetByIdAsync(employee.Id));
 
         await index.DeleteAsync();
@@ -305,7 +440,8 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         string compatibilityTarget = CompatibilityIndexName.Create(version1.VersionedName, compatibility.ServerMajor);
         await _configuration.UpgradeIndexCompatibilityAsync([version1], cancellationToken: TestCancellationToken);
 
-        Assert.Equal(compatibilityTarget, await version1.GetCurrentPhysicalIndexAsync(version1.Version));
+        var versionedAlias = await _client.Indices.GetAsync((Indices)version1.VersionedName, cancellationToken: TestCancellationToken);
+        Assert.Equal(compatibilityTarget, versionedAlias.Indices.Keys.Single().ToString());
 
         await version2.ConfigureAsync();
         await version2.ReindexAsync();
@@ -436,6 +572,10 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         Assert.True(targetSettingsResponse.Settings.Values.Single().Settings?.Index?.Blocks?.Write is true);
         Assert.NotNull(await repository.GetByIdAsync(employee.Id));
 
+        var recoveryStatus = await _configuration.InspectIndexCompatibilityUpgradeAsync(index, name, TestCancellationToken);
+        Assert.Equal(IndexCompatibilityUpgradeRecoveryState.CompletedWriteBlocked, recoveryStatus.State);
+        Assert.True(recoveryStatus.CanRecover);
+
         var blockedWrite = await _client.IndexAsync(EmployeeGenerator.Generate(), d => d.Index(name), TestCancellationToken);
         Assert.False(blockedWrite.IsValidResponse);
         Assert.Equal("cluster_block_exception", blockedWrite.ElasticsearchServerError?.Error?.Type);
@@ -533,7 +673,7 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
         {
             var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
-            return ForceOriginalIndexesIncompatible(infos);
+            return ForceOriginalIndexesIncompatible(infos, Name);
         }
     }
 
@@ -549,7 +689,7 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
         {
             var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
-            return ForceOriginalIndexesIncompatible(infos);
+            return ForceOriginalIndexesIncompatible(infos, Name);
         }
     }
 
@@ -570,7 +710,7 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
         {
             var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
-            return ForceOriginalIndexesIncompatible(infos);
+            return ForceOriginalIndexesIncompatible(infos, Name);
         }
     }
 
@@ -586,7 +726,7 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
         {
             var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
-            return infos.Select(i => i with { RequiresReindexBeforeNextMajorUpgrade = true }).ToArray();
+            return infos.Select(i => i with { CreatedMajor = i.ServerMajor - 1 }).ToArray();
         }
     }
 
@@ -597,16 +737,17 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
         {
             var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
-            return infos.Select(i => i with { ServerMajor = 8, ServerVersion = "8.17.9" }).ToArray();
+            return infos.Select(i => i with { CreatedMajor = 7, ServerMajor = 8, ServerVersion = "8.17.9" }).ToArray();
         }
     }
 
-    private static IReadOnlyCollection<IndexCompatibilityInfo> ForceOriginalIndexesIncompatible(IReadOnlyCollection<IndexCompatibilityInfo> infos)
+    private static IReadOnlyCollection<IndexCompatibilityInfo> ForceOriginalIndexesIncompatible(
+        IReadOnlyCollection<IndexCompatibilityInfo> infos,
+        string configuredIndexName)
     {
-        return infos.Select(i => i with
-        {
-            RequiresReindexBeforeNextMajorUpgrade = !String.Equals(i.Name, CompatibilityIndexName.Create(i.Name, i.ServerMajor), StringComparison.Ordinal)
-        }).ToArray();
+        return infos.Select(i => String.Equals(i.Name, CompatibilityIndexName.Create(i.Name, i.ServerMajor, configuredIndexName), StringComparison.Ordinal)
+            ? i
+            : i with { CreatedMajor = i.ServerMajor - 1 }).ToArray();
     }
 
     private sealed class RequestCountingElasticConfiguration : ElasticConfiguration

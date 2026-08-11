@@ -207,12 +207,6 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
             throw new InvalidOperationException("Must specify work item queue and lock provider in order to migrate index versions.");
 
         var reindexWorkItem = versionedIndex.CreateReindexWorkItem(currentVersion);
-        if (versionedIndex is VersionedIndex concreteVersionedIndex && !concreteVersionedIndex.HasMultipleIndexes)
-        {
-            string? currentPhysicalIndex = await concreteVersionedIndex.GetCurrentPhysicalIndexAsync(currentVersion).AnyContext();
-            if (!String.IsNullOrEmpty(currentPhysicalIndex))
-                reindexWorkItem = reindexWorkItem with { OldIndex = currentPhysicalIndex };
-        }
         bool isReindexing = await _lockProvider.IsLockedAsync(ElasticReindexer.GetLockName(versionedIndex.Name)).AnyContext();
         if (isReindexing)
             return;
@@ -291,6 +285,7 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
         await TryRemoveCacheMarkerAsync().AnyContext();
     }
 
+    /// <inheritdoc />
     public async Task UpgradeIndexCompatibilityAsync(IEnumerable<IIndex>? indexes = null, Func<int, string?, Task>? progressCallbackAsync = null, CancellationToken cancellationToken = default)
     {
         indexes ??= Indexes;
@@ -298,10 +293,10 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
 
         foreach (var idx in indexes)
         {
-            if (idx is not Index compatibilityIndex)
-                continue;
+            var compatibilityIndex = GetOwnedCompatibilityIndex(idx);
 
             var compatibility = await compatibilityIndex.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
+            ThrowIfUnsupportedCompatibility(compatibility, idx.Name);
             if (!compatibility.Any(i => i.RequiresReindexBeforeNextMajorUpgrade))
                 continue;
 
@@ -311,6 +306,7 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
                 throw new RepositoryException($"Unable to acquire the reindex lock for Elasticsearch version compatibility upgrade of index '{idx.Name}'.");
 
             compatibility = await compatibilityIndex.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
+            ThrowIfUnsupportedCompatibility(compatibility, idx.Name);
             var candidates = compatibility
                 .Where(i => i.RequiresReindexBeforeNextMajorUpgrade)
                 .OrderBy(i => CompatibilityIndexName.GetCanonicalName(i.Name, compatibilityIndex.Name), StringComparer.Ordinal)
@@ -343,6 +339,51 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
                 throw new RepositoryException($"Elasticsearch version compatibility upgrade for index '{idx.Name}' did not complete. Remaining incompatible indexes: {remainingIndexes}.");
             }
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<IndexCompatibilityUpgradeStatus> InspectIndexCompatibilityUpgradeAsync(
+        IIndex index,
+        string sourceIndex,
+        CancellationToken cancellationToken = default)
+    {
+        var compatibilityIndex = GetOwnedCompatibilityIndex(index);
+        var recovery = new ElasticIndexCompatibilityRecovery(Client, _lockProvider, _logger);
+        return await recovery.InspectAsync(compatibilityIndex, sourceIndex, cancellationToken).AnyContext();
+    }
+
+    /// <inheritdoc />
+    public async Task<IndexCompatibilityUpgradeStatus> RecoverIndexCompatibilityUpgradeAsync(
+        IIndex index,
+        string sourceIndex,
+        bool removeWriteBlock = false,
+        CancellationToken cancellationToken = default)
+    {
+        var compatibilityIndex = GetOwnedCompatibilityIndex(index);
+        var recovery = new ElasticIndexCompatibilityRecovery(Client, _lockProvider, _logger);
+        return await recovery.RecoverAsync(compatibilityIndex, sourceIndex, removeWriteBlock, cancellationToken).AnyContext();
+    }
+
+    private Index GetOwnedCompatibilityIndex(IIndex index)
+    {
+        ArgumentNullException.ThrowIfNull(index);
+        if (index is not Index compatibilityIndex)
+            throw new NotSupportedException($"Index '{index.Name}' is implemented by '{index.GetType().FullName}' and cannot be managed by the Foundatio Elasticsearch compatibility workflow.");
+
+        if (!ReferenceEquals(index.Configuration, this))
+            throw new ArgumentException($"Index '{index.Name}' belongs to a different Elasticsearch configuration.", nameof(index));
+
+        return compatibilityIndex;
+    }
+
+    private static void ThrowIfUnsupportedCompatibility(IReadOnlyCollection<IndexCompatibilityInfo> compatibility, string indexName)
+    {
+        var unsupported = compatibility.Where(i => i.State is IndexCompatibilityState.Unsupported).ToArray();
+        if (unsupported.Length is 0)
+            return;
+
+        string details = String.Join(", ", unsupported.Select(i => $"{i.Name} (created by Elasticsearch {i.CreatedMajor}, server {i.ServerMajor})"));
+        throw new RepositoryException($"Index '{indexName}' contains physical indexes that skipped an Elasticsearch major-version reindex and cannot be upgraded automatically: {details}. Restore a supported snapshot and upgrade one major at a time.");
     }
 
     private string GetConfigureIndexesCacheKey()

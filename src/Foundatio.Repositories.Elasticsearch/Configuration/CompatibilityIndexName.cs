@@ -28,9 +28,10 @@ internal static class CompatibilityIndexName
         ArgumentException.ThrowIfNullOrEmpty(index);
         ArgumentException.ThrowIfNullOrEmpty(configuredIndexName);
 
-        // A user may legitimately configure a name beginning with "reindexed-vN-". Treat its own
-        // physical names as canonical; only strip a compatibility prefix wrapped around that name.
-        if (index.StartsWith($"{configuredIndexName}-v", StringComparison.Ordinal))
+        // A user may legitimately configure a name beginning with "reindexed-vN-". Treat that name
+        // and its physical children as canonical; only strip a compatibility prefix wrapped around it.
+        if (String.Equals(index, configuredIndexName, StringComparison.Ordinal) ||
+            index.StartsWith($"{configuredIndexName}-", StringComparison.Ordinal))
             return index;
 
         return GetCanonicalName(index);
@@ -53,6 +54,7 @@ internal static class CompatibilityIndexName
     public static string CreatePattern(string canonicalPattern)
     {
         ArgumentException.ThrowIfNullOrEmpty(canonicalPattern);
+
         return $"{Prefix}*-{canonicalPattern}";
     }
 }

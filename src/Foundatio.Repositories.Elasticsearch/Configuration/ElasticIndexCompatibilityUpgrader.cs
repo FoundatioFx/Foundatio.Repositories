@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.IndexManagement;
 using Elastic.Transport;
+using Elastic.Transport.Extensions;
 using Elastic.Transport.Products.Elasticsearch;
 using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries.Extensions;
@@ -61,6 +61,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         string sourceIndex = compatibility.Name;
         string targetIndex = CompatibilityIndexName.Create(sourceIndex, compatibility.ServerMajor, index.Name);
         bool sourceBlockAttempted = false;
+        bool sourceBlockConfirmed = false;
         bool sourceBlockAdded = false;
         bool targetCreated = false;
         bool cutoverAttempted = false;
@@ -82,19 +83,21 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             sourceState = await GetSourceStateAsync(sourceIndex, cancellationToken).AnyContext();
             ValidateSource(sourceState);
 
-            if (!sourceState.WasWriteBlocked)
-            {
-                sourceBlockAttempted = true;
-                await AddWriteBlockAsync(sourceIndex, cancellationToken).AnyContext();
-                sourceBlockAdded = true;
-            }
+            sourceBlockAttempted = true;
+            await AddWriteBlockAsync(sourceIndex, cancellationToken).AnyContext();
+            sourceBlockConfirmed = true;
+            sourceBlockAdded = !sourceState.WasWriteBlocked;
 
             await RefreshAsync(sourceIndex, cancellationToken).AnyContext();
             await ReportProgressAsync(5, $"Blocked writes to {sourceIndex}").AnyContext();
 
             await CreateTargetAsync(sourceIndex, targetIndex, cancellationToken).AnyContext();
             targetCreated = true;
-            await EnsureTargetHasNoAliasesAsync(targetIndex, cancellationToken).AnyContext();
+            var targetState = await GetSourceStateAsync(targetIndex, cancellationToken).AnyContext();
+            if (targetState.Aliases.Count > 0)
+                throw new RepositoryException($"Compatibility destination index '{targetIndex}' received aliases during creation. Adjust matching index templates before retrying.");
+            if (!String.Equals(sourceState.MappingSignature, targetState.MappingSignature, StringComparison.Ordinal))
+                throw new RepositoryException($"Compatibility destination index '{targetIndex}' did not receive the source mapping exactly. Adjust matching index templates before retrying.");
             await ReportProgressAsync(10, $"Created {targetIndex} from {sourceIndex}").AnyContext();
 
             var reindexResult = await _reindexTaskRunner.RunCompatibilityReindexAsync(
@@ -105,11 +108,28 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                 ReportProgressAsync,
                 cancellationToken).AnyContext();
 
+            await RefreshAsync(targetIndex, cancellationToken).AnyContext();
             await VerifyDocumentCountsAsync(sourceIndex, targetIndex, reindexResult, cancellationToken).AnyContext();
-            await RestoreTargetSettingsAsync(targetIndex, sourceState.Settings, sourceState.WasWriteBlocked, cancellationToken).AnyContext();
+            await RestoreTargetSettingsAsync(targetIndex, sourceState.Settings, cancellationToken).AnyContext();
+            await WaitForTargetHealthAsync(targetIndex, cancellationToken).AnyContext();
+            targetState = await GetSourceStateAsync(targetIndex, cancellationToken).AnyContext();
+            if (!String.Equals(sourceState.MappingSignature, targetState.MappingSignature, StringComparison.Ordinal)
+                || !String.Equals(sourceState.RestorableSettingsSignature, targetState.RestorableSettingsSignature, StringComparison.Ordinal))
+            {
+                throw new RepositoryException($"Compatibility destination index '{targetIndex}' did not preserve the source mapping and restorable settings exactly. The source remains intact and write blocked.");
+            }
             await ReportProgressAsync(92, $"Validated {reindexResult.Total:N0} documents and restored index settings").AnyContext();
 
-            var expectedAliases = CreateAliasActions(index.Name, sourceState, targetIndex, out var aliasActions);
+            var currentSourceState = await GetSourceStateAsync(sourceIndex, cancellationToken).AnyContext();
+            ValidateSource(currentSourceState);
+            if (!AliasDefinitionsMatch(sourceState.Aliases, currentSourceState.Aliases)
+                || !String.Equals(sourceState.MappingSignature, currentSourceState.MappingSignature, StringComparison.Ordinal)
+                || !String.Equals(sourceState.RestorableSettingsSignature, currentSourceState.RestorableSettingsSignature, StringComparison.Ordinal))
+            {
+                throw new RepositoryException($"Aliases, mappings, or restorable settings on compatibility source index '{sourceIndex}' changed during the upgrade. No cutover was attempted; stop index-management jobs, inspect the source, and retry.");
+            }
+
+            var expectedAliases = CreateAliasActions(index.Name, currentSourceState, targetIndex, out var aliasActions);
             aliasActions.Insert(0, new IndexUpdateAliasesAction
             {
                 RemoveIndex = new RemoveIndexAction { Index = sourceIndex }
@@ -122,7 +142,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             var cutoverResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(aliasActions), cancellationToken).AnyContext();
             _logger.LogRequest(cutoverResponse);
 
-            var topology = await GetTopologyAsync(sourceIndex, targetIndex, expectedAliases, cancellationToken).AnyContext();
+            var topology = await GetTopologyIndependentlyAsync(sourceIndex, targetIndex, expectedAliases).AnyContext();
             if (topology is CutoverTopology.Completed)
             {
                 cutoverCompleted = true;
@@ -139,12 +159,22 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                 throw new RepositoryException($"Compatibility cutover for '{sourceIndex}' is in an unexpected state. Do not retry or delete either index until the aliases and both physical indexes have been inspected manually.");
             }
 
+            if (!sourceState.WasWriteBlocked)
+                await RemoveWriteBlockAsync(targetIndex, cancellationToken).AnyContext();
+
             index.MappingResolver.RefreshMapping();
-            await ReportProgressAsync(100, $"Replaced {sourceIndex} with {targetIndex}").AnyContext();
+            try
+            {
+                await ReportProgressAsync(100, $"Replaced {sourceIndex} with {targetIndex}").AnyContext();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Compatibility upgrade {SourceIndex} -> {TargetIndex} completed, but final progress reporting failed", sourceIndex, targetIndex);
+            }
         }
         catch (Exception upgradeException)
         {
-            if (sourceBlockAttempted && !sourceBlockAdded)
+            if (sourceBlockAttempted && !sourceBlockConfirmed)
             {
                 const string message = "The request outcome is unknown; inspect the source write block before retrying.";
                 if (upgradeException is OperationCanceledException)
@@ -154,13 +184,14 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             }
 
             string? uncertainCutoverMessage = null;
+            bool cleanupUnsafe = upgradeException is ElasticReindexTaskUncertainException;
             if (cutoverAttempted && !cutoverCompleted)
             {
                 topologyUncertain = true;
                 uncertainCutoverMessage = $"Compatibility cutover for '{sourceIndex}' may have committed before the client observed the failure. Do not retry or delete either index until the aliases and both physical indexes have been inspected manually.";
             }
 
-            if (!cutoverCompleted && !topologyUncertain)
+            if (!cutoverCompleted && !topologyUncertain && !cleanupUnsafe)
             {
                 try
                 {
@@ -206,7 +237,9 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             ReadBoolean(settings.Hidden),
             settings,
             state.DataStream,
-            state.Mappings?.Source?.Enabled);
+            state.Mappings?.Source?.Enabled,
+            _client.ElasticsearchClientSettings.RequestResponseSerializer.SerializeToString(state.Mappings),
+            CreateRestorableSettingsSignature(settings));
     }
 
     private static void ValidateSource(SourceIndexState source)
@@ -240,7 +273,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         _logger.LogRequest(response);
 
         if (response.ApiCallDetails.HasSuccessfulStatusCode && response.Exists)
-            throw new RepositoryException($"Compatibility destination index '{targetIndex}' already exists. Inspect it and remove or rename it before retrying.");
+            throw new RepositoryException($"Compatibility destination index '{targetIndex}' already exists. Inspect it and remove it only after confirming that it is an unaliased artifact from an interrupted attempt.");
 
         if (!response.ApiCallDetails.HasSuccessfulStatusCode && response.ApiCallDetails.HttpStatusCode is not 404)
             throw new RepositoryException(response.GetErrorMessage($"Unable to determine whether compatibility destination index '{targetIndex}' exists."), response.OriginalException());
@@ -251,7 +284,30 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         string escapedIndex = Uri.EscapeDataString(sourceIndex);
         var path = new EndpointPath(TransportHttpMethod.PUT, $"/{escapedIndex}/_block/write");
         var response = await _client.Transport.RequestAsync<ElasticsearchStringResponse>(path, null, null, null, cancellationToken).AnyContext();
-        EnsureAcknowledged(response, $"Unable to add a write block to compatibility source index '{sourceIndex}'.");
+        if (!response.IsValidResponse || String.IsNullOrEmpty(response.Body))
+            throw new RepositoryException($"Unable to add a write block to compatibility source index '{sourceIndex}'. {response.DebugInformation}");
+
+        using var document = JsonDocument.Parse(response.Body);
+        if (!IsWriteBlockConfirmed(document.RootElement, sourceIndex))
+            throw new RepositoryException($"Elasticsearch did not confirm that all shards of compatibility source index '{sourceIndex}' were write blocked.");
+    }
+
+    internal static bool IsWriteBlockConfirmed(JsonElement response, string sourceIndex)
+    {
+        if (!response.TryGetProperty("acknowledged", out var acknowledged) || acknowledged.ValueKind is not JsonValueKind.True)
+            return false;
+
+        if (!response.TryGetProperty("shards_acknowledged", out var shardsAcknowledged) || shardsAcknowledged.ValueKind is not JsonValueKind.True)
+            return false;
+
+        if (!response.TryGetProperty("indices", out var indices) || indices.ValueKind is not JsonValueKind.Array || indices.GetArrayLength() is not 1)
+            return false;
+
+        var index = indices[0];
+        return index.TryGetProperty("name", out var name)
+            && String.Equals(name.GetString(), sourceIndex, StringComparison.Ordinal)
+            && index.TryGetProperty("blocked", out var blocked)
+            && blocked.ValueKind is JsonValueKind.True;
     }
 
     private async Task CreateTargetAsync(string sourceIndex, string targetIndex, CancellationToken cancellationToken)
@@ -277,17 +333,6 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             throw new RepositoryException(response.GetErrorMessage($"Unable to create compatibility destination index '{targetIndex}' from '{sourceIndex}'."), response.OriginalException());
     }
 
-    private async Task EnsureTargetHasNoAliasesAsync(string targetIndex, CancellationToken cancellationToken)
-    {
-        var response = await _client.Indices.GetAsync((Indices)targetIndex, d => d.LimitToNamesAndAliases(), cancellationToken).AnyContext();
-        _logger.LogRequest(response);
-        if (!response.IsValidResponse || response.Indices is null || !response.Indices.TryGetValue(targetIndex, out var targetState) || targetState is null)
-            throw new RepositoryException(response.GetErrorMessage($"Unable to verify compatibility destination index '{targetIndex}'."), response.OriginalException());
-
-        if (targetState.Aliases is { Count: > 0 })
-            throw new RepositoryException($"Compatibility destination index '{targetIndex}' received aliases during creation. Adjust matching index templates before retrying.");
-    }
-
     private async Task VerifyDocumentCountsAsync(
         string sourceIndex,
         string targetIndex,
@@ -296,12 +341,12 @@ internal sealed class ElasticIndexCompatibilityUpgrader
     {
         var sourceCount = await _client.CountAsync<object>(d => d.Indices(sourceIndex), cancellationToken).AnyContext();
         _logger.LogRequest(sourceCount);
-        if (!sourceCount.IsValidResponse)
+        if (!sourceCount.IsValidResponse || !ShardsSucceeded(sourceCount.Shards))
             throw new RepositoryException(sourceCount.GetErrorMessage($"Unable to count compatibility source index '{sourceIndex}'."), sourceCount.OriginalException());
 
         var targetCount = await _client.CountAsync<object>(d => d.Indices(targetIndex), cancellationToken).AnyContext();
         _logger.LogRequest(targetCount);
-        if (!targetCount.IsValidResponse)
+        if (!targetCount.IsValidResponse || !ShardsSucceeded(targetCount.Shards))
             throw new RepositoryException(targetCount.GetErrorMessage($"Unable to count compatibility destination index '{targetIndex}'."), targetCount.OriginalException());
 
         if (sourceCount.Count != targetCount.Count || sourceCount.Count != reindexResult.Total || targetCount.Count != reindexResult.Created)
@@ -312,7 +357,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         }
     }
 
-    private async Task RestoreTargetSettingsAsync(string targetIndex, IndexSettings sourceSettings, bool preserveWriteBlock, CancellationToken cancellationToken)
+    private async Task RestoreTargetSettingsAsync(string targetIndex, IndexSettings sourceSettings, CancellationToken cancellationToken)
     {
         var settings = new Dictionary<string, object?>
         {
@@ -322,8 +367,7 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             ["index.final_pipeline"] = sourceSettings.FinalPipeline
         };
 
-        if (preserveWriteBlock)
-            settings["index.blocks.write"] = true;
+        settings["index.blocks.write"] = true;
 
         string body = JsonSerializer.Serialize(settings);
         string escapedIndex = Uri.EscapeDataString(targetIndex);
@@ -332,10 +376,32 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         EnsureAcknowledged(response, $"Unable to restore settings on compatibility destination index '{targetIndex}'.");
     }
 
-    private static HashSet<string> CreateAliasActions(string logicalIndexName, SourceIndexState source, string targetIndex, out List<IndexUpdateAliasesAction> actions)
+    private async Task RemoveWriteBlockAsync(string targetIndex, CancellationToken cancellationToken)
+    {
+        var response = await _client.Indices.PutSettingsAsync(targetIndex,
+            d => d.Settings(s => s.Blocks(b => b.Write(false))), cancellationToken).AnyContext();
+        _logger.LogRequest(response);
+        if (!response.IsValidResponse || !response.Acknowledged)
+            throw new RepositoryException(response.GetErrorMessage($"Compatibility cutover completed, but the write block could not be removed from destination index '{targetIndex}'. The source was replaced successfully; inspect and unblock the destination before resuming writes."), response.OriginalException());
+    }
+
+    private async Task WaitForTargetHealthAsync(string targetIndex, CancellationToken cancellationToken)
+    {
+        var response = await _client.Cluster.HealthAsync(d => d
+            .Indices(targetIndex)
+            .WaitForStatus(HealthStatus.Yellow)
+            .WaitForNoInitializingShards()
+            .WaitForNoRelocatingShards()
+            .Timeout("30s"), cancellationToken).AnyContext();
+        _logger.LogRequest(response);
+        if (!response.IsValidResponse || response.TimedOut || response.Status is HealthStatus.Red)
+            throw new RepositoryException(response.GetErrorMessage($"Compatibility destination index '{targetIndex}' did not make all primary shards available after restoring replicas. The source remains intact and write blocked."), response.OriginalException());
+    }
+
+    private static IReadOnlyDictionary<string, Alias> CreateAliasActions(string logicalIndexName, SourceIndexState source, string targetIndex, out List<IndexUpdateAliasesAction> actions)
     {
         actions = new List<IndexUpdateAliasesAction>(source.Aliases.Count + 2);
-        var expectedAliases = new HashSet<string>(source.Aliases.Keys, StringComparer.Ordinal);
+        var expectedAliases = new Dictionary<string, Alias>(source.Aliases, StringComparer.Ordinal);
 
         foreach (var alias in source.Aliases)
         {
@@ -355,21 +421,49 @@ internal sealed class ElasticIndexCompatibilityUpgrader
             });
         }
 
-        if (String.Equals(source.Name, logicalIndexName, StringComparison.Ordinal) && expectedAliases.Add(logicalIndexName))
+        string canonicalPhysicalName = CompatibilityIndexName.GetCanonicalName(source.Name, logicalIndexName);
+        if (!expectedAliases.ContainsKey(canonicalPhysicalName))
         {
+            var canonicalAlias = new Alias { IsHidden = source.IsHidden };
+            expectedAliases.Add(canonicalPhysicalName, canonicalAlias);
             actions.Add(new IndexUpdateAliasesAction
             {
-                Add = new AddAction { Index = targetIndex, Alias = logicalIndexName, IsHidden = source.IsHidden }
+                Add = new AddAction { Index = targetIndex, Alias = canonicalPhysicalName, IsHidden = canonicalAlias.IsHidden }
             });
         }
 
         return expectedAliases;
     }
 
+    private bool AliasDefinitionsMatch(IReadOnlyDictionary<string, Alias> expected, IReadOnlyDictionary<string, Alias> actual)
+    {
+        if (expected.Count != actual.Count)
+            return false;
+
+        foreach (var expectedAlias in expected)
+        {
+            if (!actual.TryGetValue(expectedAlias.Key, out var actualAlias)
+                || expectedAlias.Value.IsHidden != actualAlias.IsHidden
+                || expectedAlias.Value.IsWriteIndex != actualAlias.IsWriteIndex
+                || !String.Equals(expectedAlias.Value.IndexRouting?.ToString(), actualAlias.IndexRouting?.ToString(), StringComparison.Ordinal)
+                || !String.Equals(expectedAlias.Value.Routing?.ToString(), actualAlias.Routing?.ToString(), StringComparison.Ordinal)
+                || !String.Equals(expectedAlias.Value.SearchRouting?.ToString(), actualAlias.SearchRouting?.ToString(), StringComparison.Ordinal)
+                || !String.Equals(
+                    _client.ElasticsearchClientSettings.RequestResponseSerializer.SerializeToString(expectedAlias.Value.Filter),
+                    _client.ElasticsearchClientSettings.RequestResponseSerializer.SerializeToString(actualAlias.Filter),
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private async Task<CutoverTopology> GetTopologyAsync(
         string sourceIndex,
         string targetIndex,
-        HashSet<string> expectedAliases,
+        IReadOnlyDictionary<string, Alias> expectedAliases,
         CancellationToken cancellationToken)
     {
         string names = String.Join(',', sourceIndex, targetIndex);
@@ -380,17 +474,26 @@ internal sealed class ElasticIndexCompatibilityUpgrader
 
         bool sourceExists = response.Indices?.ContainsKey(sourceIndex) is true;
         bool targetExists = response.Indices?.ContainsKey(targetIndex) is true;
-        var targetAliases = response.Indices is not null && response.Indices.TryGetValue(targetIndex, out var targetState)
-            ? targetState.Aliases?.Keys.ToHashSet(StringComparer.Ordinal) ?? []
-            : [];
+        IReadOnlyDictionary<string, Alias> targetAliases = response.Indices is not null && response.Indices.TryGetValue(targetIndex, out var targetState)
+            ? targetState.Aliases ?? new Dictionary<string, Alias>()
+            : new Dictionary<string, Alias>();
 
-        if (!sourceExists && targetExists && targetAliases.SetEquals(expectedAliases))
+        if (!sourceExists && targetExists && AliasDefinitionsMatch(expectedAliases, targetAliases))
             return CutoverTopology.Completed;
 
         if (sourceExists && targetExists && targetAliases.Count is 0)
             return CutoverTopology.NotStarted;
 
         return CutoverTopology.Uncertain;
+    }
+
+    private async Task<CutoverTopology> GetTopologyIndependentlyAsync(
+        string sourceIndex,
+        string targetIndex,
+        IReadOnlyDictionary<string, Alias> expectedAliases)
+    {
+        using var reconciliationCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        return await GetTopologyAsync(sourceIndex, targetIndex, expectedAliases, reconciliationCancellation.Token).AnyContext();
     }
 
     private async Task CleanupAsync(string sourceIndex, string targetIndex, bool targetCreated, bool sourceBlockAdded)
@@ -447,8 +550,15 @@ internal sealed class ElasticIndexCompatibilityUpgrader
     {
         var response = await _client.Indices.RefreshAsync((Indices)index, cancellationToken).AnyContext();
         _logger.LogRequest(response);
-        if (!response.IsValidResponse)
-            throw new RepositoryException(response.GetErrorMessage($"Unable to refresh compatibility source index '{index}'."), response.OriginalException());
+        if (!response.IsValidResponse || !ShardsSucceeded(response.Shards))
+            throw new RepositoryException(response.GetErrorMessage($"Unable to refresh compatibility index '{index}'."), response.OriginalException());
+    }
+
+    internal static bool ShardsSucceeded(ShardStatistics? shards)
+    {
+        // Refresh includes unassigned replicas in Total on yellow clusters. Failed is the authoritative
+        // partial-operation signal; at least one successful shard also rules out empty/unknown responses.
+        return shards is not null && shards.Failed is 0 && shards.Successful > 0;
     }
 
     private static void EnsureCreateFromSupported(string serverVersion)
@@ -478,6 +588,15 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         return value?.Match<object?>(first => first, second => second);
     }
 
+    private static string CreateRestorableSettingsSignature(IndexSettings settings)
+    {
+        return String.Join('\n',
+            GetValue(settings.NumberOfReplicas)?.ToString(),
+            settings.RefreshInterval?.ToString(),
+            settings.DefaultPipeline,
+            settings.FinalPipeline);
+    }
+
     private sealed record SourceIndexState(
         string Name,
         IReadOnlyDictionary<string, Alias> Aliases,
@@ -485,7 +604,9 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         bool IsHidden,
         IndexSettings Settings,
         string? DataStream,
-        bool? SourceEnabled);
+        bool? SourceEnabled,
+        string MappingSignature,
+        string RestorableSettingsSignature);
 
     private enum CutoverTopology
     {

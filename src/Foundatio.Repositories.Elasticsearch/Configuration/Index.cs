@@ -321,7 +321,11 @@ public class Index : IIndexCompatibility, IHaveLogger
 
         // Resolve wildcards and aliases to their concrete backing indexes; use GetAsync because
         // ResolveIndexAsync is broken in ES 9.x client, and Elasticsearch rejects deleting an index by alias name.
-        var getResponse = await Configuration.Client.Indices.GetAsync(Indices.Parse(String.Join(",", names)), d => d.LimitToNamesAndAliases().ExpandWildcards(ExpandWildcard.All).IgnoreUnavailable()).AnyContext();
+        var getResponse = await Configuration.Client.Indices.GetAsync(Indices.Parse(String.Join(",", names)), d => d
+            .LimitToNamesAndAliases()
+            .AllowNoIndices()
+            .ExpandWildcards(ExpandWildcard.All)
+            .IgnoreUnavailable()).AnyContext();
         if (!getResponse.IsValidResponse && getResponse.ElasticsearchServerError?.Status is not 404)
         {
             _logger.LogErrorRequest(getResponse, "Error resolving indexes {Names}", String.Join(", ", names));
@@ -466,8 +470,7 @@ public class Index : IIndexCompatibility, IHaveLogger
                 CreatedMajor = createdMajor.Value,
                 CreatedVersion = versioning?.CreatedString,
                 ServerMajor = serverMajor,
-                ServerVersion = serverVersion.Version,
-                RequiresReindexBeforeNextMajorUpgrade = createdMajor.Value < serverMajor
+                ServerVersion = serverVersion.Version
             });
         }
 

@@ -79,9 +79,15 @@ internal sealed class ElasticReindexTaskRunner
         {
             return await WaitForCompletionAsync(startResponse.Task, workItem, progressCallbackAsync, cancellationToken).AnyContext();
         }
-        catch
+        catch (Exception reindexException)
         {
-            await TryCancelTaskAsync(startResponse.Task, sourceIndex, targetIndex).AnyContext();
+            await ElasticReindexTaskCancellation.CancelAndConfirmAsync(
+                _client,
+                _logger,
+                startResponse.Task,
+                sourceIndex,
+                targetIndex,
+                reindexException).AnyContext();
             throw;
         }
     }
@@ -190,23 +196,6 @@ internal sealed class ElasticReindexTaskRunner
         return values.TryGetValue(key, out var value) ? Convert.ToInt64(value) : 0;
     }
 
-    private async Task TryCancelTaskAsync(TaskId taskId, string sourceIndex, string targetIndex)
-    {
-        try
-        {
-            using var cleanupCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            var response = await _client.Tasks.CancelAsync(c => c.TaskId(taskId), cleanupCancellation.Token).AnyContext();
-            if (response.IsValidResponse)
-                _logger.LogRequest(response);
-            else
-                _logger.LogErrorRequest(response, "Failed to cancel compatibility reindex task {TaskId} for {SourceIndex} -> {TargetIndex}", taskId.FullyQualifiedId, sourceIndex, targetIndex);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Exception cancelling compatibility reindex task {TaskId} for {SourceIndex} -> {TargetIndex}", taskId.FullyQualifiedId, sourceIndex, targetIndex);
-        }
-    }
-
     private sealed record TaskWithReindexResponse
     {
         public TaskReindexResult? Response { get; init; }
@@ -234,3 +223,8 @@ internal sealed class ElasticReindexTaskRunner
 }
 
 internal readonly record struct ElasticReindexTaskResult(long Total, long Created);
+
+internal sealed class ElasticReindexTaskUncertainException : RepositoryException
+{
+    public ElasticReindexTaskUncertainException(string message, Exception innerException) : base(message, innerException) { }
+}

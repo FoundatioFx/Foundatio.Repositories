@@ -11,6 +11,7 @@ using Foundatio.Lock;
 using Foundatio.Parsers.ElasticQueries.Extensions;
 using Foundatio.Repositories.Elasticsearch.Configuration;
 using Foundatio.Repositories.Elasticsearch.Extensions;
+using Foundatio.Repositories.Elasticsearch.Jobs;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Configuration.Indexes;
 using Foundatio.Repositories.Elasticsearch.Tests.Repositories.Models;
 using Foundatio.Repositories.Utility;
@@ -32,6 +33,96 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
     {
         await base.InitializeAsync();
         await RemoveDataAsync(false);
+    }
+
+    [Fact]
+    public async Task ReindexAsync_WithFilteredAliasAndDeleteOld_RejectsBeforeCopy()
+    {
+        // Arrange
+        string sourceIndex = $"filtered-reindex-source-{Guid.NewGuid():N}";
+        string targetIndex = $"filtered-reindex-target-{Guid.NewGuid():N}";
+        string sourceAlias = $"filtered-reindex-alias-{Guid.NewGuid():N}";
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await _client.Indices.DeleteAsync(Indices.Parse($"{sourceIndex},{targetIndex}"), d => d.IgnoreUnavailable(), TestCancellationToken);
+        });
+
+        var createResponse = await _client.Indices.CreateAsync(sourceIndex, cancellationToken: TestCancellationToken);
+        Assert.True(createResponse.IsValidResponse);
+        var aliasResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(actions => actions.Add(add => add
+            .Index(sourceIndex)
+            .Alias(sourceAlias)
+            .Filter(q => q.Term(t => t.Field("companyId").Value("company-a"))))), TestCancellationToken);
+        Assert.True(aliasResponse.IsValidResponse);
+
+        var reindexer = new ElasticReindexer(_client, _configuration.Serializer, _logger);
+        var workItem = new ReindexWorkItem
+        {
+            OldIndex = sourceAlias,
+            NewIndex = targetIndex,
+            Alias = sourceAlias,
+            DeleteOld = true
+        };
+
+        // Act
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => reindexer.ReindexAsync(workItem));
+
+        // Assert
+        Assert.Contains("filtered or routed alias", exception.Message);
+        Assert.True((await _client.Indices.ExistsAsync(sourceIndex, cancellationToken: TestCancellationToken)).Exists);
+        Assert.False((await _client.Indices.ExistsAsync(targetIndex, cancellationToken: TestCancellationToken)).Exists);
+    }
+
+    [Fact]
+    public async Task ReindexAsync_WithFilteredAliasWithoutDelete_RejectsBeforeCopy()
+    {
+        // Arrange
+        string sourceIndex = $"filtered-copy-source-{Guid.NewGuid():N}";
+        string targetIndex = $"filtered-copy-target-{Guid.NewGuid():N}";
+        string filteredAlias = $"filtered-copy-alias-{Guid.NewGuid():N}";
+        string unrelatedAlias = $"filtered-copy-unrelated-{Guid.NewGuid():N}";
+        await using AsyncDisposableAction _ = new(async () =>
+        {
+            await _client.Indices.DeleteAsync(Indices.Parse($"{sourceIndex},{targetIndex}"), d => d.IgnoreUnavailable(), TestCancellationToken);
+        });
+
+        var createResponse = await _client.Indices.CreateAsync(sourceIndex, cancellationToken: TestCancellationToken);
+        Assert.True(createResponse.IsValidResponse);
+        var createTargetResponse = await _client.Indices.CreateAsync(targetIndex, cancellationToken: TestCancellationToken);
+        Assert.True(createTargetResponse.IsValidResponse);
+        await _client.IndexAsync(new { companyId = "company-a" }, d => d.Index(sourceIndex).Id(ObjectId.GenerateNewId().ToString()), TestCancellationToken);
+        await _client.IndexAsync(new { companyId = "company-b" }, d => d.Index(sourceIndex).Id(ObjectId.GenerateNewId().ToString()), TestCancellationToken);
+        await _client.Indices.RefreshAsync((Indices)sourceIndex, TestCancellationToken);
+        var filteredAliasCreateResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(actions => actions.Add(add => add
+            .Index(sourceIndex)
+            .Alias(filteredAlias)
+            .Filter(q => q.Term(t => t.Field("companyId.keyword").Value("company-a"))))), TestCancellationToken);
+        Assert.True(filteredAliasCreateResponse.IsValidResponse);
+        var unrelatedAliasCreateResponse = await _client.Indices.UpdateAliasesAsync(a => a.Actions(actions => actions.Add(add => add
+            .Index(sourceIndex)
+            .Alias(unrelatedAlias))), TestCancellationToken);
+        Assert.True(unrelatedAliasCreateResponse.IsValidResponse);
+
+        var reindexer = new ElasticReindexer(_client, _configuration.Serializer, _logger);
+        var workItem = new ReindexWorkItem
+        {
+            OldIndex = filteredAlias,
+            NewIndex = targetIndex,
+            Alias = filteredAlias,
+            DeleteOld = false
+        };
+
+        // Act
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => reindexer.ReindexAsync(workItem));
+
+        // Assert
+        Assert.Contains("filtered or routed alias", exception.Message);
+        var filteredAliasResponse = await _client.Indices.GetAsync((Indices)filteredAlias, cancellationToken: TestCancellationToken);
+        Assert.Equal(sourceIndex, filteredAliasResponse.Indices.Keys.Single().ToString());
+        var unrelatedAliasResponse = await _client.Indices.GetAsync((Indices)unrelatedAlias, cancellationToken: TestCancellationToken);
+        Assert.Equal(sourceIndex, unrelatedAliasResponse.Indices.Keys.Single().ToString());
+        Assert.Equal(2, (await _client.CountAsync<object>(d => d.Indices(sourceIndex), TestCancellationToken)).Count);
+        Assert.Equal(0, (await _client.CountAsync<object>(d => d.Indices(targetIndex), TestCancellationToken)).Count);
     }
 
     [Fact]
@@ -1246,6 +1337,14 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         // Assert
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => reindexTask);
         Assert.True((await _client.Indices.ExistsAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+
+        var tasksResponse = await _client.Tasks.ListAsync(cancellationToken: TestCancellationToken);
+        Assert.True(tasksResponse.IsValidResponse);
+        Assert.DoesNotContain(
+            tasksResponse.Nodes?.Values.SelectMany(node => node.Tasks.Values) ?? [],
+            task => task.Action.Contains("reindex", StringComparison.Ordinal)
+                && (task.Description?.Contains(version1Index.VersionedName, StringComparison.Ordinal) is true
+                    || task.Description?.Contains(version2Index.VersionedName, StringComparison.Ordinal) is true));
     }
 
     [Fact]
@@ -1307,7 +1406,7 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         var version2Index = new VersionedEmployeeIndex(_configuration, 2)
         {
             ReindexBatchSize = 50,
-            ReindexRequestsPerSecond = 25
+            ReindexRequestsPerSecond = 50
         };
         await version2Index.DeleteAsync();
 
@@ -1321,9 +1420,8 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
         await version2Index.ConfigureAsync();
 
         // Act
-        // With a 50-doc batch throttled to 25 docs/sec, Elasticsearch pauses ~2s between each of the 4
-        // batches, so a correctly-throttled reindex takes noticeably longer than an unthrottled one would
-        // (which typically completes well under a second locally).
+        // With a 50-doc batch throttled to 50 docs/sec, Elasticsearch pauses between each of the 4 batches
+        // in both copy passes, so a correctly-throttled reindex takes noticeably longer than an unthrottled one.
         var sw = Stopwatch.StartNew();
         await version2Index.ReindexAsync();
         sw.Stop();

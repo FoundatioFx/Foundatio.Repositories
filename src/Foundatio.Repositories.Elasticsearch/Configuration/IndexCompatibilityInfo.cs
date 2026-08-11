@@ -1,6 +1,21 @@
 namespace Foundatio.Repositories.Elasticsearch.Configuration;
 
 /// <summary>
+/// Classifies whether a physical index can be carried forward to the next Elasticsearch major version.
+/// </summary>
+public enum IndexCompatibilityState
+{
+    /// <summary>The index was created by the connected Elasticsearch major version.</summary>
+    Current,
+
+    /// <summary>The index was created by the immediately previous major and must be reindexed before the next major upgrade.</summary>
+    RequiresReindex,
+
+    /// <summary>The index is more than one major behind the connected server and cannot be upgraded by this workflow.</summary>
+    Unsupported
+}
+
+/// <summary>
 /// Describes the Elasticsearch version compatibility of a single physical index backing an <see cref="IIndex"/>.
 /// </summary>
 public record IndexCompatibilityInfo
@@ -33,8 +48,17 @@ public record IndexCompatibilityInfo
     public required string ServerVersion { get; init; }
 
     /// <summary>
-    /// <c>true</c> when <see cref="CreatedMajor"/> is older than the major version of the currently connected
-    /// Elasticsearch server and should be reindexed before the server is upgraded to its next major version.
+    /// Gets the compatibility classification derived from <see cref="CreatedMajor"/> and <see cref="ServerMajor"/>.
     /// </summary>
-    public bool RequiresReindexBeforeNextMajorUpgrade { get; init; }
+    public IndexCompatibilityState State => CreatedMajor == ServerMajor
+        ? IndexCompatibilityState.Current
+        : CreatedMajor == ServerMajor - 1
+            ? IndexCompatibilityState.RequiresReindex
+            : IndexCompatibilityState.Unsupported;
+
+    /// <summary>
+    /// Gets whether the index was created by the immediately previous Elasticsearch major and must be reindexed
+    /// before upgrading the server again.
+    /// </summary>
+    public bool RequiresReindexBeforeNextMajorUpgrade => State is IndexCompatibilityState.RequiresReindex;
 }

@@ -43,7 +43,7 @@ public class CleanupIndexesJob : IJob
     {
         _indexes.Add(new IndexMaxAge(maxAge, idx =>
         {
-            string name = Configuration.CompatibilityIndexName.GetCanonicalName(idx);
+            string name = Configuration.CompatibilityIndexName.GetCanonicalName(idx, prefix);
 
             if (DateTime.TryParseExact(name, "'" + prefix + "-'yyyy.MM.dd", _enUS, DateTimeStyles.None, out var result))
                 return result;
