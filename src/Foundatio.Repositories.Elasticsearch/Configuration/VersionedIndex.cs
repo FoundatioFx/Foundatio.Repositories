@@ -389,10 +389,19 @@ public class VersionedIndex : Index, IVersionedIndex
         return infos.Where(i => GetIndexVersion(i.Name) >= 0).ToArray();
     }
 
-    internal override void ValidateCompatibilityUpgradeSource(string sourceIndex)
+    internal override bool OwnsCompatibilityIndex(string sourceIndex)
     {
+        string canonicalName = CompatibilityIndexName.GetCanonicalName(sourceIndex, Name);
+        int sourceVersion = GetIndexVersion(canonicalName);
+        return sourceVersion >= 0
+            && (HasMultipleIndexes || String.Equals(canonicalName, $"{Name}-v{sourceVersion}", StringComparison.Ordinal));
+    }
+
+    internal override void ValidateCompatibilityUpgradeSource(string sourceIndex, bool ownsLogicalAlias)
+    {
+        base.ValidateCompatibilityUpgradeSource(sourceIndex, ownsLogicalAlias);
         int sourceVersion = GetIndexVersion(sourceIndex);
-        if (sourceVersion != Version)
+        if (sourceVersion != Version && ownsLogicalAlias)
             throw new RepositoryException($"Index '{sourceIndex}' uses schema version {sourceVersion}, but '{Name}' is configured for version {Version}. Run the schema reindex before upgrading Elasticsearch index compatibility.");
     }
 

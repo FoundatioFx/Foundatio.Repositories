@@ -184,6 +184,44 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task CanUpgradeRetainedInactiveVersionedIndexCompatibilityAsync()
+    {
+        // Arrange
+        string name = $"compat-retained-version-{Guid.NewGuid():N}";
+        var version1 = new ForcedIncompatibleVersionedEmployeeIndex(_configuration, name, 1);
+        var version2 = new ForcedIncompatibleVersionedEmployeeIndex(_configuration, name, 2) { DiscardIndexesOnReindex = false };
+        await using AsyncDisposableAction _ = new(() => version1.DeleteAsync());
+        await using AsyncDisposableAction version2Scope = new(() => version2.DeleteAsync());
+        await version1.ConfigureAsync();
+        var repository = new EmployeeRepository(version1);
+        var employee = await repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
+        Assert.NotNull(employee?.Id);
+        await version2.ConfigureAsync();
+        await version2.ReindexAsync();
+        Assert.True((await _client.Indices.ExistsAsync(version1.VersionedName, cancellationToken: TestCancellationToken)).Exists);
+        var compatibility = await version2.GetIndexCompatibilityAsync(TestCancellationToken);
+        var version1Compatibility = Assert.Single(compatibility, i => String.Equals(i.Name, version1.VersionedName, StringComparison.Ordinal));
+        var version2Compatibility = Assert.Single(compatibility, i => String.Equals(i.Name, version2.VersionedName, StringComparison.Ordinal));
+        Assert.True(version1Compatibility.RequiresReindexBeforeNextMajorUpgrade);
+        Assert.True(version2Compatibility.RequiresReindexBeforeNextMajorUpgrade);
+        string version1Target = CompatibilityIndexName.Create(version1.VersionedName, version1Compatibility.ServerMajor, name);
+        string version2Target = CompatibilityIndexName.Create(version2.VersionedName, version2Compatibility.ServerMajor, name);
+
+        // Act
+        await _configuration.UpgradeIndexCompatibilityAsync([version2], cancellationToken: TestCancellationToken);
+
+        // Assert
+        var retainedAliasResponse = await _client.Indices.GetAsync((Indices)version1.VersionedName, cancellationToken: TestCancellationToken);
+        Assert.Equal(version1Target, retainedAliasResponse.Indices.Keys.Single().ToString());
+        var activeAliasResponse = await _client.Indices.GetAsync((Indices)name, cancellationToken: TestCancellationToken);
+        Assert.Equal(version2Target, activeAliasResponse.Indices.Keys.Single().ToString());
+        var countResponse = await _client.CountAsync<Employee>(d => d.Indices(version1.VersionedName), TestCancellationToken);
+        Assert.True(countResponse.IsValidResponse);
+        Assert.Equal(1, countResponse.Count);
+        Assert.DoesNotContain(await version2.GetIndexCompatibilityAsync(TestCancellationToken), i => i.RequiresReindexBeforeNextMajorUpgrade);
+    }
+
+    [Fact]
     public async Task GetIndexCompatibilityAsync_DoesNotRequireUpgrade_ForCurrentlyCreatedIndex()
     {
         var realIndex = new EmployeeIndex(_configuration);

@@ -215,7 +215,7 @@ internal sealed class ElasticIndexCompatibilityRecovery
         return indexSettings?.Blocks?.Write is true;
     }
 
-    private static void ValidateConcreteSourceName(string sourceIndex)
+    internal static void ValidateConcreteSourceName(string sourceIndex)
     {
         ArgumentException.ThrowIfNullOrEmpty(sourceIndex);
         if (sourceIndex.AsSpan().IndexOfAny('*', '?', ',') >= 0)

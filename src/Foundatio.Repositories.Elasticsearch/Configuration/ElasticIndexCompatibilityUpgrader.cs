@@ -40,9 +40,11 @@ internal sealed class ElasticIndexCompatibilityUpgrader
         ArgumentNullException.ThrowIfNull(compatibility);
 
         EnsureCreateFromSupported(compatibility.ServerVersion);
+        ElasticReindexTaskRunner.ValidateOptions(index.ReindexBatchSize, index.ReindexRequestsPerSecond);
         string targetIndex = CompatibilityIndexName.Create(compatibility.Name, compatibility.ServerMajor, index.Name);
         await EnsureTargetDoesNotExistAsync(targetIndex, cancellationToken).AnyContext();
         var sourceState = await GetSourceStateAsync(compatibility.Name, cancellationToken).AnyContext();
+        index.ValidateCompatibilityUpgradeSource(compatibility.Name, sourceState.Aliases.ContainsKey(index.Name));
         ValidateSource(sourceState);
     }
 
