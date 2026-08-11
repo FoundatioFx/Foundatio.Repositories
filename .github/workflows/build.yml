@@ -6,6 +6,9 @@ permissions:
 
 jobs:
   build:
+    permissions:
+      contents: read
+      packages: write
     uses: FoundatioFx/Foundatio/.github/workflows/build-workflow.yml@main
     secrets: inherit
     with:
