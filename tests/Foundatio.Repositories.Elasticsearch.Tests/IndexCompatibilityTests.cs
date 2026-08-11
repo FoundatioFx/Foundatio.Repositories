@@ -92,6 +92,21 @@ public class IndexCompatibilityTests
         Assert.Equal(expected, confirmed);
     }
 
+    [Theory]
+    [InlineData("{\"nodes\":{},\"node_failures\":[{\"type\":\"failed_node_exception\"}]}")]
+    [InlineData("{\"nodes\":{},\"task_failures\":[{\"task_id\":\"node:1\"}]}")]
+    public void ParseActiveReindexTaskCount_WithPartialTaskListing_ReturnsUnknown(string responseBody)
+    {
+        // Arrange
+        using var document = JsonDocument.Parse(responseBody);
+
+        // Act
+        int? count = ElasticIndexCompatibilityRecovery.ParseActiveReindexTaskCount(document.RootElement, "employees", "reindexed-v9-employees");
+
+        // Assert
+        Assert.Null(count);
+    }
+
     [Fact]
     public void ShardsSucceeded_AcceptsUnassignedReplicasButRejectsFailures()
     {
