@@ -596,7 +596,7 @@ public class ElasticReindexer
         return response.Indices.Keys.Single().ToString();
     }
 
-    private async Task<Dictionary<string, AliasDefinition>> GetIndexAliasesAsync(string index)
+    internal async Task<Dictionary<string, AliasDefinition>> GetIndexAliasesAsync(string index)
     {
         var aliasesResponse = await _client.Indices.GetAliasAsync(Indices.Index(index)).AnyContext();
         _logger.LogRequest(aliasesResponse);
@@ -621,10 +621,7 @@ public class ElasticReindexer
         if (aliasesResponse.ApiCallDetails is { HttpStatusCode: 404 })
             return [];
 
-        _logger.LogWarning("Failed to get aliases for index {Index}: {Error}", index,
-            aliasesResponse.ElasticsearchServerError?.Error?.Reason ?? "Unknown error");
-
-        return [];
+        throw new RepositoryException(aliasesResponse.GetErrorMessage($"Unable to read aliases for source index '{index}'."), aliasesResponse.OriginalException());
     }
 
     private async Task<Query?> GetResumeQueryAsync(string newIndex, string? timestampField, DateTime? startTime)

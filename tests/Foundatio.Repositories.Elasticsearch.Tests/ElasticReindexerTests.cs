@@ -1,7 +1,10 @@
 using System;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
 using Foundatio.Repositories.Elasticsearch.Jobs;
+using Foundatio.Repositories.Exceptions;
 using Foundatio.Serializer;
 using Xunit;
 
@@ -9,6 +12,18 @@ namespace Foundatio.Repositories.Elasticsearch.Tests;
 
 public sealed class ElasticReindexerTests
 {
+    [Fact]
+    public Task GetIndexAliasesAsync_WhenMetadataRequestFails_Throws()
+    {
+        // Arrange
+        var requestInvoker = new Elastic.Transport.InMemoryRequestInvoker(Encoding.UTF8.GetBytes("{}"), 500, null, "application/json");
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(requestInvoker));
+        var reindexer = new ElasticReindexer(client, new SystemTextJsonSerializer());
+
+        // Act & Assert
+        return Assert.ThrowsAsync<RepositoryException>(() => reindexer.GetIndexAliasesAsync("employees"));
+    }
+
     [Fact]
     public void GetNoProgressTimeout_WhenBatchSizeNotSpecified_UsesElasticsearchDefaultBatchSize()
     {
