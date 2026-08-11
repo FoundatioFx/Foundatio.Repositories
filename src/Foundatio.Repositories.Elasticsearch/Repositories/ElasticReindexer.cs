@@ -153,7 +153,12 @@ public class ElasticReindexer
             // It is a migration artifact, not a stable application alias, and must not leak into the new schema.
             aliases.Remove(concreteOldIndex);
             if (!String.IsNullOrEmpty(workItem.Alias))
-                aliases.Remove(CompatibilityIndexName.GetCanonicalName(concreteOldIndex, workItem.Alias));
+            {
+                string canonicalOldIndex = CompatibilityIndexName.GetCanonicalName(concreteOldIndex, workItem.Alias);
+                if (String.Equals(canonicalOldIndex, workItem.Alias, StringComparison.Ordinal)
+                    || canonicalOldIndex.StartsWith($"{workItem.Alias}-", StringComparison.Ordinal))
+                    aliases.Remove(canonicalOldIndex);
+            }
             if (!String.IsNullOrEmpty(workItem.Alias) && !aliases.ContainsKey(workItem.Alias))
                 aliases.Add(workItem.Alias, new AliasDefinition());
 

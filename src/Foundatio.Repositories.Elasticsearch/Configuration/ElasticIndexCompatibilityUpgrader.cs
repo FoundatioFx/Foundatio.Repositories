@@ -213,6 +213,9 @@ internal sealed class ElasticIndexCompatibilityUpgrader
                 throw new RepositoryException(uncertainCutoverMessage, upgradeException);
             }
 
+            if (cleanupUnsafe && upgradeException.GetBaseException() is OperationCanceledException)
+                throw new OperationCanceledException(upgradeException.Message, upgradeException, cancellationToken);
+
             throw;
         }
     }
