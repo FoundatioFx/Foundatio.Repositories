@@ -315,9 +315,6 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
                 continue;
 
             foreach (var candidate in candidates)
-                compatibilityIndex.ValidateCompatibilityUpgradeSource(candidate.Name);
-
-            foreach (var candidate in candidates)
             {
                 await reindexLock.RenewAsync().AnyContext();
                 await upgrader.ValidateAsync(compatibilityIndex, candidate, cancellationToken).AnyContext();
@@ -348,6 +345,7 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
         CancellationToken cancellationToken = default)
     {
         var compatibilityIndex = GetOwnedCompatibilityIndex(index);
+        ValidateCompatibilityRecoverySource(compatibilityIndex, sourceIndex);
         var recovery = new ElasticIndexCompatibilityRecovery(Client, _lockProvider, _logger);
         return await recovery.InspectAsync(compatibilityIndex, sourceIndex, cancellationToken).AnyContext();
     }
@@ -360,8 +358,16 @@ public class ElasticConfiguration : IElasticConfigurationCompatibility
         CancellationToken cancellationToken = default)
     {
         var compatibilityIndex = GetOwnedCompatibilityIndex(index);
+        ValidateCompatibilityRecoverySource(compatibilityIndex, sourceIndex);
         var recovery = new ElasticIndexCompatibilityRecovery(Client, _lockProvider, _logger);
         return await recovery.RecoverAsync(compatibilityIndex, sourceIndex, removeWriteBlock, cancellationToken).AnyContext();
+    }
+
+    private static void ValidateCompatibilityRecoverySource(Index index, string sourceIndex)
+    {
+        ElasticIndexCompatibilityRecovery.ValidateConcreteSourceName(sourceIndex);
+        if (!index.OwnsCompatibilityIndex(sourceIndex))
+            throw new ArgumentException($"Compatibility recovery source '{sourceIndex}' does not belong to configured index '{index.Name}'.", nameof(sourceIndex));
     }
 
     private Index GetOwnedCompatibilityIndex(IIndex index)

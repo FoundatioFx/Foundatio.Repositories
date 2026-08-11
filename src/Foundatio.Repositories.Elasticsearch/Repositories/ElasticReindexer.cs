@@ -75,14 +75,7 @@ public class ElasticReindexer
         if (String.IsNullOrEmpty(workItem.NewIndex))
             throw new ArgumentNullException(nameof(workItem.NewIndex));
 
-        if (workItem.ReindexBatchSize is <= 0)
-            throw new ArgumentOutOfRangeException(nameof(workItem.ReindexBatchSize), workItem.ReindexBatchSize, "Must be greater than zero when specified.");
-
-        // Checked explicitly (rather than a `float.NaN` constant pattern) so the intent - and the fact
-        // that infinities are rejected alongside NaN - is obvious without knowing pattern-matching's
-        // NaN semantics. `<= 0` alone wouldn't catch +Infinity, since +Infinity > 0.
-        if (workItem.ReindexRequestsPerSecond is float requestsPerSecond && (requestsPerSecond <= 0 || float.IsNaN(requestsPerSecond) || float.IsInfinity(requestsPerSecond)))
-            throw new ArgumentOutOfRangeException(nameof(workItem.ReindexRequestsPerSecond), workItem.ReindexRequestsPerSecond, "Must be a positive, finite number when specified.");
+        ElasticReindexTaskRunner.ValidateOptions(workItem.ReindexBatchSize, workItem.ReindexRequestsPerSecond);
 
         if (progressCallbackAsync == null)
         {
@@ -133,14 +126,6 @@ public class ElasticReindexer
         if (String.IsNullOrEmpty(workItem.TimestampField))
         {
             sampleResult = await GetSampleDocumentIdAsync(concreteOldIndex).AnyContext();
-            if (workItem.OldIndex != workItem.NewIndex
-                && sampleResult.Status is SampleIdStatus.Found
-                && !ObjectId.TryParse(sampleResult.Id!, out var unused))
-            {
-                throw new RepositoryException(
-                    $"Reindex '{workItem.OldIndex}' -> '{workItem.NewIndex}' cannot safely catch up writes because no TimestampField is configured and document IDs are not ObjectIds.");
-            }
-
             if (workItem.OldIndex != workItem.NewIndex && sampleResult.Status is SampleIdStatus.Failed)
                 throw new RepositoryException($"Unable to establish a safe catch-up strategy for reindex '{workItem.OldIndex}' -> '{workItem.NewIndex}'.", sampleResult.Exception!);
         }
@@ -625,12 +610,12 @@ public class ElasticReindexer
         return response.Indices.Keys.Single().ToString();
     }
 
-    private async Task<Dictionary<string, AliasDefinition>> GetIndexAliasesAsync(string index)
+    internal async Task<Dictionary<string, AliasDefinition>> GetIndexAliasesAsync(string index)
     {
         var aliasesResponse = await _client.Indices.GetAliasAsync(Indices.Index(index)).AnyContext();
         _logger.LogRequest(aliasesResponse);
 
-        if (aliasesResponse.IsValidResponse)
+        if (aliasesResponse.ApiCallDetails.HttpStatusCode is not 404 && aliasesResponse.IsValidResponse)
         {
 #if ELASTICSEARCH9
             var indices = aliasesResponse.Aliases;

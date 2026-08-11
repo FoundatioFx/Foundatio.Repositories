@@ -41,6 +41,7 @@ internal sealed class ElasticReindexTaskRunner
         ArgumentException.ThrowIfNullOrEmpty(sourceIndex);
         ArgumentException.ThrowIfNullOrEmpty(targetIndex);
         ArgumentNullException.ThrowIfNull(progressCallbackAsync);
+        ValidateOptions(batchSize, requestsPerSecond);
 
         var workItem = new ReindexWorkItem
         {
@@ -109,6 +110,15 @@ internal sealed class ElasticReindexTaskRunner
 
         ValidateResult(result, workItem);
         return new ElasticReindexTaskResult(result.Total, result.Created);
+    }
+
+    internal static void ValidateOptions(int? batchSize, float? requestsPerSecond)
+    {
+        if (batchSize is <= 0)
+            throw new ArgumentOutOfRangeException(nameof(batchSize), batchSize, "Must be greater than zero when specified.");
+
+        if (requestsPerSecond is float value && (value <= 0 || float.IsNaN(value) || float.IsInfinity(value)))
+            throw new ArgumentOutOfRangeException(nameof(requestsPerSecond), requestsPerSecond, "Must be a positive, finite number when specified.");
     }
 
     private static ElasticReindexTaskUncertainException CreateUncertainStartException(string sourceIndex, string targetIndex, Exception innerException)

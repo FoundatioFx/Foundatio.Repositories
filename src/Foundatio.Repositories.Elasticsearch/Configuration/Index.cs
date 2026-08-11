@@ -477,8 +477,16 @@ public class Index : IIndexCompatibility, IHaveLogger
         return infos;
     }
 
-    internal virtual void ValidateCompatibilityUpgradeSource(string sourceIndex)
+    internal virtual bool OwnsCompatibilityIndex(string sourceIndex)
     {
+        string canonicalName = CompatibilityIndexName.GetCanonicalName(sourceIndex, Name);
+        return String.Equals(canonicalName, Name, StringComparison.Ordinal);
+    }
+
+    internal virtual void ValidateCompatibilityUpgradeSource(string sourceIndex, bool ownsLogicalAlias)
+    {
+        if (!OwnsCompatibilityIndex(sourceIndex))
+            throw new RepositoryException($"Index '{sourceIndex}' does not belong to configured index '{Name}'.");
     }
 
     private async Task<(int Major, string Version)> GetServerVersionAsync(CancellationToken cancellationToken)

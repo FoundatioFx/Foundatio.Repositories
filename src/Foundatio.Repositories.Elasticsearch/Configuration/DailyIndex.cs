@@ -150,6 +150,11 @@ public class DailyIndex : VersionedIndex
         return infos.Where(i => GetIndexDate(i.Name) != DateTime.MaxValue).ToArray();
     }
 
+    internal override bool OwnsCompatibilityIndex(string sourceIndex)
+    {
+        return base.OwnsCompatibilityIndex(sourceIndex) && GetIndexDate(sourceIndex) != DateTime.MaxValue;
+    }
+
     protected async Task EnsureDateIndexAsync(DateTime utcDate)
     {
         utcDate = utcDate.Date;

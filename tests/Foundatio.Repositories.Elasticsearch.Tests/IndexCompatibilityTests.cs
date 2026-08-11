@@ -127,6 +127,38 @@ public class IndexCompatibilityTests
     }
 
     [Theory]
+    [InlineData(0, null)]
+    [InlineData(-1, null)]
+    [InlineData(null, 0f)]
+    [InlineData(null, -1f)]
+    [InlineData(null, float.PositiveInfinity)]
+    [InlineData(null, float.NaN)]
+    public void ValidateCompatibilityReindexOptions_WithInvalidThrottle_Throws(int? batchSize, float? requestsPerSecond)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => ElasticReindexTaskRunner.ValidateOptions(batchSize, requestsPerSecond));
+    }
+
+    [Fact]
+    public async Task ValidateCompatibilityAsync_WithInvalidThrottle_ThrowsBeforeElasticsearchRequest()
+    {
+        // Arrange
+        var requestInvoker = new InMemoryRequestInvoker([], 500, null, "application/json");
+        var client = new ElasticsearchClient(new ElasticsearchClientSettings(requestInvoker));
+        var upgrader = new ElasticIndexCompatibilityUpgrader(client, TimeProvider.System);
+        using var index = new Index<object>(new ElasticConfiguration(), "employees") { ReindexBatchSize = 0 };
+        var compatibility = new IndexCompatibilityInfo
+        {
+            Name = "employees",
+            CreatedMajor = 8,
+            ServerMajor = 9,
+            ServerVersion = "9.0.0"
+        };
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => upgrader.ValidateAsync(index, compatibility, CancellationToken.None));
+    }
+
+    [Theory]
     [InlineData(9, 9, IndexCompatibilityState.Current)]
     [InlineData(8, 9, IndexCompatibilityState.RequiresReindex)]
     [InlineData(7, 9, IndexCompatibilityState.Unsupported)]
@@ -167,6 +199,21 @@ public class IndexCompatibilityTests
 
         // Assert
         Assert.Equal(expected, confirmed);
+    }
+
+    [Theory]
+    [InlineData("{\"nodes\":{},\"node_failures\":[{\"type\":\"failed_node_exception\"}]}")]
+    [InlineData("{\"nodes\":{},\"task_failures\":[{\"task_id\":\"node:1\"}]}")]
+    public void ParseActiveReindexTaskCount_WithPartialTaskListing_ReturnsUnknown(string responseBody)
+    {
+        // Arrange
+        using var document = JsonDocument.Parse(responseBody);
+
+        // Act
+        int? count = ElasticIndexCompatibilityRecovery.ParseActiveReindexTaskCount(document.RootElement, "employees", "reindexed-v9-employees");
+
+        // Assert
+        Assert.Null(count);
     }
 
     [Fact]
@@ -349,6 +396,80 @@ public class IndexCompatibilityTests
             configuration.InspectIndexCompatibilityUpgradeAsync(index, sourceIndex, TestContext.Current.CancellationToken));
 
         Assert.Contains("exact concrete source", exception.Message);
+    }
+
+    [Fact]
+    public async Task InspectIndexCompatibilityUpgradeAsync_WithSourceOwnedByDifferentIndex_RejectsBeforeRequest()
+    {
+        using var configuration = new ElasticConfiguration();
+        using var index = new Index<object>(configuration, "employees");
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            configuration.InspectIndexCompatibilityUpgradeAsync(index, "customers", TestContext.Current.CancellationToken));
+
+        Assert.Contains("does not belong", exception.Message);
+    }
+
+    [Fact]
+    public void ValidateDistinctSourceAndTarget_WithCurrentMajorDestination_RejectsRecovery()
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            ElasticIndexCompatibilityRecovery.ValidateDistinctSourceAndTarget("reindexed-v9-employees", "reindexed-v9-employees"));
+
+        Assert.Contains("original pre-upgrade", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("employees", true)]
+    [InlineData("reindexed-v9-employees", true)]
+    [InlineData("customers", false)]
+    public void OwnsCompatibilityIndex_ForPlainIndex_RequiresConfiguredCanonicalName(string sourceIndex, bool expected)
+    {
+        using var index = new Index<object>(new ElasticConfiguration(), "employees");
+
+        Assert.Equal(expected, index.OwnsCompatibilityIndex(sourceIndex));
+    }
+
+    [Theory]
+    [InlineData("employees-v1", true)]
+    [InlineData("reindexed-v9-employees-v2", true)]
+    [InlineData("employees-v1-other", false)]
+    [InlineData("customers-v1", false)]
+    public void OwnsCompatibilityIndex_ForVersionedIndex_RequiresExactOwnedVersion(string sourceIndex, bool expected)
+    {
+        using var index = new VersionedIndex<object>(new ElasticConfiguration(), "employees", 2);
+
+        Assert.Equal(expected, index.OwnsCompatibilityIndex(sourceIndex));
+    }
+
+    [Fact]
+    public void ValidateCompatibilityUpgradeSource_ForRetainedInactiveVersion_AllowsOlderSchema()
+    {
+        using var index = new VersionedIndex<object>(new ElasticConfiguration(), "employees", 2);
+
+        index.ValidateCompatibilityUpgradeSource("employees-v1", ownsLogicalAlias: false);
+    }
+
+    [Fact]
+    public void ValidateCompatibilityUpgradeSource_ForActiveOlderVersion_RequiresSchemaReindex()
+    {
+        using var index = new VersionedIndex<object>(new ElasticConfiguration(), "employees", 2);
+
+        var exception = Assert.Throws<RepositoryException>(() => index.ValidateCompatibilityUpgradeSource("employees-v1", ownsLogicalAlias: true));
+
+        Assert.Contains("schema reindex", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("logs-v1-2026.08.11", true)]
+    [InlineData("reindexed-v9-logs-v2-2026.08.11", true)]
+    [InlineData("logs-v1-not-a-date", false)]
+    [InlineData("other-v1-2026.08.11", false)]
+    public void OwnsCompatibilityIndex_ForDailyIndex_RequiresOwnedDatedPartition(string sourceIndex, bool expected)
+    {
+        using var index = new DailyIndex<object>(new ElasticConfiguration(), "logs", 2);
+
+        Assert.Equal(expected, index.OwnsCompatibilityIndex(sourceIndex));
     }
 
     [Fact]

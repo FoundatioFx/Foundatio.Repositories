@@ -41,6 +41,7 @@ internal sealed class ElasticIndexCompatibilityRecovery
             throw new RepositoryException(infoResponse.GetErrorMessage("Unable to determine the current Elasticsearch server version while inspecting compatibility recovery."), infoResponse.OriginalException());
 
         string targetIndex = CompatibilityIndexName.Create(sourceIndex, currentMajor, index.Name);
+        ValidateDistinctSourceAndTarget(sourceIndex, targetIndex);
         string names = String.Join(',', sourceIndex, targetIndex);
         var response = await _client.Indices.GetAsync(Indices.Parse(names), d => d
             .Features(Feature.Aliases, Feature.Settings)
@@ -137,7 +138,16 @@ internal sealed class ElasticIndexCompatibilityRecovery
         }
 
         using var document = JsonDocument.Parse(response.Body);
-        if (!document.RootElement.TryGetProperty("nodes", out var nodes) || nodes.ValueKind is not JsonValueKind.Object)
+        return ParseActiveReindexTaskCount(document.RootElement, sourceIndex, targetIndex);
+    }
+
+    internal static int? ParseActiveReindexTaskCount(JsonElement response, string sourceIndex, string targetIndex)
+    {
+        if (response.ValueKind is not JsonValueKind.Object
+            || HasTaskListingFailures(response, "node_failures")
+            || HasTaskListingFailures(response, "task_failures")
+            || !response.TryGetProperty("nodes", out var nodes)
+            || nodes.ValueKind is not JsonValueKind.Object)
             return null;
 
         int count = 0;
@@ -162,6 +172,14 @@ internal sealed class ElasticIndexCompatibilityRecovery
         }
 
         return count;
+    }
+
+    private static bool HasTaskListingFailures(JsonElement response, string propertyName)
+    {
+        if (!response.TryGetProperty(propertyName, out var failures))
+            return false;
+
+        return failures.ValueKind is not JsonValueKind.Array || failures.GetArrayLength() > 0;
     }
 
     private static IndexCompatibilityUpgradeRecoveryState Classify(
@@ -204,10 +222,16 @@ internal sealed class ElasticIndexCompatibilityRecovery
         return indexSettings?.Blocks?.Write is true;
     }
 
-    private static void ValidateConcreteSourceName(string sourceIndex)
+    internal static void ValidateConcreteSourceName(string sourceIndex)
     {
         ArgumentException.ThrowIfNullOrEmpty(sourceIndex);
         if (sourceIndex.AsSpan().IndexOfAny('*', '?', ',') >= 0)
             throw new ArgumentException("Compatibility recovery requires one exact concrete source index name.", nameof(sourceIndex));
+    }
+
+    internal static void ValidateDistinctSourceAndTarget(string sourceIndex, string targetIndex)
+    {
+        if (String.Equals(sourceIndex, targetIndex, StringComparison.Ordinal))
+            throw new ArgumentException($"Compatibility recovery source '{sourceIndex}' is already the deterministic destination. Supply the original pre-upgrade concrete source name.", nameof(sourceIndex));
     }
 }

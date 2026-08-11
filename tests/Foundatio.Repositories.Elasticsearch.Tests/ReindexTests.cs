@@ -557,6 +557,31 @@ public sealed class ReindexTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task CanReindexVersionedIndexWithCustomStringIdsAndNoTimestampAsync()
+    {
+        // Arrange
+        string name = $"custom-string-id-reindex-{Guid.NewGuid():N}";
+        var version1Index = new VersionedIndex<Identity>(_configuration, name, 1);
+        var version2Index = new VersionedIndex<Identity>(_configuration, name, 2);
+        await using AsyncDisposableAction _ = new(() => version1Index.DeleteAsync());
+        await using AsyncDisposableAction version2Scope = new(() => version2Index.DeleteAsync());
+        await version1Index.ConfigureAsync();
+        var indexResponse = await _client.IndexAsync(new Identity { Id = "custom-id" }, d => d.Index(version1Index.VersionedName).Id("custom-id"), TestCancellationToken);
+        Assert.True(indexResponse.IsValidResponse);
+        var refreshResponse = await _client.Indices.RefreshAsync(version1Index.VersionedName, cancellationToken: TestCancellationToken);
+        Assert.True(refreshResponse.IsValidResponse);
+        await version2Index.ConfigureAsync();
+
+        // Act
+        await version2Index.ReindexAsync();
+
+        // Assert
+        var getResponse = await _client.GetAsync<Identity>("custom-id", d => d.Index(version2Index.Name), TestCancellationToken);
+        Assert.True(getResponse.Found);
+        Assert.Equal("custom-id", getResponse.Source?.Id);
+    }
+
+    [Fact]
     public async Task CanReindexVersionedIndexWithReindexScriptAsync()
     {
         var version1Index = new VersionedEmployeeIndex(_configuration, 1);
