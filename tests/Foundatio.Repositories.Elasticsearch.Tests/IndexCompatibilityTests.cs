@@ -333,6 +333,15 @@ public class IndexCompatibilityTests
         Assert.Contains("does not belong", exception.Message);
     }
 
+    [Fact]
+    public void ValidateDistinctSourceAndTarget_WithCurrentMajorDestination_RejectsRecovery()
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            ElasticIndexCompatibilityRecovery.ValidateDistinctSourceAndTarget("reindexed-v9-employees", "reindexed-v9-employees"));
+
+        Assert.Contains("original pre-upgrade", exception.Message);
+    }
+
     [Theory]
     [InlineData("employees", true)]
     [InlineData("reindexed-v9-employees", true)]

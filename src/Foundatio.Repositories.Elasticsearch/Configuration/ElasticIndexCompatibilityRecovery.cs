@@ -41,6 +41,7 @@ internal sealed class ElasticIndexCompatibilityRecovery
             throw new RepositoryException(infoResponse.GetErrorMessage("Unable to determine the current Elasticsearch server version while inspecting compatibility recovery."), infoResponse.OriginalException());
 
         string targetIndex = CompatibilityIndexName.Create(sourceIndex, currentMajor, index.Name);
+        ValidateDistinctSourceAndTarget(sourceIndex, targetIndex);
         string names = String.Join(',', sourceIndex, targetIndex);
         var response = await _client.Indices.GetAsync(Indices.Parse(names), d => d
             .Features(Feature.Aliases, Feature.Settings)
@@ -220,5 +221,11 @@ internal sealed class ElasticIndexCompatibilityRecovery
         ArgumentException.ThrowIfNullOrEmpty(sourceIndex);
         if (sourceIndex.AsSpan().IndexOfAny('*', '?', ',') >= 0)
             throw new ArgumentException("Compatibility recovery requires one exact concrete source index name.", nameof(sourceIndex));
+    }
+
+    internal static void ValidateDistinctSourceAndTarget(string sourceIndex, string targetIndex)
+    {
+        if (String.Equals(sourceIndex, targetIndex, StringComparison.Ordinal))
+            throw new ArgumentException($"Compatibility recovery source '{sourceIndex}' is already the deterministic destination. Supply the original pre-upgrade concrete source name.", nameof(sourceIndex));
     }
 }
