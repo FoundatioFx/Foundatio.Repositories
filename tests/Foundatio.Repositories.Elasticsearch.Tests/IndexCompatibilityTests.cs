@@ -92,12 +92,19 @@ public class IndexCompatibilityTests
     [Fact]
     public void CompatibilityIndexName_ConfiguredPrefixPreservesNaturalName()
     {
+        // Arrange
         const string configuredName = "reindexed-v8-events";
         const string source = "reindexed-v8-events-v1";
 
-        Assert.Equal(source, CompatibilityIndexName.GetCanonicalName(source, configuredName));
-        Assert.Equal("reindexed-v9-reindexed-v8-events-v1", CompatibilityIndexName.Create(source, 9, configuredName));
-        Assert.Equal(source, CompatibilityIndexName.GetCanonicalName("reindexed-v9-reindexed-v8-events-v1", configuredName));
+        // Act
+        string canonicalSource = CompatibilityIndexName.GetCanonicalName(source, configuredName);
+        string target = CompatibilityIndexName.Create(source, 9, configuredName);
+        string canonicalTarget = CompatibilityIndexName.GetCanonicalName(target, configuredName);
+
+        // Assert
+        Assert.Equal(source, canonicalSource);
+        Assert.Equal("reindexed-v9-reindexed-v8-events-v1", target);
+        Assert.Equal(source, canonicalTarget);
     }
 
     [Fact]

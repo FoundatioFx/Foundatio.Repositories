@@ -97,6 +97,29 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task CanUpgradeIndexCompatibilityForDynamicIndexAsync()
+    {
+        // Arrange
+        string name = $"compat-upgrade-dynamic-{Guid.NewGuid():N}";
+        var index = new ForcedIncompatibleDynamicEmployeeIndex(_configuration, name);
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+        var repository = new EmployeeRepository(index);
+        var employee = await repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
+        var compatibility = (await index.GetIndexCompatibilityAsync(TestCancellationToken)).Single();
+        string targetIndex = CompatibilityIndexName.Create(name, compatibility.ServerMajor);
+
+        // Act
+        await _configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestCancellationToken);
+
+        // Assert
+        var aliasResponse = await _client.Indices.GetAsync((Indices)name, cancellationToken: TestCancellationToken);
+        Assert.True(aliasResponse.IsValidResponse);
+        Assert.Equal(targetIndex, aliasResponse.Indices.Keys.Single().ToString());
+        Assert.NotNull(await repository.GetByIdAsync(employee.Id));
+        Assert.DoesNotContain(await index.GetIndexCompatibilityAsync(TestCancellationToken), i => i.RequiresReindexBeforeNextMajorUpgrade);
+    }
+
+    [Fact]
     public async Task CanUpgradePlainIndexWhoseConfiguredNameLooksLikeCompatibilityPrefixAsync()
     {
         string name = $"reindexed-v8-compat-natural-{Guid.NewGuid():N}";
@@ -422,6 +445,32 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
     }
 
     [Fact]
+    public async Task CanUpgradeIndexCompatibilityForMonthlyIndexAsync()
+    {
+        // Arrange
+        string name = $"compat-upgrade-monthly-{Guid.NewGuid():N}";
+        var index = new ForcedIncompatibleMonthlyEmployeeIndex(_configuration, name, 1);
+        await using AsyncDisposableAction _ = new(() => index.DeleteAsync());
+        var repository = new EmployeeRepository(index);
+        var employee = await repository.AddAsync(EmployeeGenerator.Generate(), o => o.ImmediateConsistency());
+        string sourceIndex = index.GetVersionedIndex(employee.CreatedUtc);
+        var compatibility = (await index.GetIndexCompatibilityAsync(TestCancellationToken)).Single(i => i.Name == sourceIndex);
+        string targetIndex = CompatibilityIndexName.Create(sourceIndex, compatibility.ServerMajor);
+
+        // Act
+        await _configuration.UpgradeIndexCompatibilityAsync([index], cancellationToken: TestCancellationToken);
+
+        // Assert
+        var physicalAliasResponse = await _client.Indices.GetAsync((Indices)sourceIndex, cancellationToken: TestCancellationToken);
+        Assert.True(physicalAliasResponse.IsValidResponse);
+        Assert.Equal(targetIndex, physicalAliasResponse.Indices.Keys.Single().ToString());
+        var logicalAliasResponse = await _client.Indices.GetAsync((Indices)name, cancellationToken: TestCancellationToken);
+        Assert.True(logicalAliasResponse.IsValidResponse);
+        Assert.Equal(targetIndex, logicalAliasResponse.Indices.Keys.Single().ToString());
+        Assert.NotNull(await repository.GetByIdAsync(employee.Id));
+    }
+
+    [Fact]
     public async Task SchemaReindexAfterCompatibilityUpgrade_UsesPrefixedPhysicalSource()
     {
         string name = $"compat-then-schema-{Guid.NewGuid():N}";
@@ -705,6 +754,33 @@ public sealed class IndexCompatibilityUpgradeTests : ElasticRepositoryTestBase
         public override void ConfigureIndexMapping(TypeMappingDescriptor<Employee> map)
         {
             map.Properties(p => p.SetupDefaults());
+        }
+
+        public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
+        {
+            var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
+            return ForceOriginalIndexesIncompatible(infos, Name);
+        }
+    }
+
+    private sealed class ForcedIncompatibleDynamicEmployeeIndex : DynamicIndex<Employee>
+    {
+        public ForcedIncompatibleDynamicEmployeeIndex(IElasticConfiguration configuration, string name) : base(configuration, name) { }
+
+        public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
+        {
+            var infos = await base.GetIndexCompatibilityAsync(cancellationToken).AnyContext();
+            return ForceOriginalIndexesIncompatible(infos, Name);
+        }
+    }
+
+    private sealed class ForcedIncompatibleMonthlyEmployeeIndex : MonthlyIndex<Employee>
+    {
+        public ForcedIncompatibleMonthlyEmployeeIndex(IElasticConfiguration configuration, string name, int version) : base(configuration, name, version) { }
+
+        public override void ConfigureIndex(CreateIndexRequestDescriptor idx)
+        {
+            base.ConfigureIndex(idx.Settings(s => s.NumberOfReplicas(0).NumberOfShards(1)));
         }
 
         public override async Task<IReadOnlyCollection<IndexCompatibilityInfo>> GetIndexCompatibilityAsync(CancellationToken cancellationToken = default)
